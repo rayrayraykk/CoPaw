@@ -208,8 +208,6 @@ copaw app # start the server
 
 You can also download and manage local models from the Console UI.
 
-> **Full guide:** [Local Models documentation](https://copaw.agentscope.io/docs/local-models) covers all CLI commands, Console UI walkthrough, and backend details.
-
 ----
 
 ## Documentation

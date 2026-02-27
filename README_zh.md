@@ -210,8 +210,6 @@ copaw app # 启动服务
 
 也可在控制台界面中下载与管理本地模型。
 
-> **完整说明：** [本地模型文档](https://copaw.agentscope.io/docs/local-models) 涵盖 CLI 命令、控制台操作及后端说明。
-
 ----
 
 ## 文档
