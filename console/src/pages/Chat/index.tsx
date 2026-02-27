@@ -81,6 +81,9 @@ export default function ChatPage() {
       api: {
         ...optionsConfig.api,
         fetch: customFetch,
+        cancel(data: { session_id: string }) {
+          console.log(data);
+        },
       },
       customToolRenderConfig: {
         "weather search mock": Weather,

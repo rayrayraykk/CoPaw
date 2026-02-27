@@ -92,7 +92,7 @@ def _update_block_with_local_path(
     if block_type == "file":
         block["source"] = local_path
         if not block.get("filename"):
-            block["filename"] = urllib.parse.os.path.basename(local_path)
+            block["filename"] = os.path.basename(local_path)
     else:
         block["source"] = {"type": "url", "url": Path(local_path).as_uri()}
     return block

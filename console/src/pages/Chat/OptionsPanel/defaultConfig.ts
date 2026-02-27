@@ -2,7 +2,7 @@ const defaultConfig = {
   theme: {
     colorPrimary: "#615CED",
     darkMode: false,
-    prefix: "CoPaw",
+    prefix: "copaw",
     leftHeader: {
       logo: "",
       title: "Work with CoPaw",

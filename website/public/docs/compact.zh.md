@@ -59,7 +59,7 @@ graph TB
 
 压缩摘要会持久化保存，不用担心丢失！
 
-🔗 [ReMe实现](https://github.com/agentscope-ai/ReMe/blob/v0.3.0.0b5/reme/memory/file_based/fb_compactor.py)
+> 压缩机制设计受 [OpenClaw](https://github.com/openclaw/openclaw) 启发，并由 [ReMe](https://github.com/agentscope-ai/ReMe) 实现。
 
 ## 配置
 

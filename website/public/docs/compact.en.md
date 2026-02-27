@@ -59,7 +59,7 @@ After compaction, subsequent requests use:
 
 The compacted summary is persisted, so you don't need to worry about losing it!
 
-🔗 [ReMe Implementation](https://github.com/agentscope-ai/ReMe/blob/v0.3.0.0b5/reme/memory/file_based/fb_compactor.py)
+> The compaction mechanism is inspired by [OpenClaw](https://github.com/openclaw/openclaw) and implemented by [ReMe](https://github.com/agentscope-ai/ReMe).
 
 ## Configuration
 

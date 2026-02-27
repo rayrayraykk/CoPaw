@@ -7,7 +7,7 @@
 - **上下文管理** — 在上下文窗口溢出前，自动将对话压缩为精华摘要
 - **长期记忆管理** — 通过文件工具将关键信息写入 Markdown 文件，配合语义检索随时召回
 
-> 记忆设计受 [OpenClaw](https://github.com/openclaw/openclaw) 记忆架构启发。
+> 记忆设计受 [OpenClaw](https://github.com/openclaw/openclaw) 记忆架构启发，并由 [ReMe](https://github.com/agentscope-ai/ReMe) 实现。
 
 ---
 
@@ -28,8 +28,6 @@ graph TB
     SearchLayer --> VectorSearch[向量语义搜索]
     SearchLayer --> BM25[BM25 全文检索]
 ```
-
-🔗 [ReMe代码实现] (https://github.com/agentscope-ai/ReMe/blob/v0.3.0.0b5/reme/memory/file_based/fb_summarizer.py)。
 
 长期记忆管理包含以下能力：
 
@@ -135,8 +133,6 @@ graph LR
 | `sqlite` | SQLite 数据库 + 向量扩展；在 macOS 14 及更低版本上存在卡死和闪退问题         |
 
 > **推荐**：使用默认的 `auto` 模式，系统会根据平台自动选择最稳定的后端。
-
-🔗 [ReMe 存储后端实现](https://github.com/agentscope-ai/ReMe/blob/v0.3.0.0b5/reme/core/file_store/base_file_store.py)
 
 ---
 

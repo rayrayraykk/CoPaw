@@ -44,7 +44,7 @@ export default function MainLayout() {
   }, [currentPath, navigate]);
 
   return (
-    <Layout>
+    <Layout style={{ height: "100vh" }}>
       <Sidebar selectedKey={selectedKey} />
       <Layout>
         <Header selectedKey={selectedKey} />

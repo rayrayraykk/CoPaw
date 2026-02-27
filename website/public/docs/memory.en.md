@@ -7,7 +7,7 @@ The memory system provides two core capabilities:
 - **Context Management** — Automatically compresses conversations into concise summaries before the context window overflows
 - **Long-term Memory Management** — Writes key information to Markdown files via file tools, with semantic search for recall at any time
 
-> The memory design is inspired by the [OpenClaw](https://github.com/openclaw/openclaw) memory architecture.
+> The memory design is inspired by the [OpenClaw](https://github.com/openclaw/openclaw) memory architecture and implemented by [ReMe](https://github.com/agentscope-ai/ReMe).
 
 ---
 
@@ -28,8 +28,6 @@ graph TB
     SearchLayer --> VectorSearch[Vector Semantic Search]
     SearchLayer --> BM25[BM25 Full-text Search]
 ```
-
-🔗 [ReMe Implementation] (https://github.com/agentscope-ai/ReMe/blob/v0.3.0.0b5/reme/memory/file_based/fb_summarizer.py)。
 
 Long-term memory management includes the following capabilities:
 
@@ -135,8 +133,6 @@ Configure the memory storage backend via the `MEMORY_STORE_BACKEND` environment 
 | `sqlite` | SQLite database + vector extension; may freeze or crash on macOS 14 and below                   |
 
 > **Recommended**: Use the default `auto` mode, which automatically selects the most stable backend for your platform.
-
-🔗 [ReMe Storage Backend Implementation](https://github.com/agentscope-ai/ReMe/blob/v0.3.0.0b5/reme/core/file_store/base_file_store.py)
 
 ---
 

@@ -5,7 +5,6 @@
 [![GitHub Repo](https://img.shields.io/badge/GitHub-Repo-black.svg?logo=github)](https://github.com/agentscope-ai/CoPaw)
 [![Documentation](https://img.shields.io/badge/Docs-Website-green.svg?logo=readthedocs&label=Docs)](https://copaw.agentscope.io/)
 [![Python Version](https://img.shields.io/badge/python-3.10%20~%20%3C3.14-blue.svg?logo=python&label=Python)](https://www.python.org/downloads/)
-[![ModelScope](https://img.shields.io/badge/ModelScope-One--click-orange.svg?label=ModelScope)](https://modelscope.cn/studios/fork?target=AgentScope/CoPaw)
 [![Last Commit](https://img.shields.io/github/last-commit/agentscope-ai/CoPaw)](https://github.com/agentscope-ai/CoPaw)
 [![License](https://img.shields.io/badge/license-Apache%202.0-red.svg?logo=apache&label=License)](LICENSE)
 [![Code Style](https://img.shields.io/badge/code%20style-black-black.svg?logo=python&label=CodeStyle)](https://github.com/psf/black)
@@ -23,6 +22,8 @@
 
 <p align="center"><b>Works for you, grows with you.</b></p>
 
+</div>
+
 Your Personal AI Assistant; easy to install, deploy on your own machine or on the cloud; supports multiple chat apps with easily extensible capabilities.
 
 > **Core capabilities:**
@@ -38,40 +39,53 @@ Your Personal AI Assistant; easy to install, deploy on your own machine or on th
 >
 > <br>
 >
-> Social: daily digest of hot posts (Xiaohongshu, Zhihu, Reddit), Bilibili/YouTube summaries.
-> Productivity: newsletter digests to DingTalk/Feishu/QQ, contacts from email/calendar.
-> Creative: describe your goal, run overnight, get a draft next day.
-> Research: track tech/AI news, personal knowledge base.
-> Desktop: organize files, read/summarize docs, request files in chat.
-> Explore: combine Skills and cron into your own agentic app.
+> * **Social**: daily digest of hot posts (Xiaohongshu, Zhihu, Reddit), Bilibili/YouTube summaries.
+> * **Productivity**: newsletter digests to DingTalk/Feishu/QQ, contacts from email/calendar.
+> * **Creative**: describe your goal, run overnight, get a draft next day.
+> * **Research**: track tech/AI news, personal knowledge base.
+> * **Desktop**: organize files, read/summarize docs, request files in chat.
+> * **Explore**: combine Skills and cron into your own agentic app.
 >
 > </details>
 
-</div>
-
----
+----
 
 ## Table of Contents
 
 > **Recommended reading:**
 >
-> - **I want to run CoPaw in 3 commands**: [Quick Start](#-quick-start) → open Console in browser.
-> - **I want to chat in DingTalk / Feishu / QQ**: [Quick Start](#-quick-start) → [Channels](https://copaw.agentscope.io/docs/channels).
+> - **I want to run CoPaw in 3 commands**: [Quick Start](#quick-start) → open Console in browser.
+> - **I want to chat in DingTalk / Feishu / QQ**: [Quick Start](#quick-start) → [Channels](https://copaw.agentscope.io/docs/channels).
 > - **I don’t want to install Python**: [One-line install](#one-line-install-recommended) handles Python automatically, or use [ModelScope one-click](https://modelscope.cn/studios/fork?target=AgentScope/CoPaw) for cloud.
 
-- [Quick Start](#-quick-start)
-- [Local Models](#-local-models)
-- [Documentation](#-documentation)
-- [Install from source](#-install-from-source)
-- [Why CoPaw?](#-why-copaw)
-- [Built by](#-built-by)
-- [License](#-license)
+- [Quick Start](#quick-start)
+- [API Key](#api-key)
+- [Local Models](#local-models)
+- [Documentation](#documentation)
+- [Install from source](#install-from-source)
+- [Why CoPaw?](#why-copaw)
+- [Built by](#built-by)
+- [License](#license)
 
----
+----
 
 ## Quick Start
 
-### One-line install (recommended)
+### pip install (recommended)
+
+If you prefer managing Python yourself:
+
+```bash
+pip install copaw
+copaw init --defaults
+copaw app
+```
+
+Then open **http://127.0.0.1:8088/** in your browser for the Console (chat with CoPaw, configure the agent). To talk in DingTalk, Feishu, QQ, etc., add a channel in the [docs](https://copaw.agentscope.io/docs/channels).
+
+![Console](https://img.alicdn.com/imgextra/i4/O1CN01jQ8IKh1oWJL5C0v5x_!!6000000005232-2-tps-3494-1644.png)
+
+### One-line install (beta, continuously improving)
 
 No Python required — the installer handles everything:
 
@@ -143,28 +157,15 @@ copaw uninstall --purge  # removes everything
 
 </details>
 
-### Alternative: pip install
-
-If you prefer managing Python yourself:
-
-```bash
-pip install copaw
-copaw init --defaults
-copaw app
-```
-
-Then open **http://127.0.0.1:8088/** in your browser for the Console (chat with CoPaw, configure the agent). To talk in DingTalk, Feishu, QQ, etc., add a channel in the [docs](https://copaw.agentscope.io/docs/channels).
-
-![Console](https://img.alicdn.com/imgextra/i4/O1CN01jQ8IKh1oWJL5C0v5x_!!6000000005232-2-tps-3494-1644.png)
 
 ### Using Docker
 
 ```bash
 docker pull agentscope/copaw:latest
-docker run -p 7860:7860 -v copaw-data:/app/working agentscope/copaw:latest
+docker run -p 8088:8088 -v copaw-data:/app/working agentscope/copaw:latest
 ```
 
-Then open **http://127.0.0.1:7860/** for the Console. Config, memory, and skills are stored in the `copaw-data` volume. To pass API keys (e.g. `DASHSCOPE_API_KEY`), add `-e VAR=value` or `--env-file .env` to `docker run`.
+Then open **http://127.0.0.1:8088/** for the Console. Config, memory, and skills are stored in the `copaw-data` volume. To pass API keys (e.g. `DASHSCOPE_API_KEY`), add `-e VAR=value` or `--env-file .env` to `docker run`.
 
 The image is built from scratch. To build the image yourself, please refer to the [Build Docker image](scripts/README.md#build-docker-image) section in `scripts/README.md`, and then push to your registry.
 
@@ -172,7 +173,21 @@ The image is built from scratch. To build the image yourself, please refer to th
 
 **No local install?** [ModelScope Studio](https://modelscope.cn/studios/fork?target=AgentScope/CoPaw) one-click cloud setup. Set your Studio to **non-public** so others cannot control your CoPaw.
 
----
+----
+## API Key
+
+If you use a **cloud LLM** (e.g. DashScope, ModelScope), you must set an API key before chatting. CoPaw will not work until a valid key is configured.
+
+**Where to set it:**
+
+1. **`copaw init`** — When you run `copaw init`, the command has a step to configure the LLM provider and API key. Follow the prompts to choose a provider and enter your key.
+2. **Console** — After `copaw app`, open **http://127.0.0.1:8088/** → **Settings** → **Models**. Select a provider, fill in the **API Key** field, then activate that provider and model.
+3. **Environment variable** — For DashScope you can set `DASHSCOPE_API_KEY` in your shell or in a `.env` file in the working directory.
+
+Tools that need extra keys (e.g. `TAVILY_API_KEY` for web search) can be set in Console **Settings → Environment variables**, or see [Config](https://copaw.agentscope.io/docs/config) for details.
+
+> **Using local models only?** If you use [Local Models](#local-models) (llama.cpp or MLX), you do **not** need any API key.
+
 
 ## Local Models
 
@@ -187,15 +202,13 @@ After installing, download a model and start chatting:
 
 ```bash
 copaw models download Qwen/Qwen3-4B-GGUF
-copaw models                          # select the downloaded model
-copaw app                             # start the server
+copaw models # select the downloaded model
+copaw app # start the server
 ```
 
 You can also download and manage local models from the Console UI.
 
-> **Full guide:** [Local Models documentation](https://copaw.agentscope.io/docs/local-models) covers all CLI commands, Console UI walkthrough, and backend details.
-
----
+----
 
 ## Documentation
 
@@ -209,11 +222,12 @@ You can also download and manage local models from the Console UI.
 | [Local Models](https://copaw.agentscope.io/docs/local-models) | Run models locally with llama.cpp or MLX |
 | [CLI](https://copaw.agentscope.io/docs/cli) | Init, cron jobs, skills, clean |
 | [Skills](https://copaw.agentscope.io/docs/skills) | Extend and customize capabilities |
+| [Memory](https://copaw.agentscope.io/docs/memory) | Context management and long-term memory |
 | [Config](https://copaw.agentscope.io/docs/config) | Working directory and config file |
 
 Full docs in this repo: [website/public/docs/](website/public/docs/).
 
----
+----
 
 ## Install from source
 
@@ -226,19 +240,19 @@ pip install -e .
 - **Dev** (tests, formatting): `pip install -e ".[dev]"`
 - **Console** (build frontend): `cd console && npm ci && npm run build`, then `copaw app` from project root.
 
----
+----
 
 ## Why CoPaw?
 
 CoPaw represents both a **Co Personal Agent Workstation** and a "co-paw"—a partner always by your side. More than just a cold tool, CoPaw is a warm "little paw" always ready to lend a hand (or a paw!). It is the ultimate teammate for your digital life.
 
----
+----
 
 ## Built by
 
 [AgentScope team](https://github.com/agentscope-ai) · [AgentScope](https://github.com/agentscope-ai/agentscope) · [AgentScope Runtime](https://github.com/agentscope-ai/agentscope-runtime) · [ReMe](https://github.com/agentscope-ai/ReMe)
 
----
+----
 
 ## License
 
