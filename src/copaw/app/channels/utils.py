@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=too-many-return-statements
 """
 Bridge between channels and AgentApp process: factory to build
 ProcessHandler from runner. Shared helpers for channels (e.g. file URL).
@@ -12,26 +13,46 @@ from urllib.request import url2pathname
 
 
 def file_url_to_local_path(url: str) -> Optional[str]:
-    """Convert file:// URL to local path. Cross-platform (Windows/Mac/Linux).
+    """Convert file:// URL or plain local path to local path string.
 
-    - file:///path (three slashes): path is used as-is after url2pathname.
-    - file://D:/path (Windows, two slashes): netloc "D", path "/path" ->
-        D:\\path.
-    - file://D:\\path (Windows, backslashes): path empty, netloc has full path
-      -> use netloc as path so we do not read current dir.
-    Returns None if url is not file scheme or resolved path is empty.
+    Supports:
+    - file:// URL (all platforms): file:///path, file://D:/path,
+      file://D:\\path (Windows two-slash).
+    - Plain local path: D:\\path, /tmp/foo (no scheme). Pass-through after
+      stripping whitespace; no existence check (caller may use Path().exists).
+
+    Returns None only when url is clearly not a local file (e.g. http(s) URL)
+    or file URL could not be resolved to a non-empty path.
     """
-    parsed = urlparse(url)
-    if parsed.scheme != "file":
+    if not url or not isinstance(url, str):
         return None
-    path = url2pathname(parsed.path)
-    if not path and parsed.netloc:
-        path = url2pathname(parsed.netloc.replace("\\", "/"))
-    elif (
-        path and parsed.netloc and len(parsed.netloc) == 1 and os.name == "nt"
+    s = url.strip()
+    if not s:
+        return None
+    parsed = urlparse(s)
+    if parsed.scheme == "file":
+        path = url2pathname(parsed.path)
+        if not path and parsed.netloc:
+            path = url2pathname(parsed.netloc.replace("\\", "/"))
+        elif (
+            path
+            and parsed.netloc
+            and len(parsed.netloc) == 1
+            and os.name == "nt"
+        ):
+            path = f"{parsed.netloc}:{path}"
+        return path if path else None
+    if parsed.scheme in ("http", "https"):
+        return None
+    if not parsed.scheme:
+        return s
+    if (
+        os.name == "nt"
+        and len(parsed.scheme) == 1
+        and parsed.path.startswith("\\")
     ):
-        path = f"{parsed.netloc}:{path}"
-    return path if path else None
+        return s
+    return None
 
 
 def make_process_from_runner(runner: Any):
