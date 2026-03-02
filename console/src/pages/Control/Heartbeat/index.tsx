@@ -3,34 +3,84 @@ import {
   Button,
   Card,
   Form,
-  Input,
+  InputNumber,
   message,
   Select,
   Switch,
 } from "@agentscope-ai/design";
+import { TimePicker } from "antd";
+import dayjs from "dayjs";
+import customParseFormat from "dayjs/plugin/customParseFormat";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
 import type { HeartbeatConfig } from "../../../api/types/heartbeat";
+import { parseEvery, serializeEvery, type EveryUnit } from "./parseEvery";
 import styles from "./index.module.less";
+
+dayjs.extend(customParseFormat);
+
+const TIME_FORMAT = "HH:mm";
+
+/** TimePicker that uses "HH:mm" string as value for Form. */
+function TimePickerHHmm({
+  value,
+  onChange,
+}: {
+  value?: string | null;
+  onChange?: (s: string) => void;
+}) {
+  const strVal =
+    typeof value === "string" ? value : Array.isArray(value) ? value[0] : null;
+  return (
+    <TimePicker
+      format={TIME_FORMAT}
+      value={strVal ? dayjs(strVal, TIME_FORMAT) : null}
+      onChange={(_, str) => {
+        const s = typeof str === "string" ? str : str?.[0];
+        if (s) onChange?.(s);
+      }}
+      minuteStep={15}
+      needConfirm={false}
+      style={{ width: "100%" }}
+    />
+  );
+}
+
+/** Form values: API shape plus flattened fields for interval and time. */
+type HeartbeatFormValues = Omit<HeartbeatConfig, "every"> & {
+  every?: string;
+  everyNumber?: number;
+  everyUnit?: EveryUnit;
+  useActiveHours?: boolean;
+  activeHoursStart?: string;
+  activeHoursEnd?: string;
+};
 
 const TARGET_OPTIONS = [
   { value: "main", labelKey: "heartbeat.targetMain" },
   { value: "last", labelKey: "heartbeat.targetLast" },
 ];
 
+const EVERY_UNIT_OPTIONS: { value: EveryUnit; labelKey: string }[] = [
+  { value: "m", labelKey: "heartbeat.unitMinutes" },
+  { value: "h", labelKey: "heartbeat.unitHours" },
+];
+
 function HeartbeatPage() {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [form] = Form.useForm<HeartbeatConfig & { useActiveHours?: boolean }>();
+  const [form] = Form.useForm<HeartbeatFormValues>();
 
   const fetchConfig = async () => {
     setLoading(true);
     try {
       const data = await api.getHeartbeatConfig();
+      const everyParts = parseEvery(data.every ?? "6h");
       form.setFieldsValue({
         enabled: data.enabled ?? false,
-        every: data.every ?? "6h",
+        everyNumber: everyParts.number,
+        everyUnit: everyParts.unit,
         target: data.target ?? "main",
         useActiveHours: !!data.activeHours,
         activeHoursStart: data.activeHours?.start ?? "08:00",
@@ -48,18 +98,27 @@ function HeartbeatPage() {
     fetchConfig();
   }, []);
 
-  const onFinish = async (values: HeartbeatConfig & {
-    useActiveHours?: boolean;
-    activeHoursStart?: string;
-    activeHoursEnd?: string;
-  }) => {
+  const onFinish = async (values: HeartbeatFormValues) => {
+    const every =
+      values.everyNumber != null && values.everyUnit
+        ? serializeEvery({
+            number: values.everyNumber,
+            unit: values.everyUnit,
+          })
+        : "6h";
     const body: HeartbeatConfig = {
       enabled: values.enabled ?? false,
-      every: values.every ?? "6h",
+      every,
       target: values.target ?? "main",
-      activeHours: values.useActiveHours && values.activeHoursStart && values.activeHoursEnd
-        ? { start: values.activeHoursStart, end: values.activeHoursEnd }
-        : undefined,
+      activeHours:
+        values.useActiveHours &&
+        values.activeHoursStart &&
+        values.activeHoursEnd
+          ? {
+              start: values.activeHoursStart,
+              end: values.activeHoursEnd,
+            }
+          : undefined,
     };
     setSaving(true);
     try {
@@ -95,7 +154,8 @@ function HeartbeatPage() {
           onFinish={onFinish}
           initialValues={{
             enabled: false,
-            every: "6h",
+            everyNumber: 6,
+            everyUnit: "h",
             target: "main",
             useActiveHours: false,
             activeHoursStart: "08:00",
@@ -111,11 +171,35 @@ function HeartbeatPage() {
           </Form.Item>
 
           <Form.Item
-            name="every"
             label={t("heartbeat.every")}
-            rules={[{ required: true, message: t("heartbeat.everyRequired") }]}
+            required
+            className={styles.everyField}
           >
-            <Input placeholder="30m, 1h, 2h30m" />
+            <div className={styles.everyRow}>
+              <Form.Item
+                name="everyNumber"
+                rules={[
+                  { required: true, message: t("heartbeat.everyRequired") },
+                  {
+                    type: "number",
+                    min: 1,
+                    message: t("heartbeat.everyMin"),
+                  },
+                ]}
+                noStyle
+              >
+                <InputNumber min={1} className={styles.everyNumber} />
+              </Form.Item>
+              <Form.Item name="everyUnit" noStyle>
+                <Select
+                  options={EVERY_UNIT_OPTIONS.map((opt) => ({
+                    value: opt.value,
+                    label: t(opt.labelKey),
+                  }))}
+                  className={styles.everyUnit}
+                />
+              </Form.Item>
+            </div>
           </Form.Item>
 
           <Form.Item
@@ -150,13 +234,13 @@ function HeartbeatPage() {
                     name="activeHoursStart"
                     label={t("heartbeat.activeStart")}
                   >
-                    <Input placeholder="08:00" />
+                    <TimePickerHHmm />
                   </Form.Item>
                   <Form.Item
                     name="activeHoursEnd"
                     label={t("heartbeat.activeEnd")}
                   >
-                    <Input placeholder="22:00" />
+                    <TimePickerHHmm />
                   </Form.Item>
                 </div>
               ) : null
