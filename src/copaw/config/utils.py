@@ -7,13 +7,37 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 from ..constant import (
-    RUNNING_IN_CONTAINER,
     HEARTBEAT_FILE,
     JOBS_FILE,
     CHATS_FILE,
+    PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH_ENV,
+    RUNNING_IN_CONTAINER,
     WORKING_DIR,
 )
 from .config import Config, HeartbeatConfig, LastApiConfig, LastDispatchConfig
+
+
+def get_playwright_chromium_executable_path() -> Optional[str]:
+    """Chromium path from env when set and existing file (e.g. container)."""
+    path = os.environ.get(PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH_ENV)
+    if path and os.path.isfile(path):
+        return path
+    return None
+
+
+def get_available_channels() -> Tuple[str, ...]:
+    """Return channel keys enabled for this run (built-in + entry point
+    copaw.channels), filtered by COPAW_ENABLED_CHANNELS when set.
+    """
+    from ..app.channels.registry import get_channel_registry
+
+    registry = get_channel_registry()
+    all_keys = tuple(registry.keys())
+    raw = os.environ.get("COPAW_ENABLED_CHANNELS", "").strip()
+    if not raw:
+        return all_keys
+    enabled = tuple(ch.strip() for ch in raw.split(",") if ch.strip())
+    return tuple(k for k in all_keys if k in enabled) or all_keys
 
 
 def is_running_in_container() -> bool:

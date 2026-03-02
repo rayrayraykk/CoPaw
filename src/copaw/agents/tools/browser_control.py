@@ -20,7 +20,10 @@ from typing import Any
 from agentscope.message import TextBlock
 from agentscope.tool import ToolResponse
 
-from ...config import is_running_in_container
+from ...config import (
+    is_running_in_container,
+    get_playwright_chromium_executable_path,
+)
 
 from .browser_snapshot import build_role_snapshot_from_aria
 
@@ -56,6 +59,11 @@ def _chromium_launch_args() -> list[str]:
     if is_running_in_container():
         return ["--no-sandbox", "--disable-dev-shm-usage"]
     return []
+
+
+def _chromium_executable_path() -> str | None:
+    """Chromium executable path when set (e.g. container); else None."""
+    return get_playwright_chromium_executable_path()
 
 
 def _ensure_playwright_async():
@@ -521,6 +529,9 @@ async def _ensure_browser() -> bool:
         extra_args = _chromium_launch_args()
         if extra_args:
             launch_kwargs["args"] = extra_args
+        exe = _chromium_executable_path()
+        if exe:
+            launch_kwargs["executable_path"] = exe
         pw_browser = await pw.chromium.launch(**launch_kwargs)
         context = await pw_browser.new_context()
         _attach_context_listeners(context)
@@ -582,6 +593,9 @@ async def _action_start(headed: bool = False) -> ToolResponse:
         extra_args = _chromium_launch_args()
         if extra_args:
             launch_kwargs["args"] = extra_args
+        exe = _chromium_executable_path()
+        if exe:
+            launch_kwargs["executable_path"] = exe
         pw_browser = await pw.chromium.launch(**launch_kwargs)
         context = await pw_browser.new_context()
         _attach_context_listeners(context)

@@ -6,9 +6,11 @@ from .config import (
     AgentsRunningConfig,
 )
 from .utils import (
+    get_available_channels,
     get_config_path,
     get_heartbeat_config,
     get_heartbeat_query_path,
+    get_playwright_chromium_executable_path,
     is_running_in_container,
     load_config,
     save_config,
@@ -23,9 +25,11 @@ __all__ = [
     "ChannelConfig",
     "ChannelConfigUnion",
     "ConfigWatcher",
+    "get_available_channels",
     "get_config_path",
     "get_heartbeat_config",
     "get_heartbeat_query_path",
+    "get_playwright_chromium_executable_path",
     "is_running_in_container",
     "load_config",
     "save_config",
