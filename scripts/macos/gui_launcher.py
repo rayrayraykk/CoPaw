@@ -9,9 +9,28 @@ import os
 import sys
 import threading
 import time
+import traceback
 import urllib.request
 
 import uvicorn
+
+
+def _log(msg: str) -> None:
+    """Write to stderr and to support-dir log for .app runs."""
+    print(msg, file=sys.stderr, flush=True)
+    support = os.path.expanduser("~/Library/Application Support/CoPaw")
+    log_dir = os.path.join(support, "logs")
+    try:
+        os.makedirs(log_dir, exist_ok=True)
+        with open(
+            os.path.join(log_dir, "gui_launcher.log"),
+            "a",
+            encoding="utf-8",
+        ) as f:
+            f.write(msg.rstrip() + "\n")
+            f.flush()
+    except OSError:
+        pass
 
 
 # Set working dir and init before importing copaw (uses COPAW_WORKING_DIR).
@@ -73,7 +92,7 @@ def main() -> None:
     thread.start()
 
     if not _wait_for_server("http://127.0.0.1:8088/"):
-        print("CoPaw server failed to start.", file=sys.stderr)
+        _log("CoPaw server failed to start (port 8088).")
         server.should_exit = True
         sys.exit(1)
 
@@ -92,4 +111,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:  # pylint: disable=broad-except
+        _log(traceback.format_exc())
+        raise

@@ -56,21 +56,29 @@ export MACOSX_DEPLOYMENT_TARGET
 rm -rf "$REPO_ROOT/build" "$DIST_DIR/$APP_NAME"
 PYINSTALLER_OUT="$DIST_DIR/$APP_NAME"
 
-# PyInstaller sometimes hangs after "Build complete" when building GUI (runw);
-# run in background and proceed once the executable exists.
-echo "[build_dmg] Running PyInstaller (may hang at end; we proceed when output is ready)..."
+# PyInstaller sometimes hangs after "Build complete" when building GUI (runw).
+# Wait for exe and runtime (base_library.zip or full _internal) then allow exit or kill.
+echo "[build_dmg] Running PyInstaller..."
 "$PYTHON" -m PyInstaller --noconfirm --clean "scripts/macos/copaw.spec" &
 PYPID=$!
-for _ in $(seq 1 180); do
+NEED_KILL=true
+for _ in $(seq 1 200); do
   sleep 2
   if [[ -f "$PYINSTALLER_OUT/$APP_NAME" ]]; then
-    sleep 3
-    kill "$PYPID" 2>/dev/null || true
-    wait "$PYPID" 2>/dev/null || true
-    break
+    if [[ -f "$PYINSTALLER_OUT/base_library.zip" ]] || \
+       [[ -d "$PYINSTALLER_OUT/_internal" && -f "$PYINSTALLER_OUT/_internal/libpython"* ]]; then
+      sleep 2
+      if ! kill -0 "$PYPID" 2>/dev/null; then
+        NEED_KILL=false
+      fi
+      kill "$PYPID" 2>/dev/null || true
+      wait "$PYPID" 2>/dev/null || true
+      break
+    fi
   fi
   if ! kill -0 "$PYPID" 2>/dev/null; then
     wait "$PYPID" 2>/dev/null || true
+    NEED_KILL=false
     break
   fi
 done
@@ -88,8 +96,8 @@ mkdir -p "$APP_DIR/Contents/Resources"
 
 cp -R "$PYINSTALLER_OUT/"* "$APP_DIR/Contents/MacOS/"
 
-# PyInstaller bootloader uses Contents/Frameworks as PYTHONHOME; sys.path only
-# includes Frameworks. Copy full _internal into Frameworks so all packages are found.
+# PyInstaller bootloader uses Contents/Frameworks as PYTHONHOME; sys.path expects
+# base_library.zip etc. directly under Frameworks. Copy _internal contents there.
 FRAMEWORKS="$APP_DIR/Contents/Frameworks"
 INTERNAL="$APP_DIR/Contents/MacOS/_internal"
 mkdir -p "$FRAMEWORKS"
