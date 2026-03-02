@@ -341,5 +341,15 @@
     "saveSuccess": "Configuration saved successfully",
     "saveFailed": "Failed to save configuration",
     "loadFailed": "Failed to load configuration"
+  },
+  "modelConfig": {
+    "promptTitle": "LLM Model Required",
+    "promptMessage": "Chat requires an LLM model to function. Without a configured model, conversations and messages cannot be sent to the backend for processing and storage, and will be lost after a page refresh. Would you like to configure a model now?",
+    "configureButton": "Configure Model",
+    "skipButton": "Skip",
+    "chatDisabledTitle": "Chat Disabled",
+    "chatDisabledMessage": "Chat functionality is disabled because no model is configured. Please configure a model to enable chat.",
+    "configureNow": "Configure Model",
+    "modelNotConfigured": "Please configure a model in Settings before using chat"
   }
 }

@@ -39,6 +39,7 @@ from ..agents.memory import MemoryManager
 from ..config import load_config
 from ..constant import (
     MEMORY_COMPACT_KEEP_RECENT,
+    MEMORY_COMPACT_RATIO,
     WORKING_DIR,
 )
 
@@ -83,8 +84,10 @@ class CoPawAgent(ReActAgent):
         self._max_input_length = max_input_length
         self._mcp_clients = mcp_clients or []
 
-        # Memory compaction threshold: 80% of max_input_length
-        self._memory_compact_threshold = int(max_input_length * 0.8)
+        # Memory compaction threshold: configurable ratio of max_input_length
+        self._memory_compact_threshold = int(
+            max_input_length * MEMORY_COMPACT_RATIO,
+        )
 
         # Initialize toolkit with built-in tools
         toolkit = self._create_toolkit()
@@ -119,6 +122,7 @@ class CoPawAgent(ReActAgent):
         self.command_handler = CommandHandler(
             agent_name=self.name,
             memory=self.memory,
+            formatter=self.formatter,
             memory_manager=self.memory_manager,
             enable_memory_manager=self._enable_memory_manager,
         )

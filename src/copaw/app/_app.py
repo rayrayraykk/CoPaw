@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=redefined-outer-name,unused-argument
 import os
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from agentscope_runtime.engine.app import AgentApp
@@ -146,15 +146,6 @@ app = FastAPI(
     openapi_url="/openapi.json" if DOCS_ENABLED else None,
 )
 
-# Todo: Delete this after testing
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 
 # Console static dir: env, or copaw package data (console), or cwd.
 _CONSOLE_STATIC_ENV = "COPAW_CONSOLE_STATIC_DIR"
@@ -163,6 +154,13 @@ _CONSOLE_STATIC_ENV = "COPAW_CONSOLE_STATIC_DIR"
 def _resolve_console_static_dir() -> str:
     if os.environ.get(_CONSOLE_STATIC_ENV):
         return os.environ[_CONSOLE_STATIC_ENV]
+    # PyInstaller frozen bundle: console is in sys._MEIPASS/copaw/console.
+    if getattr(sys, "frozen", False) and getattr(sys, "_MEIPASS", None):
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            candidate = Path(meipass) / "copaw" / "console"
+        if candidate.is_dir() and (candidate / "index.html").exists():
+            return str(candidate)
     # Shipped dist lives in copaw package as static data (not a Python pkg).
     pkg_dir = Path(__file__).resolve().parent.parent
     candidate = pkg_dir / "console"

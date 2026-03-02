@@ -20,6 +20,8 @@ from typing import Any
 from agentscope.message import TextBlock
 from agentscope.tool import ToolResponse
 
+from ...config import is_running_in_container
+
 from .browser_snapshot import build_role_snapshot_from_aria
 
 logger = logging.getLogger(__name__)
@@ -47,6 +49,13 @@ def _tool_response(text: str) -> ToolResponse:
     return ToolResponse(
         content=[TextBlock(type="text", text=text)],
     )
+
+
+def _chromium_launch_args() -> list[str]:
+    """Extra args for Chromium when running in container."""
+    if is_running_in_container():
+        return ["--no-sandbox", "--disable-dev-shm-usage"]
+    return []
 
 
 def _ensure_playwright_async():
@@ -508,7 +517,11 @@ async def _ensure_browser() -> bool:
     try:
         async_playwright = _ensure_playwright_async()
         pw = await async_playwright().start()
-        pw_browser = await pw.chromium.launch(headless=_state["headless"])
+        launch_kwargs: dict[str, Any] = {"headless": _state["headless"]}
+        extra_args = _chromium_launch_args()
+        if extra_args:
+            launch_kwargs["args"] = extra_args
+        pw_browser = await pw.chromium.launch(**launch_kwargs)
         context = await pw_browser.new_context()
         _attach_context_listeners(context)
         _state["playwright"] = pw
@@ -565,17 +578,16 @@ async def _action_start(headed: bool = False) -> ToolResponse:
         )
     try:
         pw = await async_playwright().start()
-        pw_browser = await pw.chromium.launch(headless=_state["headless"])
+        launch_kwargs: dict[str, Any] = {"headless": _state["headless"]}
+        extra_args = _chromium_launch_args()
+        if extra_args:
+            launch_kwargs["args"] = extra_args
+        pw_browser = await pw.chromium.launch(**launch_kwargs)
         context = await pw_browser.new_context()
         _attach_context_listeners(context)
         _state["playwright"] = pw
         _state["browser"] = pw_browser
         _state["context"] = context
-        msg = (
-            "Browser started (visible window)"
-            if _state["headless"] is False
-            else "Browser started"
-        )
         msg = (
             "Browser started (visible window)"
             if _state["headless"] is False
@@ -671,7 +683,6 @@ async def _action_open(url: str, page_id: str) -> ToolResponse:
         await page.goto(url)
         _state["pages"][page_id] = page
         _state["current_page_id"] = page_id
-        _state["current_page_id"] = page_id
         return _tool_response(
             json.dumps(
                 {
@@ -715,7 +726,6 @@ async def _action_navigate(url: str, page_id: str) -> ToolResponse:
         )
     try:
         await page.goto(url)
-        _state["current_page_id"] = page_id
         _state["current_page_id"] = page_id
         return _tool_response(
             json.dumps(
@@ -1943,7 +1953,6 @@ async def _action_tabs(  # pylint: disable=too-many-return-statements
         return await _action_close(target_id)
     if tab_action == "select":
         target_id = page_ids[index] if 0 <= index < len(page_ids) else page_id
-        _state["current_page_id"] = target_id
         _state["current_page_id"] = target_id
         return _tool_response(
             json.dumps(

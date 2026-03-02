@@ -134,8 +134,6 @@ copaw models remove-local <model_id> --yes   # skip confirmation
 | `--source`  | `-s`  | `huggingface` | Download source (`huggingface` or `modelscope`)                       |
 | `--file`    | `-f`  | _(auto)_      | Specific filename. If omitted, auto-selects (prefers Q4_K_M for GGUF) |
 
-> For a full walkthrough see [Local Models](./local-models).
-
 #### Ollama models
 
 CoPaw integrates with Ollama to run models locally. Models are dynamically loaded from your Ollama daemon — install Ollama first from [ollama.com](https://ollama.com).
@@ -197,18 +195,29 @@ Connect CoPaw to messaging platforms.
 
 ### copaw channels
 
-| Command                 | What it does                                                  |
-| ----------------------- | ------------------------------------------------------------- |
-| `copaw channels list`   | Show all channels and their status (secrets masked)           |
-| `copaw channels config` | Interactively enable/disable channels and fill in credentials |
+Manage channel configuration (iMessage, Discord, DingTalk, Feishu, QQ,
+Console, etc.). **Note:** Use `config` for interactive setup (no `configure`
+subcommand); use `remove` to uninstall custom channels (no `uninstall`).
+
+| Command                        | What it does                                                                                                      |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| `copaw channels list`          | Show all channels and their status (secrets masked)                                                               |
+| `copaw channels install <key>` | Install a channel into `custom_channels/`: create stub or use `--path`/`--url`                                    |
+| `copaw channels add <key>`     | Install and add to config; built-in channels only get config entry; supports `--path`/`--url`                     |
+| `copaw channels remove <key>`  | Remove a custom channel from `custom_channels/` (built-ins cannot be removed); `--keep-config` keeps config entry |
+| `copaw channels config`        | Interactively enable/disable channels and fill in credentials                                                     |
 
 ```bash
-copaw channels list     # See current status
-copaw channels config   # Interactive configuration
+copaw channels list                    # See current status
+copaw channels install my_channel      # Create custom channel stub
+copaw channels install my_channel --path ./my_channel.py
+copaw channels add dingtalk            # Add DingTalk to config
+copaw channels remove my_channel       # Remove custom channel (and from config by default)
+copaw channels remove my_channel --keep-config   # Remove module only, keep config entry
+copaw channels config                 # Interactive configuration
 ```
 
-The interactive flow lets you pick a channel, enable/disable it, and enter its
-credentials. It loops until you choose "Save and exit".
+The interactive `config` flow lets you pick a channel, enable/disable it, and enter credentials. It loops until you choose "Save and exit".
 
 | Channel      | Fields to fill in                             |
 | ------------ | --------------------------------------------- |
@@ -408,7 +417,7 @@ See [Config & Working Directory](./config) for full details.
 | `copaw app`      | —                                                                                                                                      |  — (starts it)   |
 | `copaw models`   | `list` · `config` · `config-key` · `set-llm` · `download` · `local` · `remove-local` · `ollama-pull` · `ollama-list` · `ollama-remove` |        No        |
 | `copaw env`      | `list` · `set` · `delete`                                                                                                              |        No        |
-| `copaw channels` | `list` · `config`                                                                                                                      |        No        |
+| `copaw channels` | `list` · `install` · `add` · `remove` · `config`                                                                                       |        No        |
 | `copaw cron`     | `list` · `get` · `state` · `create` · `delete` · `pause` · `resume` · `run`                                                            |     **Yes**      |
 | `copaw chats`    | `list` · `get` · `create` · `update` · `delete`                                                                                        |     **Yes**      |
 | `copaw skills`   | `list` · `config`                                                                                                                      |        No        |
@@ -423,5 +432,4 @@ See [Config & Working Directory](./config) for full details.
 - [Channels](./channels) — DingTalk, Feishu, iMessage, Discord, QQ setup
 - [Heartbeat](./heartbeat) — Scheduled check-in / digest
 - [Skills](./skills) — Built-in and custom skills
-- [Local Models](./local-models) — Run models locally with llama.cpp or MLX
 - [Config & Working Directory](./config) — Working directory and config.json
