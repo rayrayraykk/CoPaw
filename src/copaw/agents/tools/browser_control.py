@@ -518,8 +518,9 @@ async def _ensure_browser() -> bool:
         async_playwright = _ensure_playwright_async()
         pw = await async_playwright().start()
         launch_kwargs: dict[str, Any] = {"headless": _state["headless"]}
-        if _chromium_launch_args():
-            launch_kwargs["args"] = _chromium_launch_args()
+        extra_args = _chromium_launch_args()
+        if extra_args:
+            launch_kwargs["args"] = extra_args
         pw_browser = await pw.chromium.launch(**launch_kwargs)
         context = await pw_browser.new_context()
         _attach_context_listeners(context)
@@ -578,8 +579,9 @@ async def _action_start(headed: bool = False) -> ToolResponse:
     try:
         pw = await async_playwright().start()
         launch_kwargs: dict[str, Any] = {"headless": _state["headless"]}
-        if _chromium_launch_args():
-            launch_kwargs["args"] = _chromium_launch_args()
+        extra_args = _chromium_launch_args()
+        if extra_args:
+            launch_kwargs["args"] = extra_args
         pw_browser = await pw.chromium.launch(**launch_kwargs)
         context = await pw_browser.new_context()
         _attach_context_listeners(context)
