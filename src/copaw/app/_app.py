@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=redefined-outer-name,unused-argument
 import mimetypes
+import sys
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -177,6 +178,18 @@ _CONSOLE_STATIC_ENV = "COPAW_CONSOLE_STATIC_DIR"
 def _resolve_console_static_dir() -> str:
     if os.environ.get(_CONSOLE_STATIC_ENV):
         return os.environ[_CONSOLE_STATIC_ENV]
+    # PyInstaller frozen bundle: console is under MEIPASS or exe dir.
+    if getattr(sys, "frozen", False):
+        bases = [
+            getattr(sys, "_MEIPASS", None),
+            Path(sys.executable).resolve().parent,
+        ]
+        for base in bases:
+            if base is None:
+                continue
+            candidate = Path(base) / "copaw" / "console"
+            if candidate.is_dir() and (candidate / "index.html").exists():
+                return str(candidate)
     # Shipped dist lives in copaw package as static data (not a Python pkg).
     pkg_dir = Path(__file__).resolve().parent.parent
     candidate = pkg_dir / "console"

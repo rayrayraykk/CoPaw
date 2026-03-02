@@ -36,9 +36,6 @@ DOCS_ENABLED = os.environ.get("COPAW_OPENAPI_DOCS", "false").lower() in (
     "yes",
 )
 
-# Comma-separated CORS allow_origins; empty = no CORS middleware.
-CORS_ORIGINS = os.environ.get("COPAW_CORS_ORIGINS", "")
-
 # Skills directories
 # Active skills directory (activated skills that agents use)
 ACTIVE_SKILLS_DIR = WORKING_DIR / "active_skills"
