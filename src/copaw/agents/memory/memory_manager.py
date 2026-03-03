@@ -430,8 +430,8 @@ try:
     from reme import ReMeFb
 
     _REME_AVAILABLE = True
-except ImportError:
-    logger.warning("reme not found!")
+except ImportError as err:
+    logger.warning("reme not found: %s", err)
     _REME_AVAILABLE = False
 
     class ReMeFb:  # type: ignore

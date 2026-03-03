@@ -5,10 +5,12 @@ Build from repo root:
 ```bash
 bash scripts/macos/build_dmg.sh [VERSION]
 bash scripts/macos/build_dmg.sh [VERSION] --dev   # also build Dev variant
+bash scripts/macos/build_dmg.sh --quick           # fast: only CoPaw-Dev.app (no console rebuild, no release, no DMG)
 ```
 
 Output: `dist/CoPaw.app`, `dist/CoPaw-<version>.dmg`.
 With `--dev`: also `dist/CoPaw-Dev.app`, `dist/CoPaw-Dev-<version>.dmg`.
+With `--quick`: only `dist/CoPaw-Dev.app`; uses existing `src/copaw/console` (run a full build once first if needed).
 
 ---
 

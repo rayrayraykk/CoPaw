@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=redefined-outer-name,unused-argument
+# pylint: disable=redefined-outer-name,unused-argument,too-many-branches
 import mimetypes
 import sys
 import os
@@ -19,6 +19,7 @@ from ..config import (  # pylint: disable=no-name-in-module
     ConfigWatcher,
 )
 from ..config.utils import get_jobs_path, get_chats_path, get_config_path
+from ..config.utils import save_config
 from ..constant import DOCS_ENABLED, LOG_LEVEL_ENV, CORS_ORIGINS
 from ..__version__ import __version__
 from ..utils.logging import setup_logger
@@ -62,6 +63,20 @@ async def lifespan(app: FastAPI):  # pylint: disable=too-many-statements
 
     # --- MCP client manager init (independent module, hot-reloadable) ---
     config = load_config()
+    # Ensure workspace has md files (for packaging scenario)
+    # (e.g. after first app launch without running init)
+    try:
+        from ..agents.utils import copy_md_files
+
+        lang = getattr(config.agents, "language", None) or "en"
+        copied = copy_md_files(lang, skip_existing=True)
+        if copied:
+            config.agents.installed_md_files_language = lang
+            save_config(config, get_config_path())
+            logger.info("Workspace md files ensured: %s", copied)
+    except Exception:
+        logger.exception("Failed to ensure workspace md files")
+
     mcp_manager = MCPClientManager()
     if hasattr(config, "mcp"):
         try:

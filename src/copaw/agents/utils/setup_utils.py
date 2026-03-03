@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint:disable=too-many-return-statements
 """Setup and initialization utilities for agent configuration.
 
 This module handles copying markdown configuration files to
@@ -16,20 +17,43 @@ def _md_files_root() -> Path:
     """Root of agents/md_files (works from source and PyInstaller bundle)."""
     base = Path(__file__).resolve().parent.parent / "md_files"
     if base.is_dir():
+        logger.info("md_files root: __file__ path %s", base)
         return base
     if not getattr(sys, "frozen", False):
+        logger.warning("md_files root: not found at %s (not frozen)", base)
         return base
     # PyInstaller one-file: datas under sys._MEIPASS
     if getattr(sys, "_MEIPASS", None):
         meipass = getattr(sys, "_MEIPASS")  # pylint: disable=protected-access
         fallback = Path(meipass).resolve() / "copaw" / "agents" / "md_files"
         if fallback.is_dir():
+            logger.info("md_files root: _MEIPASS path %s", fallback)
             return fallback
-    # PyInstaller one-folder: datas next to executable
+    # .app layout: exe in Contents/MacOS, data in Frameworks or _internal
     exe_dir = Path(sys.executable).resolve().parent
+    # Contents/Frameworks/copaw/agents/md_files (build_dmg merges here)
+    frameworks = (
+        exe_dir.parent / "Frameworks" / "copaw" / "agents" / "md_files"
+    )
+    if frameworks.is_dir():
+        logger.info("md_files root: Frameworks path %s", frameworks)
+        return frameworks
+    # Contents/MacOS/_internal/copaw/agents/md_files (PyInstaller output)
+    internal = exe_dir / "_internal" / "copaw" / "agents" / "md_files"
+    if internal.is_dir():
+        logger.info("md_files root: _internal path %s", internal)
+        return internal
     fallback = exe_dir / "copaw" / "agents" / "md_files"
     if fallback.is_dir():
+        logger.info("md_files root: exe_dir path %s", fallback)
         return fallback
+    logger.warning(
+        "md_files root: not found (tried %s, %s, %s, %s)",
+        base,
+        frameworks,
+        internal,
+        fallback,
+    )
     return base
 
 
@@ -52,6 +76,11 @@ def copy_md_files(
     md_files_dir = root / language
 
     if not md_files_dir.exists():
+        logger.info(
+            "copy_md_files: root=%s lang=%s (missing)",
+            root,
+            language,
+        )
         logger.warning(
             "MD files directory not found: %s, falling back to 'en'",
             md_files_dir,
@@ -83,11 +112,16 @@ def copy_md_files(
             )
 
     if copied_files:
-        logger.debug(
-            "Copied %d md file(s) [%s] to %s",
-            len(copied_files),
-            language,
+        logger.info(
+            "copy_md_files: copied %s to %s",
+            copied_files,
             WORKING_DIR,
+        )
+    else:
+        logger.warning(
+            "copy_md_files: no files copied (root=%s lang=%s)",
+            root,
+            language,
         )
 
     return copied_files

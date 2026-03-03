@@ -3,7 +3,7 @@
 
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_all, collect_submodules
+from PyInstaller.utils.hooks import collect_all, collect_submodules, copy_metadata
 
 REPO_ROOT = Path.cwd().resolve()
 _SPEC_DIR = REPO_ROOT / "scripts" / "macos"
@@ -35,16 +35,43 @@ except Exception:
     _reme_binaries = []
     _reme_hidden = ["reme"]
 
+# reme-ai imports flowllm at runtime; collect so it is bundled.
+try:
+    _fl_datas, _fl_binaries, _fl_hidden = collect_all("flowllm")
+    _reme_datas = _reme_datas + (_fl_datas or [])
+    _reme_binaries = _reme_binaries + (_fl_binaries or [])
+    _reme_hidden = _reme_hidden + list(_fl_hidden or [])
+except Exception:
+    pass
+
+# reme/flowllm may need fastmcp metadata at import time.
+try:
+    _fm_datas, _fm_binaries, _fm_hidden = collect_all("fastmcp")
+    _reme_datas = _reme_datas + (_fm_datas or [])
+    _reme_binaries = _reme_binaries + (_fm_binaries or [])
+    _reme_hidden = _reme_hidden + list(_fm_hidden or [])
+except Exception:
+    pass
+_metadata_datas = []
+try:
+    _metadata_datas = copy_metadata("fastmcp")
+except Exception:
+    pass
+
 a = Analysis(
     [str(_LAUNCHER)],
     pathex=[str(REPO_ROOT), str(REPO_ROOT / "src")],
     binaries=_reme_binaries,
     datas=(
-        _console_datas + _md_datas + _skills_datas + _tokenizer_datas + _reme_datas
+        _console_datas + _md_datas + _skills_datas + _tokenizer_datas
+        + _reme_datas + _metadata_datas
     ),
     hiddenimports=collect_submodules("copaw")
     + _reme_hidden
     + [
+        "chromadb",
+        "chromadb.api.rust",
+        "chromadb.telemetry.product.posthog",
         "webview",
         "pyobjc",
         "uvicorn.logging",
