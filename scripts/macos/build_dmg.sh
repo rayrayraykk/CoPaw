@@ -142,6 +142,18 @@ FRAMEWORKS="$APP_DIR/Contents/Frameworks"
 INTERNAL="$APP_DIR/Contents/MacOS/_internal"
 mkdir -p "$FRAMEWORKS"
 cp -R "$INTERNAL/"* "$FRAMEWORKS/"
+# Merge copaw datas (md_files, tokenizer, skills) from MacOS into Frameworks/copaw
+# so Path(__file__)-relative lookups in the package find them.
+MACOS_COPAW="$APP_DIR/Contents/MacOS/copaw"
+if [[ -d "$MACOS_COPAW" ]]; then
+  mkdir -p "$FRAMEWORKS/copaw/agents"
+  [[ -d "$MACOS_COPAW/agents/md_files" ]] && \
+    cp -R "$MACOS_COPAW/agents/md_files" "$FRAMEWORKS/copaw/agents/"
+  [[ -d "$MACOS_COPAW/agents/skills" ]] && \
+    cp -R "$MACOS_COPAW/agents/skills" "$FRAMEWORKS/copaw/agents/"
+  [[ -d "$MACOS_COPAW/tokenizer" ]] && \
+    cp -R "$MACOS_COPAW/tokenizer" "$FRAMEWORKS/copaw/"
+fi
 
 cat > "$APP_DIR/Contents/Info.plist" << INFOPLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -243,6 +255,16 @@ FRAMEWORKS="$DEV_APP_DIR/Contents/Frameworks"
 INTERNAL="$DEV_APP_DIR/Contents/MacOS/_internal"
 mkdir -p "$FRAMEWORKS"
 cp -R "$INTERNAL/"* "$FRAMEWORKS/"
+MACOS_COPAW="$DEV_APP_DIR/Contents/MacOS/copaw"
+if [[ -d "$MACOS_COPAW" ]]; then
+  mkdir -p "$FRAMEWORKS/copaw/agents"
+  [[ -d "$MACOS_COPAW/agents/md_files" ]] && \
+    cp -R "$MACOS_COPAW/agents/md_files" "$FRAMEWORKS/copaw/agents/"
+  [[ -d "$MACOS_COPAW/agents/skills" ]] && \
+    cp -R "$MACOS_COPAW/agents/skills" "$FRAMEWORKS/copaw/agents/"
+  [[ -d "$MACOS_COPAW/tokenizer" ]] && \
+    cp -R "$MACOS_COPAW/tokenizer" "$FRAMEWORKS/copaw/"
+fi
 
 cat > "$DEV_APP_DIR/Contents/Info.plist" << INFOPLIST
 <?xml version="1.0" encoding="UTF-8"?>

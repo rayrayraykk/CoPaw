@@ -4,7 +4,7 @@
 
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 REPO_ROOT = Path.cwd().resolve()
 _SPEC_DIR = REPO_ROOT / "scripts" / "macos"
@@ -27,15 +27,22 @@ _tokenizer_datas = (
     [(str(TOKENIZER_SRC), "copaw/tokenizer")] if TOKENIZER_SRC.is_dir() else []
 )
 try:
-    _reme_hidden = ["reme"] + list(collect_submodules("reme"))
+    _reme_datas, _reme_binaries, _reme_hidden = collect_all("reme")
+    _reme_datas = _reme_datas or []
+    _reme_binaries = _reme_binaries or []
+    _reme_hidden = ["reme"] + list(_reme_hidden or [])
 except Exception:
+    _reme_datas = []
+    _reme_binaries = []
     _reme_hidden = ["reme"]
 
 a = Analysis(
     [str(_DEV_LAUNCHER)],
     pathex=[str(REPO_ROOT), str(REPO_ROOT / "src"), str(_SPEC_DIR)],
-    binaries=[],
-    datas=_console_datas + _md_datas + _skills_datas + _tokenizer_datas,
+    binaries=_reme_binaries,
+    datas=(
+        _console_datas + _md_datas + _skills_datas + _tokenizer_datas + _reme_datas
+    ),
     hiddenimports=collect_submodules("copaw")
     + _reme_hidden
     + [
