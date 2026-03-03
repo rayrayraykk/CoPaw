@@ -67,35 +67,52 @@ jobs:
             bash scripts/macos/build_dmg.sh
           fi
 
-      # Ad-hoc sign the app so Gatekeeper does not show "damaged" when user
-      # downloads the DMG. Then recreate DMG so the uploaded file contains the
-      # signed app (without Apple Developer ID we cannot notarize; user may need
-      # right-click → Open or: xattr -cr <dmg> then open).
-      # Do not use --deep: PyInstaller _internal has symlinks/non-bundles
-      # (e.g. python3.10) that cause "bundle format unrecognized". Sign Mach-O
-      # binaries (dylibs, main exe) then the app bundle.
-      - name: Sign app and recreate DMG
+      - name: Sign app and recreate DMG (ad-hoc)
+        shell: bash
         run: |
+          set -euo pipefail
+
           APP_DIR="dist/CoPaw.app"
           DMG_GLOB="dist/CoPaw-*.dmg"
+
           if [[ ! -d "$APP_DIR" ]]; then
             echo "No $APP_DIR found" >&2
             exit 1
           fi
-          find "$APP_DIR" -type d -name "*.dist-info" -print0 | xargs -0 rm -rf
-          find "$APP_DIR" -type f -name "py.typed" -delete
-          find "$APP_DIR" -type f \( -name "*.dylib" -o -name "*.so" \) -print0 \
-            | xargs -0 -n1 codesign --force --sign -
-          codesign --force --sign - "$APP_DIR/Contents/MacOS/CoPaw"
+
+          # Remove packaging metadata not needed at runtime
+          find "$APP_DIR" -type d -name "*.dist-info" -print0 | xargs -0 rm -rf || true
+
+          # Some Python packages ship marker files like py.typed which are not Mach-O.
+          # They can trigger subcomponent checks during bundle signing in some layouts.
+          find "$APP_DIR" -type f -name "py.typed" -delete || true
+
+          # Ad-hoc sign only Mach-O files (executables, dylibs, extension modules).
+          # Using `file` avoids trying to sign text/data files.
+          while IFS= read -r -d '' f; do
+            if file -b "$f" | grep -qE 'Mach-O'; then
+              codesign --force --sign - "$f"
+            fi
+          done < <(find "$APP_DIR" -type f -print0)
+
+          # Sign main executable explicitly (belt-and-suspenders)
+          if [[ -f "$APP_DIR/Contents/MacOS/CoPaw" ]]; then
+            codesign --force --sign - "$APP_DIR/Contents/MacOS/CoPaw"
+          fi
+
+          # Finally sign the app bundle (no --deep; PyInstaller layout may include non-bundles/symlinks)
           codesign --force --sign - "$APP_DIR"
-          DMG_NAME=$(ls $DMG_GLOB 2>/dev/null | head -1)
-          if [[ -z "$DMG_NAME" ]]; then
+
+          # Recreate DMG so it contains the signed app
+          DMG_NAME="$(ls $DMG_GLOB 2>/dev/null | head -1 || true)"
+          if [[ -z "${DMG_NAME:-}" ]]; then
             echo "No DMG found" >&2
             exit 1
           fi
-          VERSION=$(basename "$DMG_NAME" .dmg | sed 's/^CoPaw-//')
+
+          VERSION="$(basename "$DMG_NAME" .dmg | sed 's/^CoPaw-//')"
           rm -f "$DMG_NAME"
-          # Use hdiutil only (create-dmg can hang on GitHub Actions headless runner)
+
           hdiutil create -volname "CoPaw $VERSION" -srcfolder "$APP_DIR" \
             -ov -format UDZO "$DMG_NAME"
 
