@@ -17,13 +17,11 @@ from ..base import ContentType
 
 from .constants import SENT_VIA_WEBHOOK
 from .content_utils import (
-    content_hash_from_parts,
     conversation_id_from_chatbot_message,
     dingtalk_content_from_type,
     get_type_mapping,
     sender_from_chatbot_message,
     session_param_from_webhook_url,
-    short_session_id_from_conversation_id,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,7 +45,7 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
         enqueue_callback: Optional[Callable[[Any], None]],
         bot_prefix: str,
         download_url_fetcher,
-        try_accept_message: Optional[Callable[[str, str, str], bool]] = None,
+        try_accept_message: Optional[Callable[[str], bool]] = None,
     ):
         super().__init__()
         self._main_loop = main_loop
@@ -274,32 +272,21 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                     "dingtalk recv: no sessionWebhook on incoming_message",
                 )
 
-            # Dedup: raw msgId + session+content hash (resends may vary).
-            session_key = (
-                short_session_id_from_conversation_id(conversation_id)
-                if conversation_id
-                else f"dingtalk:{sender}"
-            )
-            content_hash = content_hash_from_parts(parts_to_send)
+            # Dedup by message_id only.
             if self._try_accept_message and not self._try_accept_message(
                 raw_msg_id,
-                session_key,
-                content_hash,
             ):
                 logger.info(
-                    "dingtalk duplicate ignored: raw_msg_id=%r "
-                    "session_key=%s from=%s",
+                    "dingtalk duplicate ignored: raw_msg_id=%r from=%s",
                     raw_msg_id,
-                    session_key,
                     sender,
                 )
                 self.reply_text(" ", incoming_message)
                 return dingtalk_stream.AckMessage.STATUS_OK, "ok"
 
             logger.info(
-                "dingtalk accept: raw_msg_id=%r session_key=%s",
+                "dingtalk accept: raw_msg_id=%r",
                 raw_msg_id or "(empty)",
-                session_key,
             )
             native = {
                 "channel_id": "dingtalk",
