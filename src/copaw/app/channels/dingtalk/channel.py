@@ -354,11 +354,11 @@ class DingTalkChannel(BaseChannel):
             for mid in msg_ids:
                 if mid:
                     self._processing_message_ids.discard(mid)
-        logger.debug(
-            "dingtalk dedup release: msg_ids=%s in_flight_count=%s",
-            msg_ids,
-            len(self._processing_message_ids),
-        )
+            logger.debug(
+                "dingtalk dedup release: msg_ids=%s in_flight_count=%s",
+                msg_ids,
+                len(self._processing_message_ids),
+            )
 
     def _reply_sync(self, meta: Dict[str, Any], text: str) -> None:
         """Resolve reply_future on the stream thread's loop so process()
