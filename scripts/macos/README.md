@@ -51,8 +51,10 @@ First launch runs `copaw init --defaults --accept-security` in
 Downloads from the internet are quarantined. If you see "damaged" (common on macOS 15+), remove the quarantine attribute:
 
 ```bash
+xattr -cr ~/Downloads/CoPaw.app
+# or if you put it elsewhere:
 xattr -cr /path/to/CoPaw.app
-# or for Dev: xattr -cr /path/to/CoPaw-Dev.app
+xattr -cr /path/to/CoPaw-Dev.app   # for Dev build
 ```
 
 Then open the app again, or in **System Settings → Privacy & Security** allow the app.
