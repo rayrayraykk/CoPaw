@@ -154,22 +154,29 @@ if [[ "$QUICK" != "true" ]]; then
     rm -rf "$ICON_TMP"
   fi
 
-  cp -R "$PYINSTALLER_OUT/"* "$APP_DIR/Contents/MacOS/"
-
+  # Put runtime in Contents/Frameworks (not MacOS) to avoid codesign nesting.
   FRAMEWORKS="$APP_DIR/Contents/Frameworks"
-  INTERNAL="$APP_DIR/Contents/MacOS/_internal"
   mkdir -p "$FRAMEWORKS"
-  cp -R "$INTERNAL/"* "$FRAMEWORKS/"
-  MACOS_COPAW="$APP_DIR/Contents/MacOS/copaw"
-  if [[ -d "$MACOS_COPAW" ]]; then
+  cp "$PYINSTALLER_OUT/$APP_NAME" "$FRAMEWORKS/$APP_NAME"
+  cp -R "$PYINSTALLER_OUT/_internal" "$FRAMEWORKS/_internal"
+  # Fallback for Path(executable).parent / "copaw": exe lives in Frameworks
+  SRC_COPAW="$FRAMEWORKS/_internal/copaw"
+  [[ ! -d "$SRC_COPAW" ]] && SRC_COPAW="$PYINSTALLER_OUT/copaw"
+  if [[ -d "$SRC_COPAW" ]]; then
     mkdir -p "$FRAMEWORKS/copaw/agents"
-    [[ -d "$MACOS_COPAW/agents/md_files" ]] && \
-      cp -R "$MACOS_COPAW/agents/md_files" "$FRAMEWORKS/copaw/agents/"
-    [[ -d "$MACOS_COPAW/agents/skills" ]] && \
-      cp -R "$MACOS_COPAW/agents/skills" "$FRAMEWORKS/copaw/agents/"
-    [[ -d "$MACOS_COPAW/tokenizer" ]] && \
-      cp -R "$MACOS_COPAW/tokenizer" "$FRAMEWORKS/copaw/"
+    [[ -d "$SRC_COPAW/agents/md_files" ]] && \
+      cp -R "$SRC_COPAW/agents/md_files" "$FRAMEWORKS/copaw/agents/"
+    [[ -d "$SRC_COPAW/agents/skills" ]] && \
+      cp -R "$SRC_COPAW/agents/skills" "$FRAMEWORKS/copaw/agents/"
+    [[ -d "$SRC_COPAW/tokenizer" ]] && \
+      cp -R "$SRC_COPAW/tokenizer" "$FRAMEWORKS/copaw/"
   fi
+  # Launcher in MacOS only: exec real binary in Frameworks
+  cat > "$APP_DIR/Contents/MacOS/$APP_NAME" << 'LAUNCHER'
+#!/bin/sh
+exec "$(dirname "$0")/../Frameworks/CoPaw" "$@"
+LAUNCHER
+  chmod +x "$APP_DIR/Contents/MacOS/$APP_NAME"
 
   cat > "$APP_DIR/Contents/Info.plist" << INFOPLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -290,21 +297,28 @@ elif [[ -f "$REPO_ROOT/scripts/macos/copaw-symbol.svg" ]]; then
   rm -rf "$ICON_TMP"
 fi
 
-cp -R "$DEV_PYINSTALLER_OUT/"* "$DEV_APP_DIR/Contents/MacOS/"
+# Put runtime in Contents/Frameworks (not MacOS) to avoid codesign nesting.
 FRAMEWORKS="$DEV_APP_DIR/Contents/Frameworks"
-INTERNAL="$DEV_APP_DIR/Contents/MacOS/_internal"
 mkdir -p "$FRAMEWORKS"
-cp -R "$INTERNAL/"* "$FRAMEWORKS/"
-MACOS_COPAW="$DEV_APP_DIR/Contents/MacOS/copaw"
-if [[ -d "$MACOS_COPAW" ]]; then
+cp "$DEV_PYINSTALLER_OUT/$DEV_APP_NAME" "$FRAMEWORKS/$DEV_APP_NAME"
+cp -R "$DEV_PYINSTALLER_OUT/_internal" "$FRAMEWORKS/_internal"
+SRC_COPAW="$FRAMEWORKS/_internal/copaw"
+[[ ! -d "$SRC_COPAW" ]] && SRC_COPAW="$DEV_PYINSTALLER_OUT/copaw"
+if [[ -d "$SRC_COPAW" ]]; then
   mkdir -p "$FRAMEWORKS/copaw/agents"
-  [[ -d "$MACOS_COPAW/agents/md_files" ]] && \
-    cp -R "$MACOS_COPAW/agents/md_files" "$FRAMEWORKS/copaw/agents/"
-  [[ -d "$MACOS_COPAW/agents/skills" ]] && \
-    cp -R "$MACOS_COPAW/agents/skills" "$FRAMEWORKS/copaw/agents/"
-  [[ -d "$MACOS_COPAW/tokenizer" ]] && \
-    cp -R "$MACOS_COPAW/tokenizer" "$FRAMEWORKS/copaw/"
+  [[ -d "$SRC_COPAW/agents/md_files" ]] && \
+    cp -R "$SRC_COPAW/agents/md_files" "$FRAMEWORKS/copaw/agents/"
+  [[ -d "$SRC_COPAW/agents/skills" ]] && \
+    cp -R "$SRC_COPAW/agents/skills" "$FRAMEWORKS/copaw/agents/"
+  [[ -d "$SRC_COPAW/tokenizer" ]] && \
+    cp -R "$SRC_COPAW/tokenizer" "$FRAMEWORKS/copaw/"
 fi
+# Launcher in MacOS only: exec real binary in Frameworks
+cat > "$DEV_APP_DIR/Contents/MacOS/$DEV_APP_NAME" << 'LAUNCHER'
+#!/bin/sh
+exec "$(dirname "$0")/../Frameworks/CoPaw-Dev" "$@"
+LAUNCHER
+chmod +x "$DEV_APP_DIR/Contents/MacOS/$DEV_APP_NAME"
 
 cat > "$DEV_APP_DIR/Contents/Info.plist" << INFOPLIST
 <?xml version="1.0" encoding="UTF-8"?>

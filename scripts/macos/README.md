@@ -12,6 +12,10 @@ Output: `dist/CoPaw.app`, `dist/CoPaw-<version>.dmg`.
 With `--dev`: also `dist/CoPaw-Dev.app`, `dist/CoPaw-Dev-<version>.dmg`.
 With `--quick`: only `dist/CoPaw-Dev.app`; uses existing `src/copaw/console` (run a full build once first if needed).
 
+**Bundle layout:** Only the launcher script lives in `Contents/MacOS`; the PyInstaller runtime (executable + `_internal`) is under `Contents/Frameworks` to avoid codesign nesting and to match macOS expectations (MacOS = main executable only).
+
+**Signing (CI and local):** Apps are ad-hoc signed (Mach-O files first, then the app bundle with `--deep`) so `codesign --verify --strict` passes. To test the same flow locally after a build: `bash scripts/macos/test_sign_and_verify.sh dist/CoPaw-Dev.app` (script strips existing signatures, re-signs, then runs codesign/spctl checks). If users see "damaged" when opening a downloaded DMG, they can run `xattr -cr /path/to/CoPaw.app`.
+
 ---
 
 ## Release vs Dev

@@ -67,28 +67,36 @@ jobs:
         run: |
           set -euo pipefail
 
-          sign_app() {
+          # Sign app bundle: Mach-O first, then app with --deep (required on macOS 15+).
+          sign_app_bundle() {
             local APP_DIR="$1"
             [[ -d "$APP_DIR" ]] || return 0
-            local MAIN_EXE="$APP_DIR/Contents/MacOS/$(basename "$APP_DIR" .app)"
-            find "$APP_DIR" -type d -name "*.dist-info" -print0 | xargs -0 rm -rf 2>/dev/null || true
-            find "$APP_DIR" -type f -name "py.typed" -delete 2>/dev/null || true
-            # Sign all Mach-O binaries (including main exe) for Gatekeeper
+
+            # Clean before signing (never modify after signing)
+            find "$APP_DIR" -type d -name "*.dist-info" -print0 | xargs -0 rm -rf || true
+            find "$APP_DIR" -type f -name "py.typed" -delete || true
+            mkdir -p "$APP_DIR/Contents/Resources"
+
+            # 1) Sign all Mach-O binaries (dylib/so/exe) so nested code is signed
             while IFS= read -r -d '' f; do
               if /usr/bin/file -b "$f" | /usr/bin/grep -q 'Mach-O'; then
-                /usr/bin/codesign --force --sign - --timestamp=none "$f" || true
+                /usr/bin/codesign --force --sign - --timestamp=none "$f"
               fi
             done < <(find "$APP_DIR" -type f -print0)
-            # Sign the app bundle so macOS does not show "damaged"
-            /usr/bin/codesign --force --sign - --timestamp=none "$APP_DIR" || true
+
+            # 2) Sign the app bundle with --deep (seals nested _internal; without it,
+            #    codesign on macOS 15+ fails: "code object is not signed / In subcomponent: ... .py")
+            /usr/bin/codesign --force --sign - --timestamp=none --deep "$APP_DIR"
+
+            # 3) Verify: fail the job if invalid
+            /usr/bin/codesign --verify --strict --verbose=4 "$APP_DIR"
           }
 
-          for APP_DIR in dist/CoPaw.app dist/CoPaw-Dev.app; do
-            sign_app "$APP_DIR"
-          done
+          sign_app_bundle "dist/CoPaw.app"
+          sign_app_bundle "dist/CoPaw-Dev.app"
 
           # Recreate release DMG (exclude CoPaw-Dev-*.dmg)
-          RELEASE_DMG="$(ls dist/CoPaw-*.dmg 2>/dev/null | grep -v 'CoPaw-Dev-' | head -1)"
+          RELEASE_DMG="$(ls dist/CoPaw-*.dmg 2>/dev/null | grep -v 'CoPaw-Dev-' | head -1 || true)"
           if [[ -n "${RELEASE_DMG:-}" ]]; then
             VERSION="$(basename "$RELEASE_DMG" .dmg | sed 's/^CoPaw-//')"
             rm -f "$RELEASE_DMG"
@@ -97,7 +105,7 @@ jobs:
           fi
 
           # Recreate dev DMG
-          DEV_DMG="$(ls dist/CoPaw-Dev-*.dmg 2>/dev/null | head -1)"
+          DEV_DMG="$(ls dist/CoPaw-Dev-*.dmg 2>/dev/null | head -1 || true)"
           if [[ -n "${DEV_DMG:-}" ]]; then
             VERSION="$(basename "$DEV_DMG" .dmg | sed 's/^CoPaw-Dev-//')"
             rm -f "$DEV_DMG"
