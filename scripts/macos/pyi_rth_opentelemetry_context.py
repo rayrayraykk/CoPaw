@@ -1,0 +1,46 @@
+# -*- coding: utf-8 -*-
+"""
+PyInstaller runtime hook: fix opentelemetry context loading in frozen apps.
+
+In frozen envs entry_points() for "opentelemetry_context" is often empty,
+so _load_runtime_context() raises StopIteration. We patch
+opentelemetry.util._importlib_metadata.entry_points to return a fake
+contextvars_context entry when the real one is missing.
+"""
+from __future__ import annotations
+
+
+def _install_patch() -> None:
+    try:
+        import opentelemetry.util._importlib_metadata as _otel_meta
+    except ImportError:
+        return
+    _orig = _otel_meta.entry_points
+
+    class _FakeContextEntry:
+        def load(self):
+            def _factory():
+                from opentelemetry.context.contextvars_context import (
+                    ContextVarsRuntimeContext,
+                )
+
+                return ContextVarsRuntimeContext()
+
+            return _factory
+
+    def _patched_entry_points(**params):
+        out = _orig(**params)
+        if params.get("group") != "opentelemetry_context":
+            return out
+        try:
+            first = next(iter(out), None)
+        except (StopIteration, TypeError):
+            first = None
+        if first is None:
+            return iter([_FakeContextEntry()])
+        return out
+
+    _otel_meta.entry_points = _patched_entry_points
+
+
+_install_patch()
