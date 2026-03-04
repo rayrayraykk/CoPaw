@@ -100,6 +100,7 @@ jobs:
           if [[ -n "${RELEASE_DMG:-}" ]]; then
             VERSION="$(basename "$RELEASE_DMG" .dmg | sed 's/^CoPaw-//')"
             rm -f "$RELEASE_DMG"
+            /usr/bin/hdiutil detach "/Volumes/CoPaw $VERSION" -force 2>/dev/null || true
             /usr/bin/hdiutil create -volname "CoPaw $VERSION" -srcfolder dist/CoPaw.app \
               -ov -format UDZO "$RELEASE_DMG"
           fi
@@ -109,6 +110,7 @@ jobs:
           if [[ -n "${DEV_DMG:-}" ]]; then
             VERSION="$(basename "$DEV_DMG" .dmg | sed 's/^CoPaw-Dev-//')"
             rm -f "$DEV_DMG"
+            /usr/bin/hdiutil detach "/Volumes/CoPaw Dev $VERSION" -force 2>/dev/null || true
             /usr/bin/hdiutil create -volname "CoPaw Dev $VERSION" \
               -srcfolder dist/CoPaw-Dev.app -ov -format UDZO "$DEV_DMG"
           fi

@@ -213,10 +213,11 @@ INFOPLIST
     create-dmg --volname "CoPaw $VERSION" --window-pos 200 120 --window-size 600 400 \
       --icon-size 100 --app-drop-link 450 200 --no-internet-enable "$DMG_PATH" "$APP_DIR"
   else
-    TMP_DMG="$DIST_DIR/tmp_${DMG_NAME}.dmg"
-    rm -f "$TMP_DMG" "$DMG_PATH"
+    TMP_DMG="$DIST_DIR/tmp_${DMG_NAME}_$$.dmg"
+    rm -f "$DMG_PATH"
+    hdiutil detach "/Volumes/CoPaw $VERSION" -force 2>/dev/null || true
     hdiutil create -volname "CoPaw $VERSION" -srcfolder "$APP_DIR" -ov -format UDZO "$TMP_DMG"
-    mv "$TMP_DMG" "$DMG_PATH"
+    mv -f "$TMP_DMG" "$DMG_PATH"
   fi
 
   echo "[build_dmg] Done. App: $APP_DIR  DMG: $DMG_PATH"
@@ -356,10 +357,11 @@ if [[ "$QUICK" != "true" ]]; then
     create-dmg --volname "CoPaw Dev $VERSION" --window-pos 200 120 --window-size 600 400 \
       --icon-size 100 --app-drop-link 450 200 --no-internet-enable "$DEV_DMG_PATH" "$DEV_APP_DIR"
   else
-    TMP_DMG="$DIST_DIR/tmp_${DEV_DMG_NAME}.dmg"
-    rm -f "$TMP_DMG" "$DEV_DMG_PATH"
+    TMP_DMG="$DIST_DIR/tmp_${DEV_DMG_NAME}_$$.dmg"
+    rm -f "$DEV_DMG_PATH"
+    hdiutil detach "/Volumes/CoPaw Dev $VERSION" -force 2>/dev/null || true
     hdiutil create -volname "CoPaw Dev $VERSION" -srcfolder "$DEV_APP_DIR" -ov -format UDZO "$TMP_DMG"
-    mv "$TMP_DMG" "$DEV_DMG_PATH"
+    mv -f "$TMP_DMG" "$DEV_DMG_PATH"
   fi
   echo "[build_dmg] Dev done. App: $DEV_APP_DIR  DMG: $DEV_DMG_PATH"
 else
