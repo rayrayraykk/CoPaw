@@ -7,8 +7,35 @@ In frozen envs entry_points() for "opentelemetry_context" is often empty,
 so _load_runtime_context() raises StopIteration. We patch
 opentelemetry.util._importlib_metadata.entry_points to return a fake
 contextvars_context entry when the real one is missing.
+
+Chromadb telemetry imports opentelemetry.sdk.resources which calls
+importlib_metadata.version("opentelemetry-sdk"); in frozen apps that
+metadata is often missing. We patch version() to return a dummy for
+opentelemetry-* when PackageNotFoundError occurs.
 """
 from __future__ import annotations
+
+# Patch importlib_metadata so opentelemetry.sdk can load without dist-info.
+try:
+    import importlib_metadata as _meta
+
+    _orig_version = _meta.version
+
+    def _patched_version(name: str) -> str:
+        try:
+            return _orig_version(name)
+        except _meta.PackageNotFoundError:
+            if name in (
+                "opentelemetry-sdk",
+                "opentelemetry-api",
+                "opentelemetry-context",
+            ):
+                return "1.0.0"
+            raise
+
+    _meta.version = _patched_version
+except Exception:
+    pass
 
 
 def _install_patch() -> None:
