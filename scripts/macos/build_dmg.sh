@@ -127,18 +127,20 @@ if [[ "$QUICK" != "true" ]]; then
   mkdir -p "$APP_DIR/Contents/Resources"
 
   # App icon: SVG -> PNG -> iconset (sips) -> .icns (iconutil)
+  # Inline .accent fill so rsvg-convert/qlmanage render blue correctly
   ICON_SVG="$REPO_ROOT/scripts/macos/copaw-symbol.svg"
   ICON_TMP="$DIST_DIR/icon_build"
   if [[ -f "$ICON_SVG" ]]; then
     echo "[build_dmg] Building app icon from copaw-symbol.svg..."
     rm -rf "$ICON_TMP"
     mkdir -p "$ICON_TMP"
+    sed 's/class="accent"/fill="#0618f4"/g' "$ICON_SVG" > "$ICON_TMP/icon.svg"
     SRC_PNG="$ICON_TMP/icon_1024.png"
     if command -v rsvg-convert &>/dev/null; then
-      rsvg-convert -w 1024 -h 1024 "$ICON_SVG" -o "$SRC_PNG"
+      rsvg-convert -w 1024 -h 1024 "$ICON_TMP/icon.svg" -o "$SRC_PNG"
     else
-      (cd "$ICON_TMP" && qlmanage -t -s 1024 -o . "$ICON_SVG" 2>/dev/null)
-      SRC_PNG="$ICON_TMP/copaw-symbol.svg.png"
+      (cd "$ICON_TMP" && qlmanage -t -s 1024 -o . icon.svg 2>/dev/null)
+      SRC_PNG="$ICON_TMP/icon.svg.png"
     fi
     if [[ -f "$SRC_PNG" ]]; then
       ICONSET="$ICON_TMP/CoPaw.iconset"
@@ -270,20 +272,25 @@ rm -rf "$DEV_APP_DIR"
 mkdir -p "$DEV_APP_DIR/Contents/MacOS"
 mkdir -p "$DEV_APP_DIR/Contents/Resources"
 
-# Icon: reuse from release app or build from SVG (e.g. --quick)
-if [[ -f "$APP_DIR/Contents/Resources/Icon.icns" ]]; then
-  cp "$APP_DIR/Contents/Resources/Icon.icns" "$DEV_APP_DIR/Contents/Resources/"
-elif [[ -f "$REPO_ROOT/scripts/macos/copaw-symbol.svg" ]]; then
+# Icon: copy from release app if built, else build from SVG (--quick or no release)
+_DEV_ICON="$DEV_APP_DIR/Contents/Resources/Icon.icns"
+if [[ "$QUICK" != "true" ]] && [[ -n "${APP_DIR:-}" ]] && \
+   [[ -f "$APP_DIR/Contents/Resources/Icon.icns" ]]; then
+  cp "$APP_DIR/Contents/Resources/Icon.icns" "$_DEV_ICON"
+  echo "[build_dmg] Dev icon: copied from release app."
+fi
+if [[ ! -f "$_DEV_ICON" ]] && [[ -f "$REPO_ROOT/scripts/macos/copaw-symbol.svg" ]]; then
   ICON_SVG="$REPO_ROOT/scripts/macos/copaw-symbol.svg"
   ICON_TMP="$DIST_DIR/icon_build_dev"
   rm -rf "$ICON_TMP"
   mkdir -p "$ICON_TMP"
+  sed 's/class="accent"/fill="#0618f4"/g' "$ICON_SVG" > "$ICON_TMP/icon.svg"
   SRC_PNG="$ICON_TMP/icon_1024.png"
   if command -v rsvg-convert &>/dev/null; then
-    rsvg-convert -w 1024 -h 1024 "$ICON_SVG" -o "$SRC_PNG"
+    rsvg-convert -w 1024 -h 1024 "$ICON_TMP/icon.svg" -o "$SRC_PNG"
   else
-    (cd "$ICON_TMP" && qlmanage -t -s 1024 -o . "$ICON_SVG" 2>/dev/null)
-    SRC_PNG="$ICON_TMP/copaw-symbol.svg.png"
+    (cd "$ICON_TMP" && qlmanage -t -s 1024 -o . icon.svg 2>/dev/null)
+    SRC_PNG="$ICON_TMP/icon.svg.png"
   fi
   if [[ -f "$SRC_PNG" ]]; then
     ICONSET="$ICON_TMP/CoPaw.iconset"
@@ -293,7 +300,10 @@ elif [[ -f "$REPO_ROOT/scripts/macos/copaw-symbol.svg" ]]; then
       d=$((size * 2))
       sips -z $d $d "$SRC_PNG" --out "$ICONSET/icon_${size}x${size}@2x.png"
     done
-    iconutil -c icns "$ICONSET" -o "$DEV_APP_DIR/Contents/Resources/Icon.icns"
+    iconutil -c icns "$ICONSET" -o "$_DEV_ICON"
+    echo "[build_dmg] Dev icon: built from copaw-symbol.svg."
+  else
+    echo "[build_dmg] WARNING: Dev icon not built (install librsvg or fix SVG)." >&2
   fi
   rm -rf "$ICON_TMP"
 fi
