@@ -67,7 +67,6 @@ PYPI_TO_IMPORT = {
     "lark-oapi": "lark_oapi",
     "python-telegram-bot": "telegram",
     "reme-ai": "reme",
-    "reme_ai": "reme",
     "llama-cpp-python": "llama_cpp",
     "mlx-lm": "mlx_lm",
     "email-validator": "email_validator",
@@ -189,4 +188,48 @@ def get_collect_packages_from_installed() -> list[str]:
         if imp not in seen:
             seen.add(imp)
             out.append(imp)
+    return sorted(out)
+
+
+def get_metadata_dist_names() -> list[str]:
+    """
+    Return PyPI/distribution names for all packages we bundle (for
+    copy_metadata). Same dependency set as get_collect_packages_from_installed
+    but as dist names so PyInstaller can find .dist-info. Use after
+    `pip install -e ".[full]"` so the full resolved dependency chain is used.
+    """
+    seen: set[str] = set()
+    out: list[str] = []
+    for dist in distributions():
+        try:
+            name = dist.metadata.get("Name")
+            if not name:
+                continue
+            name = name.strip().lower()
+            if name in EXCLUDE_FROM_BUNDLE or name in seen:
+                continue
+            seen.add(name)
+            out.append(name)
+        except Exception:
+            continue
+    for group in ENTRY_POINT_GROUPS:
+        try:
+            eps = entry_points(group=group)
+        except Exception:
+            continue
+        for ep in eps:
+            try:
+                d = getattr(ep, "dist", None)
+                if d is None:
+                    continue
+                name = d.metadata.get("Name")
+                if not name:
+                    continue
+                name = name.strip().lower()
+                if name in EXCLUDE_FROM_BUNDLE or name in seen:
+                    continue
+                seen.add(name)
+                out.append(name)
+            except Exception:
+                continue
     return sorted(out)

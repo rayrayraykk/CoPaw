@@ -5,7 +5,11 @@
 import sys
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_all, collect_submodules
+from PyInstaller.utils.hooks import (
+    collect_all,
+    collect_submodules,
+    copy_metadata,
+)
 
 REPO_ROOT = Path.cwd().resolve()
 _SPEC_DIR = REPO_ROOT / "scripts" / "pack" / "macos"
@@ -14,6 +18,7 @@ sys.path.insert(0, str(_PACK_DIR))
 
 from pyi_project_deps import (
     get_collect_packages_from_installed,
+    get_metadata_dist_names,
     get_pathex_extensions,
     get_pyproject_dep_import_names,
 )
@@ -64,6 +69,15 @@ for _pkg in get_collect_packages_from_installed():
             _dep_hidden.append(_pkg)
         pass
 
+# Copy .dist-info for all bundled deps (dependency chain from pip); avoids
+# PackageNotFoundError for any dep that uses importlib.metadata at import.
+_metadata_datas = []
+for _meta_pkg in get_metadata_dist_names():
+    try:
+        _metadata_datas += copy_metadata(_meta_pkg)
+    except Exception:
+        pass
+
 _extra_hidden = [
     "webview",
     "reme",
@@ -97,7 +111,12 @@ a = Analysis(
     pathex=_BASE_PATHEX + get_pathex_extensions(),
     binaries=_dep_binaries,
     datas=(
-        _console_datas + _md_datas + _skills_datas + _tokenizer_datas + _dep_datas
+        _console_datas
+        + _md_datas
+        + _skills_datas
+        + _tokenizer_datas
+        + _dep_datas
+        + _metadata_datas
     ),
     hiddenimports=(
         collect_submodules("copaw") + _dep_hidden + _extra_hidden
