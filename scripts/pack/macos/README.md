@@ -3,14 +3,16 @@
 Build from repo root:
 
 ```bash
-bash scripts/pack/macos/build_dmg.sh [VERSION]
-bash scripts/pack/macos/build_dmg.sh [VERSION] --dev   # also build Dev variant
-bash scripts/pack/macos/build_dmg.sh --quick           # fast: only CoPaw-Dev.app (no console rebuild, no release, no DMG)
+bash scripts/pack/macos/build_dmg.sh [VERSION]          # release only
+bash scripts/pack/macos/build_dmg.sh [VERSION] --dev     # Dev app only
+bash scripts/pack/macos/build_dmg.sh [VERSION] --all     # release + Dev (both apps and DMGs)
+bash scripts/pack/macos/build_dmg.sh --quick             # fast: only CoPaw-Dev.app (no console rebuild, no DMG)
 ```
 
-Output: `dist/CoPaw.app`, `dist/CoPaw-<version>.dmg`.
-With `--dev`: also `dist/CoPaw-Dev.app`, `dist/CoPaw-Dev-<version>.dmg`.
-With `--quick`: only `dist/CoPaw-Dev.app`; uses existing `src/copaw/console` (run a full build once first if needed).
+Output: default → `dist/CoPaw.app`, `dist/CoPaw-<version>.dmg`.
+`--dev` → only `dist/CoPaw-Dev.app`, `dist/CoPaw-Dev-<version>.dmg`.
+`--all` → both release and Dev apps and DMGs.
+`--quick` → only `dist/CoPaw-Dev.app`; uses existing `src/copaw/console` (run a full build once first if needed).
 
 **Dependencies:** The spec (1) collects all installed packages via `get_collect_packages_from_installed()` (including entry-point groups like `opentelemetry_propagator`), and (2) runs `scripts/pack/discover_runtime_imports.py` before Analysis: it pre-loads those entry points and imports the app chain, then dumps `sys.modules` into `discovered_imports.txt` and uses it as hiddenimports. So the frozen app gets every module that would load at runtime (no more "run bundle → see missing import → add by hand"). Run `pip install -e ".[full]"` before building. Launchers live in `scripts/pack/` (shared with future Windows).
 

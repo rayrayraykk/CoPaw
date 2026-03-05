@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # Build CoPaw as a macOS .app and DMG for distribution.
-# Run from repo root: bash scripts/pack/macos/build_dmg.sh [version] [--dev]
+# Run from repo root: bash scripts/pack/macos/build_dmg.sh [version] [--dev|--all]
 #
-# --quick   Fast iteration: only build CoPaw-Dev.app (no console rebuild,
-#           no release app, no DMG). Uses existing src/copaw/console.
+# --dev    Build only CoPaw-Dev.app (and its DMG). No release app.
+# --all    Build both release (CoPaw.app) and dev (CoPaw-Dev.app) and their DMGs.
+# --quick  Fast iteration: only CoPaw-Dev.app, no console rebuild, no DMG.
 #
 # Prerequisites: macOS, Node.js, Python 3.10+, pip install pyinstaller
-# Output: dist/CoPaw.app, dist/CoPaw-<version>.dmg
-# With --dev: also dist/CoPaw-Dev.app, dist/CoPaw-Dev-<version>.dmg (console)
-# With --quick: only dist/CoPaw-Dev.app
+# Default (no flag): dist/CoPaw.app, dist/CoPaw-<version>.dmg
+# With --dev: dist/CoPaw-Dev.app, dist/CoPaw-Dev-<version>.dmg only
+# With --all: both release and dev apps and DMGs
 
 set -e
 
@@ -17,6 +18,7 @@ cd "$REPO_ROOT"
 
 QUICK=false
 BUILD_DEV=false
+BUILD_ALL=false
 ARGS=()
 for a in "$@"; do
   if [[ "$a" == "--quick" ]]; then
@@ -24,6 +26,8 @@ for a in "$@"; do
     BUILD_DEV=true
   elif [[ "$a" == "--dev" ]]; then
     BUILD_DEV=true
+  elif [[ "$a" == "--all" ]]; then
+    BUILD_ALL=true
   else
     ARGS+=("$a")
   fi
@@ -31,7 +35,7 @@ done
 
 VERSION="${ARGS[0]:-}"
 VERSION="${VERSION#v}"
-if [[ -z "$VERSION" || "$VERSION" == "--dev" ]]; then
+if [[ -z "$VERSION" || "$VERSION" == "--dev" || "$VERSION" == "--all" ]]; then
   if [[ -z "$VERSION" ]]; then
     VERSION=$(python3 -c "from src.copaw.__version__ import __version__; print(__version__)" 2>/dev/null || echo "0.0.0")
   fi
@@ -44,7 +48,11 @@ APP_NAME="CoPaw"
 DMG_NAME="${APP_NAME}-${VERSION}"
 MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-10.15}"
 
-echo "[build_dmg] Version: $VERSION${QUICK:+ (quick: Dev app only)}"
+_mode=""
+[[ "$QUICK" == "true" ]] && _mode=" (quick: Dev only)"
+[[ "$BUILD_ALL" == "true" ]] && _mode=" (release + dev)"
+[[ "$BUILD_DEV" == "true" && "$BUILD_ALL" != "true" && "$QUICK" != "true" ]] && _mode=" (Dev only)"
+echo "[build_dmg] Version: $VERSION$_mode"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "[build_dmg] ERROR: This script must run on macOS." >&2
@@ -83,8 +91,8 @@ fi
 
 export MACOSX_DEPLOYMENT_TARGET
 
-# Quick mode: skip release build and go straight to Dev.
-if [[ "$QUICK" != "true" ]]; then
+# Build release app (skip when --dev only or --quick).
+if [[ "$QUICK" != "true" ]] && { [[ "$BUILD_ALL" == "true" ]] || [[ "$BUILD_DEV" != "true" ]]; }; then
   rm -rf "$REPO_ROOT/build" "$DIST_DIR/$APP_NAME"
   PYINSTALLER_OUT="$DIST_DIR/$APP_NAME"
 

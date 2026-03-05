@@ -6,7 +6,7 @@ Run from **repo root**.
 
 - **Shared:** `scripts/pack/` — PyInstaller deps helper (`pyi_project_deps.py`) and desktop launchers (`gui_launcher.py`, `dev_gui_launcher.py`) used by macOS and Windows builds.
 - **macOS:** `scripts/pack/macos/` — build `.app` and DMG. See [scripts/pack/macos/README.md](pack/macos/README.md).
-  `bash scripts/pack/macos/build_dmg.sh [VERSION] [--dev]`
+  `bash scripts/pack/macos/build_dmg.sh [VERSION] [--dev|--all]`
 - **Windows:** `scripts/pack/windows/` — placeholder for future Windows build (exe/installer).
 
 ## Build wheel (with latest console)

@@ -58,9 +58,9 @@ jobs:
           VERSION_ARG: ${{ github.event.release.tag_name || inputs.version }}
         run: |
           if [[ -n "$VERSION_ARG" ]]; then
-            bash scripts/pack/macos/build_dmg.sh "$VERSION_ARG" --dev
+            bash scripts/pack/macos/build_dmg.sh "$VERSION_ARG" --all
           else
-            bash scripts/pack/macos/build_dmg.sh --dev
+            bash scripts/pack/macos/build_dmg.sh --all
           fi
 
       - name: Ad-hoc sign apps and recreate DMGs (macOS compatibility)
