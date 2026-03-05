@@ -2,7 +2,6 @@
 # PyInstaller spec for CoPaw macOS .app **Dev** variant (console=True for logs).
 # Run from repo root: pyinstaller scripts/pack/macos/copaw_dev.spec
 
-import subprocess
 import sys
 from pathlib import Path
 
@@ -13,20 +12,10 @@ _SPEC_DIR = REPO_ROOT / "scripts" / "pack" / "macos"
 _PACK_DIR = REPO_ROOT / "scripts" / "pack"
 sys.path.insert(0, str(_PACK_DIR))
 
-# Same one-shot discovery as copaw.spec (app import chain -> hiddenimports).
-_DISCOVERED_FILE = _PACK_DIR / "discovered_imports.txt"
-try:
-    subprocess.run(
-        [sys.executable, str(REPO_ROOT / "scripts" / "pack" / "discover_runtime_imports.py"),
-         "--output", str(_DISCOVERED_FILE)],
-        check=True, cwd=str(REPO_ROOT), capture_output=True, timeout=120,
-    )
-    _discovered_hidden = _DISCOVERED_FILE.read_text(encoding="utf-8").strip().split("\n")
-    _discovered_hidden = [m for m in _discovered_hidden if m]
-except Exception:
-    _discovered_hidden = []
-
-from pyi_project_deps import get_collect_packages_from_installed
+from pyi_project_deps import (
+    get_collect_packages_from_installed,
+    get_pathex_extensions,
+)
 
 CONSOLE_STATIC = REPO_ROOT / "src" / "copaw" / "console"
 MD_FILES_SRC = REPO_ROOT / "src" / "copaw" / "agents" / "md_files"
@@ -47,12 +36,19 @@ _tokenizer_datas = (
     [(str(TOKENIZER_SRC), "copaw/tokenizer")] if TOKENIZER_SRC.is_dir() else []
 )
 
-# Collect all installed packages (after pip install -e ".[full]") so we don't
-# miss transitive deps.
+# Collect only real packages to avoid PyInstaller "skipping ... as it is not a
+# package" warnings for single-file modules.
 _dep_datas = []
 _dep_binaries = []
 _dep_hidden = []
 for _pkg in get_collect_packages_from_installed():
+    try:
+        _mod = __import__(_pkg)
+        if not getattr(_mod, "__path__", None):
+            _dep_hidden.append(_pkg)
+            continue
+    except Exception:
+        pass
     try:
         _d, _b, _h = collect_all(_pkg)
         _dep_datas += _d or []
@@ -63,7 +59,6 @@ for _pkg in get_collect_packages_from_installed():
 
 _extra_hidden = [
     "webview",
-    "pyobjc",
     "uvicorn.logging",
     "uvicorn.loops",
     "uvicorn.loops.auto",
@@ -74,17 +69,30 @@ _extra_hidden = [
     "uvicorn.protocols.websockets.auto",
     "uvicorn.lifespan",
     "uvicorn.lifespan.on",
+    "fastapi.staticfiles",
+    "starlette.staticfiles",
+    "pydantic_core",
+    "httpx",
+    "ollama",
+    "dingtalk_stream",
+    "lark_oapi",
 ]
+try:
+    __import__("pyobjc")
+    _extra_hidden.append("pyobjc")
+except Exception:
+    pass
 
+_BASE_PATHEX = [str(REPO_ROOT), str(REPO_ROOT / "src"), str(_PACK_DIR)]
 a = Analysis(
     [str(_DEV_LAUNCHER)],
-    pathex=[str(REPO_ROOT), str(REPO_ROOT / "src"), str(_PACK_DIR)],
+    pathex=_BASE_PATHEX + get_pathex_extensions(),
     binaries=_dep_binaries,
     datas=(
         _console_datas + _md_datas + _skills_datas + _tokenizer_datas + _dep_datas
     ),
     hiddenimports=(
-        collect_submodules("copaw") + _dep_hidden + _extra_hidden + _discovered_hidden
+        collect_submodules("copaw") + _dep_hidden + _extra_hidden
     ),
     hookspath=[],
     hooksconfig={},
