@@ -1,0 +1,2 @@
+# Optional deps for desktop pack (Nuitka, etc.). CI may skip if missing.
+ordered-set

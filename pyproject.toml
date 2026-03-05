@@ -69,6 +69,9 @@ mlx = [
 ollama = [
     "ollama>=0.6.1",
 ]
+desktop = [
+    "pywebview>=5.0",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
