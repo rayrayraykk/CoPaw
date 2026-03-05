@@ -31,7 +31,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: "3.11"
 
       - name: Install librsvg (for correct app icon rendering)
         run: brew install librsvg
@@ -68,7 +68,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Dirs with a period (e.g. python3.10, *.dist-info) are treated as bundles by
+          # Dirs with a period (e.g. python3.11, *.dist-info) are treated as bundles by
           # codesign --deep. Rename to no-dot name and symlink back so runtime finds them.
           fix_dotted_dirs_for_codesign() {
             local internal="$1"

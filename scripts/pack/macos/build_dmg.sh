@@ -6,7 +6,7 @@
 # --all    Build both release (CoPaw.app) and dev (CoPaw-Dev.app) and their DMGs.
 # --quick  Fast iteration: only CoPaw-Dev.app, no console rebuild, no DMG.
 #
-# Prerequisites: macOS, Node.js, Python 3.10+, pip install pyinstaller
+# Prerequisites: macOS, Node.js, Python 3.11 (preferred) or 3.10+, pip
 # Default (no flag): dist/CoPaw.app, dist/CoPaw-<version>.dmg
 # With --dev: dist/CoPaw-Dev.app, dist/CoPaw-Dev-<version>.dmg only
 # With --all: both release and dev apps and DMGs
@@ -35,11 +35,6 @@ done
 
 VERSION="${ARGS[0]:-}"
 VERSION="${VERSION#v}"
-if [[ -z "$VERSION" || "$VERSION" == "--dev" || "$VERSION" == "--all" ]]; then
-  if [[ -z "$VERSION" ]]; then
-    VERSION=$(python3 -c "from src.copaw.__version__ import __version__; print(__version__)" 2>/dev/null || echo "0.0.0")
-  fi
-fi
 
 CONSOLE_DIR="$REPO_ROOT/console"
 CONSOLE_DEST="$REPO_ROOT/src/copaw/console"
@@ -47,12 +42,6 @@ DIST_DIR="$REPO_ROOT/dist"
 APP_NAME="CoPaw"
 DMG_NAME="${APP_NAME}-${VERSION}"
 MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-10.15}"
-
-_mode=""
-[[ "$QUICK" == "true" ]] && _mode=" (quick: Dev only)"
-[[ "$BUILD_ALL" == "true" ]] && _mode=" (release + dev)"
-[[ "$BUILD_DEV" == "true" && "$BUILD_ALL" != "true" && "$QUICK" != "true" ]] && _mode=" (Dev only)"
-echo "[build_dmg] Version: $VERSION$_mode"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "[build_dmg] ERROR: This script must run on macOS." >&2
@@ -77,17 +66,41 @@ else
   echo "[build_dmg] Quick mode: using existing console (no npm build)."
 fi
 
-if [[ -d "$REPO_ROOT/.venv" ]]; then
-  PYTHON="$REPO_ROOT/.venv/bin/python"
+# Use a dedicated Python 3.11 venv for packing so we install [full] and collect
+# all deps in one env. Fall back to .venv or python3 if python3.11 not found.
+PACK_VENV="$REPO_ROOT/.venv-pack"
+if command -v python3.11 &>/dev/null; then
+  if [[ ! -d "$PACK_VENV" ]] || [[ ! -x "$PACK_VENV/bin/python" ]]; then
+    echo "[build_dmg] Creating pack venv with Python 3.11..."
+    rm -rf "$PACK_VENV"
+    python3.11 -m venv "$PACK_VENV"
+  fi
+  PYTHON="$PACK_VENV/bin/python"
 else
-  PYTHON="${PYTHON:-python3}"
+  if [[ -d "$REPO_ROOT/.venv" ]]; then
+    PYTHON="$REPO_ROOT/.venv/bin/python"
+  else
+    PYTHON="${PYTHON:-python3}"
+  fi
 fi
+echo "[build_dmg] Using: $PYTHON ($("$PYTHON" -c "import sys; print(sys.version.split()[0])" 2>/dev/null || true))"
 if ! "$PYTHON" -m pip --version &>/dev/null; then
   echo "[build_dmg] Bootstrapping pip..."
   "$PYTHON" -m ensurepip --upgrade
 fi
 "$PYTHON" -m pip install --quiet -e ".[full]"
 "$PYTHON" -m pip install --quiet pyinstaller pywebview
+
+if [[ -z "$VERSION" || "$VERSION" == "--dev" || "$VERSION" == "--all" ]]; then
+  if [[ -z "$VERSION" ]]; then
+    VERSION=$("$PYTHON" -c "from src.copaw.__version__ import __version__; print(__version__)" 2>/dev/null || echo "0.0.0")
+  fi
+fi
+_mode=""
+[[ "$QUICK" == "true" ]] && _mode=" (quick: Dev only)"
+[[ "$BUILD_ALL" == "true" ]] && _mode=" (release + dev)"
+[[ "$BUILD_DEV" == "true" && "$BUILD_ALL" != "true" && "$QUICK" != "true" ]] && _mode=" (Dev only)"
+echo "[build_dmg] Version: $VERSION$_mode"
 
 export MACOSX_DEPLOYMENT_TARGET
 

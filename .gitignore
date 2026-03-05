@@ -73,6 +73,7 @@ Desktop.ini
 uv.lock
 venv/
 .venv/
+.venv-pack/
 providers.json
 
 # Logs

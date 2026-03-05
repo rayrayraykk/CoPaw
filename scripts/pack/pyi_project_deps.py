@@ -13,11 +13,12 @@ in known groups (see get_packages_from_entry_point_groups).
 """
 from __future__ import annotations
 
+import re
 import site
 import sys
 from pathlib import Path
 
-from importlib.metadata import distributions, entry_points
+from importlib.metadata import distribution, distributions, entry_points
 
 
 def get_pathex_extensions() -> list[str]:
@@ -66,6 +67,7 @@ PYPI_TO_IMPORT = {
     "lark-oapi": "lark_oapi",
     "python-telegram-bot": "telegram",
     "reme-ai": "reme",
+    "reme_ai": "reme",
     "llama-cpp-python": "llama_cpp",
     "mlx-lm": "mlx_lm",
     "email-validator": "email_validator",
@@ -123,16 +125,51 @@ def get_packages_from_entry_point_groups(
     return sorted(out)
 
 
+def get_pyproject_dep_import_names() -> list[str]:
+    """
+    Return import names of dependencies from pyproject (Requires-Dist of copaw).
+    Ensures pyproject.toml deps are always in the bundle list even if not yet
+    installed or missed by distributions(). Call from spec so base + optional
+    deps (when installed with pip install -e ".[full]") are bundled.
+    """
+    try:
+        dist = distribution("copaw")
+        reqs = dist.metadata.get_all("Requires-Dist") or []
+    except Exception:
+        return []
+    seen: set[str] = set()
+    out: list[str] = []
+    for r in reqs:
+        # Strip version: "reme-ai==0.3.0.1" or "apscheduler>=3.11.2,<4" -> name
+        name = re.split(r"\[|==|>=|<=|!=|~=|<|>|,|\s", r.strip(), maxsplit=1)[
+            0
+        ]
+        name = name.strip().lower()
+        if not name or name in EXCLUDE_FROM_BUNDLE:
+            continue
+        imp = _pypi_to_import(name)
+        if imp and imp != "copaw" and imp not in seen:
+            seen.add(imp)
+            out.append(imp)
+    return sorted(out)
+
+
 def get_collect_packages_from_installed() -> list[str]:
     """
     Return import names of all installed packages (for collect_all), excluding
     build tools and copaw. Call after `pip install -e ".[full]"` so direct and
     transitive deps are included. Also merges packages that provide entry
     points in ENTRY_POINT_GROUPS so runtime-only loads (e.g. OTEL propagators)
-    are not missed.
+    are not missed. Pyproject deps are always included first so they are never
+    skipped.
     """
+    # Pyproject deps first so reme etc. are always in the bundle list.
     seen: set[str] = set()
     out: list[str] = []
+    for imp in get_pyproject_dep_import_names():
+        if imp not in seen:
+            seen.add(imp)
+            out.append(imp)
     for dist in distributions():
         try:
             name = dist.metadata.get("Name")

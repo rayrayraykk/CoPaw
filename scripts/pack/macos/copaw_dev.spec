@@ -15,6 +15,7 @@ sys.path.insert(0, str(_PACK_DIR))
 from pyi_project_deps import (
     get_collect_packages_from_installed,
     get_pathex_extensions,
+    get_pyproject_dep_import_names,
 )
 
 CONSOLE_STATIC = REPO_ROOT / "src" / "copaw" / "console"
@@ -36,8 +37,10 @@ _tokenizer_datas = (
     [(str(TOKENIZER_SRC), "copaw/tokenizer")] if TOKENIZER_SRC.is_dir() else []
 )
 
-# Collect only real packages to avoid PyInstaller "skipping ... as it is not a
-# package" warnings for single-file modules.
+# Collect only real packages to avoid PyInstaller "skipping ... as not a
+# package" warnings. Pyproject deps (e.g. reme) always added as hidden if
+# import/collect fails.
+_pyproject_deps = set(get_pyproject_dep_import_names())
 _dep_datas = []
 _dep_binaries = []
 _dep_hidden = []
@@ -48,6 +51,8 @@ for _pkg in get_collect_packages_from_installed():
             _dep_hidden.append(_pkg)
             continue
     except Exception:
+        if _pkg in _pyproject_deps:
+            _dep_hidden.append(_pkg)
         pass
     try:
         _d, _b, _h = collect_all(_pkg)
@@ -55,10 +60,13 @@ for _pkg in get_collect_packages_from_installed():
         _dep_binaries += _b or []
         _dep_hidden.extend(_h or [])
     except Exception:
+        if _pkg in _pyproject_deps:
+            _dep_hidden.append(_pkg)
         pass
 
 _extra_hidden = [
     "webview",
+    "reme",
     "uvicorn.logging",
     "uvicorn.loops",
     "uvicorn.loops.auto",
