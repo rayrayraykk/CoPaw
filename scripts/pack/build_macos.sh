@@ -17,6 +17,7 @@ python -m nuitka \
   --output-filename="$APP_NAME" \
   --include-package=copaw \
   --include-package-data=copaw \
+  --nofollow-import-to=transformers \
   --assume-yes-for-downloads \
   "$ENTRY"
 

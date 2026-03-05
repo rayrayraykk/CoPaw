@@ -72,6 +72,7 @@ jobs:
             --output-filename=CoPaw \
             --include-package=copaw \
             --include-package-data=copaw \
+            --nofollow-import-to=transformers \
             --assume-yes-for-downloads \
             "${{ env.COPAW_DESKTOP_ENTRY }}"
           ls -la dist/
@@ -171,6 +172,7 @@ jobs:
             --output-filename=CoPaw `
             --include-package=copaw `
             --include-package-data=copaw `
+            --nofollow-import-to=transformers `
             --assume-yes-for-downloads `
             "$env:COPAW_DESKTOP_ENTRY"
           dir dist
