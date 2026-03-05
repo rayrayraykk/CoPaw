@@ -1,5 +1,5 @@
 # Build desktop app: macOS .app -> DMG (optional sign/notarize), Windows onedir -> Inno Setup.
-# One workflow, two jobs. macOS: 14 & 15 only. Artifacts + optional Release upload.
+# Triggers: on release published, or manually with version input. Artifacts named by version.
 name: Desktop Build and Release
 
 on:
@@ -7,8 +7,12 @@ on:
     types: [published]
   workflow_dispatch:
     inputs:
+      version:
+        description: "Version for artifacts and release (e.g. 1.2.3 or v1.2.3)"
+        required: true
+        type: string
       upload_release:
-        description: "Upload artifacts to Release (only when release exists)"
+        description: "Upload DMG and Setup.exe to GitHub Release with this version"
         required: false
         type: boolean
         default: false
@@ -16,6 +20,8 @@ on:
 env:
   COPAW_DESKTOP_ENTRY: scripts/pack/copaw_desktop_main.py
   APP_NAME: CoPaw
+  # Release event: use tag_name; manual: use inputs.version
+  VERSION: ${{ github.event.release.tag_name || github.event.inputs.version }}
 
 jobs:
   build-macos:
@@ -77,7 +83,7 @@ jobs:
             --window-size 600 400 \
             --icon "${{ env.APP_NAME }}.app" 150 190 \
             --app-drop-link 450 190 \
-            dist/CoPaw-${{ github.run_number }}.dmg dmg_src/
+            dist/CoPaw-${{ env.VERSION }}.dmg dmg_src/
 
       - name: Notarize and staple (optional)
         if: ${{ secrets.APPLE_APPLE_ID != '' && secrets.APPLE_APP_PASSWORD != '' }}
@@ -86,21 +92,23 @@ jobs:
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          xcrun notarytool submit "dist/CoPaw-${{ github.run_number }}.dmg" \
+          xcrun notarytool submit "dist/CoPaw-${{ env.VERSION }}.dmg" \
             --apple-id "$APPLE_APPLE_ID" \
             --password "$APPLE_APP_PASSWORD" \
             --team-id "$APPLE_TEAM_ID" \
             --wait
-          xcrun stapler staple "dist/CoPaw-${{ github.run_number }}.dmg"
+          xcrun stapler staple "dist/CoPaw-${{ env.VERSION }}.dmg"
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
         with:
           name: CoPaw-macOS
-          path: dist/CoPaw-${{ github.run_number }}.dmg
+          path: dist/CoPaw-${{ env.VERSION }}.dmg
 
   build-windows:
     runs-on: windows-latest
+    env:
+      VERSION: ${{ env.VERSION }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -138,18 +146,18 @@ jobs:
 
       - name: Create Setup.exe with Inno Setup
         run: |
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DRunNumber=$env:GITHUB_RUN_NUMBER scripts/pack/CoPaw.iss
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DRunNumber=$env:VERSION scripts/pack/CoPaw.iss
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
           name: CoPaw-Windows
-          path: dist/CoPaw-Setup-${{ github.run_number }}.exe
+          path: dist/CoPaw-Setup-${{ env.VERSION }}.exe
 
   release:
     needs: [build-macos, build-windows]
     runs-on: ubuntu-latest
-    if: github.event_name == 'release'
+    if: github.event_name == 'release' || github.event.inputs.upload_release == 'true'
     steps:
       - name: Download macOS artifact
         uses: actions/download-artifact@v4
@@ -165,5 +173,6 @@ jobs:
           files: |
             CoPaw-macOS/*.dmg
             CoPaw-Windows/*.exe
-          tag_name: ${{ github.event.release.tag_name }}
+          tag_name: ${{ env.VERSION }}
+          name: CoPaw ${{ env.VERSION }}
           fail_unchanged: false
