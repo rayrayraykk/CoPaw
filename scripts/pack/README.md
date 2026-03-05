@@ -21,7 +21,7 @@ conda activate CoPaw
 ./scripts/pack/build_macos.sh --dmg
 ```
 
-The script installs `.[desktop]`, `nuitka`, `ordered-set` if needed, then runs Nuitka. For DMG it clones [create-dmg](https://github.com/create-dmg/create-dmg) once into `create_dmg_repo/`.
+The script installs `.[full]` (all optional runtime deps except dev), `nuitka`, `ordered-set` if needed, then runs Nuitka. For DMG it clones [create-dmg](https://github.com/create-dmg/create-dmg) once into `create_dmg_repo/`.
 
 Run the app:
 
@@ -36,7 +36,7 @@ Packaged app data dir: `~/Library/Application Support/CoPaw` (logs: `copaw_gui.l
 From the **repo root** (PowerShell, with Python 3.12 and Inno Setup installed):
 
 ```bash
-pip install -e ".[desktop]" nuitka ordered-set
+pip install -e ".[full]" nuitka ordered-set
 python -m nuitka --standalone --output-dir=dist --output-filename=CoPaw ^
   --include-package=copaw --include-package-data=copaw ^
   --assume-yes-for-downloads scripts/pack/copaw_desktop_main.py

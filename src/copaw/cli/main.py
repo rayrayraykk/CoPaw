@@ -91,6 +91,11 @@ from .uninstall_cmd import uninstall_cmd  # noqa: E402
 
 _record(".uninstall_cmd", time.perf_counter() - _t)
 
+_t = time.perf_counter()
+from .gui_cmd import gui_cmd  # noqa: E402
+
+_record(".gui_cmd", time.perf_counter() - _t)
+
 _total = time.perf_counter() - _t0_main
 _init_timings.append(("(total imports)", _total))
 logger.debug("%.3fs (total imports)", _total)
@@ -130,6 +135,7 @@ def cli(ctx: click.Context, host: str | None, port: int | None) -> None:
 
 
 cli.add_command(app_cmd)
+cli.add_command(gui_cmd)
 cli.add_command(channels_group)
 cli.add_command(daemon_group)
 cli.add_command(chats_group)

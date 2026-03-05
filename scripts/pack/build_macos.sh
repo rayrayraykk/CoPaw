@@ -7,7 +7,7 @@ ENTRY=scripts/pack/copaw_desktop_main.py
 OUT=dist
 APP_NAME=CoPaw
 
-pip install -e ".[desktop]" nuitka ordered-set -q
+pip install -e ".[full]" nuitka ordered-set -q
 echo "Building .app with Nuitka..."
 python -m nuitka \
   --standalone \

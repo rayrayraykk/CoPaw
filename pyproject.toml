@@ -72,6 +72,14 @@ ollama = [
 desktop = [
     "pywebview>=5.0",
 ]
+# All optional runtime deps (no dev). Use for desktop pack: pip install ".[full]"
+full = [
+    "huggingface_hub>=0.20.0",
+    "llama-cpp-python>=0.3.0",
+    "mlx-lm>=0.10.0",
+    "ollama>=0.6.1",
+    "pywebview>=5.0",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
