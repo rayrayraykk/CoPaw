@@ -24,6 +24,9 @@ website/.vite/
 website/tsconfig.tsbuildinfo
 website/dist/
 
+# PyInstaller discover output (build-time generated)
+scripts/pack/discovered_imports.txt
+
 # misc
 .env
 .env.*

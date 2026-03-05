@@ -4,10 +4,16 @@ Shared PyInstaller helper: list installed packages to collect (macOS/Windows).
 
 Use get_collect_packages_from_installed() after `pip install -e ".[full]"` so
 direct and transitive deps are bundled; no manual list. Stdlib only.
+
+Root cause of missed packages: some deps are only loaded at runtime via
+entry points (e.g. opentelemetry propagators: tracecontext, baggage). Those
+packages are not imported statically, so PyInstaller never sees them. We
+supplement by also collecting any distribution that provides an entry point
+in known groups (see get_packages_from_entry_point_groups).
 """
 from __future__ import annotations
 
-from importlib.metadata import distributions
+from importlib.metadata import distributions, entry_points
 
 
 # PyPI dist name -> import name (where they differ). Rest use - -> _.
@@ -31,20 +37,63 @@ EXCLUDE_FROM_BUNDLE = frozenset(
     {"pip", "setuptools", "wheel", "pyinstaller", "copaw"},
 )
 
+# Entry point groups used at runtime by our deps; packages that register here
+# are often loaded only via entry_points().load(), so static analysis misses them.
+ENTRY_POINT_GROUPS = ("opentelemetry_propagator",)
+
 
 def _pypi_to_import(name: str) -> str:
     n = name.strip().lower()
     return PYPI_TO_IMPORT.get(n, n.replace("-", "_"))
 
 
+def get_packages_from_entry_point_groups(
+    groups: tuple[str, ...] = ENTRY_POINT_GROUPS,
+) -> list[str]:
+    """
+    Return import names of distributions that provide any entry point in
+    the given groups. Use this to collect packages that are only loaded at
+    runtime via entry points (e.g. opentelemetry-propagator-tracecontext).
+    Requires Python 3.10+ for EntryPoint.dist.
+    """
+    out: list[str] = []
+    seen: set[str] = set()
+    for group in groups:
+        try:
+            eps = entry_points(group=group)
+        except Exception:
+            continue
+        for ep in eps:
+            try:
+                dist = getattr(ep, "dist", None)
+                if dist is None:
+                    continue
+                name = dist.metadata.get("Name")
+                if not name:
+                    continue
+                name = name.strip().lower()
+                if name in EXCLUDE_FROM_BUNDLE:
+                    continue
+                imp = _pypi_to_import(name)
+                if not imp or imp == "copaw" or imp in seen:
+                    continue
+                seen.add(imp)
+                out.append(imp)
+            except Exception:
+                continue
+    return sorted(out)
+
+
 def get_collect_packages_from_installed() -> list[str]:
     """
     Return import names of all installed packages (for collect_all), excluding
     build tools and copaw. Call after `pip install -e ".[full]"` so direct and
-    transitive deps are included.
+    transitive deps are included. Also merges packages that provide entry
+    points in ENTRY_POINT_GROUPS so runtime-only loads (e.g. OTEL propagators)
+    are not missed.
     """
-    out: list[str] = []
     seen: set[str] = set()
+    out: list[str] = []
     for dist in distributions():
         try:
             name = dist.metadata.get("Name")
@@ -60,4 +109,8 @@ def get_collect_packages_from_installed() -> list[str]:
             out.append(imp)
         except Exception:
             continue
+    for imp in get_packages_from_entry_point_groups():
+        if imp not in seen:
+            seen.add(imp)
+            out.append(imp)
     return sorted(out)

@@ -1,6 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 # PyInstaller spec for CoPaw macOS .app. Run from repo root: pyinstaller scripts/macos/copaw.spec
 
+import subprocess
 import sys
 from pathlib import Path
 
@@ -10,6 +11,21 @@ REPO_ROOT = Path.cwd().resolve()
 _SPEC_DIR = REPO_ROOT / "scripts" / "macos"
 _PACK_DIR = REPO_ROOT / "scripts" / "pack"
 sys.path.insert(0, str(_PACK_DIR))
+
+# One-shot discovery: run app import chain, record all loaded modules, use as
+# hiddenimports so we never miss entry-point or lazy-loaded deps.
+_DISCOVERED_FILE = _PACK_DIR / "discovered_imports.txt"
+try:
+    subprocess.run(
+        [sys.executable, str(REPO_ROOT / "scripts" / "pack" / "discover_runtime_imports.py"),
+         "--output", str(_DISCOVERED_FILE)],
+        check=True, cwd=str(REPO_ROOT), capture_output=True, timeout=120,
+    )
+    _discovered_hidden = _DISCOVERED_FILE.read_text(encoding="utf-8").strip().split("\n")
+    _discovered_hidden = [m for m in _discovered_hidden if m]
+except Exception:
+    _discovered_hidden = []
+
 from pyi_project_deps import get_collect_packages_from_installed
 
 CONSOLE_STATIC = REPO_ROOT / "src" / "copaw" / "console"
@@ -69,7 +85,7 @@ a = Analysis(
         _console_datas + _md_datas + _skills_datas + _tokenizer_datas + _dep_datas
     ),
     hiddenimports=(
-        collect_submodules("copaw") + _dep_hidden + _extra_hidden
+        collect_submodules("copaw") + _dep_hidden + _extra_hidden + _discovered_hidden
     ),
     hookspath=[],
     hooksconfig={},

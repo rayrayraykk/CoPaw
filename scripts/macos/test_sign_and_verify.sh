@@ -43,6 +43,7 @@ echo "[test_sign] Step 2: Re-apply ad-hoc signing (same as GitHub CI)..."
 # Clean before signing (never modify after signing) — same as CI
 find "$APP_DIR" -type d -name "*.dist-info" -print0 | xargs -0 rm -rf 2>/dev/null || true
 find "$APP_DIR" -type f -name "py.typed" -delete 2>/dev/null || true
+find "$APP_DIR" -type f -name ".hash" -delete 2>/dev/null || true
 mkdir -p "$APP_DIR/Contents/Resources"
 
 # Fix dirs with a period so codesign --deep does not fail (same as CI)

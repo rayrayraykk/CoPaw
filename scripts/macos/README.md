@@ -12,7 +12,7 @@ Output: `dist/CoPaw.app`, `dist/CoPaw-<version>.dmg`.
 With `--dev`: also `dist/CoPaw-Dev.app`, `dist/CoPaw-Dev-<version>.dmg`.
 With `--quick`: only `dist/CoPaw-Dev.app`; uses existing `src/copaw/console` (run a full build once first if needed).
 
-**Dependencies:** The spec collects all currently installed packages via `scripts/pack/pyi_project_deps.get_collect_packages_from_installed()`. Run `pip install -e ".[full]"` before building. Launchers live in `scripts/pack/` (shared with future Windows). The previous runtime hook for opentelemetry/chromadb was removed; if you see chromadb or opentelemetry errors in the frozen app, it may need to be restored.
+**Dependencies:** The spec (1) collects all installed packages via `get_collect_packages_from_installed()` (including entry-point groups like `opentelemetry_propagator`), and (2) runs `scripts/pack/discover_runtime_imports.py` before Analysis: it pre-loads those entry points and imports the app chain, then dumps `sys.modules` into `discovered_imports.txt` and uses it as hiddenimports. So the frozen app gets every module that would load at runtime (no more "run bundle → see missing import → add by hand"). Run `pip install -e ".[full]"` before building. Launchers live in `scripts/pack/` (shared with future Windows).
 
 **Bundle layout:** Only the launcher script lives in `Contents/MacOS`; the PyInstaller runtime (executable + `_internal`) is under `Contents/Frameworks` to avoid codesign nesting and to match macOS expectations (MacOS = main executable only).
 

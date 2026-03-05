@@ -100,6 +100,7 @@ jobs:
             [[ -d "$APP_DIR" ]] || return 0
 
             find "$APP_DIR" -type f -name "py.typed" -delete || true
+            find "$APP_DIR" -type f -name ".hash" -delete || true
             mkdir -p "$APP_DIR/Contents/Resources"
 
             local internal="$APP_DIR/Contents/Frameworks/_internal"
@@ -149,12 +150,20 @@ jobs:
         run: |
           gh release upload "${{ github.event.release.tag_name }}" dist/*.dmg --clobber
 
+      - name: Prepare release DMG for artifact (manual run)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          mkdir -p dist_release_artifact
+          for f in dist/CoPaw-*.dmg; do
+            [[ -f "$f" ]] && [[ "$f" != *"/CoPaw-Dev-"* ]] && cp "$f" dist_release_artifact/
+          done
+
       - name: Upload DMG(s) separately (manual run)
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: CoPaw-macOS-DMG-release
-          path: dist/CoPaw-*.dmg
+          path: dist_release_artifact/
           if-no-files-found: ignore
 
       - name: Upload Dev DMG separately (manual run)
