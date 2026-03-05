@@ -21,6 +21,7 @@ from pyi_project_deps import (
     get_metadata_dist_names,
     get_pathex_extensions,
     get_pyproject_dep_import_names,
+    SKIP_COLLECT_ALL,
 )
 
 CONSOLE_STATIC = REPO_ROOT / "src" / "copaw" / "console"
@@ -50,6 +51,9 @@ _dep_datas = []
 _dep_binaries = []
 _dep_hidden = []
 for _pkg in get_collect_packages_from_installed():
+    if _pkg in SKIP_COLLECT_ALL:
+        _dep_hidden.append(_pkg)
+        continue
     try:
         _mod = __import__(_pkg)
         if not getattr(_mod, "__path__", None):

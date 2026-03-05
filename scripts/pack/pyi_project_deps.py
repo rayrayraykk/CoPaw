@@ -18,7 +18,12 @@ import site
 import sys
 from pathlib import Path
 
-from importlib.metadata import distribution, distributions, entry_points
+from importlib.metadata import (
+    distribution,
+    distributions,
+    entry_points,
+    packages_distributions,
+)
 
 
 def get_pathex_extensions() -> list[str]:
@@ -81,10 +86,47 @@ EXCLUDE_FROM_BUNDLE = frozenset(
 # are often loaded only via entry_points().load(), so static analysis misses them.
 ENTRY_POINT_GROUPS = ("opentelemetry_propagator",)
 
+# Import names that are single modules or namespace-only; collect_all would
+# warn "not a package". Bundle as hiddenimports only (no collect_data/libs).
+SKIP_COLLECT_ALL = frozenset(
+    {
+        "a2a_sdk",
+        "ag_ui_protocol",
+        "aliyun_python_sdk_core",
+        "aliyun_python_sdk_kms",
+        "dnspython",
+        "google_api_core",
+        "google_auth",
+        "googleapis_common_protos",
+        "grpcio",
+        "humanfriendly",
+        "kombu",
+    },
+)
+
 
 def _pypi_to_import(name: str) -> str:
     n = name.strip().lower()
     return PYPI_TO_IMPORT.get(n, n.replace("-", "_"))
+
+
+def _dist_to_top_levels() -> dict[str, list[str]]:
+    """
+    Map each installed dist name (lowercase) to its top-level import names.
+    Uses packages_distributions() so PyPI name vs import name is correct.
+    """
+    out: dict[str, list[str]] = {}
+    try:
+        for top_level, dists in packages_distributions().items():
+            for d in dists:
+                key = d.strip().lower()
+                if key not in out:
+                    out[key] = []
+                if top_level not in out[key]:
+                    out[key].append(top_level)
+    except Exception:
+        pass
+    return out
 
 
 def get_packages_from_entry_point_groups(
@@ -155,20 +197,21 @@ def get_pyproject_dep_import_names() -> list[str]:
 
 def get_collect_packages_from_installed() -> list[str]:
     """
-    Return import names of all installed packages (for collect_all), excluding
-    build tools and copaw. Call after `pip install -e ".[full]"` so direct and
-    transitive deps are included. Also merges packages that provide entry
-    points in ENTRY_POINT_GROUPS so runtime-only loads (e.g. OTEL propagators)
-    are not missed. Pyproject deps are always included first so they are never
-    skipped.
+    Return top-level import names of all installed packages (for collect_all),
+    excluding build tools and copaw. Uses packages_distributions() so PyPI
+    dist name vs import name is correct (e.g. google-api-core -> google).
+    Call after `pip install -e ".[full]"` so direct and transitive deps are
+    included. Entry points in ENTRY_POINT_GROUPS are merged for runtime loads.
     """
-    # Pyproject deps first so reme etc. are always in the bundle list.
+    dist_to_top = _dist_to_top_levels()
     seen: set[str] = set()
     out: list[str] = []
+
     for imp in get_pyproject_dep_import_names():
         if imp not in seen:
             seen.add(imp)
             out.append(imp)
+
     for dist in distributions():
         try:
             name = dist.metadata.get("Name")
@@ -177,13 +220,16 @@ def get_collect_packages_from_installed() -> list[str]:
             name = name.strip().lower()
             if name in EXCLUDE_FROM_BUNDLE:
                 continue
-            imp = _pypi_to_import(name)
-            if not imp or imp == "copaw" or imp in seen:
-                continue
-            seen.add(imp)
-            out.append(imp)
+            # Prefer real top-level names from metadata; fallback to - -> _.
+            tops = dist_to_top.get(name, [_pypi_to_import(name)])
+            for imp in tops:
+                if not imp or imp == "copaw" or imp in seen:
+                    continue
+                seen.add(imp)
+                out.append(imp)
         except Exception:
             continue
+
     for imp in get_packages_from_entry_point_groups():
         if imp not in seen:
             seen.add(imp)

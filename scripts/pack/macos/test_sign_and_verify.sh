@@ -4,6 +4,8 @@
 # Run from repo root: bash scripts/pack/macos/test_sign_and_verify.sh [CoPaw-Dev.app]
 # Usage: build_dmg.sh --quick first, then run this on dist/CoPaw-Dev.app
 #
+#   --quick   Skip strip step; only re-sign and verify (faster, for quick checks).
+#
 # Note: Ad-hoc signed apps pass codesign --verify (and --strict when using --deep).
 # spctl -a -t open may still reject (unknown developer); users who see "damaged"
 # can run: xattr -cr /path/to/CoPaw.app
@@ -13,30 +15,37 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
-APP_PATH="${1:-dist/CoPaw-Dev.app}"
+QUICK=false
+APP_PATH=""
+for a in "$@"; do
+  if [[ "$a" == "--quick" ]]; then
+    QUICK=true
+  else
+    APP_PATH="$a"
+  fi
+done
+APP_PATH="${APP_PATH:-dist/CoPaw-Dev.app}"
 APP_DIR="$(cd "$(dirname "$APP_PATH")" && pwd)/$(basename "$APP_PATH")"
 
 if [[ ! -d "$APP_DIR" ]]; then
   echo "ERROR: App not found: $APP_DIR" >&2
-  echo "Usage: bash scripts/pack/macos/test_sign_and_verify.sh [path/to/App.app]" >&2
+  echo "Usage: bash scripts/pack/macos/test_sign_and_verify.sh [--quick] [path/to/App.app]" >&2
   exit 1
 fi
 
 echo "[test_sign] App: $APP_DIR"
-echo "[test_sign] Step 1: Strip all code signatures (clean state like CI runner)..."
-
-# Remove bundle-level _CodeSignature so we start clean
-rm -rf "$APP_DIR/Contents/_CodeSignature"
-
-# Remove signature from app bundle first (removes seal only)
-/usr/bin/codesign --remove-signature "$APP_DIR" 2>/dev/null || true
-
-# Remove signature from every Mach-O (order: sign was inner then app, so remove app then inner)
-while IFS= read -r -d '' f; do
-  if /usr/bin/file -b "$f" | /usr/bin/grep -q 'Mach-O'; then
-    /usr/bin/codesign --remove-signature "$f" 2>/dev/null || true
-  fi
-done < <(find "$APP_DIR" -type f -print0)
+if [[ "$QUICK" != "true" ]]; then
+  echo "[test_sign] Step 1: Strip all code signatures (clean state like CI runner)..."
+  rm -rf "$APP_DIR/Contents/_CodeSignature"
+  /usr/bin/codesign --remove-signature "$APP_DIR" 2>/dev/null || true
+  while IFS= read -r -d '' f; do
+    if /usr/bin/file -b "$f" | /usr/bin/grep -q 'Mach-O'; then
+      /usr/bin/codesign --remove-signature "$f" 2>/dev/null || true
+    fi
+  done < <(find "$APP_DIR" -type f -print0)
+else
+  echo "[test_sign] Step 1: skipped (--quick)"
+fi
 
 echo "[test_sign] Step 2: Re-apply ad-hoc signing (same as GitHub CI)..."
 
