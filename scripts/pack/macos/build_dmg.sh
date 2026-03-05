@@ -6,7 +6,7 @@
 # --all    Build both release (CoPaw.app) and dev (CoPaw-Dev.app) and their DMGs.
 # --quick  Fast iteration: only CoPaw-Dev.app, no console rebuild, no DMG.
 #
-# Prerequisites: macOS, Node.js, Python 3.11 (preferred) or 3.10+, pip
+# Prerequisites: macOS, Node.js, Python 3.10+, venv
 # Default (no flag): dist/CoPaw.app, dist/CoPaw-<version>.dmg
 # With --dev: dist/CoPaw-Dev.app, dist/CoPaw-Dev-<version>.dmg only
 # With --all: both release and dev apps and DMGs
@@ -66,22 +66,13 @@ else
   echo "[build_dmg] Quick mode: using existing console (no npm build)."
 fi
 
-# Use a dedicated Python 3.11 venv for packing so we install [full] and collect
-# all deps in one env. Fall back to .venv or python3 if python3.11 not found.
-PACK_VENV="$REPO_ROOT/.venv-pack"
-if command -v python3.11 &>/dev/null; then
-  if [[ ! -d "$PACK_VENV" ]] || [[ ! -x "$PACK_VENV/bin/python" ]]; then
-    echo "[build_dmg] Creating pack venv with Python 3.11..."
-    rm -rf "$PACK_VENV"
-    python3.11 -m venv "$PACK_VENV"
-  fi
-  PYTHON="$PACK_VENV/bin/python"
-else
-  if [[ -d "$REPO_ROOT/.venv" ]]; then
-    PYTHON="$REPO_ROOT/.venv/bin/python"
-  else
-    PYTHON="${PYTHON:-python3}"
-  fi
+# Use .venv if present (e.g. from CI); else create it for local packing.
+PYTHON="$REPO_ROOT/.venv/bin/python"
+if [[ ! -d "$REPO_ROOT/.venv" ]] || [[ ! -x "$PYTHON" ]]; then
+  echo "[build_dmg] Creating venv..."
+  rm -rf "$REPO_ROOT/.venv"
+  python3 -m venv "$REPO_ROOT/.venv"
+  PYTHON="$REPO_ROOT/.venv/bin/python"
 fi
 echo "[build_dmg] Using: $PYTHON ($("$PYTHON" -c "import sys; print(sys.version.split()[0])" 2>/dev/null || true))"
 if ! "$PYTHON" -m pip --version &>/dev/null; then
