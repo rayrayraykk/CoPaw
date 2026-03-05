@@ -69,21 +69,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Dirs with a period (e.g. python3.11, *.dist-info) are treated as bundles by
-          # codesign --deep. Rename to no-dot name and symlink back so runtime finds them.
+          # Only *.dist-info dirs are renamed (no dot) so codesign --deep does not treat as bundle.
+          # Do NOT rename python3.* — embedded runtime expects that path; renaming breaks encodings.
           fix_dotted_dirs_for_codesign() {
             local internal="$1"
             [[ -d "$internal" ]] || return 0
             local path name dir_renamed
-            for path in "$internal"/python3.* "$internal"/Python.framework; do
-              [[ -d "$path" ]] && ! [[ -L "$path" ]] || continue
-              name=$(basename "$path")
-              [[ "$name" != *.* ]] && continue
-              dir_renamed=$(dirname "$path")/${name//./}
-              [[ "$dir_renamed" != "$path" ]] && [[ ! -e "$dir_renamed" ]] || continue
-              mv "$path" "$dir_renamed"
-              ln -s "$(basename "$dir_renamed")" "$path"
-            done
             while IFS= read -r -d '' path; do
               [[ -d "$path" ]] && ! [[ -L "$path" ]] || continue
               name=$(basename "$path")

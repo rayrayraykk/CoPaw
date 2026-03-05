@@ -49,23 +49,23 @@ fi
 
 echo "[test_sign] Step 2: Re-apply ad-hoc signing (same as GitHub CI)..."
 
-# Clean before signing (never modify after signing) — same as CI
-find "$APP_DIR" -type d -name "*.dist-info" -print0 | xargs -0 rm -rf 2>/dev/null || true
+# Light clean only (do NOT remove .dist-info: needed for importlib.metadata at runtime).
 find "$APP_DIR" -type f -name "py.typed" -delete 2>/dev/null || true
 find "$APP_DIR" -type f -name ".hash" -delete 2>/dev/null || true
 mkdir -p "$APP_DIR/Contents/Resources"
 
-# Fix dirs with a period so codesign --deep does not fail (same as CI)
+# Fix only *.dist-info dirs (rename to no-dot) so codesign --deep does not treat as bundle.
+# Do NOT rename python3.* — the embedded runtime expects that path; renaming breaks encodings.
 internal="$APP_DIR/Contents/Frameworks/_internal"
 if [[ -d "$internal" ]]; then
-  for path in "$internal"/python3.* "$internal"/Python.framework; do
+  while IFS= read -r -d '' path; do
     [[ -d "$path" ]] && ! [[ -L "$path" ]] || continue
     name=$(basename "$path")
     [[ "$name" != *.* ]] && continue
     dir_renamed=$(dirname "$path")/${name//./}
     [[ "$dir_renamed" != "$path" ]] && [[ ! -e "$dir_renamed" ]] || continue
     mv "$path" "$dir_renamed" && ln -s "$(basename "$dir_renamed")" "$path"
-  done
+  done < <(find "$internal" -maxdepth 1 -type d -name "*.dist-info" -print0 2>/dev/null)
 fi
 
 # 1) Sign Mach-O files only (do not exit on single failure; log and continue)
