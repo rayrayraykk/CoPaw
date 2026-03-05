@@ -16,6 +16,7 @@ import platform
 from pathlib import Path
 from typing import Any
 
+from reme import ReMeFb
 from agentscope._utils._common import _save_base64_data
 from agentscope.agent import ReActAgent
 from agentscope.formatter import DashScopeChatFormatter
@@ -425,19 +426,6 @@ class TimestampedDashScopeChatFormatter(DashScopeChatFormatter):
         return _reformat_messages(formatted_msgs)
 
 
-# Try to import reme, log warning if it fails
-try:
-    from reme import ReMeFb
-
-    _REME_AVAILABLE = True
-except ImportError as err:
-    logger.warning("reme not found: %s", err)
-    _REME_AVAILABLE = False
-
-    class ReMeFb:  # type: ignore
-        """Placeholder when reme is not available."""
-
-
 class MemoryManager(ReMeFb):
     """Memory manager that extends ReMeFs functionality for CoPaw agents.
 
@@ -452,8 +440,6 @@ class MemoryManager(ReMeFb):
         **kwargs,
     ):
         """Initialize MemoryManager with ReMeFs configuration."""
-        if not _REME_AVAILABLE:
-            raise RuntimeError("reme package not installed.")
 
         # Get max_input_length from config
         config = load_config()
