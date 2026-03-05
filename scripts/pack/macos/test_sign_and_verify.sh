@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Test: strip all local signatures, re-apply ad-hoc signing (Mach-O + app with --deep),
 # then verify with codesign and spctl. Matches GitHub CI (see release-macos-dmg.yml).
-# Run from repo root: bash scripts/macos/test_sign_and_verify.sh [CoPaw-Dev.app]
+# Run from repo root: bash scripts/pack/macos/test_sign_and_verify.sh [CoPaw-Dev.app]
 # Usage: build_dmg.sh --quick first, then run this on dist/CoPaw-Dev.app
 #
 # Note: Ad-hoc signed apps pass codesign --verify (and --strict when using --deep).
@@ -18,7 +18,7 @@ APP_DIR="$(cd "$(dirname "$APP_PATH")" && pwd)/$(basename "$APP_PATH")"
 
 if [[ ! -d "$APP_DIR" ]]; then
   echo "ERROR: App not found: $APP_DIR" >&2
-  echo "Usage: bash scripts/macos/test_sign_and_verify.sh [path/to/App.app]" >&2
+  echo "Usage: bash scripts/pack/macos/test_sign_and_verify.sh [path/to/App.app]" >&2
   exit 1
 fi
 

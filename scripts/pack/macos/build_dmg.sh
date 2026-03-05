@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build CoPaw as a macOS .app and DMG for distribution.
-# Run from repo root: bash scripts/macos/build_dmg.sh [version] [--dev]
+# Run from repo root: bash scripts/pack/macos/build_dmg.sh [version] [--dev]
 #
 # --quick   Fast iteration: only build CoPaw-Dev.app (no console rebuild,
 #           no release app, no DMG). Uses existing src/copaw/console.
@@ -12,7 +12,7 @@
 
 set -e
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$REPO_ROOT"
 
 QUICK=false
@@ -91,7 +91,7 @@ if [[ "$QUICK" != "true" ]]; then
   # PyInstaller sometimes hangs after "Build complete" when building GUI (runw).
   # Wait for exe and runtime (base_library.zip or full _internal) then allow exit or kill.
   echo "[build_dmg] Running PyInstaller..."
-  "$PYTHON" -m PyInstaller --noconfirm --clean "scripts/macos/copaw.spec" &
+  "$PYTHON" -m PyInstaller --noconfirm --clean "scripts/pack/macos/copaw.spec" &
   PYPID=$!
   NEED_KILL=true
   for _ in $(seq 1 200); do
@@ -128,7 +128,7 @@ if [[ "$QUICK" != "true" ]]; then
 
   # App icon: SVG -> PNG -> iconset (sips) -> .icns (iconutil)
   # Inline .accent fill so rsvg-convert/qlmanage render blue correctly
-  ICON_SVG="$REPO_ROOT/scripts/macos/copaw-symbol.svg"
+  ICON_SVG="$REPO_ROOT/scripts/pack/macos/copaw-symbol.svg"
   ICON_TMP="$DIST_DIR/icon_build"
   if [[ -f "$ICON_SVG" ]]; then
     echo "[build_dmg] Building app icon from copaw-symbol.svg..."
@@ -238,7 +238,7 @@ DEV_APP_DIR="$DIST_DIR/${DEV_APP_NAME}.app"
 DEV_DMG_NAME="${DEV_APP_NAME}-${VERSION}"
 rm -rf "$REPO_ROOT/build" "$DEV_PYINSTALLER_OUT" "$DEV_APP_DIR"
 
-"$PYTHON" -m PyInstaller --noconfirm --clean "scripts/macos/copaw_dev.spec" &
+"$PYTHON" -m PyInstaller --noconfirm --clean "scripts/pack/macos/copaw_dev.spec" &
 PYPID=$!
 NEED_KILL=true
 for _ in $(seq 1 200); do
@@ -279,8 +279,8 @@ if [[ "$QUICK" != "true" ]] && [[ -n "${APP_DIR:-}" ]] && \
   cp "$APP_DIR/Contents/Resources/Icon.icns" "$_DEV_ICON"
   echo "[build_dmg] Dev icon: copied from release app."
 fi
-if [[ ! -f "$_DEV_ICON" ]] && [[ -f "$REPO_ROOT/scripts/macos/copaw-symbol.svg" ]]; then
-  ICON_SVG="$REPO_ROOT/scripts/macos/copaw-symbol.svg"
+if [[ ! -f "$_DEV_ICON" ]] && [[ -f "$REPO_ROOT/scripts/pack/macos/copaw-symbol.svg" ]]; then
+  ICON_SVG="$REPO_ROOT/scripts/pack/macos/copaw-symbol.svg"
   ICON_TMP="$DIST_DIR/icon_build_dev"
   rm -rf "$ICON_TMP"
   mkdir -p "$ICON_TMP"

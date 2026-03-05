@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 # PyInstaller spec for CoPaw macOS .app **Dev** variant (console=True for logs).
-# Run from repo root: pyinstaller scripts/macos/copaw_dev.spec
+# Run from repo root: pyinstaller scripts/pack/macos/copaw_dev.spec
 
 import subprocess
 import sys
@@ -9,7 +9,7 @@ from pathlib import Path
 from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 REPO_ROOT = Path.cwd().resolve()
-_SPEC_DIR = REPO_ROOT / "scripts" / "macos"
+_SPEC_DIR = REPO_ROOT / "scripts" / "pack" / "macos"
 _PACK_DIR = REPO_ROOT / "scripts" / "pack"
 sys.path.insert(0, str(_PACK_DIR))
 

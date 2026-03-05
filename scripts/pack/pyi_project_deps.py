@@ -13,7 +13,46 @@ in known groups (see get_packages_from_entry_point_groups).
 """
 from __future__ import annotations
 
+import site
+import sys
+from pathlib import Path
+
 from importlib.metadata import distributions, entry_points
+
+
+def get_pathex_extensions() -> list[str]:
+    """
+    Return extra paths for PyInstaller Analysis pathex so it can find all
+    installed modules (e.g. venv/lib/pythonX.Y/site-packages). Reduces
+    missing-module errors. Use like: pathex=base_pathex + get_pathex_extensions().
+    """
+    seen: set[str] = set()
+    out: list[str] = []
+    for p in getattr(site, "getsitepackages", lambda: [])():
+        p = Path(p)
+        if p.is_dir():
+            s = str(p.resolve())
+            if s not in seen:
+                seen.add(s)
+                out.append(s)
+    up = getattr(site, "getusersitepackages", lambda: None)()
+    if up:
+        p = Path(up)
+        if p.is_dir():
+            s = str(p.resolve())
+            if s not in seen:
+                seen.add(s)
+                out.append(s)
+    if not out:
+        for p in sys.path:
+            if "site-packages" in p or "dist-packages" in p:
+                p = Path(p)
+                if p.is_dir():
+                    s = str(p.resolve())
+                    if s not in seen:
+                        seen.add(s)
+                        out.append(s)
+    return out
 
 
 # PyPI dist name -> import name (where they differ). Rest use - -> _.
