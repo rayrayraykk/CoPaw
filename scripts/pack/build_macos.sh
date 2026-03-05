@@ -13,6 +13,7 @@ python -m nuitka \
   --standalone \
   --macos-create-app-bundle \
   --macos-app-mode=gui \
+  --macos-app-icon=scripts/pack/assets/icon.icns \
   --output-dir="$OUT" \
   --output-filename="$APP_NAME" \
   --include-package=copaw \

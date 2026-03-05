@@ -21,7 +21,7 @@ conda activate CoPaw
 ./scripts/pack/build_macos.sh --dmg
 ```
 
-The script installs `.[full]` (all optional runtime deps except dev), `nuitka`, `ordered-set` if needed, then runs Nuitka. For DMG it clones [create-dmg](https://github.com/create-dmg/create-dmg) once into `create_dmg_repo/`.
+The script installs `.[full]` (all optional runtime deps except dev), `nuitka`, `ordered-set` if needed, then runs Nuitka. The app icon is `scripts/pack/assets/icon.icns` (transparent rounded CoPaw symbol from `console/public/copaw-symbol.svg`). To regenerate it on macOS: `python scripts/pack/gen_icon_icns.py` (uses qlmanage + sips + iconutil). For DMG it clones [create-dmg](https://github.com/create-dmg/create-dmg) once into `create_dmg_repo/`.
 
 Run the app:
 

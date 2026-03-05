@@ -68,6 +68,7 @@ jobs:
             --standalone \
             --macos-create-app-bundle \
             --macos-app-mode=gui \
+            --macos-app-icon=scripts/pack/assets/icon.icns \
             --output-dir=dist \
             --output-filename=CoPaw \
             --include-package=copaw \
