@@ -1,5 +1,7 @@
-# Build desktop app: macOS .app -> DMG (optional sign/notarize), Windows onedir -> Inno Setup.
+# .github/workflows/desktop-release.yml
+# Build desktop app: macOS .app -> DMG (no sign/notarize by default), Windows onedir -> Inno Setup.
 # Triggers: on release published, or manually with version input. Artifacts named by version.
+
 name: Desktop Build and Release
 
 on:
@@ -16,12 +18,15 @@ on:
         required: false
         type: boolean
         default: false
+      sign_macos:
+        description: "Code sign + notarize macOS build (requires Apple secrets; default off)"
+        required: false
+        type: boolean
+        default: false
 
 env:
   COPAW_DESKTOP_ENTRY: scripts/pack/copaw_desktop_main.py
   APP_NAME: CoPaw
-  # Release event: use tag_name; manual: use inputs.version
-  VERSION: ${{ github.event.release.tag_name || github.event.inputs.version }}
 
 jobs:
   build-macos:
@@ -32,18 +37,32 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Resolve VERSION
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "VERSION=${{ github.event.release.tag_name }}" >> "$GITHUB_ENV"
+          else
+            echo "VERSION=${{ github.event.inputs.version }}" >> "$GITHUB_ENV"
+          fi
+          echo "VERSION resolved to: $VERSION"
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
       - name: Install dependencies
+        shell: bash
         run: |
           python -m pip install --upgrade pip
           pip install ".[desktop]" nuitka ordered-set
-          pip install -r scripts/pack/requirements-pack.txt 2>/dev/null || true
+          if [ -f scripts/pack/requirements-pack.txt ]; then
+            pip install -r scripts/pack/requirements-pack.txt
+          fi
 
       - name: Build .app with Nuitka
+        shell: bash
         run: |
           python -m nuitka \
             --standalone \
@@ -57,12 +76,14 @@ jobs:
             "${{ env.COPAW_DESKTOP_ENTRY }}"
           ls -la dist/
 
+      # Optional signing (OFF by default). Only runs when manually dispatched with sign_macos=true.
       - name: Code sign (optional)
-        if: ${{ secrets.APPLE_CERTIFICATE != '' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.sign_macos == 'true' }}
         env:
           CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE }}
           CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+        shell: bash
         run: |
           echo "$CERTIFICATE_BASE64" | base64 --decode > certificate.p12
           security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
@@ -74,30 +95,34 @@ jobs:
           rm -f certificate.p12
 
       - name: Create DMG
+        shell: bash
         run: |
           mkdir -p dmg_src
           cp -R dist/CoPaw.app dmg_src/
+          rm -rf create_dmg_repo
           git clone --depth 1 https://github.com/create-dmg/create-dmg.git create_dmg_repo
           ./create_dmg_repo/create-dmg \
             --volname "${{ env.APP_NAME }}" \
             --window-size 600 400 \
             --icon "${{ env.APP_NAME }}.app" 150 190 \
             --app-drop-link 450 190 \
-            dist/CoPaw-${{ env.VERSION }}.dmg dmg_src/
+            "dist/CoPaw-${VERSION}.dmg" dmg_src/
 
+      # Optional notarization (OFF by default). Only runs when manually dispatched with sign_macos=true.
       - name: Notarize and staple (optional)
-        if: ${{ secrets.APPLE_APPLE_ID != '' && secrets.APPLE_APP_PASSWORD != '' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.sign_macos == 'true' }}
         env:
           APPLE_APPLE_ID: ${{ secrets.APPLE_APPLE_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        shell: bash
         run: |
-          xcrun notarytool submit "dist/CoPaw-${{ env.VERSION }}.dmg" \
+          xcrun notarytool submit "dist/CoPaw-${VERSION}.dmg" \
             --apple-id "$APPLE_APPLE_ID" \
             --password "$APPLE_APP_PASSWORD" \
             --team-id "$APPLE_TEAM_ID" \
             --wait
-          xcrun stapler staple "dist/CoPaw-${{ env.VERSION }}.dmg"
+          xcrun stapler staple "dist/CoPaw-${VERSION}.dmg"
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
@@ -107,13 +132,21 @@ jobs:
 
   build-windows:
     runs-on: windows-latest
-    env:
-      VERSION: ${{ env.VERSION }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: Resolve VERSION
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "VERSION=${{ github.event.release.tag_name }}" >> "$GITHUB_ENV"
+          else
+            echo "VERSION=${{ github.event.inputs.version }}" >> "$GITHUB_ENV"
+          fi
+          echo "VERSION resolved to: $VERSION"
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -121,6 +154,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
+        shell: pwsh
         run: |
           python -m pip install --upgrade pip
           pip install ".[desktop]" nuitka ordered-set
@@ -129,6 +163,7 @@ jobs:
           }
 
       - name: Build onedir with Nuitka
+        shell: pwsh
         run: |
           python -m nuitka `
             --standalone `
@@ -141,10 +176,12 @@ jobs:
           dir dist
 
       - name: Install Inno Setup
+        shell: pwsh
         run: |
           choco install innosetup -y
 
       - name: Create Setup.exe with Inno Setup
+        shell: pwsh
         run: |
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DRunNumber=$env:VERSION scripts/pack/CoPaw.iss
 
@@ -159,14 +196,27 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'release' || github.event.inputs.upload_release == 'true'
     steps:
+      - name: Resolve VERSION
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "VERSION=${{ github.event.release.tag_name }}" >> "$GITHUB_ENV"
+          else
+            echo "VERSION=${{ github.event.inputs.version }}" >> "$GITHUB_ENV"
+          fi
+
       - name: Download macOS artifact
         uses: actions/download-artifact@v4
         with:
           name: CoPaw-macOS
+          path: CoPaw-macOS
+
       - name: Download Windows artifact
         uses: actions/download-artifact@v4
         with:
           name: CoPaw-Windows
+          path: CoPaw-Windows
+
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
         with:
