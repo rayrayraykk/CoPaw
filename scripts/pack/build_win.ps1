@@ -87,15 +87,23 @@ if (Test-Path $CondaUnpack) {
   Write-Host "[build_win] WARN: conda-unpack.exe not found at $CondaUnpack, skipping."
 }
 
-# Create startup wrapper to disable beartype before any imports
+# Create startup wrapper to disable beartype.claw (but keep beartype working)
 $StartupWrapper = Join-Path $EnvRoot "_desktop_startup.py"
 @"
 # -*- coding: utf-8 -*-
 import sys
-# Disable beartype.claw before any other imports to prevent Windows path issues
-sys.modules['beartype'] = None
-sys.modules['beartype.claw'] = None
+
+# Create a dummy beartype.claw module to prevent import hook activation
+# (which causes Windows path issues), but keep beartype itself working
+class _DummyClaw:
+    '''Dummy beartype.claw that does nothing.'''
+    def __getattr__(self, name):
+        return lambda *args, **kwargs: None
+
+sys.modules['beartype.claw'] = _DummyClaw()
+
 from copaw.cli.main import cli
+
 if __name__ == '__main__':
     sys.exit(cli(['desktop']))
 "@ | Set-Content -Path $StartupWrapper -Encoding UTF8
