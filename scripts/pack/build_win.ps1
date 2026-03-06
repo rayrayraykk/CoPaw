@@ -24,9 +24,17 @@ if (Test-Path $VersionFile) {
 $RunWheelBuild = $true
 if ($CurrentVersion) {
   $wheelGlob = Join-Path $Dist "copaw-$CurrentVersion-*.whl"
-  if ((Get-ChildItem -Path $wheelGlob -ErrorAction SilentlyContinue).Count -gt 0) {
+  $existingWheels = Get-ChildItem -Path $wheelGlob -ErrorAction SilentlyContinue
+  if ($existingWheels.Count -gt 0) {
     Write-Host "dist/ already has wheel for version $CurrentVersion, skipping."
     $RunWheelBuild = $false
+  } else {
+    # Clean up old wheels to avoid confusion
+    $oldWheels = Get-ChildItem -Path (Join-Path $Dist "copaw-*.whl") -ErrorAction SilentlyContinue
+    if ($oldWheels.Count -gt 0) {
+      Write-Host "Removing old wheel files: $($oldWheels | ForEach-Object { $_.Name })"
+      $oldWheels | Remove-Item -Force
+    }
   }
 }
 if ($RunWheelBuild) {
@@ -97,13 +105,19 @@ Write-Host "=== EnvRoot=$EnvRoot ==="
 Write-Host "=== EnvRoot top files ==="
 Get-ChildItem -LiteralPath $EnvRoot -Force | Select-Object -First 50 | ForEach-Object { Write-Host $_.FullName }
 
-$VersionFromEnv = $null
-try {
-  $VersionFromEnv = (& (Join-Path $EnvRoot "python.exe") -c "from importlib.metadata import version; print(version('copaw'))" 2>&1) -replace '\s+$', ''
-} catch { Write-Host "[build_win] version from packed env failed: $_" }
-$Version = $VersionFromEnv
-if (-not $Version) { $Version = $CurrentVersion; Write-Host "[build_win] Using version from __version__.py: $Version" }
+# Prioritize version from __version__.py to ensure accuracy
+$Version = $CurrentVersion
+if (-not $Version) {
+  # Fallback: try to get version from packed env metadata
+  try {
+    $Version = (& (Join-Path $EnvRoot "python.exe") -c "from importlib.metadata import version; print(version('copaw'))" 2>&1) -replace '\s+$', ''
+    Write-Host "[build_win] Using version from packed env metadata: $Version"
+  } catch {
+    Write-Host "[build_win] version from packed env failed: $_"
+  }
+}
 if (-not $Version) { $Version = "0.0.0"; Write-Host "[build_win] WARN: Using fallback version 0.0.0" }
+Write-Host "[build_win] Version determined: $Version"
 Write-Host "[build_win] COPAW_VERSION=$Version OUTPUT_EXE will be under $Dist"
 $OutInstaller = Join-Path (Join-Path $RepoRoot $Dist) "CoPaw-Setup-$Version.exe"
 # Pass absolute paths to NSIS (keep backslashes).

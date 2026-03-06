@@ -27,6 +27,12 @@ if [[ -n "${CURRENT_VERSION}" ]]; then
   if [[ ${#whls[@]} -gt 0 ]]; then
     echo "dist/ already has wheel for version ${CURRENT_VERSION}, skipping."
   else
+    # Clean up old wheels to avoid confusion
+    old_whls=("${REPO_ROOT}/dist/copaw-"*.whl)
+    if [[ ${#old_whls[@]} -gt 0 ]]; then
+      echo "Removing old wheel files: ${old_whls[*]}"
+      rm -f "${old_whls[@]}"
+    fi
     bash scripts/wheel_build.sh
   fi
 else
@@ -100,9 +106,17 @@ if [[ -f "${PACK_DIR}/assets/icon.svg" ]] && [[ ! -f "${PACK_DIR}/assets/icon.ic
 fi
 
 # Info.plist (include icon key if icon.icns exists)
-VERSION="$("${APP_DIR}/Contents/Resources/env/bin/python" -c \
-  "from importlib.metadata import version; print(version('copaw'))" 2>/dev/null \
-  || echo "0.0.0")"
+# Prioritize version from __version__.py to ensure accuracy
+VERSION="${CURRENT_VERSION}"
+if [[ -z "${VERSION}" ]]; then
+  # Fallback: try to get version from packed env metadata
+  VERSION="$("${APP_DIR}/Contents/Resources/env/bin/python" -c \
+    "from importlib.metadata import version; print(version('copaw'))" 2>/dev/null \
+    || echo "0.0.0")"
+  echo "Using version from packed env metadata: ${VERSION}"
+else
+  echo "Version determined from __version__.py: ${VERSION}"
+fi
 ICON_PLIST=""
 if [[ -f "${PACK_DIR}/assets/icon.icns" ]]; then
   cp "${PACK_DIR}/assets/icon.icns" "${APP_DIR}/Contents/Resources/"
