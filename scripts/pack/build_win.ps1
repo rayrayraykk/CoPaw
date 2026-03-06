@@ -97,7 +97,13 @@ if (-not $Version) { $Version = $CurrentVersion; Write-Host "[build_win] Using v
 if (-not $Version) { $Version = "0.0.0"; Write-Host "[build_win] WARN: Using fallback version 0.0.0" }
 Write-Host "[build_win] COPAW_VERSION=$Version OUTPUT_EXE will be under $Dist"
 $OutInstaller = Join-Path $RepoRoot $Dist "CoPaw-Setup-$Version.exe"
-$nsiArgs = @("/DCOPAW_VERSION=$Version", "/DOUTPUT_EXE=$OutInstaller", $NsiPath)
+$UnpackedFull = Join-Path $RepoRoot $Unpacked
+$nsiArgs = @(
+  "/DCOPAW_VERSION=$Version",
+  "/DOUTPUT_EXE=$OutInstaller",
+  "/DUNPACKED=$UnpackedFull",
+  $NsiPath
+)
 Write-Host "[build_win] Running: makensis $($nsiArgs -join ' ')"
 & makensis @nsiArgs
 $makensisExit = $LASTEXITCODE

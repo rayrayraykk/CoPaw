@@ -27,8 +27,10 @@ RequestExecutionLevel user
 !insertmacro MUI_UNPAGE_INSTFILES
 !insertmacro MUI_LANGUAGE "SimpChinese"
 
-; Packed env lives at dist/win-unpacked when makensis runs from repo root
-!define UNPACKED "dist\win-unpacked"
+; Pass /DUNPACKED=full_path from build_win.ps1 so path works when cwd != repo root
+!ifndef UNPACKED
+  !define UNPACKED "dist\win-unpacked"
+!endif
 
 Section "CoPaw Desktop" SEC01
   SetOutPath "$INSTDIR"
