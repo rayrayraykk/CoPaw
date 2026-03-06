@@ -99,10 +99,12 @@ exec "$ENV_DIR/bin/python" -u -m copaw desktop
 LAUNCHER
 chmod +x "${APP_DIR}/Contents/MacOS/${APP_NAME}"
 
-# Icon: generate icon.icns from icon.svg if missing (macOS only)
-if [[ -f "${PACK_DIR}/assets/icon.svg" ]] && [[ ! -f "${PACK_DIR}/assets/icon.icns" ]]; then
-  echo "== Generating icon.icns from icon.svg =="
-  python "${PACK_DIR}/gen_icon_icns.py" || echo "Warning: gen_icon_icns.py failed, app will have no icon."
+# Icon: use pre-generated icon.icns
+if [[ -f "${PACK_DIR}/assets/icon.icns" ]]; then
+  echo "== Using pre-generated icon.icns =="
+else
+  echo "Warning: icon.icns not found at ${PACK_DIR}/assets/icon.icns"
+  echo "Generate it first: bash scripts/pack/generate_icons.sh"
 fi
 
 # Info.plist (include icon key if icon.icns exists)
@@ -135,20 +137,16 @@ cat > "${APP_DIR}/Contents/Info.plist" << INFOPLIST
   <key>CFBundleVersion</key><string>${VERSION}</string>
   <key>CFBundleShortVersionString</key><string>${VERSION}</string>
   ${ICON_PLIST}<key>NSHighResolutionCapable</key><true/>
-  <key>LSMinimumSystemVersion</key><string>10.13</string>
+  <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>NSDesktopFolderUsageDescription</key><string>CoPaw may access files in your Desktop folder if you use file-related features. You can choose Don'\''t Allow; the app will still run with limited file access.</string>
 </dict>
 </plist>
 INFOPLIST
 
 echo "== Built ${APP_DIR} =="
-# Optional: create zip and DMG for distribution (set CREATE_ZIP=1)
+# Optional: create zip for distribution (set CREATE_ZIP=1)
 if [[ -n "${CREATE_ZIP}" ]]; then
   ZIP_NAME="${DIST}/CoPaw-${VERSION}-macOS.zip"
   ditto -c -k --sequesterRsrc --keepParent "${APP_DIR}" "${ZIP_NAME}"
   echo "== Created ${ZIP_NAME} =="
-  DMG_NAME="${DIST}/CoPaw-${VERSION}-macOS.dmg"
-  hdiutil create -volname "CoPaw ${VERSION}" -srcfolder "${APP_DIR}" \
-    -ov -format UDZO "${DMG_NAME}"
-  echo "== Created ${DMG_NAME} =="
 fi

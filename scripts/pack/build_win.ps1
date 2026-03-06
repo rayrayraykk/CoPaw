@@ -87,7 +87,20 @@ if (Test-Path $CondaUnpack) {
   Write-Host "[build_win] WARN: conda-unpack.exe not found at $CondaUnpack, skipping."
 }
 
-# Launcher .bat so that working dir is the env root. No pause for release.
+# Create startup wrapper to disable beartype before any imports
+$StartupWrapper = Join-Path $EnvRoot "_desktop_startup.py"
+@"
+# -*- coding: utf-8 -*-
+import sys
+# Disable beartype.claw before any other imports to prevent Windows path issues
+sys.modules['beartype'] = None
+sys.modules['beartype.claw'] = None
+from copaw.cli.main import cli
+if __name__ == '__main__':
+    sys.exit(cli(['desktop']))
+"@ | Set-Content -Path $StartupWrapper -Encoding UTF8
+
+# Main launcher .bat (will be hidden by VBS)
 $LauncherBat = Join-Path $EnvRoot "CoPaw Desktop.bat"
 @"
 @echo off
@@ -95,8 +108,41 @@ cd /d "%~dp0"
 if not exist "%USERPROFILE%\.copaw\config.json" (
   "%~dp0python.exe" -m copaw init --defaults --accept-security
 )
-"%~dp0python.exe" -m copaw desktop
+"%~dp0python.exe" "%~dp0_desktop_startup.py"
 "@ | Set-Content -Path $LauncherBat -Encoding ASCII
+
+# Debug launcher .bat (shows console)
+$DebugBat = Join-Path $EnvRoot "CoPaw Desktop (Debug).bat"
+@"
+@echo off
+cd /d "%~dp0"
+echo ====================================
+echo CoPaw Desktop - Debug Mode
+echo ====================================
+echo Working Directory: %cd%
+echo Python: "%~dp0python.exe"
+echo.
+if not exist "%USERPROFILE%\.copaw\config.json" (
+  echo [Init] Creating config...
+  "%~dp0python.exe" -m copaw init --defaults --accept-security
+)
+echo [Launch] Starting CoPaw Desktop...
+echo Press Ctrl+C to stop
+echo.
+"%~dp0python.exe" "%~dp0_desktop_startup.py"
+echo.
+echo [Exit] CoPaw Desktop closed
+pause
+"@ | Set-Content -Path $DebugBat -Encoding ASCII
+
+# VBScript launcher (no console window)
+$LauncherVbs = Join-Path $EnvRoot "CoPaw Desktop.vbs"
+@"
+Set WshShell = CreateObject("WScript.Shell")
+batPath = CreateObject("Scripting.FileSystemObject").GetParentFolderName(WScript.ScriptFullName) & "\CoPaw Desktop.bat"
+WshShell.Run Chr(34) & batPath & Chr(34), 0, False
+Set WshShell = Nothing
+"@ | Set-Content -Path $LauncherVbs -Encoding ASCII
 
 Write-Host "== Building NSIS installer =="
 
