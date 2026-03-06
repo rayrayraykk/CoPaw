@@ -11,15 +11,8 @@ ARCHIVE="${DIST}/copaw-env.tar.gz"
 APP_NAME="CoPaw"
 APP_DIR="${DIST}/${APP_NAME}.app"
 
-echo "== Building console frontend =="
-if [[ -f "console/package.json" ]]; then
-  (cd console && npm ci && npm run build)
-  rm -rf src/copaw/console
-  mkdir -p src/copaw/console
-  cp -R console/dist/* src/copaw/console/
-else
-  echo "Warning: console/ not found; packing without web console." >&2
-fi
+echo "== Building wheel (includes console frontend) =="
+bash scripts/wheel_build.sh
 
 echo "== Building conda-packed env =="
 python "${PACK_DIR}/build_common.py" --output "$ARCHIVE" --format tar.gz

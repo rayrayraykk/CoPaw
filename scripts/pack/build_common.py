@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Create a temporary conda env, install copaw from repo, run conda-pack.
+Create a temporary conda env, install CoPaw from a wheel, run conda-pack.
 Used by build_macos.sh and build_win.ps1. Run from repo root.
 """
 from __future__ import annotations
@@ -19,6 +19,27 @@ ENV_PREFIX = "copaw_pack_"
 
 def _run(cmd: list[str], cwd: Path | None = None) -> None:
     subprocess.run(cmd, cwd=cwd or REPO_ROOT, check=True)
+
+
+def _pick_wheel(wheel_arg: str | None) -> Path:
+    if wheel_arg:
+        wheel_path = Path(wheel_arg).expanduser()
+        if not wheel_path.is_absolute():
+            wheel_path = (REPO_ROOT / wheel_path).resolve()
+        if not wheel_path.exists():
+            raise FileNotFoundError(f"Wheel not found: {wheel_path}")
+        return wheel_path
+
+    wheels = sorted(
+        (REPO_ROOT / "dist").glob("copaw-*.whl"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    if not wheels:
+        raise FileNotFoundError(
+            "No wheel found in dist/. Run: bash scripts/wheel_build.sh",
+        )
+    return wheels[0]
 
 
 def main() -> int:
@@ -43,16 +64,34 @@ def main() -> int:
         default="3.10",
         help="Python version for conda env (default: 3.10)",
     )
+    parser.add_argument(
+        "--wheel",
+        default=None,
+        help=(
+            "Wheel path to install. If omitted, pick the newest "
+            "dist/copaw-*.whl."
+        ),
+    )
     args = parser.parse_args()
     out_path = Path(args.output).resolve()
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    wheel_path = _pick_wheel(args.wheel)
+    wheel_uri = wheel_path.resolve().as_uri()
     env_name = (
         f"{ENV_PREFIX}{''.join(random.choices(string.ascii_lowercase, k=8))}"
     )
 
     try:
         _run(
-            ["conda", "create", "-n", env_name, f"python={args.python}", "-y"],
+            [
+                "conda",
+                "create",
+                "-n",
+                env_name,
+                f"python={args.python}",
+                "pip",
+                "-y",
+            ],
         )
         _run(
             [
@@ -60,9 +99,25 @@ def main() -> int:
                 "run",
                 "-n",
                 env_name,
+                "python",
+                "-m",
                 "pip",
                 "install",
-                ".[full]",
+                "--upgrade",
+                "pip",
+            ],
+        )
+        _run(
+            [
+                "conda",
+                "run",
+                "-n",
+                env_name,
+                "python",
+                "-m",
+                "pip",
+                "install",
+                f"copaw[full] @ {wheel_uri}",
             ],
         )
         _run(

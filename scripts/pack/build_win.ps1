@@ -12,18 +12,34 @@ $NsiPath = Join-Path $PackDir "copaw_desktop.nsi"
 
 New-Item -ItemType Directory -Force -Path $Dist | Out-Null
 
-Write-Host "== Building console frontend =="
-if (Test-Path "console\package.json") {
-  Push-Location console
-  npm ci
-  npm run build
-  Pop-Location
-  if (Test-Path src\copaw\console) { Remove-Item -Recurse -Force src\copaw\console }
-  New-Item -ItemType Directory -Force -Path src\copaw\console | Out-Null
-  Copy-Item -Recurse -Force console\dist\* src\copaw\console\
+Write-Host "== Building wheel (includes console frontend) =="
+$bashCmd = (Get-Command bash -ErrorAction SilentlyContinue)
+$bashPath = $null
+if ($bashCmd) {
+  $bashPath = $bashCmd.Source
 } else {
-  Write-Warning "console/ not found; packing without web console."
+  $gitBash = "C:\Program Files\Git\bin\bash.exe"
+  if (Test-Path $gitBash) {
+    $bashPath = $gitBash
+  }
 }
+if (-not $bashPath) {
+  throw "bash not found. Install Git for Windows (Git Bash) or ensure bash is on PATH."
+}
+$bashScript = @'
+set -euo pipefail
+SHIM_DIR="$(pwd)/__DIST__/_shim"
+mkdir -p "$SHIM_DIR"
+cat > "$SHIM_DIR/python3" <<'EOF'
+#!/usr/bin/env bash
+exec python "$@"
+EOF
+chmod +x "$SHIM_DIR/python3"
+export PATH="$SHIM_DIR:$PATH"
+bash scripts/wheel_build.sh
+'@
+$bashScript = $bashScript.Replace("__DIST__", $Dist)
+& $bashPath -lc $bashScript
 
 Write-Host "== Building conda-packed env =="
 & python $PackDir\build_common.py --output $Archive --format zip

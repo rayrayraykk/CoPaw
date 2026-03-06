@@ -1,9 +1,12 @@
 # CoPaw Desktop packaging scripts
 
-One-click build: each script builds the console frontend, then uses a **temporary conda environment** and **conda-pack** (no current dev env). Dependencies follow `pyproject.toml`.
+One-click build: each script first builds a **wheel** via
+`scripts/wheel_build.sh` (includes the console frontend), then uses a
+**temporary conda environment** and **conda-pack** (no current dev env).
+Dependencies follow `pyproject.toml`.
 
-- **Windows**: console → conda-pack → unpack → NSIS installer (`.exe`)
-- **macOS**: console → conda-pack → unpack into `.app` → optional zip
+- **Windows**: wheel → conda-pack → unpack → NSIS installer (`.exe`)
+- **macOS**: wheel → conda-pack → unpack into `.app` → optional zip
 
 ## Prerequisites
 
@@ -59,8 +62,8 @@ On first launch macOS may ask for “Desktop” or “Files and Folders” acces
 
 | File | Description |
 |------|-------------|
-| `build_common.py` | Create temporary conda env, `pip install .`, conda-pack; produces archive. Used by macOS/Windows scripts. |
-| `build_macos.sh` | One-click: build console → build_common → unpack into CoPaw.app; optional zip. |
-| `build_win.ps1` | One-click: build console → build_common → unpack → launcher .bat → makensis installer. |
+| `build_common.py` | Create temporary conda env, install `copaw[full]` from a wheel, conda-pack; produces archive. |
+| `build_macos.sh` | One-click: build wheel → build_common → unpack into CoPaw.app; optional zip. |
+| `build_win.ps1` | One-click: build wheel → build_common → unpack → launcher .bat → makensis installer. |
 | `copaw_desktop.nsi` | NSIS script: pack `dist/win-unpacked` and create shortcuts. |
 | `gen_icon_icns.py` | (macOS only) Generate `icon.icns` from `assets/icon.svg` (rounded, transparent). |

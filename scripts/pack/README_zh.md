@@ -1,9 +1,11 @@
 # CoPaw Desktop 打包脚本
 
-一键打包：脚本会自动构建 console 前端，再用 **临时 conda 环境** + **conda-pack**（不依赖当前开发环境）。依赖以 `pyproject.toml` 为准。
+一键打包：脚本会先运行 `scripts/wheel_build.sh` 构建 **wheel**
+（包含 console 前端产物），再用 **临时 conda 环境** + **conda-pack**
+（不依赖当前开发环境）。依赖以 `pyproject.toml` 为准。
 
-- **Windows**: console → conda-pack → 解压 → NSIS 安装包 (`.exe`)
-- **macOS**: console → conda-pack → 解压到 `.app` → 可选打 zip
+- **Windows**: wheel → conda-pack → 解压 → NSIS 安装包 (`.exe`)
+- **macOS**: wheel → conda-pack → 解压到 `.app` → 可选打 zip
 
 ## 前置
 
@@ -59,8 +61,8 @@ PYTHONPATH= PYTHONHOME="$APP_ENV" "$APP_ENV/bin/python" -m copaw.cli.main deskto
 
 | 文件 | 说明 |
 |------|------|
-| `build_common.py` | 创建临时 conda 环境、`pip install .`、conda-pack，产出归档；供 macOS/Windows 脚本调用 |
-| `build_macos.sh` | 一键：构建 console → build_common → 解压到 CoPaw.app；可选打 zip |
-| `build_win.ps1` | 一键：构建 console → build_common → 解压 → 桌面启动 bat → makensis 安装包 |
+| `build_common.py` | 创建临时 conda 环境，从 wheel 安装 `copaw[full]`，conda-pack 产出归档 |
+| `build_macos.sh` | 一键：构建 wheel → build_common → 解压到 CoPaw.app；可选打 zip |
+| `build_win.ps1` | 一键：构建 wheel → build_common → 解压 → 桌面启动 bat → makensis 安装包 |
 | `copaw_desktop.nsi` | NSIS 脚本：从 `dist/win-unpacked` 打包并创建快捷方式 |
 | `gen_icon_icns.py` | (仅 macOS) 从 `assets/icon.svg`（圆角透明）生成 `icon.icns` |
