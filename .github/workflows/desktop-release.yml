@@ -24,7 +24,12 @@ jobs:
         id: version
         shell: pwsh
         run: |
-          $v = (Get-Content src/copaw/__version__.py -Raw) -replace '.*__version__\s*=\s*"([^"]+)".*', '$1'
+          $content = Get-Content src/copaw/__version__.py -Raw
+          if ($content -match '__version__\s*=\s*"([^"]+)"') {
+            $v = $Matches[1]
+          } else {
+            throw "Failed to extract version from __version__.py"
+          }
           "version<<EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           $v | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
