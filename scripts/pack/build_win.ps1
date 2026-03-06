@@ -96,20 +96,22 @@ $Version = $VersionFromEnv
 if (-not $Version) { $Version = $CurrentVersion; Write-Host "[build_win] Using version from __version__.py: $Version" }
 if (-not $Version) { $Version = "0.0.0"; Write-Host "[build_win] WARN: Using fallback version 0.0.0" }
 Write-Host "[build_win] COPAW_VERSION=$Version OUTPUT_EXE will be under $Dist"
-$OutInstaller = Join-Path $RepoRoot $Dist "CoPaw-Setup-$Version.exe"
-$UnpackedFull = Join-Path $RepoRoot $Unpacked
+$OutInstaller = Join-Path (Join-Path $RepoRoot $Dist) "CoPaw-Setup-$Version.exe"
+$UnpackedFull = (Join-Path $RepoRoot $Unpacked) -replace '\\', '/'
+$OutputExeNsi = $OutInstaller -replace '\\', '/'
 $nsiArgs = @(
   "/DCOPAW_VERSION=$Version",
-  "/DOUTPUT_EXE=$OutInstaller",
+  "/DOUTPUT_EXE=$OutputExeNsi",
   "/DUNPACKED=$UnpackedFull",
   $NsiPath
 )
 Write-Host "[build_win] Running: makensis $($nsiArgs -join ' ')"
-& makensis @nsiArgs
+$makensisOut = & makensis @nsiArgs 2>&1
 $makensisExit = $LASTEXITCODE
+Write-Host $makensisOut
 Write-Host "[build_win] makensis exit code: $makensisExit"
 if ($makensisExit -ne 0) {
-  throw "makensis failed with exit code $makensisExit"
+  throw "makensis failed with exit code $makensisExit. Check output above for NSIS error."
 }
 if (-not (Test-Path $OutInstaller)) {
   throw "NSIS did not create installer: $OutInstaller"
