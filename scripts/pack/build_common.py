@@ -161,7 +161,10 @@ def main() -> int:
         _run(pack_cmd)
         print(f"Packed to {out_path}")
     finally:
-        _run([conda, "env", "remove", "-n", env_name, "-y"])
+        try:
+            _run([conda, "env", "remove", "-n", env_name, "-y"])
+        except Exception as e:
+            print(f"Warning: Failed to remove temp env {env_name}: {e}")
     return 0
 
 

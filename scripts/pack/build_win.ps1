@@ -108,7 +108,7 @@ Write-Host "[build_win] COPAW_VERSION=$Version OUTPUT_EXE will be under $Dist"
 $OutInstaller = Join-Path (Join-Path $RepoRoot $Dist) "CoPaw-Setup-$Version.exe"
 # Pass absolute paths to NSIS (keep backslashes).
 $UnpackedFull = (Resolve-Path $EnvRoot).Path
-$OutputExeNsi = (Resolve-Path $OutInstaller).Path
+$OutputExeNsi = [System.IO.Path]::GetFullPath($OutInstaller)
 $nsiArgs = @(
   "/DCOPAW_VERSION=$Version",
   "/DOUTPUT_EXE=$OutputExeNsi",
@@ -118,7 +118,12 @@ $nsiArgs = @(
 
 # Debug: Check if makensis is available
 Write-Host "=== Checking makensis availability ==="
-where.exe makensis
+try {
+  $makensisPath = (Get-Command makensis -ErrorAction Stop).Source
+  Write-Host "[build_win] makensis found at: $makensisPath"
+} catch {
+  throw "makensis not found in PATH. Please install NSIS and ensure makensis.exe is in PATH."
+}
 
 Write-Host "[build_win] Running: makensis $($nsiArgs -join ' ')"
 & makensis @nsiArgs
