@@ -42,14 +42,11 @@ Section "CoPaw Desktop" SEC01
   WriteUninstaller "$INSTDIR\Uninstall.exe"
 
   ; Main shortcut - uses VBS to hide console window
-  CreateShortcut "$SMPROGRAMS\CoPaw Desktop.lnk" "$INSTDIR\CoPaw Desktop.vbs" "" \
-    "$INSTDIR\icon.ico" 0
-  CreateShortcut "$DESKTOP\CoPaw Desktop.lnk" "$INSTDIR\CoPaw Desktop.vbs" "" \
-    "$INSTDIR\icon.ico" 0
-
+  CreateShortcut "$SMPROGRAMS\CoPaw Desktop.lnk" "$INSTDIR\CoPaw Desktop.vbs" "" "$INSTDIR\icon.ico" 0
+  CreateShortcut "$DESKTOP\CoPaw Desktop.lnk" "$INSTDIR\CoPaw Desktop.vbs" "" "$INSTDIR\icon.ico" 0
+  
   ; Debug shortcut - shows console window for troubleshooting
-  CreateShortcut "$SMPROGRAMS\CoPaw Desktop (Debug).lnk" "$INSTDIR\CoPaw Desktop (Debug).bat" "" \
-    "$INSTDIR\icon.ico" 0
+  CreateShortcut "$SMPROGRAMS\CoPaw Desktop (Debug).lnk" "$INSTDIR\CoPaw Desktop (Debug).bat" "" "$INSTDIR\icon.ico" 0
 SectionEnd
 
 Section "Uninstall"
