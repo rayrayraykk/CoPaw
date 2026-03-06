@@ -70,6 +70,7 @@ $LauncherBat = Join-Path $Unpacked "CoPaw Desktop.bat"
 @"
 @echo off
 cd /d "%~dp0"
+if not exist "%USERPROFILE%\.copaw\config.json" "%~dp0python.exe" -m copaw init --defaults --accept-security
 "%~dp0python.exe" -m copaw desktop
 pause
 "@ | Set-Content -Path $LauncherBat -Encoding ASCII

@@ -71,6 +71,9 @@ if [ ! -t 2 ]; then
     echo "ERROR: python not executable at $ENV_DIR/bin/python"
     exit 1
   fi
+  if [ ! -f "$HOME/.copaw/config.json" ]; then
+    "$ENV_DIR/bin/python" -u -m copaw init --defaults --accept-security
+  fi
   echo "Launching python..."
   "$ENV_DIR/bin/python" -u -m copaw desktop
   EXIT=$?
@@ -82,6 +85,9 @@ if [ ! -t 2 ]; then
   fi
   echo "--- Full log: $LOG (scroll up for Python traceback if app exited early) ---"
   exit $EXIT
+fi
+if [ ! -f "$HOME/.copaw/config.json" ]; then
+  "$ENV_DIR/bin/python" -u -m copaw init --defaults --accept-security
 fi
 exec "$ENV_DIR/bin/python" -u -m copaw desktop
 LAUNCHER
