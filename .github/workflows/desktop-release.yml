@@ -33,6 +33,7 @@ jobs:
           auto-update-conda: true
           python-version: "3.10"
           activate-environment: "copaw-build"
+          condarc-file: .github/condarc
 
       - name: Install NSIS
         uses: negrutiu/nsis-install@v2
@@ -68,6 +69,7 @@ jobs:
           auto-update-conda: true
           python-version: "3.10"
           activate-environment: "copaw-build"
+          condarc-file: .github/condarc
 
       - name: Build macOS .app
         run: |

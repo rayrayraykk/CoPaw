@@ -87,6 +87,9 @@ Write-Host "== Building NSIS installer =="
 $Version = & (Join-Path $Unpacked "python.exe") -c \
   "from importlib.metadata import version; print(version('copaw'))" 2>$null
 if (-not $Version) { $Version = "0.0.0" }
-$OutInstaller = Join-Path $Dist "CoPaw-Setup-$Version.exe"
+$OutInstaller = Join-Path $RepoRoot $Dist "CoPaw-Setup-$Version.exe"
 & makensis /DCOPAW_VERSION=$Version "/DOUTPUT_EXE=$OutInstaller" $NsiPath
+if (-not (Test-Path $OutInstaller)) {
+  throw "NSIS did not create installer: $OutInstaller"
+}
 Write-Host "== Built $OutInstaller =="
