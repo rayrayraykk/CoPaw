@@ -48,6 +48,7 @@ jobs:
           python-version: "3.10"
           activate-environment: "copaw-build"
           condarc-file: .github/condarc
+          conda-remove-defaults: false
 
       - name: Install NSIS
         uses: negrutiu/nsis-install@v2
@@ -107,6 +108,7 @@ jobs:
           python-version: "3.10"
           activate-environment: "copaw-build"
           condarc-file: .github/condarc
+          conda-remove-defaults: false
 
       - name: Clean dist directory
         run: rm -rf dist && mkdir -p dist
