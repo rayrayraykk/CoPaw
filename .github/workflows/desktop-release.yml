@@ -49,6 +49,17 @@ jobs:
         shell: pwsh
         run: conda run -n copaw-build pwsh -File ./scripts/pack/build_win.ps1
 
+      - name: List dist (on failure)
+        if: failure()
+        shell: pwsh
+        run: |
+          Write-Host "=== dist contents ==="
+          Get-ChildItem -Path dist -Recurse -Depth 2 -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
+          if (Test-Path dist\win-unpacked) {
+            Write-Host "=== dist\win-unpacked (first 30) ==="
+            Get-ChildItem -Path dist\win-unpacked -ErrorAction SilentlyContinue | Select-Object -First 30 | ForEach-Object { $_.Name }
+          }
+
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:

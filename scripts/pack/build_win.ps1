@@ -4,6 +4,7 @@
 $ErrorActionPreference = "Stop"
 $RepoRoot = (Get-Item $PSScriptRoot).Parent.Parent.FullName
 Set-Location $RepoRoot
+Write-Host "[build_win] REPO_ROOT=$RepoRoot"
 $PackDir = $PSScriptRoot
 $Dist = if ($env:DIST) { $env:DIST } else { "dist" }
 $Archive = Join-Path $Dist "copaw-env.zip"
@@ -72,6 +73,9 @@ if (-not (Test-Path $Archive)) {
 Write-Host "== Unpacking env =="
 if (Test-Path $Unpacked) { Remove-Item -Recurse -Force $Unpacked }
 Expand-Archive -Path $Archive -DestinationPath $Unpacked -Force
+$unpackedRoot = Get-ChildItem -Path $Unpacked -ErrorAction SilentlyContinue | Measure-Object
+Write-Host "[build_win] Unpacked entries in $Unpacked : $($unpackedRoot.Count)"
+if (Test-Path (Join-Path $Unpacked "python.exe")) { Write-Host "[build_win] python.exe found in unpacked env" } else { Write-Host "[build_win] WARN: python.exe NOT found in $Unpacked" }
 
 # Launcher .bat so that working dir is the env root
 $LauncherBat = Join-Path $Unpacked "CoPaw Desktop.bat"
@@ -84,11 +88,23 @@ pause
 "@ | Set-Content -Path $LauncherBat -Encoding ASCII
 
 Write-Host "== Building NSIS installer =="
-$Version = & (Join-Path $Unpacked "python.exe") -c \
-  "from importlib.metadata import version; print(version('copaw'))" 2>$null
-if (-not $Version) { $Version = "0.0.0" }
+$VersionFromEnv = $null
+try {
+  $VersionFromEnv = (& (Join-Path $Unpacked "python.exe") -c "from importlib.metadata import version; print(version('copaw'))" 2>&1) -replace '\s+$', ''
+} catch { Write-Host "[build_win] version from packed env failed: $_" }
+$Version = $VersionFromEnv
+if (-not $Version) { $Version = $CurrentVersion; Write-Host "[build_win] Using version from __version__.py: $Version" }
+if (-not $Version) { $Version = "0.0.0"; Write-Host "[build_win] WARN: Using fallback version 0.0.0" }
+Write-Host "[build_win] COPAW_VERSION=$Version OUTPUT_EXE will be under $Dist"
 $OutInstaller = Join-Path $RepoRoot $Dist "CoPaw-Setup-$Version.exe"
-& makensis /DCOPAW_VERSION=$Version "/DOUTPUT_EXE=$OutInstaller" $NsiPath
+$nsiArgs = @("/DCOPAW_VERSION=$Version", "/DOUTPUT_EXE=$OutInstaller", $NsiPath)
+Write-Host "[build_win] Running: makensis $($nsiArgs -join ' ')"
+& makensis @nsiArgs
+$makensisExit = $LASTEXITCODE
+Write-Host "[build_win] makensis exit code: $makensisExit"
+if ($makensisExit -ne 0) {
+  throw "makensis failed with exit code $makensisExit"
+}
 if (-not (Test-Path $OutInstaller)) {
   throw "NSIS did not create installer: $OutInstaller"
 }
