@@ -87,27 +87,6 @@ if (Test-Path $CondaUnpack) {
   Write-Host "[build_win] WARN: conda-unpack.exe not found at $CondaUnpack, skipping."
 }
 
-# Create startup wrapper to disable beartype.claw (but keep beartype working)
-$StartupWrapper = Join-Path $EnvRoot "_desktop_startup.py"
-@"
-# -*- coding: utf-8 -*-
-import sys
-
-# Create a dummy beartype.claw module to prevent import hook activation
-# (which causes Windows path issues), but keep beartype itself working
-class _DummyClaw:
-    '''Dummy beartype.claw that does nothing.'''
-    def __getattr__(self, name):
-        return lambda *args, **kwargs: None
-
-sys.modules['beartype.claw'] = _DummyClaw()
-
-from copaw.cli.main import cli
-
-if __name__ == '__main__':
-    sys.exit(cli(['desktop']))
-"@ | Set-Content -Path $StartupWrapper -Encoding UTF8
-
 # Main launcher .bat (will be hidden by VBS)
 $LauncherBat = Join-Path $EnvRoot "CoPaw Desktop.bat"
 @"
@@ -116,7 +95,7 @@ cd /d "%~dp0"
 if not exist "%USERPROFILE%\.copaw\config.json" (
   "%~dp0python.exe" -m copaw init --defaults --accept-security
 )
-"%~dp0python.exe" "%~dp0_desktop_startup.py"
+"%~dp0python.exe" -m copaw desktop
 "@ | Set-Content -Path $LauncherBat -Encoding ASCII
 
 # Debug launcher .bat (shows console)
@@ -137,7 +116,7 @@ if not exist "%USERPROFILE%\.copaw\config.json" (
 echo [Launch] Starting CoPaw Desktop...
 echo Press Ctrl+C to stop
 echo.
-"%~dp0python.exe" "%~dp0_desktop_startup.py"
+"%~dp0python.exe" -m copaw desktop
 echo.
 echo [Exit] CoPaw Desktop closed
 pause
