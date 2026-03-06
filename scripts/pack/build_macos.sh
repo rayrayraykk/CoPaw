@@ -12,7 +12,26 @@ APP_NAME="CoPaw"
 APP_DIR="${DIST}/${APP_NAME}.app"
 
 echo "== Building wheel (includes console frontend) =="
-bash scripts/wheel_build.sh
+# Skip wheel_build if dist already has a wheel for current version
+VERSION_FILE="${REPO_ROOT}/src/copaw/__version__.py"
+CURRENT_VERSION=""
+if [[ -f "${VERSION_FILE}" ]]; then
+  CURRENT_VERSION="$(
+    sed -n 's/^__version__[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' \
+      "${VERSION_FILE}" 2>/dev/null
+  )"
+fi
+if [[ -n "${CURRENT_VERSION}" ]]; then
+  shopt -s nullglob
+  whls=("${REPO_ROOT}/dist/copaw-${CURRENT_VERSION}-"*.whl)
+  if [[ ${#whls[@]} -gt 0 ]]; then
+    echo "dist/ already has wheel for version ${CURRENT_VERSION}, skipping."
+  else
+    bash scripts/wheel_build.sh
+  fi
+else
+  bash scripts/wheel_build.sh
+fi
 
 echo "== Building conda-packed env =="
 python "${PACK_DIR}/build_common.py" --output "$ARCHIVE" --format tar.gz
@@ -53,7 +72,7 @@ if [ ! -t 2 ]; then
     exit 1
   fi
   echo "Launching python..."
-  "$ENV_DIR/bin/python" -u -m copaw.cli.main desktop
+  "$ENV_DIR/bin/python" -u -m copaw desktop
   EXIT=$?
   if [ $EXIT -ge 128 ]; then
     SIG=$((EXIT - 128))
@@ -61,9 +80,10 @@ if [ ! -t 2 ]; then
   else
     echo "Exit code: $EXIT"
   fi
+  echo "--- Full log: $LOG (scroll up for Python traceback if app exited early) ---"
   exit $EXIT
 fi
-exec "$ENV_DIR/bin/python" -u -m copaw.cli.main desktop
+exec "$ENV_DIR/bin/python" -u -m copaw desktop
 LAUNCHER
 chmod +x "${APP_DIR}/Contents/MacOS/${APP_NAME}"
 

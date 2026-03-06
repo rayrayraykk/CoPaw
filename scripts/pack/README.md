@@ -40,7 +40,7 @@ If the .app crashes on double-click, run it from Terminal to see the full error 
 ```bash
 # From repo root; force packed env only (no system conda / PYTHONPATH). Adjust path if needed.
 APP_ENV="$(pwd)/dist/CoPaw.app/Contents/Resources/env"
-PYTHONPATH= PYTHONHOME="$APP_ENV" "$APP_ENV/bin/python" -m copaw.cli.main desktop
+PYTHONPATH= PYTHONHOME="$APP_ENV" "$APP_ENV/bin/python" -m copaw desktop
 ```
 
 All stdout/stderr (including Python tracebacks) will appear in the terminal. Use this to debug startup errors or to run with `--log-level debug`.

@@ -13,20 +13,36 @@ $NsiPath = Join-Path $PackDir "copaw_desktop.nsi"
 New-Item -ItemType Directory -Force -Path $Dist | Out-Null
 
 Write-Host "== Building wheel (includes console frontend) =="
-$bashCmd = (Get-Command bash -ErrorAction SilentlyContinue)
-$bashPath = $null
-if ($bashCmd) {
-  $bashPath = $bashCmd.Source
-} else {
-  $gitBash = "C:\Program Files\Git\bin\bash.exe"
-  if (Test-Path $gitBash) {
-    $bashPath = $gitBash
+# Skip wheel_build if dist already has a wheel for current version
+$VersionFile = Join-Path $RepoRoot "src\copaw\__version__.py"
+$CurrentVersion = ""
+if (Test-Path $VersionFile) {
+  $m = (Get-Content $VersionFile -Raw) -match '__version__\s*=\s*"([^"]+)"'
+  if ($m) { $CurrentVersion = $Matches[1] }
+}
+$RunWheelBuild = $true
+if ($CurrentVersion) {
+  $wheelGlob = Join-Path $Dist "copaw-$CurrentVersion-*.whl"
+  if ((Get-ChildItem -Path $wheelGlob -ErrorAction SilentlyContinue).Count -gt 0) {
+    Write-Host "dist/ already has wheel for version $CurrentVersion, skipping."
+    $RunWheelBuild = $false
   }
 }
-if (-not $bashPath) {
-  throw "bash not found. Install Git for Windows (Git Bash) or ensure bash is on PATH."
-}
-$bashScript = @'
+if ($RunWheelBuild) {
+  $bashCmd = (Get-Command bash -ErrorAction SilentlyContinue)
+  $bashPath = $null
+  if ($bashCmd) {
+    $bashPath = $bashCmd.Source
+  } else {
+    $gitBash = "C:\Program Files\Git\bin\bash.exe"
+    if (Test-Path $gitBash) {
+      $bashPath = $gitBash
+    }
+  }
+  if (-not $bashPath) {
+    throw "bash not found. Install Git for Windows (Git Bash) or ensure bash is on PATH."
+  }
+  $bashScript = @'
 set -euo pipefail
 SHIM_DIR="$(pwd)/__DIST__/_shim"
 mkdir -p "$SHIM_DIR"
@@ -38,8 +54,9 @@ chmod +x "$SHIM_DIR/python3"
 export PATH="$SHIM_DIR:$PATH"
 bash scripts/wheel_build.sh
 '@
-$bashScript = $bashScript.Replace("__DIST__", $Dist)
-& $bashPath -lc $bashScript
+  $bashScript = $bashScript.Replace("__DIST__", $Dist)
+  & $bashPath -lc $bashScript
+}
 
 Write-Host "== Building conda-packed env =="
 & python $PackDir\build_common.py --output $Archive --format zip
@@ -53,7 +70,7 @@ $LauncherBat = Join-Path $Unpacked "CoPaw Desktop.bat"
 @"
 @echo off
 cd /d "%~dp0"
-"%~dp0python.exe" -m copaw.cli.main desktop
+"%~dp0python.exe" -m copaw desktop
 pause
 "@ | Set-Content -Path $LauncherBat -Encoding ASCII
 
