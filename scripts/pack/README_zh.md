@@ -48,6 +48,19 @@ PYTHONPATH= PYTHONHOME="$APP_ENV" "$APP_ENV/bin/python" -m copaw desktop
 
 首次打开时，macOS 可能弹出「请求访问桌面的文件」：请点**允许**，否则部分功能可能不可用或窗口会关闭。
 
+## macOS：提示「无法验证开发者」/ Gatekeeper 拦截时怎么打开
+
+用户从 Release 等渠道下载的 CoPaw macOS 应用（.app 或 zip/dmg 内的 .app）未经过 Apple 公证，可能看到「Apple 无法验证“CoPaw”是否包含可能危害 Mac 安全或泄漏隐私的恶意软件」。可按以下方式打开：
+
+- **右键打开（推荐）**
+  在 CoPaw 应用上 **右键（或 Control + 点击）** → 选 **「打开」** → 在弹窗里再点一次 **「打开」**。即表示你确认运行该应用，Gatekeeper 会放行，之后双击即可正常打开。
+
+- **在系统设置里放行**
+  若仍被拦截，进入 **系统设置 → 隐私与安全性**，往下找到类似「已阻止使用 CoPaw，因为无法验证开发者」的提示，点 **「仍要打开」** 或 **「允许」** 即可。
+
+- **用终端去掉隔离属性（不推荐普通用户）**
+  在终端执行：`xattr -cr /Applications/CoPaw.app`（或解压后 .app 的实际路径）。会去掉「从互联网下载」的隔离标记，一般就不再弹恶意软件提示，但不如「右键 → 打开」安全、可控。
+
 ## CI
 
 `.github/workflows/desktop-release.yml`：

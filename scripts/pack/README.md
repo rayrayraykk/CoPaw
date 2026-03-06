@@ -49,6 +49,19 @@ When you **double-click** the .app and nothing appears, the launcher writes stde
 
 On first launch macOS may ask for “Desktop” or “Files and Folders” access: click **Allow** so the app can run properly; if you click Don’t Allow, the window may close.
 
+## macOS: if “Apple cannot verify” / Gatekeeper blocks the app
+
+When users download the CoPaw macOS app (e.g. from Releases) as a `.app` (in a zip) or DMG, macOS may show: *"Apple cannot verify that 'CoPaw' contains no malicious software"*. The app is not notarized. They can still open it as follows:
+
+- **Right-click to open (recommended)**
+  Right-click (or Control+click) the CoPaw app → **Open** → in the dialog click **Open** again. Gatekeeper will allow it; after that double-click works as usual.
+
+- **Allow in System Settings**
+  If still blocked, go to **System Settings → Privacy & Security**, find the message like *"CoPaw was blocked because it is from an unidentified developer"*, and click **Open Anyway** or **Allow**.
+
+- **Remove quarantine attribute (not recommended for most users)**
+  In Terminal: `xattr -cr /Applications/CoPaw.app` (or the path to the `.app` after unzipping). This clears the download quarantine flag; less safe than right-click → Open.
+
 ## CI
 
 `.github/workflows/desktop-release.yml`:
