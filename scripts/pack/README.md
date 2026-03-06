@@ -44,6 +44,8 @@ All stdout/stderr (including Python tracebacks) will appear in the terminal. Use
 
 When you **double-click** the .app and nothing appears, the launcher writes stderr/stdout to `~/.copaw/desktop.log`. Inspect that file for errors.
 
+On first launch macOS may ask for “Desktop” or “Files and Folders” access: click **Allow** so the app can run properly; if you click Don’t Allow, the window may close.
+
 ## CI
 
 `.github/workflows/desktop-release.yml`:

@@ -77,6 +77,8 @@ def main() -> int:
                 "conda-pack",
             ],
         )
+        if out_path.exists():
+            out_path.unlink()
         pack_cmd = [
             "conda",
             "run",
@@ -87,6 +89,7 @@ def main() -> int:
             env_name,
             "-o",
             str(out_path),
+            "-f",
         ]
         if args.format != "infer":
             pack_cmd.extend(["--format", args.format])

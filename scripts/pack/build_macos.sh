@@ -38,18 +38,37 @@ if [[ -x "${APP_DIR}/Contents/Resources/env/bin/conda-unpack" ]]; then
   (cd "${APP_DIR}/Contents/Resources/env" && ./bin/conda-unpack)
 fi
 
-# Launcher: force packed env; when no TTY (e.g. double-click) log to ~/.copaw/desktop.log
+# Launcher: force packed env; when no TTY log to ~/.copaw/desktop.log (no exec so we see errors)
 cat > "${APP_DIR}/Contents/MacOS/${APP_NAME}" << 'LAUNCHER'
 #!/usr/bin/env bash
 ENV_DIR="$(cd "$(dirname "$0")/../Resources/env" && pwd)"
+LOG="$HOME/.copaw/desktop.log"
 unset PYTHONPATH
 export PYTHONHOME="$ENV_DIR"
+export COPAW_DESKTOP_APP=1
 cd "$HOME" || true
 if [ ! -t 2 ]; then
   mkdir -p "$HOME/.copaw"
-  exec 2>> "$HOME/.copaw/desktop.log"
-  echo "=== $(date) CoPaw desktop ===" >> "$HOME/.copaw/desktop.log"
-  exec 1>> "$HOME/.copaw/desktop.log"
+  { echo "=== $(date) CoPaw starting ==="
+    echo "ENV_DIR=$ENV_DIR"
+    echo "Python: $ENV_DIR/bin/python (exists=$([ -x "$ENV_DIR/bin/python" ] && echo yes || echo no))"
+  } >> "$LOG"
+  exec 2>> "$LOG"
+  exec 1>> "$LOG"
+  if [ ! -x "$ENV_DIR/bin/python" ]; then
+    echo "ERROR: python not executable at $ENV_DIR/bin/python"
+    exit 1
+  fi
+  echo "Launching python..."
+  "$ENV_DIR/bin/python" -u -m copaw.cli.main desktop
+  EXIT=$?
+  if [ $EXIT -ge 128 ]; then
+    SIG=$((EXIT - 128))
+    echo "Exit code: $EXIT (killed by signal $SIG, e.g. 9=SIGKILL 15=SIGTERM)"
+  else
+    echo "Exit code: $EXIT"
+  fi
+  exit $EXIT
 fi
 exec "$ENV_DIR/bin/python" -u -m copaw.cli.main desktop
 LAUNCHER
@@ -83,6 +102,8 @@ cat > "${APP_DIR}/Contents/Info.plist" << INFOPLIST
   <key>CFBundleVersion</key><string>${VERSION}</string>
   <key>CFBundleShortVersionString</key><string>${VERSION}</string>
   ${ICON_PLIST}<key>NSHighResolutionCapable</key><true/>
+  <key>LSMinimumSystemVersion</key><string>10.13</string>
+  <key>NSDesktopFolderUsageDescription</key><string>CoPaw may access files in your Desktop folder if you use file-related features. You can choose Don'\''t Allow; the app will still run with limited file access.</string>
 </dict>
 </plist>
 INFOPLIST

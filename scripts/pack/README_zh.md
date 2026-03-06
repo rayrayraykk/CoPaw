@@ -44,6 +44,8 @@ PYTHONPATH= PYTHONHOME="$APP_ENV" "$APP_ENV/bin/python" -m copaw.cli.main deskto
 
 若**双击** .app 没有任何窗口出现，启动器会把 stderr/stdout 写入 `~/.copaw/desktop.log`，可打开该文件查看报错。
 
+首次打开时，macOS 可能弹出「请求访问桌面的文件」：请点**允许**，否则部分功能可能不可用或窗口会关闭。
+
 ## CI
 
 `.github/workflows/desktop-release.yml`：

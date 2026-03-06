@@ -57,6 +57,12 @@ def _wait_for_http(host: str, port: int, timeout_sec: float = 15.0) -> bool:
     show_default=True,
     help="Log level for the app process.",
 )
+def _log_desktop(msg: str) -> None:
+    """Print to stderr and flush (for desktop.log when launched from .app)."""
+    print(msg, file=sys.stderr)
+    sys.stderr.flush()
+
+
 def desktop_cmd(
     host: str,
     log_level: str,
@@ -79,47 +85,68 @@ def desktop_cmd(
     port = _find_free_port(host)
     url = f"http://{host}:{port}"
     click.echo(f"Starting CoPaw app on {url} (port {port})")
+    _log_desktop("[desktop] Server subprocess starting...")
 
     env = os.environ.copy()
     env[LOG_LEVEL_ENV] = log_level
-    with subprocess.Popen(
-        [
-            sys.executable,
-            "-m",
-            "uvicorn",
-            "copaw.app._app:app",
-            "--host",
-            host,
-            "--port",
-            str(port),
-            "--log-level",
-            log_level,
-        ],
-        stdin=subprocess.DEVNULL,
-        stdout=sys.stdout,
-        stderr=sys.stderr,
-        env=env,
-    ) as proc:
-        if _wait_for_http(host, port):
-            webview.create_window(
-                "CoPaw Desktop",
-                url,
-                width=1280,
-                height=800,
+    try:
+        with subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "uvicorn",
+                "copaw.app._app:app",
+                "--host",
+                host,
+                "--port",
+                str(port),
+                "--log-level",
+                log_level,
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=sys.stdout,
+            stderr=sys.stderr,
+            env=env,
+        ) as proc:
+            _log_desktop("[desktop] Waiting for HTTP ready...")
+            if _wait_for_http(host, port):
+                _log_desktop(
+                    "[desktop] HTTP ready, creating webview window...",
+                )
+                webview.create_window(
+                    "CoPaw Desktop",
+                    url,
+                    width=1280,
+                    height=800,
+                )
+                _log_desktop(
+                    "[desktop] Calling webview.start() "
+                    "(blocks until closed)...",
+                )
+                webview.start()  # blocks until user closes the window
+                _log_desktop(
+                    "[desktop] webview.start() returned (window closed).",
+                )
+                proc.terminate()
+                proc.wait()
+                return  # normal exit after user closed window
+            _log_desktop("[desktop] Server did not become ready in time.")
+            click.echo(
+                "Server did not become ready in time; open manually: " + url,
+                err=True,
             )
-            webview.start()  # blocks until user closes the window
-            proc.terminate()
-            proc.wait()
-            return  # normal exit after user closed window
-        click.echo(
-            "Server did not become ready in time; open manually: " + url,
-            err=True,
-        )
-        try:
-            proc.wait()
-        except KeyboardInterrupt:
-            proc.terminate()
-            proc.wait()
+            try:
+                proc.wait()
+            except KeyboardInterrupt:
+                proc.terminate()
+                proc.wait()
 
-    if proc.returncode != 0:
-        sys.exit(proc.returncode or 1)
+        if proc.returncode != 0:
+            sys.exit(proc.returncode or 1)
+    except Exception as e:
+        _log_desktop(f"[desktop] Exception: {e!r}")
+        import traceback
+
+        traceback.print_exc(file=sys.stderr)
+        sys.stderr.flush()
+        raise
