@@ -42,9 +42,11 @@ if ($RunWheelBuild) {
   if (-not $bashPath) {
     throw "bash not found. Install Git for Windows (Git Bash) or ensure bash is on PATH."
   }
+  $ShimDir = Join-Path $RepoRoot ".wheelshim"
+  New-Item -ItemType Directory -Force -Path $ShimDir | Out-Null
   $bashScript = @'
 set -euo pipefail
-SHIM_DIR="$(pwd)/__DIST__/_shim"
+SHIM_DIR="__SHIM_DIR__"
 mkdir -p "$SHIM_DIR"
 cat > "$SHIM_DIR/python3" <<'EOF'
 #!/usr/bin/env bash
@@ -54,7 +56,7 @@ chmod +x "$SHIM_DIR/python3"
 export PATH="$SHIM_DIR:$PATH"
 bash scripts/wheel_build.sh
 '@
-  $bashScript = $bashScript.Replace("__DIST__", $Dist)
+  $bashScript = $bashScript.Replace("__SHIM_DIR__", $ShimDir -replace '\\', '/')
   & $bashPath -lc $bashScript
 }
 
