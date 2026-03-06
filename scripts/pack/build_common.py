@@ -7,6 +7,7 @@ Used by build_macos.sh and build_win.ps1. Run from repo root.
 from __future__ import annotations
 
 import argparse
+import os
 import random
 import string
 import subprocess
@@ -15,6 +16,14 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ENV_PREFIX = "copaw_pack_"
+
+
+def _conda_exe() -> str:
+    """Resolve conda executable (required on Windows where 'conda' is a batch)."""
+    exe = os.environ.get("CONDA_EXE")
+    if exe:
+        return exe
+    return "conda"
 
 
 def _run(cmd: list[str], cwd: Path | None = None) -> None:
@@ -81,10 +90,11 @@ def main() -> int:
         f"{ENV_PREFIX}{''.join(random.choices(string.ascii_lowercase, k=8))}"
     )
 
+    conda = _conda_exe()
     try:
         _run(
             [
-                "conda",
+                conda,
                 "create",
                 "-n",
                 env_name,
@@ -95,7 +105,7 @@ def main() -> int:
         )
         _run(
             [
-                "conda",
+                conda,
                 "run",
                 "-n",
                 env_name,
@@ -109,7 +119,7 @@ def main() -> int:
         )
         _run(
             [
-                "conda",
+                conda,
                 "run",
                 "-n",
                 env_name,
@@ -122,11 +132,11 @@ def main() -> int:
         )
         _run(
             [
-                "conda",
+                conda,
                 "run",
                 "-n",
                 env_name,
-                "conda",
+                conda,
                 "install",
                 "-y",
                 "conda-pack",
@@ -135,7 +145,7 @@ def main() -> int:
         if out_path.exists():
             out_path.unlink()
         pack_cmd = [
-            "conda",
+            conda,
             "run",
             "-n",
             env_name,
@@ -151,7 +161,7 @@ def main() -> int:
         _run(pack_cmd)
         print(f"Packed to {out_path}")
     finally:
-        _run(["conda", "env", "remove", "-n", env_name, "-y"])
+        _run([conda, "env", "remove", "-n", env_name, "-y"])
     return 0
 
 
