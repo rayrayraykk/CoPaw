@@ -91,6 +91,12 @@ if not exist "%USERPROFILE%\.copaw\config.json" (
 "@ | Set-Content -Path $LauncherBat -Encoding ASCII
 
 Write-Host "== Building NSIS installer =="
+
+# Debug: Print EnvRoot directory contents
+Write-Host "=== EnvRoot=$EnvRoot ==="
+Write-Host "=== EnvRoot top files ==="
+Get-ChildItem -LiteralPath $EnvRoot -Force | Select-Object -First 50 | ForEach-Object { Write-Host $_.FullName }
+
 $VersionFromEnv = $null
 try {
   $VersionFromEnv = (& (Join-Path $EnvRoot "python.exe") -c "from importlib.metadata import version; print(version('copaw'))" 2>&1) -replace '\s+$', ''
@@ -109,10 +115,14 @@ $nsiArgs = @(
   "/DUNPACKED=$UnpackedFull",
   $NsiPath
 )
+
+# Debug: Check if makensis is available
+Write-Host "=== Checking makensis availability ==="
+where.exe makensis
+
 Write-Host "[build_win] Running: makensis $($nsiArgs -join ' ')"
-$makensisOut = & makensis @nsiArgs 2>&1
+& makensis @nsiArgs
 $makensisExit = $LASTEXITCODE
-Write-Host $makensisOut
 Write-Host "[build_win] makensis exit code: $makensisExit"
 if ($makensisExit -ne 0) {
   throw "makensis failed with exit code $makensisExit. Check output above for NSIS error."
