@@ -42,6 +42,8 @@ PYTHONPATH= PYTHONHOME="$APP_ENV" "$APP_ENV/bin/python" -m copaw.cli.main deskto
 
 所有标准输出和错误（包括 Python traceback）都会打在终端里；可加 `--log-level debug` 查看更详细日志。
 
+若**双击** .app 没有任何窗口出现，启动器会把 stderr/stdout 写入 `~/.copaw/desktop.log`，可打开该文件查看报错。
+
 ## CI
 
 `.github/workflows/desktop-release.yml`：

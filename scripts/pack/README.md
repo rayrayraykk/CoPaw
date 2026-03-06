@@ -42,6 +42,8 @@ PYTHONPATH= PYTHONHOME="$APP_ENV" "$APP_ENV/bin/python" -m copaw.cli.main deskto
 
 All stdout/stderr (including Python tracebacks) will appear in the terminal. Use this to debug startup errors or to run with `--log-level debug`.
 
+When you **double-click** the .app and nothing appears, the launcher writes stderr/stdout to `~/.copaw/desktop.log`. Inspect that file for errors.
+
 ## CI
 
 `.github/workflows/desktop-release.yml`:

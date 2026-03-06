@@ -5,7 +5,7 @@
 set -e
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
-PACK_DIR="$(dirname "$0")"
+PACK_DIR="$(cd "$(dirname "$0")" && pwd)"
 DIST="${DIST:-dist}"
 ARCHIVE="${DIST}/copaw-env.tar.gz"
 APP_NAME="CoPaw"
@@ -38,20 +38,39 @@ if [[ -x "${APP_DIR}/Contents/Resources/env/bin/conda-unpack" ]]; then
   (cd "${APP_DIR}/Contents/Resources/env" && ./bin/conda-unpack)
 fi
 
-# Launcher: force use of packed env only (PYTHONHOME + unset PYTHONPATH)
+# Launcher: force packed env; when no TTY (e.g. double-click) log to ~/.copaw/desktop.log
 cat > "${APP_DIR}/Contents/MacOS/${APP_NAME}" << 'LAUNCHER'
 #!/usr/bin/env bash
 ENV_DIR="$(cd "$(dirname "$0")/../Resources/env" && pwd)"
 unset PYTHONPATH
 export PYTHONHOME="$ENV_DIR"
-exec "$ENV_DIR/bin/python" -m copaw.cli.main desktop
+cd "$HOME" || true
+if [ ! -t 2 ]; then
+  mkdir -p "$HOME/.copaw"
+  exec 2>> "$HOME/.copaw/desktop.log"
+  echo "=== $(date) CoPaw desktop ===" >> "$HOME/.copaw/desktop.log"
+  exec 1>> "$HOME/.copaw/desktop.log"
+fi
+exec "$ENV_DIR/bin/python" -u -m copaw.cli.main desktop
 LAUNCHER
 chmod +x "${APP_DIR}/Contents/MacOS/${APP_NAME}"
 
-# Info.plist
+# Icon: generate icon.icns from icon.svg if missing (macOS only)
+if [[ -f "${PACK_DIR}/assets/icon.svg" ]] && [[ ! -f "${PACK_DIR}/assets/icon.icns" ]]; then
+  echo "== Generating icon.icns from icon.svg =="
+  python "${PACK_DIR}/gen_icon_icns.py" || echo "Warning: gen_icon_icns.py failed, app will have no icon."
+fi
+
+# Info.plist (include icon key if icon.icns exists)
 VERSION="$("${APP_DIR}/Contents/Resources/env/bin/python" -c \
   "from importlib.metadata import version; print(version('copaw'))" 2>/dev/null \
   || echo "0.0.0")"
+ICON_PLIST=""
+if [[ -f "${PACK_DIR}/assets/icon.icns" ]]; then
+  cp "${PACK_DIR}/assets/icon.icns" "${APP_DIR}/Contents/Resources/"
+  ICON_PLIST="<key>CFBundleIconFile</key><string>icon.icns</string>
+  "
+fi
 cat > "${APP_DIR}/Contents/Info.plist" << INFOPLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" \
@@ -63,20 +82,10 @@ cat > "${APP_DIR}/Contents/Info.plist" << INFOPLIST
   <key>CFBundleName</key><string>${APP_NAME}</string>
   <key>CFBundleVersion</key><string>${VERSION}</string>
   <key>CFBundleShortVersionString</key><string>${VERSION}</string>
-  <key>NSHighResolutionCapable</key><true/>
+  ${ICON_PLIST}<key>NSHighResolutionCapable</key><true/>
 </dict>
 </plist>
 INFOPLIST
-
-# Icon: generate from icon.svg if needed, then copy into app
-if [[ -f "${PACK_DIR}/assets/icon.svg" ]] && [[ ! -f "${PACK_DIR}/assets/icon.icns" ]]; then
-  python "${PACK_DIR}/gen_icon_icns.py" || true
-fi
-if [[ -f "${PACK_DIR}/assets/icon.icns" ]]; then
-  cp "${PACK_DIR}/assets/icon.icns" "${APP_DIR}/Contents/Resources/"
-  /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string icon.icns" \
-    "${APP_DIR}/Contents/Info.plist" 2>/dev/null || true
-fi
 
 echo "== Built ${APP_DIR} =="
 # Optional: create zip and DMG for distribution (set CREATE_ZIP=1)
