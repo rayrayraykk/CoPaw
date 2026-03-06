@@ -22,7 +22,7 @@ else
 fi
 
 echo "== Building conda-packed env =="
-"${PACK_DIR}/build_common.py" --output "$ARCHIVE" --format tar.gz
+python "${PACK_DIR}/build_common.py" --output "$ARCHIVE" --format tar.gz
 
 echo "== Building .app bundle =="
 rm -rf "$APP_DIR"
