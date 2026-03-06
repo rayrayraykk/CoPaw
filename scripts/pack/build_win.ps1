@@ -30,35 +30,12 @@ if ($CurrentVersion) {
   }
 }
 if ($RunWheelBuild) {
-  $bashCmd = (Get-Command bash -ErrorAction SilentlyContinue)
-  $bashPath = $null
-  if ($bashCmd) {
-    $bashPath = $bashCmd.Source
-  } else {
-    $gitBash = "C:\Program Files\Git\bin\bash.exe"
-    if (Test-Path $gitBash) {
-      $bashPath = $gitBash
-    }
+  $WheelBuildScript = Join-Path $RepoRoot "scripts\wheel_build.ps1"
+  if (-not (Test-Path $WheelBuildScript)) {
+    throw "wheel_build.ps1 not found: $WheelBuildScript"
   }
-  if (-not $bashPath) {
-    throw "bash not found. Install Git for Windows (Git Bash) or ensure bash is on PATH."
-  }
-  $ShimDir = Join-Path $RepoRoot ".wheelshim"
-  New-Item -ItemType Directory -Force -Path $ShimDir | Out-Null
-  $bashScript = @'
-set -euo pipefail
-SHIM_DIR="__SHIM_DIR__"
-mkdir -p "$SHIM_DIR"
-cat > "$SHIM_DIR/python3" <<'EOF'
-#!/usr/bin/env bash
-exec python "$@"
-EOF
-chmod +x "$SHIM_DIR/python3"
-export PATH="$SHIM_DIR:$PATH"
-bash scripts/wheel_build.sh
-'@
-  $bashScript = $bashScript.Replace("__SHIM_DIR__", ($ShimDir -replace '\\', '/'))
-  & $bashPath -lc $bashScript
+  & $WheelBuildScript
+  if ($LASTEXITCODE -ne 0) { throw "wheel_build.ps1 failed with exit code $LASTEXITCODE" }
 }
 
 Write-Host "== Building conda-packed env =="
