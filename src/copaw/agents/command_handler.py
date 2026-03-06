@@ -32,6 +32,7 @@ class ConversationCommandHandlerMixin:
             "history",
             "compact_str",
             "await_summary",
+            "message",
         },
     )
 
