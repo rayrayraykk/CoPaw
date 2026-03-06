@@ -33,7 +33,6 @@ jobs:
           auto-update-conda: true
           python-version: "3.10"
           activate-environment: "copaw-build"
-          miniforge-variant: Miniforge3
 
       - name: Install NSIS
         uses: negrutiu/nsis-install@v2
@@ -69,7 +68,6 @@ jobs:
           auto-update-conda: true
           python-version: "3.10"
           activate-environment: "copaw-build"
-          miniforge-variant: Miniforge3
 
       - name: Build macOS .app
         run: |
