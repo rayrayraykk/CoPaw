@@ -40,6 +40,12 @@ def _wait_for_http(host: str, port: int, timeout_sec: float = 15.0) -> bool:
     return False
 
 
+def _log_desktop(msg: str) -> None:
+    """Print to stderr and flush (for desktop.log when launched from .app)."""
+    print(msg, file=sys.stderr)
+    sys.stderr.flush()
+
+
 @click.command("desktop")
 @click.option(
     "--host",
@@ -57,12 +63,6 @@ def _wait_for_http(host: str, port: int, timeout_sec: float = 15.0) -> bool:
     show_default=True,
     help="Log level for the app process.",
 )
-def _log_desktop(msg: str) -> None:
-    """Print to stderr and flush (for desktop.log when launched from .app)."""
-    print(msg, file=sys.stderr)
-    sys.stderr.flush()
-
-
 def desktop_cmd(
     host: str,
     log_level: str,
