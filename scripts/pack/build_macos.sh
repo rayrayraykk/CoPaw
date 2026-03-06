@@ -38,10 +38,13 @@ if [[ -x "${APP_DIR}/Contents/Resources/env/bin/conda-unpack" ]]; then
   (cd "${APP_DIR}/Contents/Resources/env" && ./bin/conda-unpack)
 fi
 
-# Launcher: use env's python -m so we never pick up system conda
+# Launcher: force use of packed env only (PYTHONHOME + unset PYTHONPATH)
 cat > "${APP_DIR}/Contents/MacOS/${APP_NAME}" << 'LAUNCHER'
 #!/usr/bin/env bash
-exec "$(dirname "$0")/../Resources/env/bin/python" -m copaw.cli.main desktop
+ENV_DIR="$(cd "$(dirname "$0")/../Resources/env" && pwd)"
+unset PYTHONPATH
+export PYTHONHOME="$ENV_DIR"
+exec "$ENV_DIR/bin/python" -m copaw.cli.main desktop
 LAUNCHER
 chmod +x "${APP_DIR}/Contents/MacOS/${APP_NAME}"
 

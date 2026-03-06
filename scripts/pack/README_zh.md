@@ -35,8 +35,9 @@ CREATE_ZIP=1 bash ./scripts/pack/build_macos.sh   # 同时生成 .zip 与 .dmg
 如果双击 .app 会闪退，可以在终端里运行以查看完整报错和日志：
 
 ```bash
-# 在仓库根目录执行，用打包环境里的 python，避免用到系统 conda（路径按需改）
-./dist/CoPaw.app/Contents/Resources/env/bin/python -m copaw.cli.main desktop
+# 在仓库根目录执行，强制只用打包环境（不用系统 conda / PYTHONPATH）。路径按需改。
+APP_ENV="$(pwd)/dist/CoPaw.app/Contents/Resources/env"
+PYTHONPATH= PYTHONHOME="$APP_ENV" "$APP_ENV/bin/python" -m copaw.cli.main desktop
 ```
 
 所有标准输出和错误（包括 Python traceback）都会打在终端里；可加 `--log-level debug` 查看更详细日志。

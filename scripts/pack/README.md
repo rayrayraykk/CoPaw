@@ -35,8 +35,9 @@ CREATE_ZIP=1 bash ./scripts/pack/build_macos.sh   # also create .zip and .dmg
 If the .app crashes on double-click, run it from Terminal to see the full error and logs:
 
 ```bash
-# From repo root; use env's python so system conda is not used (adjust path if needed)
-./dist/CoPaw.app/Contents/Resources/env/bin/python -m copaw.cli.main desktop
+# From repo root; force packed env only (no system conda / PYTHONPATH). Adjust path if needed.
+APP_ENV="$(pwd)/dist/CoPaw.app/Contents/Resources/env"
+PYTHONPATH= PYTHONHOME="$APP_ENV" "$APP_ENV/bin/python" -m copaw.cli.main desktop
 ```
 
 All stdout/stderr (including Python tracebacks) will appear in the terminal. Use this to debug startup errors or to run with `--log-level debug`.
