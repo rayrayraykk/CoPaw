@@ -62,6 +62,12 @@ bash scripts/wheel_build.sh
 
 Write-Host "== Building conda-packed env =="
 & python $PackDir\build_common.py --output $Archive --format zip
+if ($LASTEXITCODE -ne 0) {
+  throw "build_common.py failed with exit code $LASTEXITCODE"
+}
+if (-not (Test-Path $Archive)) {
+  throw "Archive not created: $Archive"
+}
 
 Write-Host "== Unpacking env =="
 if (Test-Path $Unpacked) { Remove-Item -Recurse -Force $Unpacked }
