@@ -4,9 +4,9 @@
 
 !include "MUI2.nsh"
 !define MUI_ABORTWARNING
-; Use custom icon if available
-!define MUI_ICON "scripts\pack\assets\icon.ico"
-!define MUI_UNICON "scripts\pack\assets\icon.ico"
+; Use custom icon from unpacked env (copied by build_win.ps1)
+!define MUI_ICON "${UNPACKED}\icon.ico"
+!define MUI_UNICON "${UNPACKED}\icon.ico"
 
 !ifndef COPAW_VERSION
   !define COPAW_VERSION "0.0.0"
@@ -36,8 +36,6 @@ RequestExecutionLevel user
 Section "CoPaw Desktop" SEC01
   SetOutPath "$INSTDIR"
   File /r /x "*.pyc" /x "__pycache__" "${UNPACKED}\*.*"
-  ; Try to copy icon if it exists (will fail silently if not found)
-  File /nonfatal "scripts\pack\assets\icon.ico"
   WriteRegStr HKCU "Software\CoPaw" "InstallPath" "$INSTDIR"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
 

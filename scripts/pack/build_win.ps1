@@ -144,6 +144,15 @@ WshShell.Run Chr(34) & batPath & Chr(34), 0, False
 Set WshShell = Nothing
 "@ | Set-Content -Path $LauncherVbs -Encoding ASCII
 
+# Copy icon.ico to env root so NSIS can find it
+$IconSrc = Join-Path $PackDir "assets\icon.ico"
+if (Test-Path $IconSrc) {
+  Copy-Item $IconSrc -Destination $EnvRoot -Force
+  Write-Host "[build_win] Copied icon.ico to env root"
+} else {
+  Write-Host "[build_win] WARN: icon.ico not found at $IconSrc"
+}
+
 Write-Host "== Building NSIS installer =="
 
 # Debug: Print EnvRoot directory contents
