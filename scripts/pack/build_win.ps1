@@ -186,11 +186,19 @@ try {
 }
 
 Write-Host "[build_win] Running: makensis $($nsiArgs -join ' ')"
-& makensis @nsiArgs
+Write-Host "=== NSIS will compile from: $NsiPath ==="
+Write-Host "=== NSIS unpacked source: $UnpackedFull ==="
+Write-Host "=== NSIS output installer: $OutputExeNsi ==="
+$nsisOutput = & makensis @nsiArgs 2>&1 | Out-String
+Write-Host "=== NSIS Output Begin ==="
+Write-Host $nsisOutput
+Write-Host "=== NSIS Output End ==="
 $makensisExit = $LASTEXITCODE
 Write-Host "[build_win] makensis exit code: $makensisExit"
 if ($makensisExit -ne 0) {
-  throw "makensis failed with exit code $makensisExit. Check output above for NSIS error."
+  Write-Host "ERROR: makensis compilation failed!"
+  Write-Host "Check the NSIS output above for specific errors."
+  throw "makensis failed with exit code $makensisExit"
 }
 if (-not (Test-Path $OutInstaller)) {
   throw "NSIS did not create installer: $OutInstaller"
