@@ -4,8 +4,7 @@
 
 !include "MUI2.nsh"
 !define MUI_ABORTWARNING
-!define MUI_ICON ""
-!define MUI_UNICON ""
+; Leave MUI_ICON/MUI_UNICON undefined to use NSIS default (no custom icon).
 
 !ifndef COPAW_VERSION
   !define COPAW_VERSION "0.0.0"
