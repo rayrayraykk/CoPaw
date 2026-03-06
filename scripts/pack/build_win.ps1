@@ -100,9 +100,9 @@ if (-not $Version) { $Version = $CurrentVersion; Write-Host "[build_win] Using v
 if (-not $Version) { $Version = "0.0.0"; Write-Host "[build_win] WARN: Using fallback version 0.0.0" }
 Write-Host "[build_win] COPAW_VERSION=$Version OUTPUT_EXE will be under $Dist"
 $OutInstaller = Join-Path (Join-Path $RepoRoot $Dist) "CoPaw-Setup-$Version.exe"
-# Pass env root to NSIS (forward slashes for NSIS). Future: zip-in-installer + extract at install.
-$UnpackedFull = $EnvRoot -replace '\\', '/'
-$OutputExeNsi = $OutInstaller -replace '\\', '/'
+# Pass absolute paths to NSIS (keep backslashes).
+$UnpackedFull = (Resolve-Path $EnvRoot).Path
+$OutputExeNsi = (Resolve-Path $OutInstaller).Path
 $nsiArgs = @(
   "/DCOPAW_VERSION=$Version",
   "/DOUTPUT_EXE=$OutputExeNsi",
