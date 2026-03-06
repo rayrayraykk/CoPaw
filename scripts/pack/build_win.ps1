@@ -75,29 +75,56 @@ if (Test-Path $Unpacked) { Remove-Item -Recurse -Force $Unpacked }
 Expand-Archive -Path $Archive -DestinationPath $Unpacked -Force
 $unpackedRoot = Get-ChildItem -Path $Unpacked -ErrorAction SilentlyContinue | Measure-Object
 Write-Host "[build_win] Unpacked entries in $Unpacked : $($unpackedRoot.Count)"
-if (Test-Path (Join-Path $Unpacked "python.exe")) { Write-Host "[build_win] python.exe found in unpacked env" } else { Write-Host "[build_win] WARN: python.exe NOT found in $Unpacked" }
 
-# Launcher .bat so that working dir is the env root
-$LauncherBat = Join-Path $Unpacked "CoPaw Desktop.bat"
+# Resolve env root: conda-pack usually puts python.exe at archive root; allow one nested dir.
+$EnvRoot = $Unpacked
+if (-not (Test-Path (Join-Path $EnvRoot "python.exe"))) {
+  $found = Get-ChildItem -Path $Unpacked -Directory -ErrorAction SilentlyContinue |
+    Where-Object { Test-Path (Join-Path $_.FullName "python.exe") } |
+    Select-Object -First 1
+  if ($found) { $EnvRoot = $found.FullName; Write-Host "[build_win] Env root: $EnvRoot" }
+}
+if (-not (Test-Path (Join-Path $EnvRoot "python.exe"))) {
+  throw "python.exe not found in unpacked env (checked $Unpacked and one level down)."
+}
+if (-not [System.IO.Path]::IsPathRooted($EnvRoot)) {
+  $EnvRoot = Join-Path $RepoRoot $EnvRoot
+}
+Write-Host "[build_win] python.exe found at env root: $EnvRoot"
+
+# Rewrite prefix in packed env so paths point to current location (required after move).
+$CondaUnpack = Join-Path $EnvRoot "Scripts\conda-unpack.exe"
+if (Test-Path $CondaUnpack) {
+  Write-Host "[build_win] Running conda-unpack..."
+  & $CondaUnpack
+  if ($LASTEXITCODE -ne 0) { throw "conda-unpack failed with exit code $LASTEXITCODE" }
+} else {
+  Write-Host "[build_win] WARN: conda-unpack.exe not found at $CondaUnpack, skipping."
+}
+
+# Launcher .bat so that working dir is the env root. No pause for release.
+$LauncherBat = Join-Path $EnvRoot "CoPaw Desktop.bat"
 @"
 @echo off
 cd /d "%~dp0"
-if not exist "%USERPROFILE%\.copaw\config.json" "%~dp0python.exe" -m copaw init --defaults --accept-security
+if not exist "%USERPROFILE%\.copaw\config.json" (
+  "%~dp0python.exe" -m copaw init --defaults --accept-security
+)
 "%~dp0python.exe" -m copaw desktop
-pause
 "@ | Set-Content -Path $LauncherBat -Encoding ASCII
 
 Write-Host "== Building NSIS installer =="
 $VersionFromEnv = $null
 try {
-  $VersionFromEnv = (& (Join-Path $Unpacked "python.exe") -c "from importlib.metadata import version; print(version('copaw'))" 2>&1) -replace '\s+$', ''
+  $VersionFromEnv = (& (Join-Path $EnvRoot "python.exe") -c "from importlib.metadata import version; print(version('copaw'))" 2>&1) -replace '\s+$', ''
 } catch { Write-Host "[build_win] version from packed env failed: $_" }
 $Version = $VersionFromEnv
 if (-not $Version) { $Version = $CurrentVersion; Write-Host "[build_win] Using version from __version__.py: $Version" }
 if (-not $Version) { $Version = "0.0.0"; Write-Host "[build_win] WARN: Using fallback version 0.0.0" }
 Write-Host "[build_win] COPAW_VERSION=$Version OUTPUT_EXE will be under $Dist"
 $OutInstaller = Join-Path (Join-Path $RepoRoot $Dist) "CoPaw-Setup-$Version.exe"
-$UnpackedFull = (Join-Path $RepoRoot $Unpacked) -replace '\\', '/'
+# Pass env root to NSIS (forward slashes for NSIS). Future: zip-in-installer + extract at install.
+$UnpackedFull = $EnvRoot -replace '\\', '/'
 $OutputExeNsi = $OutInstaller -replace '\\', '/'
 $nsiArgs = @(
   "/DCOPAW_VERSION=$Version",

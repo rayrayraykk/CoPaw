@@ -77,5 +77,11 @@ PYTHONPATH= PYTHONHOME="$APP_ENV" "$APP_ENV/bin/python" -m copaw desktop
 | `build_common.py` | 创建临时 conda 环境，从 wheel 安装 `copaw[full]`，conda-pack 产出归档 |
 | `build_macos.sh` | 一键：构建 wheel → build_common → 解压到 CoPaw.app；可选打 zip |
 | `build_win.ps1` | 一键：构建 wheel → build_common → 解压 → 桌面启动 bat → makensis 安装包 |
-| `copaw_desktop.nsi` | NSIS 脚本：从 `dist/win-unpacked` 打包并创建快捷方式 |
+| `copaw_desktop.nsi` | NSIS 脚本：从 env 根目录（含 python.exe）打包并创建快捷方式 |
 | `gen_icon_icns.py` | (仅 macOS) 从 `assets/icon.svg`（圆角透明）生成 `icon.icns` |
+
+## Windows 说明与后续可优化
+
+- 解压后会自动执行 **conda-unpack**（若存在 `Scripts\conda-unpack.exe`），重写前缀路径，避免 DLL/路径指向旧目录。
+- 若部分用户机器报缺 **VC++ 运行库**，可在安装包内捆绑 VC++ Redistributable，或优先使用 conda-forge 依赖。
+- 当前 NSIS 使用 `File /r` 递归打包已解压的 env，体积与文件数较大；若遇编译/安装过慢或杀软误报，可考虑改为「安装包内只带一个 zip，安装时用 nsisunz/7z 解压」。
