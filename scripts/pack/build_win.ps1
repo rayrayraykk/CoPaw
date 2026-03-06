@@ -56,7 +56,7 @@ chmod +x "$SHIM_DIR/python3"
 export PATH="$SHIM_DIR:$PATH"
 bash scripts/wheel_build.sh
 '@
-  $bashScript = $bashScript.Replace("__SHIM_DIR__", $ShimDir -replace '\\', '/')
+  $bashScript = $bashScript.Replace("__SHIM_DIR__", ($ShimDir -replace '\\', '/'))
   & $bashPath -lc $bashScript
 }
 
