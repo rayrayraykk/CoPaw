@@ -48,9 +48,18 @@ jobs:
           python-version: "3.10"
           activate-environment: "copaw-build"
           condarc-file: .github/condarc
+          conda-remove-defaults: false
 
       - name: Install NSIS
         uses: negrutiu/nsis-install@v2
+
+      - name: Clean dist directory
+        shell: pwsh
+        run: |
+          if (Test-Path dist) {
+            Remove-Item -Recurse -Force dist
+          }
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
 
       - name: Build Windows installer
         shell: pwsh
@@ -99,6 +108,10 @@ jobs:
           python-version: "3.10"
           activate-environment: "copaw-build"
           condarc-file: .github/condarc
+          conda-remove-defaults: false
+
+      - name: Clean dist directory
+        run: rm -rf dist && mkdir -p dist
 
       - name: Build macOS .app
         run: |

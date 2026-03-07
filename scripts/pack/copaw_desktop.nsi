@@ -4,7 +4,9 @@
 
 !include "MUI2.nsh"
 !define MUI_ABORTWARNING
-; Leave MUI_ICON/MUI_UNICON undefined to use NSIS default (no custom icon).
+; Use custom icon from unpacked env (copied by build_win.ps1)
+!define MUI_ICON "${UNPACKED}\icon.ico"
+!define MUI_UNICON "${UNPACKED}\icon.ico"
 
 !ifndef COPAW_VERSION
   !define COPAW_VERSION "0.0.0"
@@ -36,14 +38,18 @@ Section "CoPaw Desktop" SEC01
   File /r /x "*.pyc" /x "__pycache__" "${UNPACKED}\*.*"
   WriteRegStr HKCU "Software\CoPaw" "InstallPath" "$INSTDIR"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
-  CreateShortcut "$SMPROGRAMS\CoPaw Desktop.lnk" "$INSTDIR\CoPaw Desktop.bat" "" \
-    "$INSTDIR\CoPaw Desktop.bat" 0
-  CreateShortcut "$DESKTOP\CoPaw Desktop.lnk" "$INSTDIR\CoPaw Desktop.bat" "" \
-    "$INSTDIR\CoPaw Desktop.bat" 0
+
+  ; Main shortcut - uses VBS to hide console window
+  CreateShortcut "$SMPROGRAMS\CoPaw Desktop.lnk" "$INSTDIR\CoPaw Desktop.vbs" "" "$INSTDIR\icon.ico" 0
+  CreateShortcut "$DESKTOP\CoPaw Desktop.lnk" "$INSTDIR\CoPaw Desktop.vbs" "" "$INSTDIR\icon.ico" 0
+  
+  ; Debug shortcut - shows console window for troubleshooting
+  CreateShortcut "$SMPROGRAMS\CoPaw Desktop (Debug).lnk" "$INSTDIR\CoPaw Desktop (Debug).bat" "" "$INSTDIR\icon.ico" 0
 SectionEnd
 
 Section "Uninstall"
   Delete "$SMPROGRAMS\CoPaw Desktop.lnk"
+  Delete "$SMPROGRAMS\CoPaw Desktop (Debug).lnk"
   Delete "$DESKTOP\CoPaw Desktop.lnk"
   RMDir /r "$INSTDIR"
   DeleteRegKey HKCU "Software\CoPaw"

@@ -72,15 +72,7 @@ def desktop_cmd(
     Starts the FastAPI app in a subprocess on a free port, then opens a
     native webview window loading that URL. Use for a dedicated desktop
     window without conflicting with an existing CoPaw app instance.
-
-    Requires: pip install copaw[desktop] (pywebview).
     """
-    if webview is None:
-        click.echo(
-            "Webview support not installed. Run: pip install copaw[desktop]",
-            err=True,
-        )
-        sys.exit(1)
 
     port = _find_free_port(host)
     url = f"http://{host}:{port}"

@@ -24,9 +24,17 @@ if (Test-Path $VersionFile) {
 $RunWheelBuild = $true
 if ($CurrentVersion) {
   $wheelGlob = Join-Path $Dist "copaw-$CurrentVersion-*.whl"
-  if ((Get-ChildItem -Path $wheelGlob -ErrorAction SilentlyContinue).Count -gt 0) {
+  $existingWheels = Get-ChildItem -Path $wheelGlob -ErrorAction SilentlyContinue
+  if ($existingWheels.Count -gt 0) {
     Write-Host "dist/ already has wheel for version $CurrentVersion, skipping."
     $RunWheelBuild = $false
+  } else {
+    # Clean up old wheels to avoid confusion
+    $oldWheels = Get-ChildItem -Path (Join-Path $Dist "copaw-*.whl") -ErrorAction SilentlyContinue
+    if ($oldWheels.Count -gt 0) {
+      Write-Host "Removing old wheel files: $($oldWheels | ForEach-Object { $_.Name })"
+      $oldWheels | Remove-Item -Force
+    }
   }
 }
 if ($RunWheelBuild) {
@@ -79,7 +87,7 @@ if (Test-Path $CondaUnpack) {
   Write-Host "[build_win] WARN: conda-unpack.exe not found at $CondaUnpack, skipping."
 }
 
-# Launcher .bat so that working dir is the env root. No pause for release.
+# Main launcher .bat (will be hidden by VBS)
 $LauncherBat = Join-Path $EnvRoot "CoPaw Desktop.bat"
 @"
 @echo off
@@ -90,6 +98,48 @@ if not exist "%USERPROFILE%\.copaw\config.json" (
 "%~dp0python.exe" -m copaw desktop
 "@ | Set-Content -Path $LauncherBat -Encoding ASCII
 
+# Debug launcher .bat (shows console)
+$DebugBat = Join-Path $EnvRoot "CoPaw Desktop (Debug).bat"
+@"
+@echo off
+cd /d "%~dp0"
+echo ====================================
+echo CoPaw Desktop - Debug Mode
+echo ====================================
+echo Working Directory: %cd%
+echo Python: "%~dp0python.exe"
+echo.
+if not exist "%USERPROFILE%\.copaw\config.json" (
+  echo [Init] Creating config...
+  "%~dp0python.exe" -m copaw init --defaults --accept-security
+)
+echo [Launch] Starting CoPaw Desktop...
+echo Press Ctrl+C to stop
+echo.
+"%~dp0python.exe" -m copaw desktop
+echo.
+echo [Exit] CoPaw Desktop closed
+pause
+"@ | Set-Content -Path $DebugBat -Encoding ASCII
+
+# VBScript launcher (no console window)
+$LauncherVbs = Join-Path $EnvRoot "CoPaw Desktop.vbs"
+@"
+Set WshShell = CreateObject("WScript.Shell")
+batPath = CreateObject("Scripting.FileSystemObject").GetParentFolderName(WScript.ScriptFullName) & "\CoPaw Desktop.bat"
+WshShell.Run Chr(34) & batPath & Chr(34), 0, False
+Set WshShell = Nothing
+"@ | Set-Content -Path $LauncherVbs -Encoding ASCII
+
+# Copy icon.ico to env root so NSIS can find it
+$IconSrc = Join-Path $PackDir "assets\icon.ico"
+if (Test-Path $IconSrc) {
+  Copy-Item $IconSrc -Destination $EnvRoot -Force
+  Write-Host "[build_win] Copied icon.ico to env root"
+} else {
+  Write-Host "[build_win] WARN: icon.ico not found at $IconSrc"
+}
+
 Write-Host "== Building NSIS installer =="
 
 # Debug: Print EnvRoot directory contents
@@ -97,13 +147,19 @@ Write-Host "=== EnvRoot=$EnvRoot ==="
 Write-Host "=== EnvRoot top files ==="
 Get-ChildItem -LiteralPath $EnvRoot -Force | Select-Object -First 50 | ForEach-Object { Write-Host $_.FullName }
 
-$VersionFromEnv = $null
-try {
-  $VersionFromEnv = (& (Join-Path $EnvRoot "python.exe") -c "from importlib.metadata import version; print(version('copaw'))" 2>&1) -replace '\s+$', ''
-} catch { Write-Host "[build_win] version from packed env failed: $_" }
-$Version = $VersionFromEnv
-if (-not $Version) { $Version = $CurrentVersion; Write-Host "[build_win] Using version from __version__.py: $Version" }
+# Prioritize version from __version__.py to ensure accuracy
+$Version = $CurrentVersion
+if (-not $Version) {
+  # Fallback: try to get version from packed env metadata
+  try {
+    $Version = (& (Join-Path $EnvRoot "python.exe") -c "from importlib.metadata import version; print(version('copaw'))" 2>&1) -replace '\s+$', ''
+    Write-Host "[build_win] Using version from packed env metadata: $Version"
+  } catch {
+    Write-Host "[build_win] version from packed env failed: $_"
+  }
+}
 if (-not $Version) { $Version = "0.0.0"; Write-Host "[build_win] WARN: Using fallback version 0.0.0" }
+Write-Host "[build_win] Version determined: $Version"
 Write-Host "[build_win] COPAW_VERSION=$Version OUTPUT_EXE will be under $Dist"
 $OutInstaller = Join-Path (Join-Path $RepoRoot $Dist) "CoPaw-Setup-$Version.exe"
 # Pass absolute paths to NSIS (keep backslashes).
@@ -126,11 +182,19 @@ try {
 }
 
 Write-Host "[build_win] Running: makensis $($nsiArgs -join ' ')"
-& makensis @nsiArgs
+Write-Host "=== NSIS will compile from: $NsiPath ==="
+Write-Host "=== NSIS unpacked source: $UnpackedFull ==="
+Write-Host "=== NSIS output installer: $OutputExeNsi ==="
+$nsisOutput = & makensis @nsiArgs 2>&1 | Out-String
+Write-Host "=== NSIS Output Begin ==="
+Write-Host $nsisOutput
+Write-Host "=== NSIS Output End ==="
 $makensisExit = $LASTEXITCODE
 Write-Host "[build_win] makensis exit code: $makensisExit"
 if ($makensisExit -ne 0) {
-  throw "makensis failed with exit code $makensisExit. Check output above for NSIS error."
+  Write-Host "ERROR: makensis compilation failed!"
+  Write-Host "Check the NSIS output above for specific errors."
+  throw "makensis failed with exit code $makensisExit"
 }
 if (-not (Test-Path $OutInstaller)) {
   throw "NSIS did not create installer: $OutInstaller"

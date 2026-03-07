@@ -8,12 +8,17 @@ Dependencies follow `pyproject.toml`.
 - **Windows**: wheel → conda-pack → unpack → NSIS installer (`.exe`)
 - **macOS**: wheel → conda-pack → unpack into `.app` → optional zip
 
+## System Requirements
+
+- **Windows**: Windows 10 or later
+- **macOS**: macOS 14 (Sonoma) or later, Apple Silicon (M1/M2/M3/M4) recommended for MLX support
+
 ## Prerequisites
 
 - **conda** (Miniconda/Anaconda) on PATH
 - **Node.js / npm** (for the console frontend)
 - (Windows only) **NSIS**: `makensis` on PATH
-- (macOS, optional) Icon: if `scripts/pack/assets/icon.svg` exists, run `python scripts/pack/gen_icon_icns.py` once to generate `icon.icns`
+- **Icons**: Pre-generated `icon.ico` (Windows) and `icon.icns` (macOS) are included in `scripts/pack/assets/`
 
 ## One-click build
 
@@ -24,13 +29,16 @@ From the **repo root**:
 bash ./scripts/pack/build_macos.sh
 # Output: dist/CoPaw.app
 
-CREATE_ZIP=1 bash ./scripts/pack/build_macos.sh   # also create .zip and .dmg
+CREATE_ZIP=1 bash ./scripts/pack/build_macos.sh   # also create .zip
 ```
 
 **Windows (PowerShell)**
 ```powershell
 ./scripts/pack/build_win.ps1
 # Output: dist/CoPaw-Setup-<version>.exe
+# Creates two launchers:
+#   - CoPaw Desktop.vbs (silent, no console window)
+#   - CoPaw Desktop (Debug).bat (shows console for troubleshooting)
 ```
 
 ## Run from terminal and see logs (macOS)
@@ -51,7 +59,7 @@ On first launch macOS may ask for “Desktop” or “Files and Folders” acces
 
 ## macOS: if “Apple cannot verify” / Gatekeeper blocks the app
 
-When users download the CoPaw macOS app (e.g. from Releases) as a `.app` (in a zip) or DMG, macOS may show: *"Apple cannot verify that 'CoPaw' contains no malicious software"*. The app is not notarized. They can still open it as follows:
+When users download the CoPaw macOS app (e.g. from Releases) as a `.app` (in a zip), macOS may show: *"Apple cannot verify that 'CoPaw' contains no malicious software"*. The app is not notarized. They can still open it as follows:
 
 - **Right-click to open (recommended)**
   Right-click (or Control+click) the CoPaw app → **Open** → in the dialog click **Open** again. Gatekeeper will allow it; after that double-click works as usual.
@@ -77,6 +85,7 @@ When users download the CoPaw macOS app (e.g. from Releases) as a `.app` (in a z
 |------|-------------|
 | `build_common.py` | Create temporary conda env, install `copaw[full]` from a wheel, conda-pack; produces archive. |
 | `build_macos.sh` | One-click: build wheel → build_common → unpack into CoPaw.app; optional zip. |
-| `build_win.ps1` | One-click: build wheel → build_common → unpack → launcher .bat → makensis installer. |
-| `copaw_desktop.nsi` | NSIS script: pack `dist/win-unpacked` and create shortcuts. |
-| `gen_icon_icns.py` | (macOS only) Generate `icon.icns` from `assets/icon.svg` (rounded, transparent). |
+| `build_win.ps1` | One-click: build wheel → build_common → unpack → create VBS/BAT launchers → makensis installer. |
+| `copaw_desktop.nsi` | NSIS script: pack `dist/win-unpacked`, add icons, and create shortcuts. |
+| `assets/icon.ico` | Pre-generated Windows icon (installer and shortcuts). |
+| `assets/icon.icns` | Pre-generated macOS icon (app bundle). |
