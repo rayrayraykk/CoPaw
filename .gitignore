@@ -85,3 +85,6 @@ openspec
 /AGENTS.md
 CLAUDE.md
 *.tmp
+
+# Build cache
+.cache/  # Includes conda_unpack_wheels/ for Windows packaging workaround

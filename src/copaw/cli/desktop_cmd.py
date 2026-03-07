@@ -26,17 +26,17 @@ def _find_free_port(host: str = "127.0.0.1") -> int:
         return sock.getsockname()[1]
 
 
-def _wait_for_http(host: str, port: int, timeout_sec: float = 15.0) -> bool:
+def _wait_for_http(host: str, port: int, timeout_sec: float = 60.0) -> bool:
     """Return True when something accepts TCP on host:port."""
     deadline = time.monotonic() + timeout_sec
     while time.monotonic() < deadline:
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.settimeout(1.0)
+                s.settimeout(2.0)
                 s.connect((host, port))
                 return True
         except (OSError, socket.error):
-            time.sleep(0.2)
+            time.sleep(0.3)
     return False
 
 

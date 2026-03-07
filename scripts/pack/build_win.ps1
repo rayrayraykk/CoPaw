@@ -11,6 +11,15 @@ $Archive = Join-Path $Dist "copaw-env.zip"
 $Unpacked = Join-Path $Dist "win-unpacked"
 $NsiPath = Join-Path $PackDir "copaw_desktop.nsi"
 
+# Packages affected by conda-unpack bug on Windows (conda-pack Issue #154)
+# conda-unpack corrupts Python string escaping when replacing path prefixes.
+# Example: "\\\\?\\" (correct) -> "\\" (SyntaxError)
+# Solution: Reinstall these packages after conda-unpack to restore correct files.
+# See: issue.md, scripts/pack/WINDOWS_FIX.md
+$CondaUnpackAffectedPackages = @(
+  "huggingface_hub"  # Uses Windows extended-length path prefix (\\?\)
+)
+
 New-Item -ItemType Directory -Force -Path $Dist | Out-Null
 
 Write-Host "== Building wheel (includes console frontend) =="
@@ -47,7 +56,7 @@ if ($RunWheelBuild) {
 }
 
 Write-Host "== Building conda-packed env =="
-& python $PackDir\build_common.py --output $Archive --format zip
+& python $PackDir\build_common.py --output $Archive --format zip --cache-wheels
 if ($LASTEXITCODE -ne 0) {
   throw "build_common.py failed with exit code $LASTEXITCODE"
 }
@@ -83,6 +92,35 @@ if (Test-Path $CondaUnpack) {
   Write-Host "[build_win] Running conda-unpack..."
   & $CondaUnpack
   if ($LASTEXITCODE -ne 0) { throw "conda-unpack failed with exit code $LASTEXITCODE" }
+  
+  # Fix conda-unpack bug: it corrupts Python string escaping on Windows
+  # See: issue.md and https://github.com/conda/conda-pack/issues/154
+  # Solution: Reinstall affected packages using cached wheels
+  Write-Host "[build_win] Fixing conda-unpack corruption by reinstalling affected packages..."
+  $WheelsCache = Join-Path $RepoRoot ".cache\conda_unpack_wheels"
+  if (Test-Path $WheelsCache) {
+    $pythonExe = Join-Path $EnvRoot "python.exe"
+    
+    foreach ($pkg in $CondaUnpackAffectedPackages) {
+      Write-Host "  Reinstalling $pkg..."
+      & $pythonExe -m pip install --force-reinstall --no-deps `
+        --find-links $WheelsCache --no-index $pkg
+      if ($LASTEXITCODE -ne 0) {
+        Write-Host "  WARN: Failed to reinstall $pkg (exit code: $LASTEXITCODE)" -ForegroundColor Yellow
+      }
+    }
+    
+    # Verify the fix worked
+    Write-Host "[build_win] Verifying fix..."
+    & $pythonExe -c "from huggingface_hub import file_download; print('✓ huggingface_hub import OK')"
+    if ($LASTEXITCODE -ne 0) {
+      throw "CRITICAL: huggingface_hub still has import errors after reinstall. See issue.md"
+    }
+    Write-Host "[build_win] ✓ conda-unpack corruption fixed successfully."
+  } else {
+    Write-Host "[build_win] WARN: wheels_cache not found at $WheelsCache" -ForegroundColor Yellow
+    Write-Host "[build_win] WARN: Cannot fix conda-unpack corruption. App may fail to start." -ForegroundColor Yellow
+  }
 } else {
   Write-Host "[build_win] WARN: conda-unpack.exe not found at $CondaUnpack, skipping."
 }
