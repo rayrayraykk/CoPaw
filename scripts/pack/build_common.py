@@ -17,6 +17,17 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ENV_PREFIX = "copaw_pack_"
 
+# Packages affected by conda-unpack bug on Windows (conda-pack Issue #154)
+# conda-unpack modifies Python source files to replace path prefixes, but uses
+# simple byte replacement without considering Python syntax. This corrupts
+# string literals containing backslash escapes, causing SyntaxError.
+# Example: "\\\\?\\" (correct) -> "\\" (SyntaxError: unterminated string)
+# Solution: After conda-unpack, reinstall these packages to restore correct files
+# See: issue.md and https://github.com/conda/conda-pack/issues/154
+CONDA_UNPACK_AFFECTED_PACKAGES = [
+    "huggingface_hub",  # file_download.py, _local_folder.py use Windows long path prefix
+]
+
 
 def _conda_exe() -> str:
     """Resolve conda executable (required on Windows where 'conda' is a batch)."""
@@ -81,6 +92,14 @@ def main() -> int:
             "dist/copaw-*.whl."
         ),
     )
+    parser.add_argument(
+        "--cache-wheels",
+        action="store_true",
+        help=(
+            "Download wheels for packages affected by conda-unpack bug. "
+            "Cached to .cache/conda_unpack_wheels/ for later reinstall."
+        ),
+    )
     args = parser.parse_args()
     out_path = Path(args.output).resolve()
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -130,6 +149,29 @@ def main() -> int:
                 f"copaw[full] @ {wheel_uri}",
             ],
         )
+        if args.cache_wheels:
+            # Store outside dist/ to avoid being deleted by wheel_build cleanup
+            wheels_cache = REPO_ROOT / ".cache" / "conda_unpack_wheels"
+            wheels_cache.mkdir(parents=True, exist_ok=True)
+            print(
+                f"Caching wheels for conda-unpack bug workaround to "
+                f"{wheels_cache}",
+            )
+            _run(
+                [
+                    conda,
+                    "run",
+                    "-n",
+                    env_name,
+                    "python",
+                    "-m",
+                    "pip",
+                    "download",
+                    *CONDA_UNPACK_AFFECTED_PACKAGES,
+                    "-d",
+                    str(wheels_cache),
+                ],
+            )
         _run(
             [
                 conda,
