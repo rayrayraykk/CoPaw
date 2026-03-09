@@ -1,20 +1,41 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { Terminal, Copy, Cloud, Star, TriangleAlert } from "lucide-react";
+import {
+  Terminal,
+  Copy,
+  Check,
+  Download,
+  Cloud,
+  Boxes,
+  Package,
+  Monitor,
+  ExternalLink,
+} from "lucide-react";
 import { motion } from "motion/react";
 import type { SiteConfig } from "../config";
 import { t, type Lang } from "../i18n";
 
 const DOCKER_IMAGE = "agentscope/copaw:latest";
+const MODELSCOPE_URL =
+  "https://modelscope.cn/studios/fork?target=AgentScope/CoPaw";
+const ALIYUN_ECS_URL =
+  "https://computenest.console.aliyun.com/service/instance/create/cn-hangzhou?type=user&ServiceId=service-1ed84201799f40879884";
+const ALIYUN_DOC_URL = "https://developer.aliyun.com/article/1713682";
+const DESKTOP_RELEASES_URL = "https://github.com/agentscope-ai/CoPaw/releases";
 
 const COMMANDS = {
   pip: ["pip install copaw", "copaw init --defaults", "copaw app"],
-  unix: [
+  scriptMac: [
     "curl -fsSL https://copaw.agentscope.io/install.sh | bash",
     "copaw init --defaults",
     "copaw app",
   ],
-  windows: [
+  scriptWinCmd: [
+    "curl -fsSL https://copaw.agentscope.io/install.bat -o install.bat && install.bat",
+    "copaw init --defaults",
+    "copaw app",
+  ],
+  scriptWinPs: [
     "irm https://copaw.agentscope.io/install.ps1 | iex",
     "copaw init --defaults",
     "copaw app",
@@ -25,52 +46,150 @@ const COMMANDS = {
   ],
 } as const;
 
-const ECS_DEPLOY_URL =
-  "https://computenest.console.aliyun.com/service/instance/create/cn-hangzhou?type=user&ServiceId=service-1ed84201799f40879884";
-const ECS_DOC_URL = "https://developer.aliyun.com/article/1713682";
-
-const TABS = ["pip", "unix", "windows", "docker", "aliyun"] as const;
-type OsTab = (typeof TABS)[number];
-
 interface QuickStartProps {
   config: SiteConfig;
   lang: Lang;
   delay?: number;
 }
 
+type InstallMethod = "pip" | "script" | "docker" | "desktop";
+type ScriptPlatform = "mac" | "windows";
+type ScriptWindowsVariant = "cmd" | "ps";
+type DockerVariant = "docker" | "aliyun" | "modelscope";
+
+interface CodeBlockProps {
+  lines: readonly string[];
+  copied: boolean;
+  onCopy: () => void;
+  lang: Lang;
+}
+
+function CodeBlock({ lines, copied, onCopy, lang }: CodeBlockProps) {
+  return (
+    <div
+      style={{
+        position: "relative",
+        background: "var(--bg)",
+        border: "1px solid var(--border)",
+        borderRadius: "0.5rem",
+        padding: "var(--space-3)",
+        overflow: "auto",
+      }}
+    >
+      <button
+        type="button"
+        onClick={onCopy}
+        aria-label={t(lang, "docs.copy")}
+        style={{
+          position: "absolute",
+          top: "var(--space-2)",
+          right: "var(--space-2)",
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "var(--space-1)",
+          padding: "var(--space-1) var(--space-2)",
+          fontSize: "0.75rem",
+          color: copied ? "var(--text)" : "var(--text-muted)",
+          background: "var(--surface)",
+          border: "1px solid var(--border)",
+          borderRadius: "0.375rem",
+          cursor: "pointer",
+          transition: "all 0.15s ease",
+        }}
+      >
+        {copied ? (
+          <>
+            <Check size={12} strokeWidth={2} aria-hidden />
+            <span>{t(lang, "docs.copied")}</span>
+          </>
+        ) : (
+          <>
+            <Copy size={12} strokeWidth={2} aria-hidden />
+            <span>{t(lang, "docs.copy")}</span>
+          </>
+        )}
+      </button>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: "var(--space-1)",
+          fontFamily: "ui-monospace, monospace",
+          fontSize: "0.8125rem",
+          color: "var(--text)",
+        }}
+      >
+        {lines.map((line, idx) => (
+          <div
+            key={idx}
+            style={{ whiteSpace: "pre-wrap", wordBreak: "break-all" }}
+          >
+            {line}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
-  const [activeTab, setActiveTab] = useState<OsTab>("pip");
-  const [copied, setCopied] = useState(false);
-  const [hasOverflow, setHasOverflow] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const [selectedMethod, setSelectedMethod] = useState<InstallMethod>("pip");
+  const [scriptPlatform, setScriptPlatform] = useState<ScriptPlatform>("mac");
+  const [scriptWinVariant, setScriptWinVariant] =
+    useState<ScriptWindowsVariant>("cmd");
+  const [dockerVariant, setDockerVariant] = useState<DockerVariant>("docker");
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const docsBase = config.docsPath.replace(/\/$/, "") || "/docs";
   const channelsDocPath = `${docsBase}/channels`;
 
-  const isAliyun = activeTab === "aliyun";
-  const isDocker = activeTab === "docker";
-  const lines = isAliyun ? [] : COMMANDS[activeTab];
-  const fullCommand = lines.join("\n");
-
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    el.scrollLeft = 0;
-    const check = () => setHasOverflow(el.scrollWidth > el.clientWidth);
-    check();
-    const ro = new ResizeObserver(check);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [activeTab]);
-
-  const handleCopy = useCallback(async () => {
+  const handleCopy = useCallback(async (text: string, id: string) => {
     try {
-      await navigator.clipboard.writeText(fullCommand);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      await navigator.clipboard.writeText(text);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2000);
     } catch {
-      setCopied(false);
+      setCopiedId(null);
     }
-  }, [fullCommand]);
+  }, []);
+
+  const methodConfig: Record<
+    InstallMethod,
+    { icon: typeof Package; label: string; desc: string; badge?: string }
+  > = {
+    pip: {
+      icon: Package,
+      label: "pip",
+      desc:
+        lang === "zh"
+          ? "适合自行管理 Python 环境的用户"
+          : "If you prefer managing Python yourself",
+    },
+    script: {
+      icon: Terminal,
+      label: lang === "zh" ? "脚本安装" : "Script",
+      desc:
+        lang === "zh"
+          ? "无需手动配置 Python，一行命令自动完成安装。脚本会自动下载 uv（Python 包管理器）、创建虚拟环境、安装 CoPaw 及其依赖（含 Node.js 和前端资源）。注意：部分网络环境或企业权限管控下可能无法使用。"
+          : "No Python setup required, one command installs everything. The script will automatically download uv (Python package manager), create a virtual environment, and install CoPaw with all dependencies (including Node.js and frontend assets). Note: May not work in restricted network environments or corporate firewalls.",
+    },
+    docker: {
+      icon: Boxes,
+      label: "Docker",
+      desc:
+        lang === "zh"
+          ? "使用官方镜像，支持 Docker Hub / 阿里云 / 魔搭"
+          : "Official images on Docker Hub / ACR / ModelScope",
+    },
+    desktop: {
+      icon: Monitor,
+      label: lang === "zh" ? "桌面应用" : "Desktop",
+      desc:
+        lang === "zh"
+          ? "下载即用的桌面应用，无需命令行操作"
+          : "Download and run, no command line required",
+      badge: "Beta",
+    },
+  };
 
   return (
     <motion.section
@@ -81,288 +200,576 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
         margin: "0 auto",
         maxWidth: "var(--container)",
         width: "100%",
-        minWidth: 0,
-        padding: "var(--space-6) var(--space-4) var(--space-8)",
-        textAlign: "center",
-        overflow: "hidden",
+        padding: "var(--space-8) var(--space-4)",
       }}
     >
-      <h2
-        style={{
-          margin: "0 0 var(--space-4)",
-          fontSize: "1.375rem",
-          fontWeight: 600,
-          color: "var(--text)",
-        }}
-      >
-        {t(lang, "quickstart.title")}
-      </h2>
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: "var(--space-4)",
-          maxWidth: "28rem",
-          margin: "0 auto",
-          minWidth: 0,
-        }}
-      >
-        <div className="quickstart-card">
-          <div className="quickstart-tabs">
-            {TABS.map((tab) => {
-              const fullTitle =
-                tab === "pip"
-                  ? t(lang, "quickstart.tabPip")
-                  : tab === "unix"
-                  ? t(lang, "quickstart.tabUnix")
-                  : tab === "windows"
-                  ? t(lang, "quickstart.tabWindows")
-                  : tab === "docker"
-                  ? t(lang, "quickstart.tabDocker")
-                  : t(lang, "quickstart.tabAliyun");
-              const shortLabel =
-                tab === "pip"
-                  ? t(lang, "quickstart.tabPipShort")
-                  : tab === "unix"
-                  ? t(lang, "quickstart.tabUnixShort")
-                  : tab === "windows"
-                  ? t(lang, "quickstart.tabWindowsShort")
-                  : tab === "docker"
-                  ? t(lang, "quickstart.tabDockerShort")
-                  : t(lang, "quickstart.tabAliyunShort");
-              const BadgeIcon =
-                tab === "pip"
-                  ? Star
-                  : tab === "unix" || tab === "windows"
-                  ? TriangleAlert
-                  : null;
-              return (
-                <button
-                  key={tab}
-                  type="button"
-                  className={`quickstart-tab${
-                    tab === "aliyun" ? " quickstart-tab--cloud" : ""
-                  }`}
-                  onClick={() => setActiveTab(tab)}
-                  aria-pressed={activeTab === tab}
-                  title={fullTitle}
-                >
-                  <span className="quickstart-tab-label">{shortLabel}</span>
-                  {BadgeIcon ? (
-                    <BadgeIcon
-                      className="quickstart-tab-icon"
-                      size={12}
-                      strokeWidth={2}
-                      aria-hidden
-                    />
-                  ) : null}
-                </button>
-              );
-            })}
-          </div>
-          <div
+      <div style={{ textAlign: "center", marginBottom: "var(--space-6)" }}>
+        <h2
+          style={{
+            margin: "0 0 var(--space-3)",
+            fontSize: "2rem",
+            fontWeight: 600,
+            color: "var(--text)",
+          }}
+        >
+          {t(lang, "quickstart.title")}
+        </h2>
+        <p
+          style={{
+            margin: 0,
+            fontSize: "1rem",
+            color: "var(--text-muted)",
+            maxWidth: "40rem",
+            marginLeft: "auto",
+            marginRight: "auto",
+          }}
+        >
+          {t(lang, "quickstart.hintBefore")}
+          <Link
+            to={channelsDocPath}
             style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: "var(--space-2)",
-              marginBottom: "var(--space-3)",
-              minWidth: 0,
+              color: "inherit",
+              textDecoration: "underline",
             }}
           >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "var(--space-2)",
-                minWidth: 0,
-                flex: "1 1 0",
-                overflow: "hidden",
-              }}
-            >
-              <span style={{ flexShrink: 0 }}>
-                {isAliyun ? (
-                  <Cloud
-                    size={18}
-                    strokeWidth={1.5}
-                    color="var(--text-muted)"
-                  />
-                ) : (
-                  <Terminal
-                    size={18}
-                    strokeWidth={1.5}
-                    color="var(--text-muted)"
-                  />
-                )}
-              </span>
-              <span
-                className="quickstart-option-desc"
-                title={
-                  activeTab === "unix" || activeTab === "windows"
-                    ? t(lang, "quickstart.optionLocal")
-                    : undefined
-                }
-                style={{
-                  fontSize: "0.8125rem",
-                  color: "var(--text-muted)",
-                }}
-              >
-                {isAliyun
-                  ? t(lang, "quickstart.optionAliyun")
-                  : isDocker
-                  ? t(lang, "quickstart.optionDocker")
-                  : activeTab === "pip"
-                  ? t(lang, "quickstart.optionPip")
-                  : t(lang, "quickstart.optionLocal")}
-              </span>
-            </div>
-            {!isAliyun && (
+            {t(lang, "quickstart.hintLink")}
+          </Link>
+          {t(lang, "quickstart.hintAfter")}
+        </p>
+      </div>
+
+      <div
+        style={{
+          maxWidth: "52rem",
+          margin: "0 auto",
+          background: "var(--surface)",
+          border: "1px solid var(--border)",
+          borderRadius: "0.75rem",
+          overflow: "hidden",
+        }}
+      >
+        {/* 顶部方法选择 tabs */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(8rem, 1fr))",
+            borderBottom: "1px solid var(--border)",
+            background: "var(--bg)",
+          }}
+        >
+          {(Object.keys(methodConfig) as InstallMethod[]).map((method) => {
+            const { icon: Icon, label, badge } = methodConfig[method];
+            const isActive = selectedMethod === method;
+            return (
               <button
+                key={method}
                 type="button"
-                onClick={handleCopy}
-                aria-label={t(lang, "docs.copy")}
-                title={t(lang, "docs.copy")}
+                onClick={() => setSelectedMethod(method)}
                 style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "var(--space-1)",
-                  padding: "var(--space-1) var(--space-2)",
-                  fontSize: "0.75rem",
-                  color: "var(--text-muted)",
-                  background: "transparent",
-                  border: "1px solid var(--border)",
-                  borderRadius: "0.375rem",
-                  cursor: "pointer",
-                  flexShrink: 0,
-                }}
-              >
-                <Copy size={14} strokeWidth={1.5} aria-hidden />
-                <span>
-                  {copied ? t(lang, "docs.copied") : t(lang, "docs.copy")}
-                </span>
-              </button>
-            )}
-          </div>
-          <div style={{ position: "relative", minWidth: 0 }}>
-            {isAliyun ? (
-              <div
-                style={{
+                  position: "relative",
                   display: "flex",
-                  flexWrap: "wrap",
-                  gap: "var(--space-2)",
+                  alignItems: "center",
                   justifyContent: "center",
+                  gap: "var(--space-2)",
+                  padding: "var(--space-3)",
+                  fontSize: "0.875rem",
+                  fontWeight: 500,
+                  color: isActive ? "var(--text)" : "var(--text-muted)",
+                  background: isActive ? "var(--surface)" : "transparent",
+                  border: "none",
+                  borderBottom: isActive
+                    ? "2px solid var(--text)"
+                    : "2px solid transparent",
+                  cursor: "pointer",
+                  transition: "all 0.15s ease",
                 }}
               >
-                <a
-                  href={ECS_DEPLOY_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="quickstart-ecs-btn"
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    padding: "var(--space-2) var(--space-4)",
-                    fontSize: "0.8125rem",
-                    fontWeight: 500,
-                    color: "var(--text)",
-                    background: "var(--border)",
-                    border: "1px solid var(--border)",
-                    borderRadius: "0.375rem",
-                    cursor: "pointer",
-                    textDecoration: "none",
-                  }}
-                >
-                  {t(lang, "quickstart.aliyunDeployLink")}
-                </a>
-                <a
-                  href={ECS_DOC_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="quickstart-ecs-btn"
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    padding: "var(--space-2) var(--space-4)",
-                    fontSize: "0.8125rem",
-                    fontWeight: 500,
-                    color: "var(--text)",
-                    background: "var(--border)",
-                    border: "1px solid var(--border)",
-                    borderRadius: "0.375rem",
-                    cursor: "pointer",
-                    textDecoration: "none",
-                  }}
-                >
-                  {t(lang, "quickstart.aliyunDocLink")}
-                </a>
-              </div>
-            ) : (
-              <>
-                <div
-                  ref={scrollRef}
-                  style={{
-                    overflowX: "auto",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "var(--space-1)",
-                    scrollbarGutter: "stable",
-                    minWidth: 0,
-                  }}
-                >
-                  {lines.map((line) => (
-                    <div
-                      key={line}
-                      style={{
-                        fontFamily: "ui-monospace, monospace",
-                        fontSize: "0.8125rem",
-                        color: "var(--text)",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {line}
-                    </div>
-                  ))}
-                </div>
-                {hasOverflow && (
-                  <div
-                    aria-hidden
+                <Icon size={16} strokeWidth={1.5} />
+                <span>{label}</span>
+                {badge && (
+                  <span
                     style={{
-                      position: "absolute",
-                      top: 0,
-                      right: 0,
-                      bottom: 0,
-                      width: "3rem",
-                      background:
-                        "linear-gradient(to left, var(--surface) 0%, transparent)",
-                      pointerEvents: "none",
+                      padding: "0.125rem 0.375rem",
+                      background: "var(--border)",
+                      borderRadius: "0.25rem",
+                      fontSize: "0.625rem",
+                      fontWeight: 600,
+                      color: "var(--text-muted)",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.05em",
                     }}
-                  />
+                  >
+                    {badge}
+                  </span>
                 )}
-              </>
-            )}
-          </div>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* 内容区域 */}
+        <div style={{ padding: "var(--space-5)" }}>
+          {/* 描述 */}
           <p
             style={{
-              margin: "var(--space-3) 0 0",
-              fontSize: "0.8125rem",
+              margin: "0 0 var(--space-4)",
+              fontSize: "0.875rem",
               color: "var(--text-muted)",
               lineHeight: 1.5,
             }}
           >
-            {t(lang, "quickstart.hintBefore")}
-            <Link
-              to={channelsDocPath}
+            {methodConfig[selectedMethod].desc}
+          </p>
+
+          {/* pip 内容 */}
+          {selectedMethod === "pip" && (
+            <CodeBlock
+              lines={COMMANDS.pip}
+              copied={copiedId === "pip"}
+              onCopy={() => handleCopy(COMMANDS.pip.join("\n"), "pip")}
+              lang={lang}
+            />
+          )}
+
+          {/* 脚本安装内容 */}
+          {selectedMethod === "script" && (
+            <div
               style={{
-                color: "inherit",
-                textDecoration: "underline",
+                display: "flex",
+                flexDirection: "column",
+                gap: "var(--space-3)",
               }}
             >
-              {t(lang, "quickstart.hintLink")}
-            </Link>
-            {t(lang, "quickstart.hintAfter")}
-          </p>
+              <div
+                style={{
+                  display: "flex",
+                  gap: "var(--space-2)",
+                  padding: "var(--space-1)",
+                  background: "var(--bg)",
+                  borderRadius: "0.5rem",
+                }}
+              >
+                {(["mac", "windows"] as const).map((platform) => (
+                  <button
+                    key={platform}
+                    type="button"
+                    onClick={() => setScriptPlatform(platform)}
+                    style={{
+                      flex: 1,
+                      padding: "var(--space-2)",
+                      fontSize: "0.875rem",
+                      fontWeight: 500,
+                      color:
+                        scriptPlatform === platform
+                          ? "var(--text)"
+                          : "var(--text-muted)",
+                      background:
+                        scriptPlatform === platform
+                          ? "var(--surface)"
+                          : "transparent",
+                      border: "none",
+                      borderRadius: "0.375rem",
+                      cursor: "pointer",
+                      transition: "all 0.15s ease",
+                      boxShadow:
+                        scriptPlatform === platform
+                          ? "0 1px 3px rgba(0,0,0,0.1)"
+                          : "none",
+                    }}
+                  >
+                    {platform === "mac" ? "macOS / Linux" : "Windows"}
+                  </button>
+                ))}
+              </div>
+
+              {scriptPlatform === "windows" && (
+                <div
+                  style={{
+                    display: "flex",
+                    gap: "var(--space-2)",
+                    padding: "var(--space-1)",
+                    background: "var(--bg)",
+                    borderRadius: "0.5rem",
+                  }}
+                >
+                  {(["cmd", "ps"] as const).map((variant) => (
+                    <button
+                      key={variant}
+                      type="button"
+                      onClick={() => setScriptWinVariant(variant)}
+                      style={{
+                        flex: 1,
+                        padding: "var(--space-2)",
+                        fontSize: "0.8125rem",
+                        fontWeight: 500,
+                        color:
+                          scriptWinVariant === variant
+                            ? "var(--text)"
+                            : "var(--text-muted)",
+                        background:
+                          scriptWinVariant === variant
+                            ? "var(--surface)"
+                            : "transparent",
+                        border: "none",
+                        borderRadius: "0.375rem",
+                        cursor: "pointer",
+                        transition: "all 0.15s ease",
+                        boxShadow:
+                          scriptWinVariant === variant
+                            ? "0 1px 3px rgba(0,0,0,0.1)"
+                            : "none",
+                      }}
+                    >
+                      {variant === "cmd" ? "CMD" : "PowerShell"}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <CodeBlock
+                lines={
+                  scriptPlatform === "mac"
+                    ? COMMANDS.scriptMac
+                    : scriptWinVariant === "cmd"
+                    ? COMMANDS.scriptWinCmd
+                    : COMMANDS.scriptWinPs
+                }
+                copied={
+                  copiedId === `script-${scriptPlatform}-${scriptWinVariant}`
+                }
+                onCopy={() =>
+                  handleCopy(
+                    (scriptPlatform === "mac"
+                      ? COMMANDS.scriptMac
+                      : scriptWinVariant === "cmd"
+                      ? COMMANDS.scriptWinCmd
+                      : COMMANDS.scriptWinPs
+                    ).join("\n"),
+                    `script-${scriptPlatform}-${scriptWinVariant}`,
+                  )
+                }
+                lang={lang}
+              />
+            </div>
+          )}
+
+          {/* Docker 内容 */}
+          {selectedMethod === "docker" && (
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "var(--space-3)",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  gap: "var(--space-2)",
+                  padding: "var(--space-1)",
+                  background: "var(--bg)",
+                  borderRadius: "0.5rem",
+                }}
+              >
+                {(["docker", "aliyun", "modelscope"] as const).map(
+                  (variant) => (
+                    <button
+                      key={variant}
+                      type="button"
+                      onClick={() => setDockerVariant(variant)}
+                      style={{
+                        flex: 1,
+                        padding: "var(--space-2)",
+                        fontSize: "0.8125rem",
+                        fontWeight: 500,
+                        color:
+                          dockerVariant === variant
+                            ? "var(--text)"
+                            : "var(--text-muted)",
+                        background:
+                          dockerVariant === variant
+                            ? "var(--surface)"
+                            : "transparent",
+                        border: "none",
+                        borderRadius: "0.375rem",
+                        cursor: "pointer",
+                        transition: "all 0.15s ease",
+                        boxShadow:
+                          dockerVariant === variant
+                            ? "0 1px 3px rgba(0,0,0,0.1)"
+                            : "none",
+                      }}
+                    >
+                      {variant === "docker"
+                        ? "Docker Hub"
+                        : variant === "aliyun"
+                        ? lang === "zh"
+                          ? "阿里云"
+                          : "Aliyun"
+                        : lang === "zh"
+                        ? "魔搭"
+                        : "ModelScope"}
+                    </button>
+                  ),
+                )}
+              </div>
+              {dockerVariant === "docker" ? (
+                <CodeBlock
+                  lines={COMMANDS.docker}
+                  copied={copiedId === "docker-hub"}
+                  onCopy={() =>
+                    handleCopy(COMMANDS.docker.join("\n"), "docker-hub")
+                  }
+                  lang={lang}
+                />
+              ) : dockerVariant === "aliyun" ? (
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "var(--space-2)",
+                  }}
+                >
+                  <a
+                    href={ALIYUN_ECS_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "var(--space-2)",
+                      padding: "var(--space-3)",
+                      background: "var(--bg)",
+                      border: "1px solid var(--border)",
+                      borderRadius: "0.5rem",
+                      color: "var(--text)",
+                      textDecoration: "none",
+                      fontWeight: 500,
+                      fontSize: "0.875rem",
+                      transition: "all 0.15s ease",
+                    }}
+                    onMouseEnter={(e) =>
+                      (e.currentTarget.style.borderColor = "var(--text-muted)")
+                    }
+                    onMouseLeave={(e) =>
+                      (e.currentTarget.style.borderColor = "var(--border)")
+                    }
+                  >
+                    <Cloud size={16} strokeWidth={1.5} />
+                    {lang === "zh"
+                      ? "前往阿里云一键部署"
+                      : "Deploy on Aliyun ECS"}
+                    <ExternalLink size={14} strokeWidth={1.5} />
+                  </a>
+                  <a
+                    href={ALIYUN_DOC_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "var(--space-2)",
+                      padding: "var(--space-3)",
+                      background: "var(--bg)",
+                      border: "1px solid var(--border)",
+                      borderRadius: "0.5rem",
+                      color: "var(--text-muted)",
+                      textDecoration: "none",
+                      fontWeight: 500,
+                      fontSize: "0.875rem",
+                      transition: "all 0.15s ease",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = "var(--text-muted)";
+                      e.currentTarget.style.color = "var(--text)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = "var(--border)";
+                      e.currentTarget.style.color = "var(--text-muted)";
+                    }}
+                  >
+                    <ExternalLink size={14} strokeWidth={1.5} />
+                    {lang === "zh" ? "查看说明文档" : "View Documentation"}
+                  </a>
+                </div>
+              ) : (
+                <a
+                  href={MODELSCOPE_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "var(--space-2)",
+                    padding: "var(--space-3)",
+                    background: "var(--bg)",
+                    border: "1px solid var(--border)",
+                    borderRadius: "0.5rem",
+                    color: "var(--text)",
+                    textDecoration: "none",
+                    fontWeight: 500,
+                    fontSize: "0.875rem",
+                    transition: "all 0.15s ease",
+                  }}
+                  onMouseEnter={(e) =>
+                    (e.currentTarget.style.borderColor = "var(--text-muted)")
+                  }
+                  onMouseLeave={(e) =>
+                    (e.currentTarget.style.borderColor = "var(--border)")
+                  }
+                >
+                  <Cloud size={16} strokeWidth={1.5} />
+                  {lang === "zh" ? "前往魔搭创空间" : "Go to ModelScope Studio"}
+                  <ExternalLink size={14} strokeWidth={1.5} />
+                </a>
+              )}
+            </div>
+          )}
+
+          {/* 桌面应用内容 */}
+          {selectedMethod === "desktop" && (
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "var(--space-3)",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "var(--space-2)",
+                  padding: "var(--space-3)",
+                  background: "var(--bg)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "0.5rem",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: "0.8125rem",
+                    fontWeight: 600,
+                    color: "var(--text)",
+                    marginBottom: "var(--space-1)",
+                  }}
+                >
+                  {lang === "zh" ? "支持平台" : "Supported Platforms"}
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "var(--space-2)",
+                  }}
+                >
+                  <div
+                    style={{
+                      width: "0.375rem",
+                      height: "0.375rem",
+                      borderRadius: "50%",
+                      background: "var(--text-muted)",
+                    }}
+                  />
+                  <span
+                    style={{
+                      fontSize: "0.8125rem",
+                      color: "var(--text-muted)",
+                    }}
+                  >
+                    Windows 10+
+                  </span>
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "var(--space-2)",
+                  }}
+                >
+                  <div
+                    style={{
+                      width: "0.375rem",
+                      height: "0.375rem",
+                      borderRadius: "50%",
+                      background: "var(--text-muted)",
+                    }}
+                  />
+                  <span
+                    style={{
+                      fontSize: "0.8125rem",
+                      color: "var(--text-muted)",
+                    }}
+                  >
+                    macOS 14+ (Apple Silicon{" "}
+                    {lang === "zh" ? "推荐" : "recommended"})
+                  </span>
+                </div>
+              </div>
+              <a
+                href={DESKTOP_RELEASES_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "var(--space-2)",
+                  padding: "var(--space-3)",
+                  background: "var(--bg)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "0.5rem",
+                  color: "var(--text)",
+                  textDecoration: "none",
+                  fontWeight: 500,
+                  fontSize: "0.875rem",
+                  transition: "all 0.15s ease",
+                }}
+                onMouseEnter={(e) =>
+                  (e.currentTarget.style.borderColor = "var(--text-muted)")
+                }
+                onMouseLeave={(e) =>
+                  (e.currentTarget.style.borderColor = "var(--border)")
+                }
+              >
+                <Download size={16} strokeWidth={1.5} />
+                {lang === "zh" ? "前往 GitHub 下载" : "Download from GitHub"}
+                <ExternalLink size={14} strokeWidth={1.5} />
+              </a>
+              <Link
+                to="/docs/desktop"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "var(--space-2)",
+                  padding: "var(--space-3)",
+                  background: "var(--bg)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "0.5rem",
+                  color: "var(--text-muted)",
+                  textDecoration: "none",
+                  fontWeight: 500,
+                  fontSize: "0.875rem",
+                  transition: "all 0.15s ease",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = "var(--text-muted)";
+                  e.currentTarget.style.color = "var(--text)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = "var(--border)";
+                  e.currentTarget.style.color = "var(--text-muted)";
+                }}
+              >
+                <ExternalLink size={14} strokeWidth={1.5} />
+                {lang === "zh" ? "查看使用指南" : "View User Guide"}
+              </Link>
+            </div>
+          )}
         </div>
       </div>
     </motion.section>
