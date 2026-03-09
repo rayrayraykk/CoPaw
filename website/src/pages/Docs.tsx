@@ -179,6 +179,7 @@ function parseFaqContent(md: string): { intro: string; items: FaqItem[] } {
 const DOC_SLUG_ICONS: Record<string, LucideIcon> = {
   intro: Rocket,
   quickstart: Zap,
+  desktop: Terminal,
   console: Terminal,
   models: Cpu,
   channels: MessageSquare,
@@ -198,7 +199,11 @@ const DOC_SLUG_ICONS: Record<string, LucideIcon> = {
 
 const DOC_SLUGS: DocEntry[] = [
   { slug: "intro", titleKey: "docs.intro" },
-  { slug: "quickstart", titleKey: "docs.quickstart" },
+  {
+    slug: "quickstart",
+    titleKey: "docs.quickstart",
+    children: [{ slug: "desktop", titleKey: "docs.desktop" }],
+  },
   { slug: "console", titleKey: "docs.console" },
   { slug: "models", titleKey: "docs.models" },
   { slug: "channels", titleKey: "docs.channels" },
@@ -232,6 +237,7 @@ const DOC_TITLES: Record<Lang, Record<string, string>> = {
   zh: {
     "docs.intro": "项目介绍",
     "docs.quickstart": "快速开始",
+    "docs.desktop": "桌面应用",
     "docs.console": "控制台",
     "docs.models": "模型",
     "docs.channels": "频道配置",
@@ -251,6 +257,7 @@ const DOC_TITLES: Record<Lang, Record<string, string>> = {
   en: {
     "docs.intro": "Introduction",
     "docs.quickstart": "Quick start",
+    "docs.desktop": "Desktop App",
     "docs.console": "Console",
     "docs.models": "Models",
     "docs.channels": "Channels",
