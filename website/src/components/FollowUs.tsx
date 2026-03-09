@@ -30,10 +30,20 @@ export function FollowUs({ lang, delay = 0 }: FollowUsProps) {
       style={{
         margin: "0 auto",
         maxWidth: "var(--container)",
-        padding: "0 var(--space-4) var(--space-6)",
+        padding: "var(--space-8) var(--space-4)",
         textAlign: "center",
       }}
     >
+      <h2
+        style={{
+          margin: "0 0 var(--space-3)",
+          fontSize: "2rem",
+          fontWeight: 600,
+          color: "var(--text)",
+        }}
+      >
+        {t(lang, "follow.title")}
+      </h2>
       <div
         style={{
           maxWidth: "32rem",
@@ -44,16 +54,6 @@ export function FollowUs({ lang, delay = 0 }: FollowUsProps) {
           borderRadius: "0.75rem",
         }}
       >
-        <h2
-          style={{
-            margin: "0 0 var(--space-2)",
-            fontSize: "1.125rem",
-            fontWeight: 600,
-            color: "var(--text)",
-          }}
-        >
-          {t(lang, "follow.title")}
-        </h2>
         <p
           style={{
             margin: "0 0 var(--space-3)",

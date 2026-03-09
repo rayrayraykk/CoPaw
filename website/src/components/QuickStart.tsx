@@ -207,28 +207,28 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
         >
           {t(lang, "quickstart.title")}
         </h2>
-        <p
+        <div
           style={{
-            margin: 0,
-            fontSize: "1rem",
-            color: "var(--text-muted)",
-            maxWidth: "40rem",
-            marginLeft: "auto",
-            marginRight: "auto",
+            display: "inline-block",
+            padding: "var(--space-3) var(--space-4)",
+            marginBottom: "var(--space-4)",
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderRadius: "0.5rem",
+            maxWidth: "48rem",
           }}
         >
-          {t(lang, "quickstart.hintBefore")}
-          <Link
-            to={channelsDocPath}
+          <p
             style={{
-              color: "inherit",
-              textDecoration: "underline",
+              margin: 0,
+              fontSize: "0.9375rem",
+              color: "var(--text-muted)",
+              lineHeight: 1.6,
             }}
           >
-            {t(lang, "quickstart.hintLink")}
-          </Link>
-          {t(lang, "quickstart.hintAfter")}
-        </p>
+            {t(lang, "quickstart.serviceNotice")}
+          </p>
+        </div>
       </div>
 
       <div
@@ -583,6 +583,30 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
           )}
         </div>
       </div>
+
+      <p
+        style={{
+          margin: "var(--space-4) 0 0",
+          textAlign: "center",
+          fontSize: "1rem",
+          color: "var(--text-muted)",
+          maxWidth: "40rem",
+          marginLeft: "auto",
+          marginRight: "auto",
+        }}
+      >
+        {t(lang, "quickstart.hintBefore")}
+        <Link
+          to={channelsDocPath}
+          style={{
+            color: "inherit",
+            textDecoration: "underline",
+          }}
+        >
+          {t(lang, "quickstart.hintLink")}
+        </Link>
+        {t(lang, "quickstart.hintAfter")}
+      </p>
 
       <style>{`
         .quickstart-main-tab {

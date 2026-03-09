@@ -70,6 +70,8 @@ export const i18n: Record<Lang, Record<string, string>> = {
     "usecases.explore.1":
       "你可以探索更多可能，用 Skills 与定时任务组合成 agentic app。",
     "quickstart.title": "快速开始",
+    "quickstart.serviceNotice":
+      "CoPaw 安装简单、开箱即用。无需付费安装服务，一行命令或桌面应用即可完成部署。",
     "quickstart.hintBefore": "安装 → 初始化 → 启动；频道配置见 ",
     "quickstart.hintLink": "文档",
     "quickstart.hintAfter": "，即可通过钉钉、飞书、QQ 等频道使用 CoPaw。",
@@ -200,6 +202,8 @@ export const i18n: Record<Lang, Record<string, string>> = {
     "usecases.explore.1":
       "Explore more possibilities—combine Skills and cron into your own agentic app.",
     "quickstart.title": "Quick start",
+    "quickstart.serviceNotice":
+      "CoPaw is simple to install and ready to use. No paid installation service needed—deploy with one command or the desktop app.",
     "quickstart.hintBefore":
       "Install → init → start. Configure channels to use CoPaw on DingTalk, Feishu, QQ, etc. See ",
     "quickstart.hintLink": "docs",

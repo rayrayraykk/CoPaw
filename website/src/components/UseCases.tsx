@@ -44,13 +44,13 @@ export function UseCases({ lang, delay = 0 }: UseCasesProps) {
       style={{
         margin: "0 auto",
         maxWidth: "var(--container)",
-        padding: "var(--space-6) var(--space-4)",
+        padding: "var(--space-8) var(--space-4)",
       }}
     >
       <h2
         style={{
-          margin: "0 0 var(--space-5)",
-          fontSize: "1.375rem",
+          margin: "0 0 var(--space-6)",
+          fontSize: "2rem",
           fontWeight: 600,
           color: "var(--text)",
           textAlign: "center",

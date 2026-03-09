@@ -26,14 +26,14 @@ export function Features({ lang, delay = 0 }: FeaturesProps) {
       style={{
         margin: "0 auto",
         maxWidth: "var(--container)",
-        padding: "var(--space-6) var(--space-4)",
+        padding: "var(--space-8) var(--space-4)",
         textAlign: "center",
       }}
     >
       <h2
         style={{
-          margin: "0 0 var(--space-5)",
-          fontSize: "1.375rem",
+          margin: "0 0 var(--space-6)",
+          fontSize: "2rem",
           fontWeight: 600,
           color: "var(--text)",
         }}
