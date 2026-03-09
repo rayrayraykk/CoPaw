@@ -6,7 +6,7 @@ import {
   Check,
   Download,
   Cloud,
-  Boxes,
+  Container,
   Package,
   Monitor,
   ExternalLink,
@@ -52,10 +52,10 @@ interface QuickStartProps {
   delay?: number;
 }
 
-type InstallMethod = "pip" | "script" | "docker" | "desktop";
+type InstallMethod = "pip" | "script" | "docker" | "cloud" | "desktop";
 type ScriptPlatform = "mac" | "windows";
 type ScriptWindowsVariant = "cmd" | "ps";
-type DockerVariant = "docker" | "aliyun" | "modelscope";
+type CloudVariant = "aliyun" | "modelscope";
 
 interface CodeBlockProps {
   lines: readonly string[];
@@ -137,7 +137,7 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
   const [scriptPlatform, setScriptPlatform] = useState<ScriptPlatform>("mac");
   const [scriptWinVariant, setScriptWinVariant] =
     useState<ScriptWindowsVariant>("cmd");
-  const [dockerVariant, setDockerVariant] = useState<DockerVariant>("docker");
+  const [cloudVariant, setCloudVariant] = useState<CloudVariant>("aliyun");
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const docsBase = config.docsPath.replace(/\/$/, "") || "/docs";
   const channelsDocPath = `${docsBase}/channels`;
@@ -158,36 +158,29 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
   > = {
     pip: {
       icon: Package,
-      label: "pip",
-      desc:
-        lang === "zh"
-          ? "适合自行管理 Python 环境的用户"
-          : "If you prefer managing Python yourself",
+      label: t(lang, "quickstart.method.pip"),
+      desc: t(lang, "quickstart.desc.pip"),
     },
     script: {
       icon: Terminal,
-      label: lang === "zh" ? "脚本安装" : "Script",
-      desc:
-        lang === "zh"
-          ? "无需手动配置 Python，一行命令自动完成安装。脚本会自动下载 uv（Python 包管理器）、创建虚拟环境、安装 CoPaw 及其依赖（含 Node.js 和前端资源）。注意：部分网络环境或企业权限管控下可能无法使用。"
-          : "No Python setup required, one command installs everything. The script will automatically download uv (Python package manager), create a virtual environment, and install CoPaw with all dependencies (including Node.js and frontend assets). Note: May not work in restricted network environments or corporate firewalls.",
+      label: t(lang, "quickstart.method.script"),
+      desc: t(lang, "quickstart.desc.script"),
     },
     docker: {
-      icon: Boxes,
-      label: "Docker",
-      desc:
-        lang === "zh"
-          ? "使用官方镜像，支持 Docker Hub / 阿里云 / 魔搭"
-          : "Official images on Docker Hub / ACR / ModelScope",
+      icon: Container,
+      label: t(lang, "quickstart.method.docker"),
+      desc: t(lang, "quickstart.desc.docker"),
+    },
+    cloud: {
+      icon: Cloud,
+      label: t(lang, "quickstart.method.cloud"),
+      desc: t(lang, "quickstart.desc.cloud"),
     },
     desktop: {
       icon: Monitor,
-      label: lang === "zh" ? "桌面应用" : "Desktop",
-      desc:
-        lang === "zh"
-          ? "独立打包的桌面应用，内置完整 Python 环境、所有依赖和前端资源。双击即用，无需命令行，无需预装任何工具。"
-          : "Standalone desktop app with bundled Python environment, all dependencies, and frontend assets. Double-click to run, no command line, no prerequisites required.",
-      badge: "Beta",
+      label: t(lang, "quickstart.method.desktop"),
+      desc: t(lang, "quickstart.desc.desktop"),
+      badge: t(lang, "quickstart.badgeBeta"),
     },
   };
 
@@ -252,7 +245,7 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(8rem, 1fr))",
+            gridTemplateColumns: "repeat(auto-fit, minmax(7rem, 1fr))",
             borderBottom: "1px solid var(--border)",
             background: "var(--bg)",
           }}
@@ -266,34 +259,20 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
                 type="button"
                 onClick={() => setSelectedMethod(method)}
                 aria-pressed={isActive}
-                style={{
-                  position: "relative",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: "var(--space-2)",
-                  padding: "var(--space-3)",
-                  fontSize: "0.875rem",
-                  fontWeight: 500,
-                  color: isActive ? "var(--text)" : "var(--text-muted)",
-                  background: isActive ? "var(--surface)" : "transparent",
-                  border: "none",
-                  borderBottom: isActive
-                    ? "2px solid var(--text)"
-                    : "2px solid transparent",
-                  cursor: "pointer",
-                  transition: "all 0.15s ease",
-                }}
+                className={`quickstart-main-tab ${isActive ? "active" : ""}`}
               >
                 <Icon size={16} strokeWidth={1.5} />
                 <span>{label}</span>
                 {badge && (
                   <span
                     style={{
-                      padding: "0.125rem 0.375rem",
+                      position: "absolute",
+                      top: "0.25rem",
+                      right: "0.25rem",
+                      padding: "0.125rem 0.3rem",
                       background: "var(--border)",
                       borderRadius: "0.25rem",
-                      fontSize: "0.625rem",
+                      fontSize: "0.5625rem",
                       fontWeight: 600,
                       color: "var(--text-muted)",
                       textTransform: "uppercase",
@@ -356,30 +335,11 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
                     type="button"
                     onClick={() => setScriptPlatform(platform)}
                     aria-pressed={scriptPlatform === platform}
-                    style={{
-                      flex: 1,
-                      padding: "var(--space-2)",
-                      fontSize: "0.875rem",
-                      fontWeight: 500,
-                      color:
-                        scriptPlatform === platform
-                          ? "var(--text)"
-                          : "var(--text-muted)",
-                      background:
-                        scriptPlatform === platform
-                          ? "var(--surface)"
-                          : "transparent",
-                      border: "none",
-                      borderRadius: "0.375rem",
-                      cursor: "pointer",
-                      transition: "all 0.15s ease",
-                      boxShadow:
-                        scriptPlatform === platform
-                          ? "0 1px 3px rgba(0,0,0,0.1)"
-                          : "none",
-                    }}
+                    className={`quickstart-tab ${
+                      scriptPlatform === platform ? "active" : ""
+                    }`}
                   >
-                    {platform === "mac" ? "macOS / Linux" : "Windows"}
+                    {t(lang, `quickstart.platform.${platform}`)}
                   </button>
                 ))}
               </div>
@@ -400,30 +360,11 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
                       type="button"
                       onClick={() => setScriptWinVariant(variant)}
                       aria-pressed={scriptWinVariant === variant}
-                      style={{
-                        flex: 1,
-                        padding: "var(--space-2)",
-                        fontSize: "0.8125rem",
-                        fontWeight: 500,
-                        color:
-                          scriptWinVariant === variant
-                            ? "var(--text)"
-                            : "var(--text-muted)",
-                        background:
-                          scriptWinVariant === variant
-                            ? "var(--surface)"
-                            : "transparent",
-                        border: "none",
-                        borderRadius: "0.375rem",
-                        cursor: "pointer",
-                        transition: "all 0.15s ease",
-                        boxShadow:
-                          scriptWinVariant === variant
-                            ? "0 1px 3px rgba(0,0,0,0.1)"
-                            : "none",
-                      }}
+                      className={`quickstart-tab quickstart-tab-small ${
+                        scriptWinVariant === variant ? "active" : ""
+                      }`}
                     >
-                      {variant === "cmd" ? "CMD" : "PowerShell"}
+                      {t(lang, `quickstart.shell.${variant}`)}
                     </button>
                   ))}
                 </div>
@@ -458,6 +399,16 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
 
           {/* Docker 内容 */}
           {selectedMethod === "docker" && (
+            <CodeBlock
+              lines={COMMANDS.docker}
+              copied={copiedId === "docker"}
+              onCopy={() => handleCopy(COMMANDS.docker.join("\n"), "docker")}
+              lang={lang}
+            />
+          )}
+
+          {/* 云部署内容 */}
+          {selectedMethod === "cloud" && (
             <div
               style={{
                 display: "flex",
@@ -474,59 +425,21 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
                   borderRadius: "0.5rem",
                 }}
               >
-                {(["docker", "aliyun", "modelscope"] as const).map(
-                  (variant) => (
-                    <button
-                      key={variant}
-                      type="button"
-                      onClick={() => setDockerVariant(variant)}
-                      aria-pressed={dockerVariant === variant}
-                      style={{
-                        flex: 1,
-                        padding: "var(--space-2)",
-                        fontSize: "0.8125rem",
-                        fontWeight: 500,
-                        color:
-                          dockerVariant === variant
-                            ? "var(--text)"
-                            : "var(--text-muted)",
-                        background:
-                          dockerVariant === variant
-                            ? "var(--surface)"
-                            : "transparent",
-                        border: "none",
-                        borderRadius: "0.375rem",
-                        cursor: "pointer",
-                        transition: "all 0.15s ease",
-                        boxShadow:
-                          dockerVariant === variant
-                            ? "0 1px 3px rgba(0,0,0,0.1)"
-                            : "none",
-                      }}
-                    >
-                      {variant === "docker"
-                        ? "Docker Hub"
-                        : variant === "aliyun"
-                        ? lang === "zh"
-                          ? "阿里云"
-                          : "Aliyun"
-                        : lang === "zh"
-                        ? "魔搭"
-                        : "ModelScope"}
-                    </button>
-                  ),
-                )}
+                {(["aliyun", "modelscope"] as const).map((variant) => (
+                  <button
+                    key={variant}
+                    type="button"
+                    onClick={() => setCloudVariant(variant)}
+                    aria-pressed={cloudVariant === variant}
+                    className={`quickstart-tab quickstart-tab-small ${
+                      cloudVariant === variant ? "active" : ""
+                    }`}
+                  >
+                    {t(lang, `quickstart.cloud.${variant}`)}
+                  </button>
+                ))}
               </div>
-              {dockerVariant === "docker" ? (
-                <CodeBlock
-                  lines={COMMANDS.docker}
-                  copied={copiedId === "docker-hub"}
-                  onCopy={() =>
-                    handleCopy(COMMANDS.docker.join("\n"), "docker-hub")
-                  }
-                  lang={lang}
-                />
-              ) : dockerVariant === "aliyun" ? (
+              {cloudVariant === "aliyun" ? (
                 <div
                   style={{
                     display: "flex",
@@ -538,64 +451,20 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
                     href={ALIYUN_ECS_URL}
                     target="_blank"
                     rel="noopener noreferrer"
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: "var(--space-2)",
-                      padding: "var(--space-3)",
-                      background: "var(--bg)",
-                      border: "1px solid var(--border)",
-                      borderRadius: "0.5rem",
-                      color: "var(--text)",
-                      textDecoration: "none",
-                      fontWeight: 500,
-                      fontSize: "0.875rem",
-                      transition: "all 0.15s ease",
-                    }}
-                    onMouseEnter={(e) =>
-                      (e.currentTarget.style.borderColor = "var(--text-muted)")
-                    }
-                    onMouseLeave={(e) =>
-                      (e.currentTarget.style.borderColor = "var(--border)")
-                    }
+                    className="quickstart-link quickstart-link-primary"
                   >
                     <Cloud size={16} strokeWidth={1.5} />
-                    {lang === "zh"
-                      ? "前往阿里云一键部署"
-                      : "Deploy on Aliyun ECS"}
+                    {t(lang, "quickstart.cloud.aliyunDeploy")}
                     <ExternalLink size={14} strokeWidth={1.5} />
                   </a>
                   <a
                     href={ALIYUN_DOC_URL}
                     target="_blank"
                     rel="noopener noreferrer"
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: "var(--space-2)",
-                      padding: "var(--space-3)",
-                      background: "var(--bg)",
-                      border: "1px solid var(--border)",
-                      borderRadius: "0.5rem",
-                      color: "var(--text-muted)",
-                      textDecoration: "none",
-                      fontWeight: 500,
-                      fontSize: "0.875rem",
-                      transition: "all 0.15s ease",
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.borderColor = "var(--text-muted)";
-                      e.currentTarget.style.color = "var(--text)";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = "var(--border)";
-                      e.currentTarget.style.color = "var(--text-muted)";
-                    }}
+                    className="quickstart-link quickstart-link-secondary"
                   >
                     <ExternalLink size={14} strokeWidth={1.5} />
-                    {lang === "zh" ? "查看说明文档" : "View Documentation"}
+                    {t(lang, "quickstart.cloud.aliyunDoc")}
                   </a>
                 </div>
               ) : (
@@ -603,30 +472,10 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
                   href={MODELSCOPE_URL}
                   target="_blank"
                   rel="noopener noreferrer"
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: "var(--space-2)",
-                    padding: "var(--space-3)",
-                    background: "var(--bg)",
-                    border: "1px solid var(--border)",
-                    borderRadius: "0.5rem",
-                    color: "var(--text)",
-                    textDecoration: "none",
-                    fontWeight: 500,
-                    fontSize: "0.875rem",
-                    transition: "all 0.15s ease",
-                  }}
-                  onMouseEnter={(e) =>
-                    (e.currentTarget.style.borderColor = "var(--text-muted)")
-                  }
-                  onMouseLeave={(e) =>
-                    (e.currentTarget.style.borderColor = "var(--border)")
-                  }
+                  className="quickstart-link quickstart-link-primary"
                 >
                   <Cloud size={16} strokeWidth={1.5} />
-                  {lang === "zh" ? "前往魔搭创空间" : "Go to ModelScope Studio"}
+                  {t(lang, "quickstart.cloud.modelscopeGo")}
                   <ExternalLink size={14} strokeWidth={1.5} />
                 </a>
               )}
@@ -661,7 +510,7 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
                     marginBottom: "var(--space-1)",
                   }}
                 >
-                  {lang === "zh" ? "支持平台" : "Supported Platforms"}
+                  {t(lang, "quickstart.desktop.platforms")}
                 </div>
                 <div
                   style={{
@@ -709,7 +558,7 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
                     }}
                   >
                     macOS 14+ (Apple Silicon{" "}
-                    {lang === "zh" ? "推荐" : "recommended"})
+                    {t(lang, "quickstart.desktop.recommended")})
                   </span>
                 </div>
               </div>
@@ -717,65 +566,143 @@ export function QuickStart({ config, lang, delay = 0 }: QuickStartProps) {
                 href={DESKTOP_RELEASES_URL}
                 target="_blank"
                 rel="noopener noreferrer"
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: "var(--space-2)",
-                  padding: "var(--space-3)",
-                  background: "var(--bg)",
-                  border: "1px solid var(--border)",
-                  borderRadius: "0.5rem",
-                  color: "var(--text)",
-                  textDecoration: "none",
-                  fontWeight: 500,
-                  fontSize: "0.875rem",
-                  transition: "all 0.15s ease",
-                }}
-                onMouseEnter={(e) =>
-                  (e.currentTarget.style.borderColor = "var(--text-muted)")
-                }
-                onMouseLeave={(e) =>
-                  (e.currentTarget.style.borderColor = "var(--border)")
-                }
+                className="quickstart-link quickstart-link-primary"
               >
                 <Download size={16} strokeWidth={1.5} />
-                {lang === "zh" ? "前往 GitHub 下载" : "Download from GitHub"}
+                {t(lang, "quickstart.desktop.downloadGithub")}
                 <ExternalLink size={14} strokeWidth={1.5} />
               </a>
               <Link
                 to={`${docsBase}/desktop`}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: "var(--space-2)",
-                  padding: "var(--space-3)",
-                  background: "var(--bg)",
-                  border: "1px solid var(--border)",
-                  borderRadius: "0.5rem",
-                  color: "var(--text-muted)",
-                  textDecoration: "none",
-                  fontWeight: 500,
-                  fontSize: "0.875rem",
-                  transition: "all 0.15s ease",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = "var(--text-muted)";
-                  e.currentTarget.style.color = "var(--text)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = "var(--border)";
-                  e.currentTarget.style.color = "var(--text-muted)";
-                }}
+                className="quickstart-link quickstart-link-secondary"
               >
                 <ExternalLink size={14} strokeWidth={1.5} />
-                {lang === "zh" ? "查看使用指南" : "View User Guide"}
+                {t(lang, "quickstart.desktop.viewGuide")}
               </Link>
             </div>
           )}
         </div>
       </div>
+
+      <style>{`
+        .quickstart-main-tab {
+          position: relative;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: var(--space-2);
+          padding: var(--space-3);
+          font-size: 0.875rem;
+          font-weight: 500;
+          color: var(--text-muted);
+          background: transparent;
+          border: none;
+          border-bottom: 2px solid transparent;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+
+        .quickstart-main-tab.active {
+          color: #1d1d1f;
+          background: #f5f5f7;
+          border-bottom-color: #d2d2d7;
+        }
+
+        .quickstart-main-tab:not(.active):hover,
+        .quickstart-main-tab:not(.active):focus-visible {
+          color: var(--text);
+          background: rgba(229, 229, 231, 0.5);
+        }
+
+        .quickstart-main-tab:focus-visible {
+          outline: 2px solid #d2d2d7;
+          outline-offset: -2px;
+        }
+
+        .quickstart-link {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: var(--space-2);
+          padding: var(--space-3) var(--space-4);
+          border-radius: 0.5rem;
+          text-decoration: none;
+          font-weight: 500;
+          font-size: 0.875rem;
+          transition: all 0.2s ease;
+          outline-offset: 2px;
+        }
+
+        .quickstart-link-primary {
+          background: var(--text);
+          color: var(--surface);
+          border: none;
+        }
+
+        .quickstart-link-primary:hover {
+          background: var(--text);
+          opacity: 0.85;
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        .quickstart-link-primary:focus-visible {
+          outline: 2px solid var(--text);
+          background: var(--text);
+          opacity: 0.85;
+        }
+
+        .quickstart-link-secondary {
+          background: transparent;
+          color: var(--text-muted);
+          border: 1px solid var(--border);
+        }
+
+        .quickstart-link-secondary:hover,
+        .quickstart-link-secondary:focus-visible {
+          color: var(--text);
+          border-color: var(--text-muted);
+          background: var(--bg);
+        }
+
+        .quickstart-link-secondary:focus-visible {
+          outline: 2px solid #d2d2d7;
+        }
+
+        .quickstart-tab {
+          flex: 1;
+          padding: var(--space-2);
+          font-size: 0.875rem;
+          font-weight: 500;
+          color: var(--text-muted);
+          background: transparent;
+          border: none;
+          border-radius: 0.375rem;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+
+        .quickstart-tab-small {
+          font-size: 0.8125rem;
+        }
+
+        .quickstart-tab.active {
+          background: #d2d2d7;
+          color: #1d1d1f;
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+        }
+
+        .quickstart-tab:not(.active):hover,
+        .quickstart-tab:not(.active):focus-visible {
+          background: #e5e5e7;
+          color: #1d1d1f;
+        }
+
+        .quickstart-tab:focus-visible {
+          outline: 2px solid #d2d2d7;
+          outline-offset: 2px;
+        }
+      `}</style>
     </motion.section>
   );
 }

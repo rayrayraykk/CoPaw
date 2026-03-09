@@ -66,9 +66,18 @@ export function Nav({
         setMoreOpen(false);
       }
     };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && moreOpen) {
+        setMoreOpen(false);
+      }
+    };
     document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [moreOpen]);
   return (
     <header
       style={{
@@ -129,6 +138,7 @@ export function Nav({
                 padding: "var(--space-1) var(--space-2)",
               }}
               aria-expanded={moreOpen}
+              aria-haspopup="true"
               aria-label={t(lang, "nav.more")}
             >
               <ChevronDown size={18} strokeWidth={1.5} aria-hidden />
@@ -136,6 +146,7 @@ export function Nav({
             </button>
             {moreOpen && (
               <div
+                role="menu"
                 style={{
                   position: "absolute",
                   top: "calc(100% + 0.5rem)",
@@ -151,34 +162,18 @@ export function Nav({
               >
                 <Link
                   to="/release-notes"
+                  role="menuitem"
                   className="nav-dropdown-item"
                   onClick={() => setMoreOpen(false)}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "var(--space-2)",
-                    padding: "var(--space-2) var(--space-3)",
-                    whiteSpace: "nowrap",
-                    color: "var(--text-muted)",
-                    transition: "all 0.15s ease",
-                  }}
                 >
                   <FileText size={16} strokeWidth={1.5} aria-hidden />
                   <span>{t(lang, "nav.releaseNotes")}</span>
                 </Link>
                 <Link
                   to={`${docsBase}/quickstart`}
+                  role="menuitem"
                   className="nav-dropdown-item"
                   onClick={() => setMoreOpen(false)}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "var(--space-2)",
-                    padding: "var(--space-2) var(--space-3)",
-                    whiteSpace: "nowrap",
-                    color: "var(--text-muted)",
-                    transition: "all 0.15s ease",
-                  }}
                 >
                   <Download size={16} strokeWidth={1.5} aria-hidden />
                   <span>{t(lang, "nav.download")}</span>
@@ -331,10 +326,24 @@ export function Nav({
         </a>
       </div>
       <style>{`
-        .nav-dropdown-item:hover {
+        .nav-dropdown-item {
+          display: flex;
+          align-items: center;
+          gap: var(--space-2);
+          padding: var(--space-2) var(--space-3);
+          white-space: nowrap;
+          color: var(--text-muted);
+          transition: all 0.15s ease;
+          text-decoration: none;
+        }
+
+        .nav-dropdown-item:hover,
+        .nav-dropdown-item:focus-visible {
           background: var(--bg);
           color: var(--text);
+          outline: none;
         }
+
         @media (max-width: 640px) {
           .nav-links { display: none !important; }
           .nav-mobile-toggle { display: flex !important; }
