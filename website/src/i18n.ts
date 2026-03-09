@@ -3,7 +3,9 @@ export type Lang = "zh" | "en";
 export const i18n: Record<Lang, Record<string, string>> = {
   zh: {
     "nav.docs": "文档",
+    "nav.more": "更多",
     "nav.releaseNotes": "更新日志",
+    "nav.download": "下载",
     "nav.github": "GitHub",
     "nav.githubComingSoon": "Coming Soon",
     "nav.lang": "EN",
@@ -126,7 +128,9 @@ export const i18n: Record<Lang, Record<string, string>> = {
   },
   en: {
     "nav.docs": "Docs",
+    "nav.more": "More",
     "nav.releaseNotes": "Release Notes",
+    "nav.download": "Download",
     "nav.github": "GitHub",
     "nav.githubComingSoon": "Coming Soon",
     "nav.lang": "中文",

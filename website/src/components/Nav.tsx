@@ -1,6 +1,15 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { Menu, X, BookOpen, Github, Globe, FileText } from "lucide-react";
+import {
+  Menu,
+  X,
+  BookOpen,
+  Github,
+  Globe,
+  FileText,
+  Download,
+  ChevronDown,
+} from "lucide-react";
 import { CopawMascot } from "./CopawMascot";
 import { t, type Lang } from "../i18n";
 
@@ -45,8 +54,20 @@ export function Nav({
   repoUrl: _repoUrl,
 }: NavProps) {
   const [open, setOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement>(null);
   const linkClass =
     "nav-item text-[var(--text-muted)] hover:text-[var(--text)] transition-colors";
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (moreRef.current && !moreRef.current.contains(event.target as Node)) {
+        setMoreOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
   return (
     <header
       style={{
@@ -96,10 +117,74 @@ export function Nav({
             gap: "var(--space-4)",
           }}
         >
-          <Link to="/release-notes" className={linkClass}>
-            <FileText size={18} strokeWidth={1.5} aria-hidden />
-            <span>{t(lang, "nav.releaseNotes")}</span>
-          </Link>
+          <div ref={moreRef} style={{ position: "relative" }}>
+            <button
+              type="button"
+              onClick={() => setMoreOpen((o) => !o)}
+              className={linkClass}
+              style={{
+                background: "none",
+                border: "none",
+                padding: "var(--space-1) var(--space-2)",
+              }}
+              aria-expanded={moreOpen}
+              aria-label={t(lang, "nav.more")}
+            >
+              <ChevronDown size={18} strokeWidth={1.5} aria-hidden />
+              <span>{t(lang, "nav.more")}</span>
+            </button>
+            {moreOpen && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "calc(100% + 0.5rem)",
+                  right: 0,
+                  background: "var(--surface)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "0.5rem",
+                  boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+                  minWidth: "10rem",
+                  zIndex: 50,
+                  overflow: "hidden",
+                }}
+              >
+                <Link
+                  to="/release-notes"
+                  className="nav-dropdown-item"
+                  onClick={() => setMoreOpen(false)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "var(--space-2)",
+                    padding: "var(--space-2) var(--space-3)",
+                    whiteSpace: "nowrap",
+                    color: "var(--text-muted)",
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  <FileText size={16} strokeWidth={1.5} aria-hidden />
+                  <span>{t(lang, "nav.releaseNotes")}</span>
+                </Link>
+                <Link
+                  to="/docs/quickstart"
+                  className="nav-dropdown-item"
+                  onClick={() => setMoreOpen(false)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "var(--space-2)",
+                    padding: "var(--space-2) var(--space-3)",
+                    whiteSpace: "nowrap",
+                    color: "var(--text-muted)",
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  <Download size={16} strokeWidth={1.5} aria-hidden />
+                  <span>{t(lang, "nav.download")}</span>
+                </Link>
+              </div>
+            )}
+          </div>
           <Link
             to={docsPath.replace(/\/$/, "") || "/docs"}
             className={linkClass}
@@ -191,6 +276,13 @@ export function Nav({
           <FileText size={18} /> {t(lang, "nav.releaseNotes")}
         </Link>
         <Link
+          to="/docs/quickstart"
+          className={linkClass}
+          onClick={() => setOpen(false)}
+        >
+          <Download size={18} /> {t(lang, "nav.download")}
+        </Link>
+        <Link
           to={docsPath.replace(/\/$/, "") || "/docs"}
           className={linkClass}
           onClick={() => setOpen(false)}
@@ -241,6 +333,10 @@ export function Nav({
         </a>
       </div>
       <style>{`
+        .nav-dropdown-item:hover {
+          background: var(--bg);
+          color: var(--text);
+        }
         @media (max-width: 640px) {
           .nav-links { display: none !important; }
           .nav-mobile-toggle { display: flex !important; }
