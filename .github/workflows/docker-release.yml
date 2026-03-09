@@ -52,8 +52,20 @@ jobs:
         id: vars
         run: |
           if [ -n "${{ github.event.release.tag_name }}" ]; then
-            echo "version=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
-            echo "is_beta=${{ github.event.release.prerelease }}" >> $GITHUB_OUTPUT
+            VERSION="${{ github.event.release.tag_name }}"
+            echo "version=${VERSION}" >> $GITHUB_OUTPUT
+            
+            # Parse version to determine if it's a pre-release
+            # Beta/alpha/rc/dev are pre-releases, but .post is NOT
+            if [[ "$VERSION" =~ (beta|alpha|rc|dev) ]]; then
+              echo "is_beta=true" >> $GITHUB_OUTPUT
+            elif [[ "$VERSION" =~ post ]]; then
+              # .post versions should update latest (post-release patches)
+              echo "is_beta=false" >> $GITHUB_OUTPUT
+            else
+              # Use GitHub's prerelease flag as fallback
+              echo "is_beta=${{ github.event.release.prerelease }}" >> $GITHUB_OUTPUT
+            fi
           else
             echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
             echo "is_beta=${{ github.event.inputs.is_beta }}" >> $GITHUB_OUTPUT
@@ -63,7 +75,7 @@ jobs:
         env:
           VERSION: ${{ steps.vars.outputs.version }}
           IS_BETA: ${{ steps.vars.outputs.is_beta }}
-          COPAW_ENABLED_CHANNELS: "discord,telegram,dingtalk,feishu,qq,console"
+          COPAW_ENABLED_CHANNELS: "discord,dingtalk,feishu,qq,console"
         run: |
           TAGS="-t ${ACR_REGISTRY}/${IMAGE}:${VERSION} -t ${ACR_REGISTRY}/${IMAGE}:pre"
           TAGS="${TAGS} -t docker.io/${IMAGE}:${VERSION} -t docker.io/${IMAGE}:pre"
