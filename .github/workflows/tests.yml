@@ -25,7 +25,7 @@ jobs:
           echo "Found unit test directories: $dirs"
 
   unit-tests:
-    name: Unit Tests - ${{ matrix.subdir }} - ${{ matrix.os }}
+    name: Unit Tests - ${{ matrix.subdir }} - py${{ matrix.python-version }} - ${{ matrix.os }}
     needs: discover-unit-test-dirs
     if: needs.discover-unit-test-dirs.outputs.matrix != '[]'
     runs-on: ${{ matrix.os }}
@@ -66,7 +66,7 @@ jobs:
           pytest tests/unit/${{ matrix.subdir }} -v
 
   integrated-tests:
-    name: Integrated Tests - ${{ matrix.os }}
+    name: Integrated Tests - py${{ matrix.python-version }} - ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
