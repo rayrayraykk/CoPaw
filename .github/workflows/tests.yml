@@ -237,21 +237,15 @@ jobs:
             --cov-report=html
 
       - name: Generate coverage comment on PR
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         uses: orgoro/coverage@v3.2
         with:
           coverageFile: coverage.xml
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ github.token }}
           thresholdAll: 0.0
           thresholdNew: 0.0
           thresholdModified: 0.0
 
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
-        with:
-          file: ./coverage.xml
-          flags: all-tests
-          name: coverage-report
-          fail_ci_if_error: false
 
   test-summary:
     name: Test Summary
