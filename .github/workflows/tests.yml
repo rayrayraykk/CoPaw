@@ -63,19 +63,7 @@ jobs:
       - name: Run unit tests for ${{ matrix.subdir }}
         shell: bash
         run: |
-          pytest tests/unit/${{ matrix.subdir }} \
-            -v \
-            --cov=src/copaw \
-            --cov-report=xml \
-            --cov-report=term-missing
-
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
-        with:
-          file: ./coverage.xml
-          flags: unittests-${{ matrix.subdir }}
-          name: unit-${{ matrix.subdir }}-${{ matrix.os }}-py${{ matrix.python-version }}
-          fail_ci_if_error: false
+          pytest tests/unit/${{ matrix.subdir }} -v
 
   integrated-tests:
     name: Integrated Tests - ${{ matrix.os }}
@@ -124,20 +112,7 @@ jobs:
         if: steps.check-integrated.outputs.has_tests == 'true'
         shell: bash
         run: |
-          pytest tests/integrated \
-            -v \
-            --cov=src/copaw \
-            --cov-report=xml \
-            --cov-report=term-missing
-
-      - name: Upload coverage to Codecov
-        if: steps.check-integrated.outputs.has_tests == 'true'
-        uses: codecov/codecov-action@v4
-        with:
-          file: ./coverage.xml
-          flags: integrated
-          name: integrated-${{ matrix.os }}-py${{ matrix.python-version }}
-          fail_ci_if_error: false
+          pytest tests/integrated -v
 
   coverage-report:
     name: Coverage Report
