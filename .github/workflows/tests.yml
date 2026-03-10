@@ -10,7 +10,6 @@ on:
 jobs:
   approval-gate:
     name: Maintainer Approval
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment: maintainer-approved
     steps:
@@ -22,10 +21,7 @@ jobs:
     needs: approval-gate
     if: |
       always() &&
-      (
-        github.event_name == 'pull_request' ||
-        needs.approval-gate.result == 'success'
-      )
+      needs.approval-gate.result == 'success'
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
@@ -46,12 +42,9 @@ jobs:
     needs: [approval-gate, discover-unit-test-dirs]
     if: |
       always() &&
+      needs.approval-gate.result == 'success' &&
       needs.discover-unit-test-dirs.result == 'success' &&
-      needs.discover-unit-test-dirs.outputs.matrix != '[]' &&
-      (
-        github.event_name == 'pull_request' ||
-        needs.approval-gate.result == 'success'
-      )
+      needs.discover-unit-test-dirs.outputs.matrix != '[]'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -111,10 +104,7 @@ jobs:
     needs: approval-gate
     if: |
       always() &&
-      (
-        github.event_name == 'pull_request' ||
-        needs.approval-gate.result == 'success'
-      )
+      needs.approval-gate.result == 'success'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -184,10 +174,7 @@ jobs:
     needs: approval-gate
     if: |
       always() &&
-      (
-        github.event_name == 'pull_request' ||
-        needs.approval-gate.result == 'success'
-      )
+      needs.approval-gate.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -246,10 +233,9 @@ jobs:
           thresholdNew: 0.0
           thresholdModified: 0.0
 
-
   test-summary:
     name: Test Summary
-    needs: [approval-gate, unit-tests, integrated-tests]
+    needs: [approval-gate, unit-tests, integrated-tests, coverage-report]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -260,25 +246,15 @@ jobs:
           echo "Unit tests: ${{ needs.unit-tests.result }}"
           echo "Integrated tests: ${{ needs.integrated-tests.result }}"
 
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            if [ "${{ needs.unit-tests.result }}" = "failure" ] || \
-               [ "${{ needs.integrated-tests.result }}" = "failure" ]; then
-              echo "❌ Some tests failed"
-              exit 1
-            else
-              echo "✅ All tests passed"
-            fi
-          else
-            if [ "${{ needs.approval-gate.result }}" != "success" ]; then
-              echo "❌ Approval not granted"
-              exit 1
-            fi
+          if [ "${{ needs.approval-gate.result }}" != "success" ]; then
+            echo "❌ Approval not granted"
+            exit 1
+          fi
 
-            if [ "${{ needs.unit-tests.result }}" = "failure" ] || \
-               [ "${{ needs.integrated-tests.result }}" = "failure" ]; then
-              echo "❌ Some tests failed"
-              exit 1
-            else
-              echo "✅ All tests passed"
-            fi
+          if [ "${{ needs.unit-tests.result }}" = "failure" ] || \
+             [ "${{ needs.integrated-tests.result }}" = "failure" ]; then
+            echo "❌ Some tests failed"
+            exit 1
+          else
+            echo "✅ All tests passed"
           fi
