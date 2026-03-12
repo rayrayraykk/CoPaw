@@ -168,6 +168,7 @@ export default function ChatPage() {
     const currentChatId = chatIdRef.current;
 
     if (
+      isChatActiveRef.current &&
       sessionId &&
       sessionId !== lastSessionIdRef.current &&
       sessionId !== currentChatId
@@ -183,7 +184,7 @@ export default function ChatPage() {
   const createSessionWrapped = useCallback(async (session: any) => {
     const result = await sessionApi.createSession(session);
     const newSessionId = result[0]?.id;
-    if (newSessionId) {
+    if (isChatActiveRef.current && newSessionId) {
       lastSessionIdRef.current = newSessionId;
       navigateRef.current(`/chat/${newSessionId}`, { replace: true });
     }
