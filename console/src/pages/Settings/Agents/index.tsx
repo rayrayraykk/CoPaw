@@ -238,11 +238,7 @@ export default function AgentsPage() {
         okText={t("common.save")}
         cancelText={t("common.cancel")}
       >
-        <Form
-          form={form}
-          layout="vertical"
-          autoComplete="off"
-        >
+        <Form form={form} layout="vertical" autoComplete="off">
           <Form.Item
             name="id"
             label={t("agent.id")}
@@ -266,10 +262,7 @@ export default function AgentsPage() {
           >
             <Input placeholder={t("agent.namePlaceholder")} />
           </Form.Item>
-          <Form.Item
-            name="description"
-            label={t("agent.description")}
-          >
+          <Form.Item name="description" label={t("agent.description")}>
             <Input.TextArea
               placeholder={t("agent.descriptionPlaceholder")}
               rows={3}

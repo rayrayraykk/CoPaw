@@ -116,8 +116,16 @@ export default function ChatPage() {
   const prevActiveAgentRef = useRef(activeAgent);
   useEffect(() => {
     // Only refresh if activeAgent actually changed (not initial mount)
-    if (prevActiveAgentRef.current !== activeAgent && prevActiveAgentRef.current !== undefined) {
-      console.log("Active agent changed from", prevActiveAgentRef.current, "to", activeAgent);
+    if (
+      prevActiveAgentRef.current !== activeAgent &&
+      prevActiveAgentRef.current !== undefined
+    ) {
+      console.log(
+        "Active agent changed from",
+        prevActiveAgentRef.current,
+        "to",
+        activeAgent,
+      );
       // Force re-render by updating refresh key
       setRefreshKey((prev) => prev + 1);
       // Navigate to chat root to avoid showing stale session

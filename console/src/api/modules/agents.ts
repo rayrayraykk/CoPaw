@@ -49,7 +49,9 @@ export const agentsApi = {
     request<MdFileInfo[]>(`/agents/${agentId}/files`),
 
   readAgentFile: (agentId: string, filename: string) =>
-    request<MdFileContent>(`/agents/${agentId}/files/${encodeURIComponent(filename)}`),
+    request<MdFileContent>(
+      `/agents/${agentId}/files/${encodeURIComponent(filename)}`,
+    ),
 
   writeAgentFile: (agentId: string, filename: string, content: string) =>
     request<{ written: boolean; filename: string }>(

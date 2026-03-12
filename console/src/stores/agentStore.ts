@@ -18,11 +18,9 @@ export const useAgentStore = create<AgentStore>()(
       activeAgent: "default",
       agents: [],
 
-      setActiveAgent: (agentId) =>
-        set({ activeAgent: agentId }),
+      setActiveAgent: (agentId) => set({ activeAgent: agentId }),
 
-      setAgents: (agents) =>
-        set({ agents }),
+      setAgents: (agents) => set({ agents }),
 
       addAgent: (agent) =>
         set((state) => ({
