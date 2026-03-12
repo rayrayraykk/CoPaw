@@ -42,7 +42,6 @@ from .tools import (
 )
 from .utils import process_file_and_media_blocks_in_message
 from ..agents.memory import MemoryManager
-from ..config import load_config
 from ..config.config import load_agent_config
 from ..constant import (
     MEMORY_COMPACT_RATIO,
@@ -325,10 +324,13 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
     def _register_hooks(self) -> None:
         """Register pre-reasoning and pre-acting hooks."""
         # Bootstrap hook - checks BOOTSTRAP.md on first interaction
-        config = load_config()
+        # Use workspace_dir if available, else fallback to WORKING_DIR
+        working_dir = (
+            self._workspace_dir if self._workspace_dir else WORKING_DIR
+        )
         bootstrap_hook = BootstrapHook(
-            working_dir=WORKING_DIR,
-            language=config.agents.language or "en",
+            working_dir=working_dir,
+            language=self._language,
         )
         self.register_instance_hook(
             hook_type="pre_reasoning",
