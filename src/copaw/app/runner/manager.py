@@ -92,15 +92,27 @@ class ChatManager:
         """
         async with self._lock:
             # Try to find existing by session_id
+            logger.debug(
+                f"get_or_create_chat: Searching for existing chat: "
+                f"session_id={session_id}, user_id={user_id}, "
+                f"channel={channel}",
+            )
             existing = await self._repo.get_chat_by_id(
                 session_id,
                 user_id,
                 channel,
             )
             if existing:
+                logger.debug(
+                    f"get_or_create_chat: Found existing chat: {existing.id}",
+                )
                 return existing
 
             # Create new
+            logger.debug(
+                f"get_or_create_chat: Creating new chat for "
+                f"session_id={session_id}",
+            )
             spec = ChatSpec(
                 session_id=session_id,
                 user_id=user_id,
@@ -109,7 +121,7 @@ class ChatManager:
             )
             # Call internal create without lock (already locked)
             await self._repo.upsert_chat(spec)
-            logger.debug(
+            logger.info(
                 f"Auto-registered new chat: {spec.id} -> {session_id}",
             )
             return spec

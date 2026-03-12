@@ -26,7 +26,7 @@ from ..channels.schema import DEFAULT_CHANNEL
 from ...agents.memory import MemoryManager
 from ...agents.react_agent import CoPawAgent
 from ...security.tool_guard.models import TOOL_GUARD_DENIED_MARK
-from ...config import load_config
+from ...config.config import load_agent_config, AgentsRunningConfig
 from ...constant import (
     TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
     WORKING_DIR,
@@ -37,9 +37,10 @@ logger = logging.getLogger(__name__)
 
 
 class AgentRunner(Runner):
-    def __init__(self) -> None:
+    def __init__(self, agent_id: str = "default") -> None:
         super().__init__()
         self.framework_type = "agentscope"
+        self.agent_id = agent_id  # Store agent_id for config loading
         self._chat_manager = None  # Store chat_manager reference
         self._mcp_manager = None  # MCP client manager for hot-reload
         self.memory_manager: MemoryManager | None = None
@@ -207,9 +208,17 @@ class AgentRunner(Runner):
             if self._mcp_manager is not None:
                 mcp_clients = await self._mcp_manager.get_clients()
 
-            config = load_config()
-            max_iters = config.agents.running.max_iters
-            max_input_length = config.agents.running.max_input_length
+            # Load agent-specific configuration
+            agent_config = load_agent_config(self.agent_id)
+
+            # Get running config with defaults
+            running_config = agent_config.running
+            if running_config is None:
+                running_config = AgentsRunningConfig()
+
+            max_iters = running_config.max_iters
+            max_input_length = running_config.max_input_length
+            language = agent_config.language
 
             agent = CoPawAgent(
                 env_context=env_context,
@@ -219,9 +228,21 @@ class AgentRunner(Runner):
                     "session_id": session_id,
                     "user_id": user_id,
                     "channel": channel,
+                    "agent_id": self.agent_id,
                 },
                 max_iters=max_iters,
                 max_input_length=max_input_length,
+                memory_compact_threshold=(
+                    running_config.memory_compact_threshold
+                ),
+                memory_compact_reserve=running_config.memory_compact_reserve,
+                enable_tool_result_compact=(
+                    running_config.enable_tool_result_compact
+                ),
+                tool_result_compact_keep_n=(
+                    running_config.tool_result_compact_keep_n
+                ),
+                language=language,
             )
             await agent.register_mcp_clients()
             agent.set_console_output_enabled(enabled=False)
@@ -238,12 +259,31 @@ class AgentRunner(Runner):
                 else:
                     name = "Media Message"
 
+            # DEBUG: Always log chat_manager status
+            logger.info(
+                f"DEBUG chat_manager status: "
+                f"_chat_manager={self._chat_manager}, "
+                f"is_none={self._chat_manager is None}, "
+                f"agent_id={self.agent_id}",
+            )
+
             if self._chat_manager is not None:
+                logger.debug(
+                    f"Runner: Calling get_or_create_chat for "
+                    f"session_id={session_id}, user_id={user_id}, "
+                    f"channel={channel}, name={name}",
+                )
                 chat = await self._chat_manager.get_or_create_chat(
                     session_id,
                     user_id,
                     channel,
                     name=name,
+                )
+                logger.debug(f"Runner: Got chat: {chat.id}")
+            else:
+                logger.warning(
+                    f"ChatManager is None! Cannot auto-register chat for "
+                    f"session_id={session_id}",
                 )
 
             try:

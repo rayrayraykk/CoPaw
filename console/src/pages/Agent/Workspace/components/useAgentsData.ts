@@ -4,9 +4,12 @@ import { useTranslation } from "react-i18next";
 import api from "../../../../api";
 import type { MarkdownFile, DailyMemoryFile } from "../../../../api/types";
 import { workspaceApi } from "../../../../api/modules/workspace";
+import { agentsApi } from "../../../../api/modules/agents";
+import { useAgentStore } from "../../../../stores/agentStore";
 
 export const useAgentsData = () => {
   const { t } = useTranslation();
+  const { activeAgent } = useAgentStore();
   const [files, setFiles] = useState<MarkdownFile[]>([]);
   const [selectedFile, setSelectedFile] = useState<MarkdownFile | null>(null);
   const [dailyMemories, setDailyMemories] = useState<DailyMemoryFile[]>([]);
@@ -24,7 +27,7 @@ export const useAgentsData = () => {
     };
     initializeData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [activeAgent]);
 
   // Re-sort when enabledFiles changes (for toggle/reorder operations)
   useEffect(() => {
@@ -74,9 +77,10 @@ export const useAgentsData = () => {
 
   const fetchFiles = async (latestEnabledFiles?: string[]) => {
     try {
-      const fileList = await api.listFiles();
+      // Use agent-specific API
+      const fileList = await agentsApi.listAgentFiles(activeAgent);
       const sortedFiles = sortFilesByEnabled(
-        fileList as MarkdownFile[],
+        fileList as unknown as MarkdownFile[],
         latestEnabledFiles ?? enabledFiles,
       );
       setFiles(sortedFiles);
@@ -118,7 +122,8 @@ export const useAgentsData = () => {
     setSelectedFile(file);
     setLoading(true);
     try {
-      const data = await api.loadFile(file.filename);
+      // Use agent-specific API
+      const data = await agentsApi.readAgentFile(activeAgent, file.filename);
       setFileContent(data.content);
       setOriginalContent(data.content);
     } catch (error) {

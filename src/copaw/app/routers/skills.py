@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 import logging
 from typing import Any
-from fastapi import APIRouter, HTTPException
+from pathlib import Path
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from ...agents.skills_manager import (
     SkillService,
     SkillInfo,
-    list_available_skills,
 )
 from ...agents.skills_hub import (
     search_hub_skills,
@@ -60,42 +60,98 @@ router = APIRouter(prefix="/skills", tags=["skills"])
 
 
 @router.get("")
-async def list_skills() -> list[SkillSpec]:
-    all_skills = SkillService.list_all_skills()
+async def list_skills(
+    request: Request,
+) -> list[SkillSpec]:
+    """List all skills for active agent."""
+    from ..agent_context import get_agent_for_request
 
-    available_skills = list_available_skills()
+    workspace = await get_agent_for_request(request)
+
+    # List skills from agent's workspace
+    workspace_dir = Path(workspace.workspace_dir)
+    active_skills_dir = workspace_dir / "active_skills"
+    customized_skills_dir = workspace_dir / "customized_skills"
+
+    # Get builtin skills (global)
+    builtin_skills_dir = (
+        Path(__file__).parent.parent.parent / "agents" / "skills"
+    )
+
     skills_spec = []
-    for skill in all_skills:
-        skills_spec.append(
-            SkillSpec(
-                name=skill.name,
-                content=skill.content,
-                source=skill.source,
-                path=skill.path,
-                references=skill.references,
-                scripts=skill.scripts,
-                enabled=skill.name in available_skills,
-            ),
-        )
+
+    # Collect from builtin
+    if builtin_skills_dir.exists():
+        for skill_dir in builtin_skills_dir.iterdir():
+            if skill_dir.is_dir() and (skill_dir / "SKILL.md").exists():
+                skill_md = skill_dir / "SKILL.md"
+                is_enabled = (active_skills_dir / skill_dir.name).exists()
+                skills_spec.append(
+                    SkillSpec(
+                        name=skill_dir.name,
+                        content=skill_md.read_text(encoding="utf-8"),
+                        source="builtin",
+                        path=str(skill_dir),
+                        references={},
+                        scripts={},
+                        enabled=is_enabled,
+                    ),
+                )
+
+    # Collect from customized (override builtin)
+    if customized_skills_dir.exists():
+        for skill_dir in customized_skills_dir.iterdir():
+            if skill_dir.is_dir() and (skill_dir / "SKILL.md").exists():
+                skill_md = skill_dir / "SKILL.md"
+                is_enabled = (active_skills_dir / skill_dir.name).exists()
+                # Remove builtin with same name
+                skills_spec = [
+                    s for s in skills_spec if s.name != skill_dir.name
+                ]
+                skills_spec.append(
+                    SkillSpec(
+                        name=skill_dir.name,
+                        content=skill_md.read_text(encoding="utf-8"),
+                        source="customized",
+                        path=str(skill_dir),
+                        references={},
+                        scripts={},
+                        enabled=is_enabled,
+                    ),
+                )
+
     return skills_spec
 
 
 @router.get("/available")
-async def get_available_skills() -> list[SkillSpec]:
-    available_skills = SkillService.list_available_skills()
+async def get_available_skills(
+    request: Request,
+) -> list[SkillSpec]:
+    """List available (enabled) skills for active agent."""
+    from ..agent_context import get_agent_for_request
+
+    workspace = await get_agent_for_request(request)
+
+    workspace_dir = Path(workspace.workspace_dir)
+    active_skills_dir = workspace_dir / "active_skills"
+
     skills_spec = []
-    for skill in available_skills:
-        skills_spec.append(
-            SkillSpec(
-                name=skill.name,
-                content=skill.content,
-                source=skill.source,
-                path=skill.path,
-                references=skill.references,
-                scripts=skill.scripts,
-                enabled=True,
-            ),
-        )
+    if active_skills_dir.exists():
+        for skill_dir in active_skills_dir.iterdir():
+            if skill_dir.is_dir() and (skill_dir / "SKILL.md").exists():
+                skill_md = skill_dir / "SKILL.md"
+                skills_spec.append(
+                    SkillSpec(
+                        name=skill_dir.name,
+                        content=skill_md.read_text(encoding="utf-8"),
+                        source="active",
+                        path=str(skill_dir),
+                        references={},
+                        scripts={},
+                        enabled=True,
+                    ),
+                )
+
     return skills_spec
 
 
@@ -190,15 +246,89 @@ async def create_skill(request: CreateSkillRequest):
 
 
 @router.post("/{skill_name}/disable")
-async def disable_skill(skill_name: str):
-    result = SkillService.disable_skill(skill_name)
-    return {"disabled": result}
+async def disable_skill(
+    skill_name: str,
+    request: Request = None,
+):
+    """Disable skill for active agent."""
+    from ..agent_context import get_agent_for_request
+    import shutil
+
+    workspace = await get_agent_for_request(request)
+    workspace_dir = Path(workspace.workspace_dir)
+    active_skill_dir = workspace_dir / "active_skills" / skill_name
+
+    if active_skill_dir.exists():
+        shutil.rmtree(active_skill_dir)
+
+        # Hot reload config (async, non-blocking)
+        import asyncio
+
+    async def reload_in_background():
+        try:
+            manager = request.app.state.multi_agent_manager
+            await manager.reload_agent(workspace.agent_id)
+        except Exception as e:
+            logger.warning(f"Background reload failed: {e}")
+
+        asyncio.create_task(reload_in_background())
+
+        return {"disabled": True}
+
+    return {"disabled": False}
 
 
 @router.post("/{skill_name}/enable")
-async def enable_skill(skill_name: str):
-    result = SkillService.enable_skill(skill_name)
-    return {"enabled": result}
+async def enable_skill(
+    skill_name: str,
+    request: Request = None,
+):
+    """Enable skill for active agent."""
+    from ..agent_context import get_agent_for_request
+    import shutil
+
+    workspace = await get_agent_for_request(request)
+    workspace_dir = Path(workspace.workspace_dir)
+    active_skill_dir = workspace_dir / "active_skills" / skill_name
+
+    # If already enabled, skip
+    if active_skill_dir.exists():
+        return {"enabled": True}
+
+    # Find skill from builtin or customized
+    builtin_skill_dir = (
+        Path(__file__).parent.parent.parent / "agents" / "skills" / skill_name
+    )
+    customized_skill_dir = workspace_dir / "customized_skills" / skill_name
+
+    source_dir = None
+    if customized_skill_dir.exists():
+        source_dir = customized_skill_dir
+    elif builtin_skill_dir.exists():
+        source_dir = builtin_skill_dir
+
+    if not source_dir or not (source_dir / "SKILL.md").exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Skill '{skill_name}' not found",
+        )
+
+    # Copy to active_skills
+    shutil.copytree(source_dir, active_skill_dir)
+
+    # Hot reload config (async, non-blocking)
+    import asyncio
+
+    async def reload_in_background():
+        try:
+            manager = request.app.state.multi_agent_manager
+            await manager.reload_agent(workspace.agent_id)
+        except Exception as e:
+            logger.warning(f"Background reload failed: {e}")
+
+    asyncio.create_task(reload_in_background())
+
+    return {"enabled": True}
 
 
 @router.delete("/{skill_name}")
