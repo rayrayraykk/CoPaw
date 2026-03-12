@@ -14,7 +14,6 @@ from .skills_cmd import configure_skills_interactive
 from .utils import prompt_confirm, prompt_choice
 from ..config import (
     get_config_path,
-    get_heartbeat_query_path,
     load_config,
     save_config,
 )
@@ -108,12 +107,16 @@ DEFAULT_HEARTBEAT_MDS = {
 )
 # pylint: disable=too-many-branches,too-many-statements
 def init_cmd(force: bool, use_defaults: bool, accept_security: bool) -> None:
-    """Create working dir with config.json and HEARTBEAT.md (interactive)."""
-    config_path = get_config_path()
-    working_dir = config_path.parent
-    heartbeat_path = get_heartbeat_query_path()
+    """Create default agent workspace with config.json and HEARTBEAT.md."""
+    # Use default workspace instead of WORKING_DIR
+    from pathlib import Path
 
-    click.echo(f"Working dir: {working_dir}")
+    default_workspace = Path("~/.copaw/workspaces/default").expanduser()
+    config_path = get_config_path()
+    heartbeat_path = default_workspace / "HEARTBEAT.md"
+
+    click.echo(f"Default workspace: {default_workspace}")
+    click.echo(f"Global config: {config_path}")
 
     # --- Security warning: must accept to continue ---
     _echo_security_warning_box()
@@ -131,7 +134,10 @@ def init_cmd(force: bool, use_defaults: bool, accept_security: bool) -> None:
                 "Initialization aborted. Read the security notice and run again when ready.",
             )
             raise click.Abort()
-    working_dir.mkdir(parents=True, exist_ok=True)
+
+    # Ensure default workspace and global config dir exist
+    default_workspace.mkdir(parents=True, exist_ok=True)
+    config_path.parent.mkdir(parents=True, exist_ok=True)
 
     # --- config.json ---
     write_config = True
@@ -257,6 +263,7 @@ def init_cmd(force: bool, use_defaults: bool, accept_security: bool) -> None:
         synced, skipped = sync_skills_to_working_dir(
             skill_names=None,
             force=False,
+            workspace_dir=default_workspace,
         )
         if skipped:
             click.echo(
@@ -279,6 +286,7 @@ def init_cmd(force: bool, use_defaults: bool, accept_security: bool) -> None:
             synced, skipped = sync_skills_to_working_dir(
                 skill_names=None,
                 force=False,
+                workspace_dir=default_workspace,
             )
             click.echo(f"✓ Skills synced: {synced}, skipped: {skipped}")
         elif skills_choice == "custom":
@@ -307,9 +315,12 @@ def init_cmd(force: bool, use_defaults: bool, accept_security: bool) -> None:
 
     if use_defaults:
         # --defaults: always attempt copy, skip files that already exist
-        # in WORKING_DIR (handles freshly mounted empty volumes).
         click.echo(f"\nChecking MD files [language: {current_language}]...")
-        copied = copy_md_files(current_language, skip_existing=True)
+        copied = copy_md_files(
+            current_language,
+            skip_existing=True,
+            workspace_dir=default_workspace,
+        )
         if copied:
             config.agents.installed_md_files_language = current_language
             save_config(config, config_path)
@@ -324,7 +335,10 @@ def init_cmd(force: bool, use_defaults: bool, accept_security: bool) -> None:
             click.echo(
                 f"Language changed: {installed_language} → {current_language}",
             )
-        copied = copy_md_files(current_language)
+        copied = copy_md_files(
+            current_language,
+            workspace_dir=default_workspace,
+        )
         if copied:
             config.agents.installed_md_files_language = current_language
             save_config(config, config_path)
@@ -377,4 +391,14 @@ def init_cmd(force: bool, use_defaults: bool, accept_security: bool) -> None:
         )
         click.echo(f"✓ Heartbeat query saved to {heartbeat_path}")
 
+    # --- Ensure default agent exists in config ---
+    from ..app.migration import ensure_default_agent_exists
+
+    click.echo("\nEnsuring default agent configuration...")
+    ensure_default_agent_exists()
+    click.echo("✓ Default agent configured")
+
     click.echo("\n✓ Initialization complete!")
+    click.echo(
+        f"\nYour default agent workspace is ready at:\n  {default_workspace}",
+    )

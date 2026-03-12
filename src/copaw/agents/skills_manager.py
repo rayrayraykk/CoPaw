@@ -129,6 +129,7 @@ def _collect_skills_from_dir(directory: Path) -> dict[str, Path]:
 def sync_skills_to_working_dir(
     skill_names: list[str] | None = None,
     force: bool = False,
+    workspace_dir: Path | None = None,
 ) -> tuple[int, int]:
     """
     Sync skills from builtin and customized to active_skills directory.
@@ -136,13 +137,20 @@ def sync_skills_to_working_dir(
     Args:
         skill_names: List of skill names to sync. If None, sync all skills.
         force: If True, overwrite existing skills in active_skills.
+        workspace_dir: Target workspace directory. If None, use WORKING_DIR.
 
     Returns:
         Tuple of (synced_count, skipped_count).
     """
     builtin_skills = get_builtin_skills_dir()
-    customized_skills = get_customized_skills_dir()
-    active_skills = get_active_skills_dir()
+
+    # Use workspace_dir if provided, otherwise use default directories
+    if workspace_dir is not None:
+        customized_skills = workspace_dir / "customized_skills"
+        active_skills = workspace_dir / "active_skills"
+    else:
+        customized_skills = get_customized_skills_dir()
+        active_skills = get_active_skills_dir()
 
     # Ensure active skills directory exists
     active_skills.mkdir(parents=True, exist_ok=True)
