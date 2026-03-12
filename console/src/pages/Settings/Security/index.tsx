@@ -16,6 +16,7 @@ import { Space } from "antd";
 import { Plus, Trash2, Pencil, Eye } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
+import { useAgentStore } from "../../../stores/agentStore";
 import type {
   ToolGuardConfig,
   ToolGuardRule,
@@ -63,6 +64,7 @@ interface MergedRule extends ToolGuardRule {
 
 function SecurityPage() {
   const { t } = useTranslation();
+  const { activeAgent } = useAgentStore();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -106,7 +108,8 @@ function SecurityPage() {
 
   useEffect(() => {
     fetchConfig();
-  }, [fetchConfig]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeAgent]);
 
   const buildSaveBody = async (): Promise<ToolGuardConfig> => {
     const values = await form.validateFields();

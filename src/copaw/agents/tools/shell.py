@@ -14,9 +14,9 @@ from typing import Optional
 from agentscope.message import TextBlock
 from agentscope.tool import ToolResponse
 
-from copaw.constant import WORKING_DIR
+from ...constant import WORKING_DIR
+from ...config.context import get_current_workspace_dir
 from .utils import truncate_shell_output
-from .context import get_current_workspace_dir
 
 
 def _kill_process_tree_win32(pid: int) -> None:

@@ -9,8 +9,8 @@ from agentscope.message import TextBlock
 from agentscope.tool import ToolResponse
 
 from ...constant import WORKING_DIR
+from ...config.context import get_current_workspace_dir
 from .utils import truncate_file_output, read_file_safe
-from .context import get_current_workspace_dir
 
 
 def _resolve_file_path(file_path: str) -> str:

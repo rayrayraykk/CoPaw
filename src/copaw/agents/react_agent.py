@@ -562,7 +562,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
             Response message
         """
         # Set workspace_dir in context for tool functions
-        from .tools.context import set_current_workspace_dir
+        from ..config.context import set_current_workspace_dir
 
         set_current_workspace_dir(self._workspace_dir)
 

@@ -11,8 +11,8 @@ from agentscope.message import TextBlock
 from agentscope.tool import ToolResponse
 
 from ...constant import WORKING_DIR
+from ...config.context import get_current_workspace_dir
 from .file_io import _resolve_file_path
-from .context import get_current_workspace_dir
 
 # Skip binary / large files
 _BINARY_EXTENSIONS = frozenset(

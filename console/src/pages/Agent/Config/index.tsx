@@ -13,6 +13,7 @@ import {
 } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
+import { useAgentStore } from "../../../stores/agentStore";
 import styles from "./index.module.less";
 import type { AgentsRunningConfig } from "../../../api/types";
 
@@ -65,6 +66,7 @@ const LANGUAGE_OPTIONS = [
 
 function AgentConfigPage() {
   const { t } = useTranslation();
+  const { activeAgent } = useAgentStore();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -75,7 +77,7 @@ function AgentConfigPage() {
   useEffect(() => {
     fetchConfig();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [activeAgent]);
 
   const fetchConfig = async () => {
     setLoading(true);
