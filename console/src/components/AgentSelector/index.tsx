@@ -52,11 +52,7 @@ export default function AgentSelector() {
         popupClassName={styles.agentSelectorDropdown}
         suffixIcon={
           <div className={styles.agentSelectorSuffix}>
-            <Badge
-              count={agentCount}
-              showZero
-              className={styles.agentBadge}
-            />
+            <Badge count={agentCount} showZero className={styles.agentBadge} />
           </div>
         }
       >
