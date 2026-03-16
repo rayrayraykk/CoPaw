@@ -128,7 +128,7 @@ class ChatManager:
             )
             # Call internal create without lock (already locked)
             await self._repo.upsert_chat(spec)
-            logger.info(
+            logger.debug(
                 f"Auto-registered new chat: {spec.id} -> {session_id}",
             )
             return spec

@@ -123,7 +123,7 @@ def _validate_and_extract_zip(data: bytes, workspace_dir: Path) -> None:
         },
     },
 )
-async def download_workspace(request):
+async def download_workspace(request: Request):
     """Stream agent workspace as a zip file."""
     from ..agent_context import get_agent_for_request
 

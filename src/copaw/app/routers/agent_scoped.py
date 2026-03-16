@@ -31,7 +31,7 @@ class AgentContextMiddleware(BaseHTTPMiddleware):
             if len(path_parts) >= 4 and path_parts[2] == "agents":
                 agent_id = path_parts[3]
                 request.state.agent_id = agent_id
-                logger.info(
+                logger.debug(
                     f"AgentContextMiddleware: set agent_id={agent_id} "
                     f"for path={request.url.path}",
                 )

@@ -271,8 +271,7 @@ class AgentRunner(Runner):
                 else:
                     name = "Media Message"
 
-            # DEBUG: Always log chat_manager status
-            logger.info(
+            logger.debug(
                 f"DEBUG chat_manager status: "
                 f"_chat_manager={self._chat_manager}, "
                 f"is_none={self._chat_manager is None}, "
