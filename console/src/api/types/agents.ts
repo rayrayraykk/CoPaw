@@ -5,11 +5,9 @@ export interface AgentSummary {
   name: string;
   description: string;
   workspace_dir: string;
-  is_active: boolean;
 }
 
 export interface AgentListResponse {
-  active_agent: string;
   agents: AgentSummary[];
 }
 

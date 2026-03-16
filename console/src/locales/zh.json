@@ -74,7 +74,6 @@
     "id": "ID",
     "description": "描述",
     "workspace": "工作区路径",
-    "active": "当前激活",
     "create": "创建智能体",
     "createTitle": "创建新智能体",
     "createSuccess": "智能体创建成功",
@@ -88,10 +87,8 @@
     "deleteConfirmDesc": "删除后智能体将不可用，但工作区文件会保留",
     "deleteSuccess": "智能体删除成功",
     "deleteFailed": "智能体删除失败",
-    "activate": "激活",
-    "activateSuccess": "智能体激活成功",
-    "activateFailed": "智能体激活失败",
     "selectAgent": "选择智能体",
+    "currentWorkspace": "当前智能体",
     "switchSuccess": "智能体切换成功",
     "switchFailed": "智能体切换失败",
     "loadFailed": "加载智能体列表失败",
@@ -103,7 +100,9 @@
     "nameRequired": "请输入智能体名称",
     "namePlaceholder": "例如：我的智能体",
     "descriptionPlaceholder": "简要描述这个智能体的用途...",
-    "workspaceHelp": "留空将自动生成在 ~/.copaw/workspaces/<id> 目录"
+    "workspaceHelp": "留空将自动生成在 ~/.copaw/workspaces/<id> 目录",
+    "defaultNotEditable": "默认智能体不允许编辑",
+    "defaultNotDeletable": "默认智能体不允许删除"
   },
   "skills": {
     "title": "技能",

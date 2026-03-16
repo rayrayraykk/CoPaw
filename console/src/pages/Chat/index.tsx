@@ -43,7 +43,7 @@ export default function ChatPage() {
     return match?.[1];
   }, [location.pathname]);
   const [showModelPrompt, setShowModelPrompt] = useState(false);
-  const { activeAgent } = useAgentStore();
+  const { selectedAgent } = useAgentStore();
   const [refreshKey, setRefreshKey] = useState(0);
 
   const isComposingRef = useRef(false);
@@ -124,27 +124,27 @@ export default function ChatPage() {
     };
   }, []);
 
-  // Refresh chat when activeAgent changes
-  const prevActiveAgentRef = useRef(activeAgent);
+  // Refresh chat when selectedAgent changes
+  const prevSelectedAgentRef = useRef(selectedAgent);
   useEffect(() => {
-    // Only refresh if activeAgent actually changed (not initial mount)
+    // Only refresh if selectedAgent actually changed (not initial mount)
     if (
-      prevActiveAgentRef.current !== activeAgent &&
-      prevActiveAgentRef.current !== undefined
+      prevSelectedAgentRef.current !== selectedAgent &&
+      prevSelectedAgentRef.current !== undefined
     ) {
       console.log(
-        "Active agent changed from",
-        prevActiveAgentRef.current,
+        "Selected agent changed from",
+        prevSelectedAgentRef.current,
         "to",
-        activeAgent,
+        selectedAgent,
       );
       // Force re-render by updating refresh key
       setRefreshKey((prev) => prev + 1);
       // Navigate to chat root to avoid showing stale session
       navigate("/chat", { replace: true });
     }
-    prevActiveAgentRef.current = activeAgent;
-  }, [activeAgent, navigate]);
+    prevSelectedAgentRef.current = selectedAgent;
+  }, [selectedAgent, navigate]);
 
   const getSessionListWrapped = useCallback(async () => {
     const sessions = await sessionApi.getSessionList();
@@ -240,18 +240,18 @@ export default function ChatPage() {
       const token = getApiToken();
       if (token) headers.Authorization = `Bearer ${token}`;
 
-      // Add active agent ID for multi-agent support
+      // Add selected agent ID for multi-agent support
       try {
         const agentStorage = localStorage.getItem("copaw-agent-storage");
         if (agentStorage) {
           const parsed = JSON.parse(agentStorage);
-          const activeAgent = parsed?.state?.activeAgent;
-          if (activeAgent) {
-            headers["X-Agent-Id"] = activeAgent;
+          const selectedAgent = parsed?.state?.selectedAgent;
+          if (selectedAgent) {
+            headers["X-Agent-Id"] = selectedAgent;
           }
         }
       } catch (error) {
-        console.warn("Failed to get active agent from storage:", error);
+        console.warn("Failed to get selected agent from storage:", error);
       }
 
       return fetch(defaultConfig?.api?.baseURL || getApiUrl("/agent/process"), {

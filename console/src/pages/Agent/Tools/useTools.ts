@@ -7,7 +7,7 @@ import { useAgentStore } from "../../../stores/agentStore";
 
 export function useTools() {
   const { t } = useTranslation();
-  const { activeAgent } = useAgentStore();
+  const { selectedAgent } = useAgentStore();
   const [tools, setTools] = useState<ToolInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [batchLoading, setBatchLoading] = useState(false);
@@ -27,7 +27,7 @@ export function useTools() {
 
   useEffect(() => {
     loadTools();
-  }, [loadTools, activeAgent]);
+  }, [loadTools, selectedAgent]);
 
   const toggleEnabled = useCallback(
     async (tool: ToolInfo) => {

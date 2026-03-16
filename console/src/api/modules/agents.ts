@@ -35,15 +35,6 @@ export const agentsApi = {
       method: "DELETE",
     }),
 
-  // Activate agent
-  activateAgent: (agentId: string) =>
-    request<{ success: boolean; active_agent: string }>(
-      `/agents/${agentId}/activate`,
-      {
-        method: "POST",
-      },
-    ),
-
   // Agent workspace files
   listAgentFiles: (agentId: string) =>
     request<MdFileInfo[]>(`/agents/${agentId}/files`),

@@ -69,7 +69,7 @@ const EVERY_UNIT_OPTIONS: { value: EveryUnit; labelKey: string }[] = [
 
 function HeartbeatPage() {
   const { t } = useTranslation();
-  const { activeAgent } = useAgentStore();
+  const { selectedAgent } = useAgentStore();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm<HeartbeatFormValues>();
@@ -99,7 +99,7 @@ function HeartbeatPage() {
   useEffect(() => {
     fetchConfig();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeAgent]);
+  }, [selectedAgent]);
 
   const onFinish = async (values: HeartbeatFormValues) => {
     const every =

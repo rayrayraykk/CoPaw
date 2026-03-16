@@ -131,6 +131,7 @@ class PromptBuilder:
 def build_system_prompt_from_working_dir(
     working_dir: Path | None = None,
     enabled_files: list[str] | None = None,
+    agent_id: str | None = None,
 ) -> str:
     """
     Build system prompt by reading markdown files from working directory.
@@ -153,6 +154,7 @@ def build_system_prompt_from_working_dir(
         working_dir: Directory to read markdown files from (if None, uses
             global WORKING_DIR for backward compatibility)
         enabled_files: List of filenames to load (if None, uses config or defaults)
+        agent_id: Agent identifier to include in system prompt (optional)
 
     Returns:
         str: Constructed system prompt from markdown files.
@@ -178,7 +180,18 @@ def build_system_prompt_from_working_dir(
         working_dir=working_dir,
         enabled_files=enabled_files,
     )
-    return builder.build()
+    prompt = builder.build()
+
+    # Add agent identity information at the beginning of the prompt
+    if agent_id and agent_id != "default":
+        identity_header = (
+            f"# Agent Identity\n\n"
+            f"Your agent id is `{agent_id}`. "
+            f"This is your unique identifier in the multi-agent system.\n\n"
+        )
+        prompt = identity_header + prompt
+
+    return prompt
 
 
 def build_bootstrap_guidance(

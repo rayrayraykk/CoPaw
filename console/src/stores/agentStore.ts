@@ -3,9 +3,9 @@ import { persist } from "zustand/middleware";
 import type { AgentSummary } from "../api/types/agents";
 
 interface AgentStore {
-  activeAgent: string;
+  selectedAgent: string;
   agents: AgentSummary[];
-  setActiveAgent: (agentId: string) => void;
+  setSelectedAgent: (agentId: string) => void;
   setAgents: (agents: AgentSummary[]) => void;
   addAgent: (agent: AgentSummary) => void;
   removeAgent: (agentId: string) => void;
@@ -15,10 +15,10 @@ interface AgentStore {
 export const useAgentStore = create<AgentStore>()(
   persist(
     (set) => ({
-      activeAgent: "default",
+      selectedAgent: "default",
       agents: [],
 
-      setActiveAgent: (agentId) => set({ activeAgent: agentId }),
+      setSelectedAgent: (agentId) => set({ selectedAgent: agentId }),
 
       setAgents: (agents) => set({ agents }),
 
