@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import List, Literal, Optional
 from copy import deepcopy
 
@@ -14,6 +15,9 @@ from ...config.config import load_agent_config, save_agent_config
 from ...providers.provider import ProviderInfo, ModelInfo
 from ...providers.provider_manager import ActiveModelsInfo, ProviderManager
 from ...providers.models import ModelSlotConfig
+
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/models", tags=["models"])
 
@@ -367,14 +371,30 @@ async def get_active_models(
     # Try to get agent-specific active model
     try:
         workspace = await get_agent_for_request(request)
+        logger.debug(
+            f"get_active_models: got workspace.agent_id={workspace.agent_id}",
+        )
         agent_config = load_agent_config(workspace.agent_id)
+        logger.debug(
+            f"get_active_models: agent_config.active_model="
+            f"{agent_config.active_model}",
+        )
         if agent_config.active_model:
+            logger.info(
+                f"Returning agent-specific model for {workspace.agent_id}: "
+                f"{agent_config.active_model}",
+            )
             return ActiveModelsInfo(active_llm=agent_config.active_model)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(
+            f"Failed to get agent-specific model: {e}",
+            exc_info=True,
+        )
 
     # Fallback to global active model
-    return ActiveModelsInfo(active_llm=manager.get_active_model())
+    global_model = manager.get_active_model()
+    logger.info(f"Returning global model: {global_model}")
+    return ActiveModelsInfo(active_llm=global_model)
 
 
 @router.put(
@@ -409,9 +429,7 @@ async def set_active_model(
         save_agent_config(workspace.agent_id, agent_config)
     except Exception as e:
         # Log warning but don't fail the request
-        import logging
-
-        logging.getLogger(__name__).warning(
+        logger.warning(
             f"Failed to save active model to agent config: {e}",
         )
 
