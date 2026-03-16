@@ -1,6 +1,6 @@
-import { Select, Space, message } from "antd";
-import { RobotOutlined } from "@ant-design/icons";
+import { Select, message, Badge } from "antd";
 import { useEffect, useState } from "react";
+import { Bot, Layers, CheckCircle } from "lucide-react";
 import { useAgentStore } from "../../stores/agentStore";
 import { agentsApi } from "../../api/modules/agents";
 import { useTranslation } from "react-i18next";
@@ -41,31 +41,71 @@ export default function AgentSelector() {
     }
   };
 
+  const agentCount = agents.length;
+
   return (
-    <Select
-      value={activeAgent}
-      onChange={handleChange}
-      loading={loading}
-      style={{ minWidth: 180 }}
-      className={styles.agentSelector}
-      placeholder={t("agent.selectAgent")}
-      optionLabelProp="label"
-    >
-      {agents.map((agent) => (
-        <Select.Option key={agent.id} value={agent.id} label={agent.name}>
-          <Space>
-            <RobotOutlined />
-            <div>
-              <div className={styles.agentName}>{agent.name}</div>
-              {agent.description && (
-                <div className={styles.agentDescription}>
-                  {agent.description}
+    <div className={styles.agentSelectorWrapper}>
+      <div className={styles.agentSelectorLabel}>
+        <Layers size={14} strokeWidth={2} />
+        <span>{t("agent.currentWorkspace")}</span>
+      </div>
+      <Select
+        value={activeAgent}
+        onChange={handleChange}
+        loading={loading}
+        className={styles.agentSelector}
+        placeholder={t("agent.selectAgent")}
+        optionLabelProp="label"
+        popupClassName={styles.agentSelectorDropdown}
+        suffixIcon={
+          <div className={styles.agentSelectorSuffix}>
+            <Badge
+              count={agentCount}
+              showZero
+              className={styles.agentBadge}
+            />
+          </div>
+        }
+      >
+        {agents.map((agent) => (
+          <Select.Option
+            key={agent.id}
+            value={agent.id}
+            label={
+              <div className={styles.selectedAgentLabel}>
+                <Bot size={14} strokeWidth={2} />
+                <span>{agent.name}</span>
+              </div>
+            }
+          >
+            <div className={styles.agentOption}>
+              <div className={styles.agentOptionHeader}>
+                <div className={styles.agentOptionIcon}>
+                  <Bot size={16} strokeWidth={2} />
                 </div>
-              )}
+                <div className={styles.agentOptionContent}>
+                  <div className={styles.agentOptionName}>
+                    <span>{agent.name}</span>
+                    {agent.id === activeAgent && (
+                      <CheckCircle
+                        size={14}
+                        strokeWidth={2}
+                        className={styles.activeIndicator}
+                      />
+                    )}
+                  </div>
+                  {agent.description && (
+                    <div className={styles.agentOptionDescription}>
+                      {agent.description}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className={styles.agentOptionId}>ID: {agent.id}</div>
             </div>
-          </Space>
-        </Select.Option>
-      ))}
-    </Select>
+          </Select.Option>
+        ))}
+      </Select>
+    </div>
   );
 }

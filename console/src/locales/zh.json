@@ -92,6 +92,7 @@
     "activateSuccess": "智能体激活成功",
     "activateFailed": "智能体激活失败",
     "selectAgent": "选择智能体",
+    "currentWorkspace": "当前智能体",
     "switchSuccess": "智能体切换成功",
     "switchFailed": "智能体切换失败",
     "loadFailed": "加载智能体列表失败",

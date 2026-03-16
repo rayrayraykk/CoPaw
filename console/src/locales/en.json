@@ -92,6 +92,7 @@
     "activateSuccess": "Agent activated successfully",
     "activateFailed": "Failed to activate agent",
     "selectAgent": "Select Agent",
+    "currentWorkspace": "Current Agent",
     "switchSuccess": "Agent switched successfully",
     "switchFailed": "Failed to switch agent",
     "loadFailed": "Failed to load agent list",
