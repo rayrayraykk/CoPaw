@@ -162,6 +162,7 @@ class FeishuChannel(BaseChannel):
         encrypt_key: str = "",
         verification_token: str = "",
         media_dir: str = "~/.copaw/media",
+        workspace_dir: Path | None = None,
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
@@ -190,7 +191,15 @@ class FeishuChannel(BaseChannel):
         self.bot_prefix = bot_prefix
         self.encrypt_key = encrypt_key or ""
         self.verification_token = verification_token or ""
-        self._media_dir = Path(media_dir).expanduser()
+        self._workspace_dir = (
+            Path(workspace_dir).expanduser() if workspace_dir else None
+        )
+        # Use workspace-specific media dir if workspace_dir is provided
+        if not media_dir and self._workspace_dir:
+            self._media_dir = self._workspace_dir / "media"
+        else:
+            self._media_dir = Path(media_dir).expanduser()
+        self._media_dir.mkdir(parents=True, exist_ok=True)
 
         self._client: Any = None
         self._ws_client: Any = None
@@ -253,6 +262,7 @@ class FeishuChannel(BaseChannel):
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
         filter_thinking: bool = False,
+        workspace_dir: Path | None = None,
     ) -> "FeishuChannel":
         return cls(
             process=process,
@@ -262,7 +272,8 @@ class FeishuChannel(BaseChannel):
             bot_prefix=config.bot_prefix or "[BOT] ",
             encrypt_key=config.encrypt_key or "",
             verification_token=config.verification_token or "",
-            media_dir=config.media_dir or "~/.copaw/media",
+            media_dir=config.media_dir or "",
+            workspace_dir=workspace_dir,
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
@@ -998,7 +1009,12 @@ class FeishuChannel(BaseChannel):
     def _receive_id_store_path(self) -> Path:
         """
         Path to persist receive_id mapping (for cron to resolve after restart).
+
+        Uses agent workspace directory if available, otherwise falls back
+        to global config directory for backward compatibility.
         """
+        if self._workspace_dir:
+            return self._workspace_dir / "feishu_receive_ids.json"
         return get_config_path().parent / "feishu_receive_ids.json"
 
     def _load_receive_id_store_from_disk(self) -> None:

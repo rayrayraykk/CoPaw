@@ -86,6 +86,7 @@ class DingTalkChannel(BaseChannel):
         client_secret: str,
         bot_prefix: str,
         media_dir: str = "~/.copaw/media",
+        workspace_dir: Path | None = None,
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
@@ -112,7 +113,15 @@ class DingTalkChannel(BaseChannel):
         self.client_id = client_id
         self.client_secret = client_secret
         self.bot_prefix = bot_prefix
-        self._media_dir = Path(media_dir).expanduser()
+        self._workspace_dir = (
+            Path(workspace_dir).expanduser() if workspace_dir else None
+        )
+        # Use workspace-specific media dir if workspace_dir is provided
+        if not media_dir and self._workspace_dir:
+            self._media_dir = self._workspace_dir / "media"
+        else:
+            self._media_dir = Path(media_dir).expanduser()
+        self._media_dir.mkdir(parents=True, exist_ok=True)
 
         self._client: Optional[dingtalk_stream.DingTalkStreamClient] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -174,6 +183,7 @@ class DingTalkChannel(BaseChannel):
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
         filter_thinking: bool = False,
+        workspace_dir: Path | None = None,
     ) -> "DingTalkChannel":
         return cls(
             process=process,
@@ -181,7 +191,8 @@ class DingTalkChannel(BaseChannel):
             client_id=config.client_id or "",
             client_secret=config.client_secret or "",
             bot_prefix=config.bot_prefix or "[BOT] ",
-            media_dir=config.media_dir or "~/.copaw/media",
+            media_dir=config.media_dir or "",
+            workspace_dir=workspace_dir,
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
@@ -257,7 +268,13 @@ class DingTalkChannel(BaseChannel):
         return {"webhook_key": s} if s else {}
 
     def _session_webhook_store_path(self) -> Path:
-        """Path to persist session webhook mapping (for cron after restart)."""
+        """Path to persist session webhook mapping (for cron after restart).
+
+        Uses agent workspace directory if available, otherwise falls back
+        to global config directory for backward compatibility.
+        """
+        if self._workspace_dir:
+            return self._workspace_dir / "dingtalk_session_webhooks.json"
         return get_config_path().parent / "dingtalk_session_webhooks.json"
 
     def _load_session_webhook_store_from_disk(self) -> None:
