@@ -61,6 +61,8 @@ class Workspace:
         self._cron_manager: Optional["CronManager"] = None
         self._chat_manager = None
         self._config = None
+        self._config_watcher = None
+        self._mcp_config_watcher = None
         self._started = False
 
         logger.debug(
@@ -229,6 +231,9 @@ class Workspace:
                     f"{self.agent_id}",
                 )
 
+            # 6. Start config watchers for hot-reload (non-blocking)
+            await self._start_config_watchers()
+
             self._started = True
             logger.info(
                 f"Workspace started successfully: {self.agent_id}",
@@ -251,6 +256,9 @@ class Workspace:
         logger.info(f"Stopping agent instance: {self.agent_id}")
 
         # Stop components in reverse order
+
+        # 0. Stop config watchers first
+        await self._stop_config_watchers()
 
         # 1. Stop CronManager
         if self._cron_manager:
@@ -331,6 +339,65 @@ class Workspace:
         await self.stop()
         await self.start()
         logger.info(f"Agent instance reloaded: {self.agent_id}")
+
+    async def _start_config_watchers(self):
+        """Start config watchers for hot-reload of agent.json changes."""
+        try:
+            # Start AgentConfigWatcher for channels and heartbeat
+            if self._channel_manager or self._cron_manager:
+                from .agent_config_watcher import AgentConfigWatcher
+
+                self._config_watcher = AgentConfigWatcher(
+                    agent_id=self.agent_id,
+                    workspace_dir=self.workspace_dir,
+                    channel_manager=self._channel_manager,
+                    cron_manager=self._cron_manager,
+                )
+                await self._config_watcher.start()
+
+            # Start MCPConfigWatcher for MCP client hot-reload
+            if self._mcp_manager:
+                from .mcp.watcher import MCPConfigWatcher
+
+                def mcp_config_loader():
+                    """Load MCP config from agent.json."""
+                    agent_config = load_agent_config(self.agent_id)
+                    return agent_config.mcp
+
+                self._mcp_config_watcher = MCPConfigWatcher(
+                    mcp_manager=self._mcp_manager,
+                    config_loader=mcp_config_loader,
+                    config_path=self.workspace_dir / "agent.json",
+                )
+                await self._mcp_config_watcher.start()
+
+        except Exception as e:
+            logger.warning(
+                f"Failed to start config watchers for agent "
+                f"{self.agent_id}: {e}",
+            )
+
+    async def _stop_config_watchers(self):
+        """Stop config watchers."""
+        if self._config_watcher:
+            try:
+                await self._config_watcher.stop()
+            except Exception as e:
+                logger.warning(
+                    f"Error stopping AgentConfigWatcher for agent "
+                    f"{self.agent_id}: {e}",
+                )
+            self._config_watcher = None
+
+        if self._mcp_config_watcher:
+            try:
+                await self._mcp_config_watcher.stop()
+            except Exception as e:
+                logger.warning(
+                    f"Error stopping MCPConfigWatcher for agent "
+                    f"{self.agent_id}: {e}",
+                )
+            self._mcp_config_watcher = None
 
     def __repr__(self) -> str:
         """String representation of workspace."""
