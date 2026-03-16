@@ -89,9 +89,7 @@ export default function AgentsPage() {
         message.success(t("agent.updateSuccess"));
       } else {
         const result = await agentsApi.createAgent(values);
-        message.success(
-          `${t("agent.createSuccess")} (ID: ${result.id})`,
-        );
+        message.success(`${t("agent.createSuccess")} (ID: ${result.id})`);
       }
 
       setModalVisible(false);
