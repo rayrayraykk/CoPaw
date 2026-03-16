@@ -120,24 +120,15 @@ class Workspace:
             agent_config = self._config
             logger.debug(f"Loaded config for agent: {self.agent_id}")
 
-            # 2. Create and start Runner (must be first)
+            # 2. Create Runner
             self._runner = AgentRunner(
                 agent_id=self.agent_id,
                 workspace_dir=self.workspace_dir,
             )
-            await self._runner.start()
-            logger.debug(f"Runner started for agent: {self.agent_id}")
-
-            # Set up restart callback for /daemon restart command
-            from .workspace_restart import create_restart_callback
-
-            setattr(
-                self._runner,
-                "_restart_callback",
-                create_restart_callback(self),
-            )
 
             # 3. Concurrently initialize MemoryManager and MCPManager
+            # IMPORTANT: Create MemoryManager BEFORE runner.start() to prevent
+            # init_handler from creating a duplicate MemoryManager
             async def init_memory():
                 # Get running config for memory manager
                 running_config = agent_config.running
@@ -152,8 +143,9 @@ class Workspace:
                     memory_reserve_ratio=running_config.memory_reserve_ratio,
                     language=agent_config.language,
                 )
-                await self._memory_manager.start()
+                # Assign to runner BEFORE starting runner
                 self._runner.memory_manager = self._memory_manager
+                await self._memory_manager.start()
                 logger.debug(
                     f"MemoryManager started for agent: {self.agent_id}",
                 )
@@ -191,6 +183,19 @@ class Workspace:
 
             # Run Memory, MCP, and Chat initialization concurrently
             await asyncio.gather(init_memory(), init_mcp(), init_chat())
+
+            # Now start the runner (after MemoryManager is set)
+            await self._runner.start()
+            logger.debug(f"Runner started for agent: {self.agent_id}")
+
+            # Set up restart callback for /daemon restart command
+            from .workspace_restart import create_restart_callback
+
+            setattr(
+                self._runner,
+                "_restart_callback",
+                create_restart_callback(self),
+            )
 
             # 4. Start ChannelManager (depends on Runner)
             if agent_config.channels:
