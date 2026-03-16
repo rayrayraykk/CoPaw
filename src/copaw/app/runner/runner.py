@@ -157,6 +157,10 @@ class AgentRunner(Runner):
         """
         Handle agent query.
         """
+        logger.debug(
+            f"AgentRunner.query_handler called: agent_id={self.agent_id}, "
+            f"msgs={msgs}, request={request}",
+        )
         query = _get_last_user_text(msgs)
         session_id = getattr(request, "session_id", "") or ""
 
@@ -180,6 +184,10 @@ class AgentRunner(Runner):
                 yield msg, last
             return
 
+        logger.debug(
+            f"AgentRunner.stream_query: request={request}, "
+            f"agent_id={self.agent_id}",
+        )
         agent = None
         chat = None
         session_state_loaded = False
@@ -490,6 +498,7 @@ class AgentRunner(Runner):
         )
         self.session = SafeJSONSession(save_dir=session_dir)
 
+        # Only create and start MemoryManager if not already set by Workspace
         try:
             if self.memory_manager is None:
                 self.memory_manager = MemoryManager(
@@ -499,7 +508,7 @@ class AgentRunner(Runner):
                         else str(WORKING_DIR)
                     ),
                 )
-            await self.memory_manager.start()
+                await self.memory_manager.start()
         except Exception as e:
             logger.exception(f"MemoryManager start failed: {e}")
 

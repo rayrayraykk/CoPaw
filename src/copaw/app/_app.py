@@ -76,19 +76,52 @@ class DynamicMultiAgentRunner:
             config = load_config()
             agent_id = config.agents.active_agent or "default"
 
+        logger.debug(f"_get_workspace_runner: agent_id={agent_id}")
+
         # Get the correct workspace runner
         if not self._multi_agent_manager:
             raise RuntimeError("MultiAgentManager not initialized")
 
-        workspace = await self._multi_agent_manager.get_agent(agent_id)
-        return workspace.runner
+        try:
+            workspace = await self._multi_agent_manager.get_agent(agent_id)
+            logger.debug(
+                f"Got workspace: {workspace.agent_id}, "
+                f"runner: {workspace.runner}",
+            )
+            return workspace.runner
+        except ValueError as e:
+            logger.error(f"Agent not found: {e}")
+            raise
+        except Exception as e:
+            logger.error(
+                f"Error getting workspace runner: {e}",
+                exc_info=True,
+            )
+            raise
 
     async def stream_query(self, request, *args, **kwargs):
         """Dynamically route to the correct workspace runner."""
-        runner = await self._get_workspace_runner(request)
-        # Delegate to the actual runner's stream_query generator
-        async for item in runner.stream_query(request, *args, **kwargs):
-            yield item
+        logger.debug("DynamicMultiAgentRunner.stream_query called")
+        try:
+            runner = await self._get_workspace_runner(request)
+            logger.debug(f"Got runner: {runner}, type: {type(runner)}")
+            # Delegate to the actual runner's stream_query generator
+            count = 0
+            async for item in runner.stream_query(request, *args, **kwargs):
+                count += 1
+                logger.debug(f"Yielding item #{count}: {type(item)}")
+                yield item
+            logger.debug(f"stream_query completed, yielded {count} items")
+        except Exception as e:
+            logger.error(
+                f"Error in stream_query: {e}",
+                exc_info=True,
+            )
+            # Yield error message to client
+            yield {
+                "error": str(e),
+                "type": "error",
+            }
 
     async def query_handler(self, request, *args, **kwargs):
         """Dynamically route to the correct workspace runner."""
