@@ -7,7 +7,7 @@ import { useAgentStore } from "../../../stores/agentStore";
 
 export function useMCP() {
   const { t } = useTranslation();
-  const { activeAgent } = useAgentStore();
+  const { selectedAgent } = useAgentStore();
   const [clients, setClients] = useState<MCPClientInfo[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -26,7 +26,7 @@ export function useMCP() {
 
   useEffect(() => {
     loadClients();
-  }, [loadClients, activeAgent]);
+  }, [loadClients, selectedAgent]);
 
   const createClient = useCallback(
     async (

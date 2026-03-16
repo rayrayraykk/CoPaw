@@ -7,7 +7,7 @@ import { useAgentStore } from "../../../stores/agentStore";
 type CronJob = CronJobSpecOutput;
 
 export function useCronJobs() {
-  const { activeAgent } = useAgentStore();
+  const { selectedAgent } = useAgentStore();
   const [jobs, setJobs] = useState<CronJob[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -40,7 +40,7 @@ export function useCronJobs() {
     return () => {
       mounted = false;
     };
-  }, [activeAgent]);
+  }, [selectedAgent]);
 
   const createJob = async (values: CronJob) => {
     try {

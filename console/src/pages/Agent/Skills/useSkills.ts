@@ -5,7 +5,7 @@ import type { SkillSpec } from "../../../api/types";
 import { useAgentStore } from "../../../stores/agentStore";
 
 export function useSkills() {
-  const { activeAgent } = useAgentStore();
+  const { selectedAgent } = useAgentStore();
   const [skills, setSkills] = useState<SkillSpec[]>([]);
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -39,7 +39,7 @@ export function useSkills() {
     return () => {
       mounted = false;
     };
-  }, [activeAgent]);
+  }, [selectedAgent]);
 
   const createSkill = async (name: string, content: string) => {
     try {

@@ -3,7 +3,7 @@ import api from "../../../api";
 import { useAgentStore } from "../../../stores/agentStore";
 
 export function useChannels() {
-  const { activeAgent } = useAgentStore();
+  const { selectedAgent } = useAgentStore();
   const [channels, setChannels] = useState<
     Record<string, Record<string, unknown>>
   >({});
@@ -29,7 +29,7 @@ export function useChannels() {
 
   useEffect(() => {
     fetchChannels();
-  }, [fetchChannels, activeAgent]);
+  }, [fetchChannels, selectedAgent]);
 
   // Built-in channels come first (in a fixed order), then custom channels
   const builtinOrder = useMemo(

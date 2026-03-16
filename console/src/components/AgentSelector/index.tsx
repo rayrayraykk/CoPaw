@@ -8,7 +8,8 @@ import styles from "./index.module.less";
 
 export default function AgentSelector() {
   const { t } = useTranslation();
-  const { activeAgent, agents, setActiveAgent, setAgents } = useAgentStore();
+  const { selectedAgent, agents, setSelectedAgent, setAgents } =
+    useAgentStore();
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -20,7 +21,6 @@ export default function AgentSelector() {
       setLoading(true);
       const data = await agentsApi.listAgents();
       setAgents(data.agents);
-      setActiveAgent(data.active_agent);
     } catch (error) {
       console.error("Failed to load agents:", error);
       message.error(t("agent.loadFailed"));
@@ -29,16 +29,9 @@ export default function AgentSelector() {
     }
   };
 
-  const handleChange = async (value: string) => {
-    try {
-      await agentsApi.activateAgent(value);
-      setActiveAgent(value);
-      message.success(t("agent.switchSuccess"));
-      // Store will notify all components that subscribe to activeAgent
-    } catch (error) {
-      console.error("Failed to activate agent:", error);
-      message.error(t("agent.switchFailed"));
-    }
+  const handleChange = (value: string) => {
+    setSelectedAgent(value);
+    message.success(t("agent.switchSuccess"));
   };
 
   const agentCount = agents.length;
@@ -50,7 +43,7 @@ export default function AgentSelector() {
         <span>{t("agent.currentWorkspace")}</span>
       </div>
       <Select
-        value={activeAgent}
+        value={selectedAgent}
         onChange={handleChange}
         loading={loading}
         className={styles.agentSelector}
@@ -86,7 +79,7 @@ export default function AgentSelector() {
                 <div className={styles.agentOptionContent}>
                   <div className={styles.agentOptionName}>
                     <span>{agent.name}</span>
-                    {agent.id === activeAgent && (
+                    {agent.id === selectedAgent && (
                       <CheckCircle
                         size={14}
                         strokeWidth={2}

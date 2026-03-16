@@ -33,13 +33,11 @@ class AgentSummary(BaseModel):
     name: str
     description: str
     workspace_dir: str
-    is_active: bool
 
 
 class AgentListResponse(BaseModel):
     """Response for listing agents."""
 
-    active_agent: str
     agents: list[AgentSummary]
 
 
@@ -73,13 +71,11 @@ def _get_multi_agent_manager(request: Request) -> MultiAgentManager:
     "",
     response_model=AgentListResponse,
     summary="List all agents",
-    description="Get list of all configured agents with active status",
+    description="Get list of all configured agents",
 )
 async def list_agents() -> AgentListResponse:
     """List all configured agents."""
     config = load_config()
-
-    active_agent = config.agents.active_agent
 
     agents = []
     for agent_id, agent_ref in config.agents.profiles.items():
@@ -92,7 +88,6 @@ async def list_agents() -> AgentListResponse:
                     name=agent_config.name,
                     description=agent_config.description,
                     workspace_dir=agent_ref.workspace_dir,
-                    is_active=(agent_id == active_agent),
                 ),
             )
         except Exception:  # noqa: E722
@@ -103,12 +98,10 @@ async def list_agents() -> AgentListResponse:
                     name=agent_id.title(),
                     description="",
                     workspace_dir=agent_ref.workspace_dir,
-                    is_active=(agent_id == active_agent),
                 ),
             )
 
     return AgentListResponse(
-        active_agent=active_agent,
         agents=agents,
     )
 
@@ -250,7 +243,7 @@ async def update_agent(
 @router.delete(
     "/{agentId}",
     summary="Delete agent",
-    description=("Delete agent and workspace (cannot delete default/active)"),
+    description="Delete agent and workspace (cannot delete default agent)",
 )
 async def delete_agent(
     agentId: str = PathParam(...),
@@ -271,15 +264,6 @@ async def delete_agent(
             detail="Cannot delete the default agent",
         )
 
-    if agentId == config.agents.active_agent:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Cannot delete the active agent. "
-                "Please activate another agent first"
-            ),
-        )
-
     # Stop agent instance if running
     manager = _get_multi_agent_manager(request)
     await manager.stop_agent(agentId)
@@ -292,38 +276,6 @@ async def delete_agent(
     # Users can manually delete it if needed
 
     return {"success": True, "agent_id": agentId}
-
-
-@router.post(
-    "/{agentId}/activate",
-    summary="Activate agent",
-    description="Set the specified agent as the active agent",
-)
-async def activate_agent(
-    agentId: str = PathParam(...),
-    request: Request = None,
-) -> dict:
-    """Activate an agent (only updates config, no global state change)."""
-    config = load_config()
-
-    if agentId not in config.agents.profiles:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Agent '{agentId}' not found",
-        )
-
-    # Update active agent in config
-    config.agents.active_agent = agentId
-    save_config(config)
-
-    # Preload the agent instance (lazy loading)
-    manager = _get_multi_agent_manager(request)
-    await manager.get_agent(agentId)
-
-    return {
-        "success": True,
-        "active_agent": agentId,
-    }
 
 
 @router.get(

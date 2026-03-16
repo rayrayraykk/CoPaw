@@ -9,13 +9,11 @@ import {
   Input,
   message,
   Popconfirm,
-  Tag,
 } from "antd";
 import {
   PlusOutlined,
   EditOutlined,
   DeleteOutlined,
-  CheckCircleOutlined,
   RobotOutlined,
 } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
@@ -31,7 +29,7 @@ export default function AgentsPage() {
   const [modalVisible, setModalVisible] = useState(false);
   const [editingAgent, setEditingAgent] = useState<AgentSummary | null>(null);
   const [form] = Form.useForm();
-  const { setAgents: updateStoreAgents, setActiveAgent } = useAgentStore();
+  const { setAgents: updateStoreAgents } = useAgentStore();
 
   useEffect(() => {
     loadAgents();
@@ -43,7 +41,6 @@ export default function AgentsPage() {
       const data = await agentsApi.listAgents();
       setAgents(data.agents);
       updateStoreAgents(data.agents);
-      setActiveAgent(data.active_agent);
     } catch (error) {
       console.error("Failed to load agents:", error);
       message.error(t("agent.loadFailed"));
@@ -107,30 +104,15 @@ export default function AgentsPage() {
     }
   };
 
-  const handleActivate = async (agentId: string) => {
-    try {
-      await agentsApi.activateAgent(agentId);
-      message.success(t("agent.activateSuccess"));
-      loadAgents();
-    } catch (error: any) {
-      message.error(error.message || t("agent.activateFailed"));
-    }
-  };
-
   const columns = [
     {
       title: t("agent.name"),
       dataIndex: "name",
       key: "name",
-      render: (text: string, record: AgentSummary) => (
+      render: (text: string) => (
         <Space>
           <RobotOutlined style={{ fontSize: 16 }} />
           <span>{text}</span>
-          {record.is_active && (
-            <Tag color="green" icon={<CheckCircleOutlined />}>
-              {t("agent.active")}
-            </Tag>
-          )}
         </Space>
       ),
     },
@@ -157,20 +139,17 @@ export default function AgentsPage() {
       width: 200,
       render: (_: any, record: AgentSummary) => (
         <Space>
-          {!record.is_active && (
-            <Button
-              type="link"
-              size="small"
-              onClick={() => handleActivate(record.id)}
-            >
-              {t("agent.activate")}
-            </Button>
-          )}
           <Button
             type="link"
             size="small"
             icon={<EditOutlined />}
             onClick={() => handleEdit(record)}
+            disabled={record.id === "default"}
+            title={
+              record.id === "default"
+                ? t("agent.defaultNotEditable")
+                : undefined
+            }
           >
             {t("common.edit")}
           </Button>
@@ -178,7 +157,7 @@ export default function AgentsPage() {
             title={t("agent.deleteConfirm")}
             description={t("agent.deleteConfirmDesc")}
             onConfirm={() => handleDelete(record.id)}
-            disabled={record.id === "default" || record.is_active}
+            disabled={record.id === "default"}
             okText={t("common.confirm")}
             cancelText={t("common.cancel")}
           >
@@ -187,7 +166,12 @@ export default function AgentsPage() {
               size="small"
               danger
               icon={<DeleteOutlined />}
-              disabled={record.id === "default" || record.is_active}
+              disabled={record.id === "default"}
+              title={
+                record.id === "default"
+                  ? t("agent.defaultNotDeletable")
+                  : undefined
+              }
             >
               {t("common.delete")}
             </Button>
