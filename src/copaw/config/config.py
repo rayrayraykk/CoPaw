@@ -4,12 +4,22 @@ import json
 from pathlib import Path
 from typing import Optional, Union, Dict, List, Literal
 from pydantic import BaseModel, Field, ConfigDict, model_validator
+import shortuuid
 
 from ..providers.models import ModelSlotConfig
 from ..constant import (
     HEARTBEAT_DEFAULT_EVERY,
     HEARTBEAT_DEFAULT_TARGET,
 )
+
+
+def generate_short_agent_id() -> str:
+    """Generate a 6-character short UUID for agent identification.
+
+    Returns:
+        6-character short UUID string
+    """
+    return shortuuid.ShortUUID().random(length=6)
 
 
 class BaseChannelConfig(BaseModel):

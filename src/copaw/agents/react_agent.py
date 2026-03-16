@@ -281,8 +281,16 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         Returns:
             Complete system prompt string
         """
+        # Get agent_id from request_context
+        agent_id = (
+            self._request_context.get("agent_id")
+            if self._request_context
+            else None
+        )
+
         sys_prompt = build_system_prompt_from_working_dir(
             working_dir=self._workspace_dir,
+            agent_id=agent_id,
         )
         if self._env_context is not None:
             sys_prompt = self._env_context + "\n\n" + sys_prompt
