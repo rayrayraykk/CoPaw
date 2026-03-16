@@ -2,6 +2,7 @@ import { request } from "../request";
 import type {
   AgentListResponse,
   AgentProfileConfig,
+  CreateAgentRequest,
   AgentProfileRef,
 } from "../types/agents";
 import type { MdFileInfo, MdFileContent } from "../types/workspace";
@@ -16,7 +17,7 @@ export const agentsApi = {
     request<AgentProfileConfig>(`/agents/${agentId}`),
 
   // Create new agent
-  createAgent: (agent: AgentProfileConfig) =>
+  createAgent: (agent: CreateAgentRequest) =>
     request<AgentProfileRef>("/agents", {
       method: "POST",
       body: JSON.stringify(agent),

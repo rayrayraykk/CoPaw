@@ -88,12 +88,10 @@ export default function AgentsPage() {
         await agentsApi.updateAgent(editingAgent.id, values);
         message.success(t("agent.updateSuccess"));
       } else {
-        // Generate workspace_dir if not provided
-        if (!values.workspace_dir) {
-          values.workspace_dir = `~/.copaw/workspaces/${values.id}`;
-        }
-        await agentsApi.createAgent(values);
-        message.success(t("agent.createSuccess"));
+        const result = await agentsApi.createAgent(values);
+        message.success(
+          `${t("agent.createSuccess")} (ID: ${result.id})`,
+        );
       }
 
       setModalVisible(false);
@@ -223,22 +221,11 @@ export default function AgentsPage() {
         cancelText={t("common.cancel")}
       >
         <Form form={form} layout="vertical" autoComplete="off">
-          <Form.Item
-            name="id"
-            label={t("agent.id")}
-            rules={[
-              { required: true, message: t("agent.idRequired") },
-              {
-                pattern: /^[a-z0-9_-]+$/,
-                message: t("agent.idPattern"),
-              },
-            ]}
-          >
-            <Input
-              placeholder={t("agent.idPlaceholder")}
-              disabled={!!editingAgent}
-            />
-          </Form.Item>
+          {editingAgent && (
+            <Form.Item name="id" label={t("agent.id")}>
+              <Input disabled />
+            </Form.Item>
+          )}
           <Form.Item
             name="name"
             label={t("agent.name")}

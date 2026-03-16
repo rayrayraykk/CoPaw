@@ -185,6 +185,54 @@ class MultiAgentManager:
             logger.error(f"Failed to preload agent {agent_id}: {e}")
             return False
 
+    async def start_all_configured_agents(self) -> dict[str, bool]:
+        """Start all agents defined in configuration concurrently.
+
+        This method loads the current configuration and starts all
+        configured agents in parallel for optimal performance.
+
+        Returns:
+            dict[str, bool]: Mapping of agent_id to success status
+        """
+        config = load_config()
+        agent_ids = list(config.agents.profiles.keys())
+
+        if not agent_ids:
+            logger.warning("No agents configured in config")
+            return {}
+
+        logger.info(f"Starting {len(agent_ids)} configured agent(s)")
+
+        async def start_single_agent(agent_id: str) -> tuple[str, bool]:
+            """Start a single agent with error handling."""
+            try:
+                logger.info(f"Starting agent: {agent_id}")
+                await self.preload_agent(agent_id)
+                logger.info(f"Agent started successfully: {agent_id}")
+                return (agent_id, True)
+            except Exception as e:
+                logger.error(
+                    f"Failed to start agent {agent_id}: {e}. "
+                    f"Continuing with other agents...",
+                )
+                return (agent_id, False)
+
+        # Start all agents concurrently
+        results = await asyncio.gather(
+            *[start_single_agent(agent_id) for agent_id in agent_ids],
+            return_exceptions=False,
+        )
+
+        # Build result mapping
+        result_map = dict(results)
+        success_count = sum(1 for success in result_map.values() if success)
+        logger.info(
+            f"Agent startup complete: {success_count}/{len(agent_ids)} "
+            f"agents started successfully",
+        )
+
+        return result_map
+
     def __repr__(self) -> str:
         """String representation of manager."""
         loaded = list(self.agents.keys())

@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=redefined-outer-name,unused-argument
-import asyncio
 import mimetypes
 import os
 import time
@@ -136,28 +135,8 @@ async def lifespan(
     logger.info("Initializing MultiAgentManager...")
     multi_agent_manager = MultiAgentManager()
 
-    # Start all configured agents concurrently
-    config = load_config()
-    agent_ids = list(config.agents.profiles.keys())
-    logger.info(f"Starting {len(agent_ids)} agent(s): {agent_ids}")
-
-    async def start_single_agent(agent_id: str):
-        """Start a single agent with error handling."""
-        try:
-            logger.info(f"Starting agent: {agent_id}")
-            await multi_agent_manager.preload_agent(agent_id)
-            logger.info(f"Agent started successfully: {agent_id}")
-        except Exception as e:
-            logger.error(
-                f"Failed to start agent {agent_id}: {e}. "
-                f"Continuing with other agents...",
-            )
-
-    # Start all agents concurrently (faster than sequential)
-    await asyncio.gather(
-        *[start_single_agent(agent_id) for agent_id in agent_ids],
-        return_exceptions=True,
-    )
+    # Start all configured agents (handled by manager)
+    await multi_agent_manager.start_all_configured_agents()
 
     # --- Model provider manager (non-reloadable, in-memory) ---
     provider_manager = ProviderManager.get_instance()
