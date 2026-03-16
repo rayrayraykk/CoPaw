@@ -12,14 +12,14 @@ from ..config import load_config
 from .utils import prompt_checkbox, prompt_confirm
 
 
-def _get_agent_workspace(agent_id: str) -> str:
+def _get_agent_workspace(agent_id: str) -> Path:
     """Get agent workspace directory."""
     try:
         config = load_config()
         if agent_id in config.agents.profiles:
             ref = config.agents.profiles[agent_id]
             workspace_dir = Path(ref.workspace_dir).expanduser()
-            return str(workspace_dir)
+            return workspace_dir
     except Exception:
         pass
     return WORKING_DIR
@@ -28,7 +28,7 @@ def _get_agent_workspace(agent_id: str) -> str:
 # pylint: disable=too-many-branches
 def configure_skills_interactive(
     agent_id: str = "default",
-    working_dir: str | None = None,
+    working_dir: Path | None = None,
 ) -> None:
     """Interactively select which skills to enable (multi-select)."""
     if working_dir is None:
