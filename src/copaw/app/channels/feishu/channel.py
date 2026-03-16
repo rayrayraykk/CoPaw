@@ -37,6 +37,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 
 from ....config.config import FeishuConfig as FeishuChannelConfig
 from ....config.utils import get_config_path
+from ....constant import DEFAULT_MEDIA_DIR
 from ..base import (
     BaseChannel,
     ContentType,
@@ -161,7 +162,7 @@ class FeishuChannel(BaseChannel):
         bot_prefix: str,
         encrypt_key: str = "",
         verification_token: str = "",
-        media_dir: str = "~/.copaw/media",
+        media_dir: str = "",
         workspace_dir: Path | None = None,
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
@@ -197,8 +198,10 @@ class FeishuChannel(BaseChannel):
         # Use workspace-specific media dir if workspace_dir is provided
         if not media_dir and self._workspace_dir:
             self._media_dir = self._workspace_dir / "media"
-        else:
+        elif media_dir:
             self._media_dir = Path(media_dir).expanduser()
+        else:
+            self._media_dir = DEFAULT_MEDIA_DIR
         self._media_dir.mkdir(parents=True, exist_ok=True)
 
         self._client: Any = None
@@ -244,7 +247,7 @@ class FeishuChannel(BaseChannel):
             bot_prefix=os.getenv("FEISHU_BOT_PREFIX", "[BOT] "),
             encrypt_key=os.getenv("FEISHU_ENCRYPT_KEY", ""),
             verification_token=os.getenv("FEISHU_VERIFICATION_TOKEN", ""),
-            media_dir=os.getenv("FEISHU_MEDIA_DIR", "~/.copaw/media"),
+            media_dir=os.getenv("FEISHU_MEDIA_DIR", ""),
             on_reply_sent=on_reply_sent,
             dm_policy=os.getenv("FEISHU_DM_POLICY", "open"),
             group_policy=os.getenv("FEISHU_GROUP_POLICY", "open"),

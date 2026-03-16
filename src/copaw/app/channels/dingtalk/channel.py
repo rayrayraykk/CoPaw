@@ -34,6 +34,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import RunStatus
 from ..utils import file_url_to_local_path
 from ....config.config import DingTalkConfig as DingTalkChannelConfig
 from ....config.utils import get_config_path
+from ....constant import DEFAULT_MEDIA_DIR
 
 from ..base import (
     BaseChannel,
@@ -85,7 +86,7 @@ class DingTalkChannel(BaseChannel):
         client_id: str,
         client_secret: str,
         bot_prefix: str,
-        media_dir: str = "~/.copaw/media",
+        media_dir: str = "",
         workspace_dir: Path | None = None,
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
@@ -119,8 +120,10 @@ class DingTalkChannel(BaseChannel):
         # Use workspace-specific media dir if workspace_dir is provided
         if not media_dir and self._workspace_dir:
             self._media_dir = self._workspace_dir / "media"
-        else:
+        elif media_dir:
             self._media_dir = Path(media_dir).expanduser()
+        else:
+            self._media_dir = DEFAULT_MEDIA_DIR
         self._media_dir.mkdir(parents=True, exist_ok=True)
 
         self._client: Optional[dingtalk_stream.DingTalkStreamClient] = None
@@ -165,7 +168,7 @@ class DingTalkChannel(BaseChannel):
             client_id=os.getenv("DINGTALK_CLIENT_ID", ""),
             client_secret=os.getenv("DINGTALK_CLIENT_SECRET", ""),
             bot_prefix=os.getenv("DINGTALK_BOT_PREFIX", "[BOT] "),
-            media_dir=os.getenv("DINGTALK_MEDIA_DIR", "~/.copaw/media"),
+            media_dir=os.getenv("DINGTALK_MEDIA_DIR", ""),
             on_reply_sent=on_reply_sent,
             dm_policy=os.getenv("DINGTALK_DM_POLICY", "open"),
             group_policy=os.getenv("DINGTALK_GROUP_POLICY", "open"),

@@ -51,7 +51,7 @@ TELEGRAM_MAX_FILE_SIZE_BYTES = (
     50 * 1024 * 1024
 )  # 50 MB – Telegram bot upload limit
 
-_DEFAULT_MEDIA_DIR = Path("~/.copaw/media/telegram").expanduser()
+_DEFAULT_MEDIA_DIR = WORKING_DIR / "media" / "telegram"
 _TYPING_TIMEOUT_S = 180
 
 _RECONNECT_INITIAL_S = 2.0

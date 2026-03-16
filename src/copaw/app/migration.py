@@ -179,14 +179,6 @@ def migrate_legacy_workspace_to_default_agent() -> bool:
         migrated_items,
     )
 
-    # Migrate media directory (used by feishu, dingtalk, telegram)
-    _migrate_workspace_item(
-        old_workspace / "media",
-        default_workspace / "media",
-        "media/",
-        migrated_items,
-    )
-
     if migrated_items:
         logger.info(f"Migrated workspace items: {', '.join(migrated_items)}")
 
