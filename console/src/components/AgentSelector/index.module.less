@@ -3,68 +3,76 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 12px;
-  background: #ffffff;
-  border: 1px solid #e8e8e8;
-  border-radius: 6px;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-
-  &:hover {
-    border-color: #d9d9d9;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-  }
+  padding: 0;
+  background: transparent;
+  border: none;
+  transition: all 0.2s ease;
 }
 
 // ─── Label ────────────────────────────────────────────────────────────────────
 .agentSelectorLabel {
   display: flex;
   align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  font-weight: 600;
-  color: #8c8c8c;
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(0, 0, 0, 0.45);
   white-space: nowrap;
   user-select: none;
 
   svg {
-    opacity: 0.7;
+    opacity: 0.6;
   }
 }
 
 // ─── Select Component ─────────────────────────────────────────────────────────
 .agentSelector {
-  min-width: 200px;
+  min-width: 180px;
 
   :global {
     .ant-select-selector {
-      border: none !important;
-      background: transparent !important;
+      border: 1px solid rgba(0, 0, 0, 0.06) !important;
+      background: rgba(0, 0, 0, 0.02) !important;
       box-shadow: none !important;
-      padding: 0 !important;
-      height: auto !important;
-      font-size: 14px;
+      padding: 4px 8px !important;
+      height: 32px !important;
+      font-size: 13px;
       font-weight: 500;
+      border-radius: 6px;
+      transition: all 0.2s ease;
 
-      &:hover,
+      &:hover {
+        border-color: rgba(0, 0, 0, 0.1) !important;
+        background: rgba(0, 0, 0, 0.04) !important;
+      }
+
       &:focus {
-        border: none !important;
-        box-shadow: none !important;
+        border-color: #1890ff !important;
+        background: #ffffff !important;
+        box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.1) !important;
       }
     }
 
     .ant-select-selection-item {
       padding: 0 !important;
+      line-height: 22px;
     }
 
     .ant-select-arrow {
-      color: #8c8c8c;
-      right: 0;
+      color: rgba(0, 0, 0, 0.45);
+      right: 8px;
 
       .ant-select-suffix {
         display: flex;
         align-items: center;
+      }
+    }
+
+    .ant-select-focused {
+      .ant-select-selector {
+        border-color: #1890ff !important;
+        background: #ffffff !important;
+        box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.1) !important;
       }
     }
   }
@@ -75,10 +83,11 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  color: #262626;
+  color: rgba(0, 0, 0, 0.85);
 
   svg {
     flex-shrink: 0;
+    opacity: 0.7;
   }
 
   span {
@@ -91,20 +100,21 @@
 .agentSelectorSuffix {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-right: 8px;
+  gap: 6px;
+  margin-right: 0;
 
   .agentBadge {
     :global {
       .ant-badge-count {
-        background: linear-gradient(135deg, #615ced 0%, #8b86ff 100%);
+        background: rgba(0, 0, 0, 0.06);
+        color: rgba(0, 0, 0, 0.65);
         font-size: 10px;
         font-weight: 600;
         min-width: 18px;
         height: 18px;
         line-height: 18px;
         border-radius: 9px;
-        box-shadow: 0 2px 4px rgba(97, 92, 237, 0.2);
+        box-shadow: none;
       }
     }
   }
