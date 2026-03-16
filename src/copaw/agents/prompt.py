@@ -177,8 +177,13 @@ def build_system_prompt_from_working_dir(
         if agent_id:
             from ..config.config import load_agent_config
 
-            agent_config = load_agent_config(agent_id)
-            enabled_files = agent_config.system_prompt_files
+            try:
+                agent_config = load_agent_config(agent_id)
+                enabled_files = agent_config.system_prompt_files
+            except (ValueError, FileNotFoundError):
+                # Agent not found in config, fallback to global config
+                config = load_config()
+                enabled_files = config.agents.system_prompt_files
         else:
             # Fallback to global config for backward compatibility
             config = load_config()
