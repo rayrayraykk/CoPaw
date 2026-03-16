@@ -26,6 +26,13 @@ export interface AgentProfileConfig {
   security?: unknown;
 }
 
+export interface CreateAgentRequest {
+  name: string;
+  description?: string;
+  workspace_dir?: string;
+  language?: string;
+}
+
 export interface AgentProfileRef {
   id: string;
   workspace_dir: string;

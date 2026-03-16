@@ -135,21 +135,8 @@ async def lifespan(
     logger.info("Initializing MultiAgentManager...")
     multi_agent_manager = MultiAgentManager()
 
-    # Start all configured agents (so each agent's channels can listen)
-    config = load_config()
-    agent_ids = list(config.agents.profiles.keys())
-    logger.info(f"Starting {len(agent_ids)} agent(s): {agent_ids}")
-
-    for agent_id in agent_ids:
-        try:
-            logger.info(f"Starting agent: {agent_id}")
-            await multi_agent_manager.preload_agent(agent_id)
-        except Exception as e:
-            logger.error(
-                f"Failed to start agent {agent_id}: {e}. "
-                f"Continuing with other agents...",
-            )
-            # Continue to start other agents even if one fails
+    # Start all configured agents (handled by manager)
+    await multi_agent_manager.start_all_configured_agents()
 
     # --- Model provider manager (non-reloadable, in-memory) ---
     provider_manager = ProviderManager.get_instance()
