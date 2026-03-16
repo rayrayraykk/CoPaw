@@ -457,7 +457,7 @@ All config and data live in `~/.copaw` by default:
 | `COPAW_WORKING_DIR` | Override the working directory path |
 | `COPAW_CONFIG_FILE` | Override the config file path       |
 
-See [Config & Working Directory](./config) and [Multi-Agent Architecture](./multi-agent) for full details.
+See [Config & Working Directory](./config) and [Multi-Agent Workspace](./multi-agent) for full details.
 
 ---
 
@@ -485,4 +485,4 @@ See [Config & Working Directory](./config) and [Multi-Agent Architecture](./mult
 - [Heartbeat](./heartbeat) — Scheduled check-in / digest
 - [Skills](./skills) — Built-in and custom skills
 - [Config & Working Directory](./config) — Working directory and config.json
-- [Multi-Agent Architecture](./multi-agent) — Multi-agent setup and management
+- [Multi-Agent Workspace](./multi-agent) — Multi-agent setup and management

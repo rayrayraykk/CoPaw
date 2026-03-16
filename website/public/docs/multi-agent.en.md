@@ -1,6 +1,6 @@
-# Multi-Agent Architecture
+# Multi-Agent Workspace
 
-CoPaw supports a **multi-agent architecture**, allowing you to run multiple independent AI agents in a single CoPaw instance, each with its own configuration, memory, skills, and conversation history.
+CoPaw supports **multi-agent workspace**, allowing you to run multiple independent AI agents in a single CoPaw instance, each with its own configuration, memory, skills, and conversation history.
 
 > This feature was introduced in **v0.1.0**.
 

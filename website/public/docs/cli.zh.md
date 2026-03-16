@@ -444,7 +444,7 @@ copaw --host 0.0.0.0 --port 9090 cron list
 | `COPAW_WORKING_DIR` | 覆盖工作目录路径 |
 | `COPAW_CONFIG_FILE` | 覆盖配置文件路径 |
 
-详见 [配置与工作目录](./config) 和 [多智能体架构](./multi-agent)。
+详见 [配置与工作目录](./config) 和 [多智能体工作区](./multi-agent)。
 
 ---
 
@@ -472,4 +472,4 @@ copaw --host 0.0.0.0 --port 9090 cron list
 - [心跳](./heartbeat) —— 定时自检/摘要
 - [技能](./skills) —— 内置技能与自定义技能
 - [配置与工作目录](./config) —— 工作目录与 config.json
-- [多智能体架构](./multi-agent) —— 多智能体配置与管理
+- [多智能体工作区](./multi-agent) —— 多智能体配置与管理
