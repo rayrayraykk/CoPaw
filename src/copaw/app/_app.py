@@ -62,19 +62,10 @@ class DynamicMultiAgentRunner:
 
     async def _get_workspace_runner(self, request):
         """Get the correct workspace runner based on request."""
-        from fastapi import Request as FastAPIRequest
+        from .agent_context import get_current_agent_id
 
-        # Determine which agent to use
-        agent_id = None
-
-        # Extract agent_id from X-Agent-Id header
-        if isinstance(request, FastAPIRequest):
-            agent_id = request.headers.get("X-Agent-Id")
-
-        # Fallback to active agent from config
-        if not agent_id:
-            config = load_config()
-            agent_id = config.agents.active_agent or "default"
+        # Get agent_id from context (set by middleware or header)
+        agent_id = get_current_agent_id()
 
         logger.debug(f"_get_workspace_runner: agent_id={agent_id}")
 
@@ -301,6 +292,7 @@ app.include_router(api_router, prefix="/api")
 # Agent-scoped router: /api/agents/{agentId}/chats, etc.
 agent_scoped_router = create_agent_scoped_router()
 app.include_router(agent_scoped_router, prefix="/api")
+
 
 app.include_router(
     agent_app.router,

@@ -3,6 +3,7 @@
 
 Provides utilities to get the correct agent instance for each request.
 """
+from contextvars import ContextVar
 from typing import Optional, TYPE_CHECKING
 from fastapi import Request
 from .multi_agent_manager import MultiAgentManager
@@ -10,6 +11,12 @@ from ..config.utils import load_config
 
 if TYPE_CHECKING:
     from .workspace import Workspace
+
+# Context variable to store current agent ID across async calls
+_current_agent_id: ContextVar[Optional[str]] = ContextVar(
+    "current_agent_id",
+    default=None,
+)
 
 
 async def get_agent_for_request(
@@ -87,3 +94,24 @@ def get_active_agent_id() -> str:
         return config.agents.active_agent or "default"
     except Exception:
         return "default"
+
+
+def set_current_agent_id(agent_id: str) -> None:
+    """Set current agent ID in context.
+
+    Args:
+        agent_id: Agent ID to set
+    """
+    _current_agent_id.set(agent_id)
+
+
+def get_current_agent_id() -> str:
+    """Get current agent ID from context or config fallback.
+
+    Returns:
+        Current agent ID, defaults to active agent or "default"
+    """
+    agent_id = _current_agent_id.get()
+    if agent_id:
+        return agent_id
+    return get_active_agent_id()

@@ -20,21 +20,36 @@ class AgentContextMiddleware(BaseHTTPMiddleware):
         request: Request,
         call_next: RequestResponseEndpoint,
     ) -> Response:
-        """Extract agentId from path and inject into request.state."""
+        """Extract agentId from path/header and inject into context."""
         import logging
+        from ..agent_context import set_current_agent_id
 
         logger = logging.getLogger(__name__)
+        agent_id = None
 
-        # Extract agentId from path: /agents/{agentId}/...
+        # Priority 1: Extract agentId from path: /api/agents/{agentId}/...
         path_parts = request.url.path.split("/")
-        if len(path_parts) >= 3 and path_parts[1] == "api":
-            if len(path_parts) >= 4 and path_parts[2] == "agents":
+        if len(path_parts) >= 4 and path_parts[1] == "api":
+            if path_parts[2] == "agents":
                 agent_id = path_parts[3]
                 request.state.agent_id = agent_id
                 logger.debug(
-                    f"AgentContextMiddleware: set agent_id={agent_id} "
-                    f"for path={request.url.path}",
+                    f"AgentContextMiddleware: agent_id={agent_id} "
+                    f"from path={request.url.path}",
                 )
+
+        # Priority 2: Check X-Agent-Id header
+        if not agent_id:
+            agent_id = request.headers.get("X-Agent-Id")
+            if agent_id:
+                logger.debug(
+                    f"AgentContextMiddleware: agent_id={agent_id} "
+                    f"from X-Agent-Id header",
+                )
+
+        # Set agent_id in context variable for use by runners
+        if agent_id:
+            set_current_agent_id(agent_id)
 
         response = await call_next(request)
         return response
