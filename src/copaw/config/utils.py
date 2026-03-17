@@ -17,7 +17,14 @@ from ..constant import (
     RUNNING_IN_CONTAINER,
     WORKING_DIR,
 )
-from .config import Config, HeartbeatConfig, LastApiConfig, LastDispatchConfig
+from .config import (
+    Config,
+    HeartbeatConfig,
+    LastApiConfig,
+    LastDispatchConfig,
+    load_agent_config,
+    save_agent_config,
+)
 
 
 def _normalize_working_dir_bound_paths(data: object) -> object:
@@ -408,8 +415,6 @@ def get_heartbeat_config(agent_id: Optional[str] = None) -> HeartbeatConfig:
         HeartbeatConfig: Heartbeat configuration or default.
     """
     if agent_id is not None:
-        from .config import load_agent_config
-
         try:
             agent_config = load_agent_config(agent_id)
             hb = agent_config.heartbeat
@@ -439,8 +444,6 @@ def update_last_dispatch(
         session_id: Session ID
         agent_id: Agent ID to update. If None, updates root config (legacy).
     """
-    from .config import load_agent_config, save_agent_config
-
     if agent_id is not None:
         try:
             agent_config = load_agent_config(agent_id)
