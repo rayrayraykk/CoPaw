@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 """CLI command: run CoPaw app on a free port in a native webview window."""
+# pylint:disable=too-many-branches,too-many-statements,consider-using-with
 from __future__ import annotations
 
+import logging
 import os
 import socket
 import subprocess
@@ -52,10 +54,22 @@ def _wait_for_http(host: str, port: int, timeout_sec: float = 300.0) -> bool:
     return False
 
 
-def _log_desktop(msg: str) -> None:
-    """Print to stderr and flush (for desktop.log when launched from .app)."""
-    print(msg, file=sys.stderr)
-    sys.stderr.flush()
+def _get_desktop_logger():
+    """Get or create desktop logger (initialized once per process)."""
+    logger = logging.getLogger("copaw.cli.desktop")
+    if not logger.handlers:
+        # Setup basic handler if not already configured
+        handler = logging.StreamHandler(sys.stderr)
+        handler.setFormatter(
+            logging.Formatter(
+                "%(asctime)s | %(levelname)s | %(message)s",
+                "%Y-%m-%d %H:%M:%S",
+            ),
+        )
+        logger.addHandler(handler)
+        logger.setLevel(logging.INFO)
+        logger.propagate = False
+    return logger
 
 
 def _stream_reader(in_stream, out_stream) -> None:
@@ -106,11 +120,12 @@ def desktop_cmd(
     native webview window loading that URL. Use for a dedicated desktop
     window without conflicting with an existing CoPaw app instance.
     """
+    logger = _get_desktop_logger()
 
     port = _find_free_port(host)
     url = f"http://{host}:{port}"
     click.echo(f"Starting CoPaw app on {url} (port {port})")
-    _log_desktop("[desktop] Server subprocess starting...")
+    logger.info("Server subprocess starting...")
 
     env = os.environ.copy()
     env[LOG_LEVEL_ENV] = log_level
@@ -118,18 +133,18 @@ def desktop_cmd(
     if "SSL_CERT_FILE" in env:
         cert_file = env["SSL_CERT_FILE"]
         if os.path.exists(cert_file):
-            _log_desktop(f"[desktop] SSL certificate: {cert_file}")
+            logger.info(f"SSL certificate: {cert_file}")
         else:
-            _log_desktop(
-                f"[desktop] WARNING: SSL_CERT_FILE set but not found: "
-                f"{cert_file}",
+            logger.warning(
+                f"SSL_CERT_FILE set but not found: {cert_file}",
             )
     else:
-        _log_desktop("[desktop] WARNING: SSL_CERT_FILE not set")
+        logger.warning("SSL_CERT_FILE not set")
 
     is_windows = sys.platform == "win32"
+    proc = None
     try:
-        with subprocess.Popen(
+        proc = subprocess.Popen(
             [
                 sys.executable,
                 "-m",
@@ -148,7 +163,8 @@ def desktop_cmd(
             env=env,
             bufsize=1,
             universal_newlines=True,
-        ) as proc:
+        )
+        try:
             if is_windows:
                 stdout_thread = threading.Thread(
                     target=_stream_reader,
@@ -162,11 +178,9 @@ def desktop_cmd(
                 )
                 stdout_thread.start()
                 stderr_thread.start()
-            _log_desktop("[desktop] Waiting for HTTP ready...")
+            logger.info("Waiting for HTTP ready...")
             if _wait_for_http(host, port):
-                _log_desktop(
-                    "[desktop] HTTP ready, creating webview window...",
-                )
+                logger.info("HTTP ready, creating webview window...")
                 api = WebViewAPI()
                 webview.create_window(
                     "CoPaw Desktop",
@@ -176,34 +190,52 @@ def desktop_cmd(
                     text_select=True,
                     js_api=api,
                 )
-                _log_desktop(
-                    "[desktop] Calling webview.start() "
-                    "(blocks until closed)...",
+                logger.info(
+                    "Calling webview.start() (blocks until closed)...",
                 )
                 webview.start(
                     private_mode=False,
                 )  # blocks until user closes the window
-                _log_desktop(
-                    "[desktop] webview.start() returned (window closed).",
+                logger.info("webview.start() returned (window closed).")
+            else:
+                logger.error("Server did not become ready in time.")
+                click.echo(
+                    "Server did not become ready in time; open manually: "
+                    + url,
+                    err=True,
                 )
+                try:
+                    proc.wait()
+                except KeyboardInterrupt:
+                    pass  # will be handled in finally
+        finally:
+            # Ensure backend process is always cleaned up
+            if proc and proc.poll() is None:  # process still running
+                logger.info("Terminating backend server...")
                 proc.terminate()
-                proc.wait()
-                return  # normal exit after user closed window
-            _log_desktop("[desktop] Server did not become ready in time.")
-            click.echo(
-                "Server did not become ready in time; open manually: " + url,
-                err=True,
-            )
-            try:
-                proc.wait()
-            except KeyboardInterrupt:
-                proc.terminate()
-                proc.wait()
+                try:
+                    proc.wait(timeout=5.0)
+                    logger.info("Backend server terminated cleanly.")
+                except subprocess.TimeoutExpired:
+                    logger.warning(
+                        "Backend did not exit in 5s, force killing...",
+                    )
+                    proc.kill()
+                    proc.wait()
+                    logger.info("Backend server force killed.")
+            elif proc:
+                logger.info(
+                    f"Backend already exited with code {proc.returncode}",
+                )
 
-        if proc.returncode != 0:
+        if proc and proc.returncode != 0:
+            logger.error(f"Process exited with code {proc.returncode}")
             sys.exit(proc.returncode or 1)
+    except KeyboardInterrupt:
+        logger.warning("KeyboardInterrupt in main, cleaning up...")
+        raise
     except Exception as e:
-        _log_desktop(f"[desktop] Exception: {e!r}")
+        logger.error(f"Exception: {e!r}")
         import traceback
 
         traceback.print_exc(file=sys.stderr)
