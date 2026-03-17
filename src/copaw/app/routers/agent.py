@@ -435,12 +435,16 @@ async def put_agents_running_config(
     save_agent_config(workspace.agent_id, agent_config)
 
     # Hot reload config (async, non-blocking)
+    # IMPORTANT: Get manager and agent_id before creating background task
+    # to avoid accessing request/workspace after their lifecycle ends
     import asyncio
+
+    manager = request.app.state.multi_agent_manager
+    agent_id = workspace.agent_id
 
     async def reload_in_background():
         try:
-            manager = request.app.state.multi_agent_manager
-            await manager.reload_agent(workspace.agent_id)
+            await manager.reload_agent(agent_id)
         except Exception as e:
             import logging
 
@@ -492,12 +496,16 @@ async def put_system_prompt_files(
     save_agent_config(workspace.agent_id, agent_config)
 
     # Hot reload config (async, non-blocking)
+    # IMPORTANT: Get manager before creating background task to avoid
+    # accessing request object after its lifecycle ends
     import asyncio
+
+    manager = request.app.state.multi_agent_manager
+    agent_id = workspace.agent_id
 
     async def reload_in_background():
         try:
-            manager = request.app.state.multi_agent_manager
-            await manager.reload_agent(workspace.agent_id)
+            await manager.reload_agent(agent_id)
         except Exception as e:
             import logging
 

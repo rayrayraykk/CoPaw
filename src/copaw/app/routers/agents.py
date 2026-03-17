@@ -235,9 +235,12 @@ async def update_agent(
     save_agent_config(agentId, agent_config)
 
     # Trigger hot reload if agent is running (async, non-blocking)
+    # IMPORTANT: Get manager before creating background task to avoid
+    # accessing request object after its lifecycle ends
+    manager = _get_multi_agent_manager(request)
+
     async def reload_in_background():
         try:
-            manager = _get_multi_agent_manager(request)
             await manager.reload_agent(agentId)
         except Exception as e:
             logger.warning(f"Background reload failed for {agentId}: {e}")

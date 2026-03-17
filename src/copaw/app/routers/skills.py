@@ -329,10 +329,14 @@ async def disable_skill(
         shutil.rmtree(active_skill_dir)
 
         # Hot reload config (async, non-blocking)
+        # IMPORTANT: Get manager and agent_id before creating background task
+        # to avoid accessing request/workspace after their lifecycle ends
+        manager = request.app.state.multi_agent_manager
+        agent_id = workspace.agent_id
+
         async def reload_in_background():
             try:
-                manager = request.app.state.multi_agent_manager
-                await manager.reload_agent(workspace.agent_id)
+                await manager.reload_agent(agent_id)
             except Exception as e:
                 logger.warning(f"Background reload failed: {e}")
 
@@ -397,12 +401,16 @@ async def enable_skill(
     shutil.copytree(source_dir, active_skill_dir)
 
     # Hot reload config (async, non-blocking)
+    # IMPORTANT: Get manager and agent_id before creating background task
+    # to avoid accessing request/workspace after their lifecycle ends
     import asyncio
+
+    manager = request.app.state.multi_agent_manager
+    agent_id = workspace.agent_id
 
     async def reload_in_background():
         try:
-            manager = request.app.state.multi_agent_manager
-            await manager.reload_agent(workspace.agent_id)
+            await manager.reload_agent(agent_id)
         except Exception as e:
             logger.warning(f"Background reload failed: {e}")
 
