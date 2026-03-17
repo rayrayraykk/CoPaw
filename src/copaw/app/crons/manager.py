@@ -120,13 +120,37 @@ class CronManager:
             self._scheduler.resume_job(job_id)
 
     async def reschedule_heartbeat(self) -> None:
-        """Reload heartbeat config and update or remove the heartbeat job."""
+        """Reload heartbeat config and update or remove the heartbeat job.
+
+        If CronManager was never started but heartbeat is now enabled,
+        this will fully start the CronManager (including loading other jobs).
+        """
+        hb = get_heartbeat_config(self._agent_id)
+
+        # If scheduler not started yet but heartbeat is enabled, start it fully
+        if not self._started and getattr(hb, "enabled", False):
+            logger.info(
+                f"Starting CronManager for agent {self._agent_id} "
+                f"(heartbeat enabled via config update)",
+            )
+            # Use start() to properly initialize everything
+            await self.start()
+            return
+
+        # If still not started, nothing to do
         async with self._lock:
             if not self._started:
+                logger.debug(
+                    f"CronManager not started for agent {self._agent_id}, "
+                    f"heartbeat reschedule skipped",
+                )
                 return
-            hb = get_heartbeat_config(self._agent_id)
+
+            # Remove existing heartbeat job if present
             if self._scheduler.get_job(HEARTBEAT_JOB_ID):
                 self._scheduler.remove_job(HEARTBEAT_JOB_ID)
+
+            # Add heartbeat job if enabled
             if getattr(hb, "enabled", True):
                 interval_seconds = parse_heartbeat_every(hb.every)
                 self._scheduler.add_job(
