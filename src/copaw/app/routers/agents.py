@@ -21,6 +21,7 @@ from ...config.config import (
 from ...config.utils import load_config, save_config
 from ...agents.memory.agent_md_manager import AgentMdManager
 from ..multi_agent_manager import MultiAgentManager
+from ...constant import WORKING_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -163,7 +164,7 @@ async def create_agent(
 
     # Create workspace directory
     workspace_dir = Path(
-        request.workspace_dir or f"~/.copaw/workspaces/{new_id}",
+        request.workspace_dir or f"{WORKING_DIR}/workspaces/{new_id}",
     ).expanduser()
     workspace_dir.mkdir(parents=True, exist_ok=True)
 
