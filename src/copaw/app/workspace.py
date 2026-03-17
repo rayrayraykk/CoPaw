@@ -204,10 +204,23 @@ class Workspace:
 
                 temp_config = Config(channels=agent_config.channels)
 
+                # Create a closure to bind agent_id to update_last_dispatch
+                def on_last_dispatch_with_agent_id(
+                    channel: str,
+                    user_id: str,
+                    session_id: str,
+                ) -> None:
+                    update_last_dispatch(
+                        channel=channel,
+                        user_id=user_id,
+                        session_id=session_id,
+                        agent_id=self.agent_id,
+                    )
+
                 self._channel_manager = ChannelManager.from_config(
                     process=make_process_from_runner(self._runner),
                     config=temp_config,
-                    on_last_dispatch=update_last_dispatch,
+                    on_last_dispatch=on_last_dispatch_with_agent_id,
                     workspace_dir=self.workspace_dir,
                 )
                 await self._channel_manager.start_all()
@@ -224,6 +237,7 @@ class Workspace:
                 runner=self._runner,
                 channel_manager=self._channel_manager,
                 timezone="UTC",
+                agent_id=self.agent_id,
             )
             # Only start background tasks if heartbeat is enabled
             if agent_config.heartbeat and agent_config.heartbeat.enabled:

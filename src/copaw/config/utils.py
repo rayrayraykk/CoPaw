@@ -397,8 +397,27 @@ def save_config(config: Config, config_path: Optional[Path] = None) -> None:
         )
 
 
-def get_heartbeat_config() -> HeartbeatConfig:
-    """Return effective heartbeat config (from file or default 30m/main)."""
+def get_heartbeat_config(agent_id: Optional[str] = None) -> HeartbeatConfig:
+    """Return effective heartbeat config (from agent config or default).
+
+    Args:
+        agent_id: Agent ID to load config from. If None, tries to load from
+                  root config.agents.defaults (legacy behavior).
+
+    Returns:
+        HeartbeatConfig: Heartbeat configuration or default.
+    """
+    if agent_id is not None:
+        from .config import load_agent_config
+
+        try:
+            agent_config = load_agent_config(agent_id)
+            hb = agent_config.heartbeat
+            return hb if hb is not None else HeartbeatConfig()
+        except Exception:
+            return HeartbeatConfig()
+
+    # Legacy: try to load from root config
     config = load_config()
     if config.agents.defaults is None:
         return HeartbeatConfig()
@@ -406,8 +425,36 @@ def get_heartbeat_config() -> HeartbeatConfig:
     return hb if hb is not None else HeartbeatConfig()
 
 
-def update_last_dispatch(channel: str, user_id: str, session_id: str) -> None:
-    """Persist last user-reply dispatch target (user send+reply only)."""
+def update_last_dispatch(
+    channel: str,
+    user_id: str,
+    session_id: str,
+    agent_id: Optional[str] = None,
+) -> None:
+    """Persist last user-reply dispatch target (user send+reply only).
+
+    Args:
+        channel: Channel name
+        user_id: User ID
+        session_id: Session ID
+        agent_id: Agent ID to update. If None, updates root config (legacy).
+    """
+    from .config import load_agent_config, save_agent_config
+
+    if agent_id is not None:
+        try:
+            agent_config = load_agent_config(agent_id)
+            agent_config.last_dispatch = LastDispatchConfig(
+                channel=channel,
+                user_id=user_id,
+                session_id=session_id,
+            )
+            save_agent_config(agent_id, agent_config)
+            return
+        except Exception:
+            pass
+
+    # Legacy: update root config
     config = load_config()
     config.last_dispatch = LastDispatchConfig(
         channel=channel,

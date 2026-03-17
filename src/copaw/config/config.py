@@ -335,6 +335,10 @@ class AgentProfileConfig(BaseModel):
         default=None,
         description="Heartbeat configuration for this agent",
     )
+    last_dispatch: Optional["LastDispatchConfig"] = Field(
+        default=None,
+        description="Last dispatch target for this agent",
+    )
     running: AgentsRunningConfig = Field(
         default_factory=AgentsRunningConfig,
         description="Runtime configuration",
