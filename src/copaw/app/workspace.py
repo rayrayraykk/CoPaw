@@ -66,6 +66,7 @@ class Workspace:
         self._mcp_config_watcher = None
         self._task_tracker = TaskTracker()
         self._started = False
+        self._manager = None  # Reference to MultiAgentManager
 
         logger.debug(
             f"Created Workspace: {agent_id} at {self.workspace_dir}",
@@ -113,7 +114,18 @@ class Workspace:
             self._config = load_agent_config(self.agent_id)
         return self._config
 
-    async def start(self, reload=False):  # pylint: disable=too-many-statements
+    def set_manager(self, manager) -> None:
+        """Set reference to MultiAgentManager for /daemon restart.
+
+        Args:
+            manager: MultiAgentManager instance
+        """
+        self._manager = manager
+        # Pass to runner for /daemon restart command
+        if self._runner is not None:
+            self._runner._manager = manager  # pylint: disable=protected-access
+
+    async def start(self):  # pylint: disable=too-many-statements
         """Start workspace and initialize all components concurrently."""
         if self._started:
             logger.debug(f"Workspace already started: {self.agent_id}")
@@ -137,15 +149,10 @@ class Workspace:
             # IMPORTANT: Create MemoryManager BEFORE runner.start() to prevent
             # init_handler from creating a duplicate MemoryManager
             async def init_memory():
-                # IMPORTANT: Memory manager can hot reload when config changes
-                if reload:
-                    self._runner.memory_manager = self._memory_manager
-                    await self._memory_manager.start()
-                    return
                 try:
                     self._memory_manager = MemoryManager(
                         working_dir=str(self.workspace_dir),
-                        agent_config=agent_config,  # TODO: fix me @jinli
+                        agent_config=agent_config,
                     )
                     # Assign to runner BEFORE starting runner
                     self._runner.memory_manager = self._memory_manager
@@ -208,15 +215,6 @@ class Workspace:
 
             # Run Memory, MCP, and Chat initialization concurrently
             await asyncio.gather(init_memory(), init_mcp(), init_chat())
-
-            # Set up restart callback for /daemon restart command
-            from .workspace_restart import create_restart_callback
-
-            setattr(
-                self._runner,
-                "_restart_callback",
-                create_restart_callback(self),
-            )
 
             # 4. Start ChannelManager (depends on Runner)
             if agent_config.channels:
@@ -374,14 +372,6 @@ class Workspace:
 
         self._started = False
         logger.info(f"Workspace stopped: {self.agent_id}")
-
-    async def reload(self):
-        """Reload agent instance (stop and start with fresh configuration)."""
-        logger.info(f"Reloading agent instance: {self.agent_id}")
-        self._config = None  # Clear cached config
-        await self.stop()
-        await self.start(reload=True)
-        logger.info(f"Agent instance reloaded: {self.agent_id}")
 
     async def _start_config_watchers(self):
         """Start config watchers for hot-reload of agent.json changes."""

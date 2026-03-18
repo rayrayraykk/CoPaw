@@ -72,6 +72,7 @@ class MultiAgentManager:
 
             try:
                 await instance.start()
+                instance.set_manager(self)  # Set manager reference
                 self.agents[agent_id] = instance
                 logger.info(f"Workspace created and started: {agent_id}")
                 return instance
@@ -255,6 +256,7 @@ class MultiAgentManager:
 
         try:
             await new_instance.start()
+            new_instance.set_manager(self)  # Set manager reference
             logger.info(f"New workspace instance started: {agent_id}")
         except Exception as e:
             logger.exception(
