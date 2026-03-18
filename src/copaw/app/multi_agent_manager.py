@@ -123,7 +123,7 @@ class MultiAgentManager:
                             f"{agent_id}. Forcing stop after 5 minutes.",
                         )
 
-                    await old_instance.stop()
+                    await old_instance.stop(final=False)
                     logger.info(
                         f"Old workspace instance stopped: {agent_id}. "
                         f"Delayed cleanup completed.",
@@ -165,7 +165,7 @@ class MultiAgentManager:
                 f"Stopping immediately.",
             )
             try:
-                await old_instance.stop()
+                await old_instance.stop(final=False)
                 logger.info(
                     f"Old workspace instance stopped: {agent_id}. "
                     f"Zero-downtime reload completed.",

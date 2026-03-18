@@ -334,16 +334,23 @@ class Workspace:
             await self.stop()
             raise
 
-    async def stop(self):
-        """Stop agent instance and clean up all resources."""
+    async def stop(self, final: bool = True):
+        """Stop agent instance and clean up all resources.
+
+        Args:
+            final: If True (default), stop ALL services including reusable.
+                   If False, skip reusable services (for reload scenario).
+        """
         if not self._started:
             logger.debug(f"Workspace not started: {self.agent_id}")
             return
 
-        logger.info(f"Stopping agent instance: {self.agent_id}")
+        logger.info(
+            f"Stopping agent instance: {self.agent_id} (final={final})",
+        )
 
         # Stop all services via ServiceManager (handles reuse automatically)
-        await self._service_manager.stop_all()
+        await self._service_manager.stop_all(final=final)
 
         self._started = False
         logger.info(f"Workspace stopped: {self.agent_id}")
