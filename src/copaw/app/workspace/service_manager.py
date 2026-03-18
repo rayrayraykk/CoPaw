@@ -339,11 +339,19 @@ class ServiceManager:
         """
         name = descriptor.name
 
-        # Skip reused services
+        # Skip reusable services (may be transferred to new instance)
+        # or services that were reused from previous instance
+        if descriptor.reusable:
+            logger.debug(
+                f"Skipped stopping reusable service '{name}' "
+                f"for {self.workspace.agent_id}",
+            )
+            return
+
         if name in self.reused_services:
             logger.debug(
                 f"Skipped stopping reused service '{name}' "
-                f"for {self.workspace.agent_id}",
+                f"(from previous instance) for {self.workspace.agent_id}",
             )
             return
 
