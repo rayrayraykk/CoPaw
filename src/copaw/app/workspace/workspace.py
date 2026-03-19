@@ -276,11 +276,12 @@ class Workspace:
             ),
         )
 
-    def set_reusable_components(self, components: dict) -> None:
+    async def set_reusable_components(self, components: dict) -> None:
         """Set components to reuse from previous instance.
 
         Must be called BEFORE start(). Allows reusing components that support
-        hot-reload without recreating them.
+        hot-reload without recreating them. If a service has a reload_func,
+        it will be called during this process.
 
         Args:
             components: Dict mapping component name to instance.
@@ -290,7 +291,7 @@ class Workspace:
 
         Example:
             new_ws = Workspace("default", workspace_dir)
-            new_ws.set_reusable_components({
+            await new_ws.set_reusable_components({
                 'memory_manager': old_ws.memory_manager,
                 'chat_manager': old_ws.chat_manager,
             })
@@ -305,7 +306,7 @@ class Workspace:
 
         # Delegate to ServiceManager
         for name, component in components.items():
-            self._service_manager.set_reusable(name, component)
+            await self._service_manager.set_reusable(name, component)
 
     async def start(self):
         """Start workspace and initialize all components."""
