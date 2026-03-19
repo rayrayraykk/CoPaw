@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=too-many-statements,too-many-branches
+# pylint: disable=too-many-statements,too-many-branches,protected-access
 # pylint: disable=too-many-return-statements,unused-argument
 """Feishu (Lark) Channel.
 
@@ -1866,6 +1866,43 @@ class FeishuChannel(BaseChannel):
         except Exception:
             logger.exception("feishu WebSocket thread failed")
         finally:
+            # Graceful cleanup: disconnect, cancel tasks, close loop
+            if self._ws_loop and not self._ws_loop.is_closed():
+                try:
+                    # 1. Disconnect WebSocket
+                    if self._ws_client and hasattr(
+                        self._ws_client,
+                        "_disconnect",
+                    ):
+                        try:
+                            self._ws_loop.run_until_complete(
+                                self._ws_client._disconnect(),
+                            )
+                            logger.debug(
+                                "feishu WebSocket disconnected gracefully",
+                            )
+                        except Exception:
+                            logger.debug(
+                                "feishu ws disconnect failed",
+                                exc_info=True,
+                            )
+
+                    # 2. Cancel all running tasks
+                    pending = [
+                        t
+                        for t in asyncio.all_tasks(self._ws_loop)
+                        if not t.done()
+                    ]
+                    for task in pending:
+                        task.cancel()
+                    if pending:
+                        self._ws_loop.run_until_complete(
+                            asyncio.gather(*pending, return_exceptions=True),
+                        )
+                        logger.debug(f"feishu cancelled {len(pending)} tasks")
+                except Exception:
+                    logger.debug("feishu ws cleanup failed", exc_info=True)
+
             # Restore ws_client.loop to avoid affecting other instances.
             # ws_client.loop is a module-level global variable shared
             # across all FeishuChannel instances. We must restore it to
@@ -1880,6 +1917,8 @@ class FeishuChannel(BaseChannel):
                     ws_client.loop = old_ws_client_loop
             except Exception:
                 pass
+
+            # Close event loop
             try:
                 if self._ws_loop and not self._ws_loop.is_closed():
                     self._ws_loop.close()
@@ -1955,8 +1994,8 @@ class FeishuChannel(BaseChannel):
         self._closed = True
         self._stop_event.set()
 
-        # Stop the WebSocket event loop (lark_oapi.ws.Client has no stop
-        # method; stopping the loop will cause start() to exit).
+        # Stop the WebSocket event loop - cleanup happens in _run_ws_forever
+        # finally block (disconnect, cancel tasks, close loop)
         if self._ws_loop and not self._ws_loop.is_closed():
             try:
                 self._ws_loop.call_soon_threadsafe(self._ws_loop.stop)
