@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# pylint:disable=too-many-statements
 """
 Create a temporary conda env, install CoPaw from a wheel, run conda-pack.
 Used by build_macos.sh and build_win.ps1. Run from repo root.
@@ -137,8 +138,22 @@ def main() -> int:
             ],
         )
         # Try to install llama-cpp-python from prebuilt wheel first
+        # Use official prebuilt wheels from https://pypi.org/project/llama-cpp-python/
         print("Attempting to install llama-cpp-python from prebuilt wheel...")
         needs_llama_compile = False
+
+        # Determine the appropriate wheel index URL based on platform
+        import platform
+        system = platform.system().lower()
+        if system == "darwin":
+            # macOS: use Metal-enabled wheel (requires macOS 11.0+, Python 3.10-3.12)
+            wheel_index = "https://abetlen.github.io/llama-cpp-python/whl/metal"
+            print("Using Metal-enabled wheel for macOS")
+        else:
+            # Windows/Linux: use CPU wheel
+            wheel_index = "https://abetlen.github.io/llama-cpp-python/whl/cpu"
+            print(f"Using CPU wheel for {system}")
+
         try:
             _run(
                 [
@@ -151,6 +166,8 @@ def main() -> int:
                     "pip",
                     "install",
                     "--only-binary=llama-cpp-python",
+                    "--extra-index-url",
+                    wheel_index,
                     "llama-cpp-python>=0.3.0",
                 ],
             )
