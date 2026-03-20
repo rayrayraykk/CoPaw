@@ -137,15 +137,29 @@ def list_sessions_cmd(
 ) -> None:
     """List available sessions and users for sending messages.
 
+    IMPORTANT: Session ID determines conversation history.
+    - Same session_id = Continuous conversation with context
+    - Different session_id = Brand new conversation (no history)
+    - Use returned session_id with --session-id flag to continue chatting
+
     Returns:
-    - sessions: All chat sessions (own + inter-agent sessions)
+    - sessions: All chat sessions (with session_id for reuse)
     - unique_users: Aggregated user information with channels and counts
     - inter_agent_sessions: Sessions for communication with other agents
 
     \b
     Examples:
+      # Basic usage
       copaw message list-sessions --agent-id my_bot
+
+      # Find existing inter-agent sessions to continue conversation
+      copaw message list-sessions --agent-id my_bot | \\
+        jq '.inter_agent_sessions[] | select(.to_agent=="finance_expert")'
+
+      # Filter by channel
       copaw message list-sessions --agent-id my_bot --channel dingtalk
+
+      # Filter by user and limit results
       copaw message list-sessions --agent-id my_bot --user-id alice --limit 10
 
     \b
@@ -170,6 +184,17 @@ def list_sessions_cmd(
           }
         ]
       }
+
+    \b
+    Session ID Usage:
+      To continue an existing conversation, copy the session_id from output
+      and use it with ask-agent:
+
+        SESSION_ID=$(copaw message list-sessions --agent-id bot_a | \\
+          jq -r '.inter_agent_sessions[0].session_id')
+
+        copaw message ask-agent --from-agent bot_a --to-agent bot_b \\
+          --session-id "$SESSION_ID" --text "Continue our discussion..."
     """
     base_url = _base_url(ctx, base_url)
 
@@ -293,12 +318,12 @@ def list_sessions_cmd(
 @click.option(
     "--target-user",
     required=True,
-    help="Target user ID in the channel",
+    help=("Target user ID (REQUIRED, get from 'list-sessions' query)"),
 )
 @click.option(
     "--target-session",
     required=True,
-    help="Target session ID in the channel",
+    help=("Target session ID (REQUIRED, get from 'list-sessions' query)"),
 )
 @click.option(
     "--text",
@@ -325,29 +350,40 @@ def send_cmd(
     This command allows an agent to proactively send messages to users
     via configured channels (console, dingtalk, feishu, etc.).
 
-    \b
-    Examples:
-      # Send to console channel
-      copaw message send \\
-        --agent-id my_bot \\
-        --channel console \\
-        --target-user alice \\
-        --target-session alice_session_001 \\
-        --text "Hello from my_bot!"
+    IMPORTANT: All 5 parameters are REQUIRED. You MUST query first to get
+    valid target-user and target-session values.
 
-      # Send to dingtalk
-      copaw message send \\
-        --agent-id sales_bot \\
-        --channel dingtalk \\
-        --target-user dt_user_123 \\
-        --target-session dt_session_456 \\
-        --text "Your order has been confirmed."
+    \b
+    Complete Usage Flow:
+      Step 1 - Query available sessions (REQUIRED):
+        copaw message list-sessions --agent-id my_bot --channel console
+
+      Step 2 - Extract parameters from query output:
+        user_id: "alice"
+        session_id: "alice_session_001"
+
+      Step 3 - Send message using queried parameters:
+        copaw message send --agent-id my_bot --channel console \\
+          --target-user alice --target-session alice_session_001 \\
+          --text "Hello!"
+
+    \b
+    Examples with jq automation:
+      # Query and auto-extract parameters
+      SESSIONS=$(copaw message list-sessions --agent-id bot --channel console)
+      USER=$(echo "$SESSIONS" | jq -r '.sessions[0].user_id')
+      SESSION=$(echo "$SESSIONS" | jq -r '.sessions[0].session_id')
+
+      # Send message
+      copaw message send --agent-id bot --channel console \\
+        --target-user "$USER" --target-session "$SESSION" \\
+        --text "Automated notification"
 
     \b
     Prerequisites:
-      1. Use 'copaw message list-sessions' to find available sessions
+      1. MUST use 'list-sessions' to get valid target-user and target-session
       2. Ensure the channel is properly configured
-      3. Verify target user and session exist
+      3. All 5 parameters are required (no defaults)
 
     \b
     Returns:
@@ -465,6 +501,9 @@ def _handle_final_mode(
         return
 
     if json_output:
+        # Include session_id in JSON output for easy reuse
+        if "session_id" not in response_data:
+            response_data["session_id"] = request_payload.get("session_id")
         print_json(response_data)
     else:
         _extract_and_print_text(response_data)
@@ -645,6 +684,9 @@ def ask_agent_cmd(
         session_id,
         new_session,
     )
+
+    # Always output session_id so it can be reused
+    click.echo(f"INFO: Using session_id: {final_session_id}", err=True)
 
     request_payload = {
         "session_id": final_session_id,
