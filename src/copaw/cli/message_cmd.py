@@ -58,7 +58,7 @@ def message_group() -> None:
     """
 
 
-# ===== 查询命令 =====
+# ===== Query Commands =====
 
 
 @message_group.command("list-agents")
@@ -273,7 +273,7 @@ def list_sessions_cmd(
         print_json(result)
 
 
-# ===== 发送命令 =====
+# ===== Sending Commands =====
 
 
 @message_group.command("send")
