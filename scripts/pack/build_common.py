@@ -13,6 +13,7 @@ import random
 import string
 import subprocess
 import sys
+import platform
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -143,7 +144,6 @@ def main() -> int:
         needs_llama_compile = False
 
         # Determine the appropriate wheel index URL based on platform
-        import platform
         system = platform.system().lower()
         if system == "darwin":
             # macOS: use Metal-enabled wheel (requires macOS 11.0+, Python 3.10-3.12)
