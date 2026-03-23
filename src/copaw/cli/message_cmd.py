@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from typing import Optional, Dict, List, Any
 from uuid import uuid4
@@ -424,6 +425,30 @@ def _resolve_session_id(
     return session_id
 
 
+def _ensure_agent_identity_prefix(text: str, from_agent: str) -> str:
+    """Ensure text has agent identity prefix to prevent confusion.
+
+    Automatically adds [Agent {from_agent} requesting] prefix if missing.
+    Detects existing prefixes: [Agent xxx] or [来自智能体 xxx].
+
+    Args:
+        text: Original message text
+        from_agent: Source agent ID
+
+    Returns:
+        Text with identity prefix (added if missing)
+    """
+    patterns = [
+        r"^\[Agent\s+\w+",
+        r"^\[来自智能体\s+\w+",
+    ]
+    for pattern in patterns:
+        if re.match(pattern, text.strip()):
+            return text
+
+    return f"[Agent {from_agent} requesting] {text}"
+
+
 def _handle_stream_mode(
     c: Any,
     request_payload: Dict[str, Any],
@@ -506,7 +531,11 @@ def _handle_final_mode(
             response_data["session_id"] = request_payload.get("session_id")
         print_json(response_data)
     else:
-        _extract_and_print_text(response_data)
+        # Print text with metadata header containing session_id
+        _extract_and_print_text(
+            response_data,
+            session_id=request_payload.get("session_id"),
+        )
 
     if channel and target_user and target_session and not json_output:
         text_content = _extract_text_content(response_data)
@@ -622,42 +651,39 @@ def ask_agent_cmd(
     to avoid concurrency issues.
 
     \b
+    Output Format (text mode):
+      [SESSION: bot_a:to:bot_b:1773998835:abc123]
+
+      Response content here...
+
+    \b
     Session Management:
-      - Default: Auto-generates unique session ID (concurrency-safe)
-      - Format: {from}:to:{to}:{timestamp_ms}:{uuid_short}
-      - Use --session-id to explicitly reuse context (handle concurrency)
-      - Use --new-session to force new session even with --session-id
+      - Default: Auto-generates unique session ID (new conversation)
+      - To continue: See session_id in output first line
+      - Pass with --session-id on next call to reuse context
+      - Without --session-id: Always creates new conversation
+
+    \b
+    Identity Prefix:
+      - System auto-adds [Agent {from_agent} requesting] if missing
+      - Prevents target agent from confusing message source
 
     \b
     Examples:
-      # Simple ask with auto-generated session (recommended)
+      # Simple ask (new conversation each time)
       copaw message ask-agent \\
         --from-agent bot_a \\
         --to-agent bot_b \\
         --text "What is the weather today?"
+      # Output: [SESSION: xxx]\\nThe weather is...
 
-      # Reuse session for context-aware conversation
+      # Continue conversation (use session_id from previous output)
       copaw message ask-agent \\
         --from-agent bot_a \\
         --to-agent bot_b \\
-        --session-id "bot_a:to:bot_b:conv001" \\
+        --session-id "bot_a:to:bot_b:1773998835:abc123" \\
         --text "What about tomorrow?"
-
-      # Ask and forward response to channel
-      copaw message ask-agent \\
-        --from-agent monitor \\
-        --to-agent analyst \\
-        --text "Analyze recent errors" \\
-        --channel dingtalk \\
-        --target-user manager_001 \\
-        --target-session alert_session
-
-      # Stream mode for real-time updates
-      copaw message ask-agent \\
-        --from-agent ui \\
-        --to-agent research \\
-        --text "Explain quantum computing" \\
-        --mode stream
+      # Output: [SESSION: xxx] (same!)\\nTomorrow will be...
 
     \b
     Prerequisites:
@@ -667,7 +693,7 @@ def ask_agent_cmd(
 
     \b
     Returns:
-      - Default: Plain text response content
+      - Default: Text with [META] block containing session_id
       - With --json-output: Full JSON with metadata and content
       - With --mode stream: Incremental updates (SSE)
     """
@@ -688,12 +714,21 @@ def ask_agent_cmd(
     # Always output session_id so it can be reused
     click.echo(f"INFO: Using session_id: {final_session_id}", err=True)
 
+    # Auto-add agent identity prefix if missing to prevent confusion
+    final_text = _ensure_agent_identity_prefix(text, from_agent)
+    if final_text != text:
+        click.echo(
+            f"INFO: Auto-added identity prefix: [Agent {from_agent} "
+            "requesting]",
+            err=True,
+        )
+
     request_payload = {
         "session_id": final_session_id,
         "input": [
             {
                 "role": "user",
-                "content": [{"type": "text", "text": text}],
+                "content": [{"type": "text", "text": final_text}],
             },
         ],
     }
@@ -746,8 +781,22 @@ def _extract_text_content(response_data: Dict[str, Any]) -> str:
         return ""
 
 
-def _extract_and_print_text(response_data: Dict[str, Any]) -> None:
-    """Extract and print only text content from response."""
+def _extract_and_print_text(
+    response_data: Dict[str, Any],
+    session_id: Optional[str] = None,
+) -> None:
+    """Extract and print text content with metadata header.
+
+    Args:
+        response_data: Response data from agent
+        session_id: Session ID to include in metadata (for reuse)
+    """
+    # Print metadata header with session_id
+    if session_id:
+        click.echo(f"[SESSION: {session_id}]")
+        click.echo()
+
+    # Print response content
     text = _extract_text_content(response_data)
     if text:
         click.echo(text)
