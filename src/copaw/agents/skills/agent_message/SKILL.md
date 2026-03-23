@@ -35,17 +35,19 @@ metadata: { "builtin_skill_version": "1.0", "copaw": { "emoji": "💬" } }
 # 当前agent: agent_a，收到来自 agent_b 的消息
 # Current agent: agent_a, received message from agent_b
 
+# ❌ 不能调用消息来源agent！
 copaw message ask-agent \
   --from-agent agent_a \
-  --to-agent agent_b \  # ❌ 不能调用消息来源agent！
-  --text "..."
+  --to-agent agent_b \
+  --text "[来自智能体 agent_a] ..."
 
 # ✅ 正确：调用不同的agent，或不调用
 # Correct: Call a different agent, or don't call at all
+# ✅ 调用第三方agent
 copaw message ask-agent \
   --from-agent agent_a \
-  --to-agent agent_c \  # ✅ 调用第三方agent
-  --text "..."
+  --to-agent agent_c \
+  --text "[来自智能体 agent_a] ..."
 ```
 
 **规则 | Rules**：
@@ -371,14 +373,25 @@ copaw message send \
 # 你是 agent_a，收到来自 agent_b 的消息
 
 # ❌ 禁止：回调来源agent
-copaw message ask-agent --from-agent agent_a --to-agent agent_b
+copaw message ask-agent \
+  --from-agent agent_a \
+  --to-agent agent_b \
+  --text "[来自智能体 agent_a] ..."
 → 会造成 A→B→A→B... 死循环
 
 # ✅ 允许：调用第三方agent
-copaw message ask-agent --from-agent agent_a --to-agent agent_c
+copaw message ask-agent \
+  --from-agent agent_a \
+  --to-agent agent_c \
+  --text "[来自智能体 agent_a] ..."
 
 # ✅ 允许：通过channel发送给用户
-copaw message send --agent-id agent_a --channel console --target-user ...
+copaw message send \
+  --agent-id agent_a \
+  --channel console \
+  --target-user ... \
+  --target-session ... \
+  --text "..."
 ```
 
 **检查清单**：
@@ -1045,14 +1058,25 @@ Send messages to other agents and receive responses.
 # You are agent_a, received message from agent_b
 
 # ❌ Forbidden: Call back source agent
-copaw message ask-agent --from-agent agent_a --to-agent agent_b
+copaw message ask-agent \
+  --from-agent agent_a \
+  --to-agent agent_b \
+  --text "[Agent agent_a requesting] ..."
 → Creates A→B→A→B... infinite loop
 
 # ✅ Allowed: Call third-party agent
-copaw message ask-agent --from-agent agent_a --to-agent agent_c
+copaw message ask-agent \
+  --from-agent agent_a \
+  --to-agent agent_c \
+  --text "[Agent agent_a requesting] ..."
 
 # ✅ Allowed: Send to user via channel
-copaw message send --agent-id agent_a --channel console --target-user ...
+copaw message send \
+  --agent-id agent_a \
+  --channel console \
+  --target-user ... \
+  --target-session ... \
+  --text "..."
 ```
 
 **Checklist** before calling `ask-agent`:
@@ -1272,7 +1296,7 @@ copaw message ask-agent \
 copaw message ask-agent \
   --from-agent bot_a \
   --to-agent bot_b \
-  --text "test" \
+  --text "[Agent bot_a requesting] Test message" \
   --json-output
 ```
 
@@ -1413,7 +1437,7 @@ copaw message send --agent-id agent_a --channel console --target-user ...
 | `copaw message list-agents` | List all agents (same as above) | `copaw message list-agents` |
 | `copaw message list-sessions` | Query sessions and users | `copaw message list-sessions --agent-id bot` |
 | `copaw message send` | Send message to channel | `copaw message send --agent-id bot ...` |
-| `copaw message ask-agent` | Inter-agent communication | `copaw message ask-agent --from-agent a --to-agent b ...` |
+| `copaw message ask-agent` | Inter-agent communication | `copaw message ask-agent --from-agent a --to-agent b --text "[Agent a requesting] ..."` |
 
 ---
 

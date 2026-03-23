@@ -6,7 +6,7 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Header, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +15,8 @@ router = APIRouter(prefix="/messages", tags=["messages"])
 
 class SendMessageRequest(BaseModel):
     """Request model for sending a message to a channel."""
+
+    model_config = ConfigDict(populate_by_name=True)
 
     channel: str = Field(
         ...,
@@ -25,22 +27,15 @@ class SendMessageRequest(BaseModel):
     target_user: str = Field(
         ...,
         description="Target user ID in the channel",
-        alias="target_user",
     )
     target_session: str = Field(
         ...,
         description="Target session ID in the channel",
-        alias="target_session",
     )
     text: str = Field(
         ...,
         description="Text message to send",
     )
-
-    class Config:
-        """Pydantic config."""
-
-        populate_by_name = True
 
 
 class SendMessageResponse(BaseModel):
