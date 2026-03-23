@@ -289,7 +289,7 @@ def list_sessions_cmd(
 
         result = {
             "agent_id": agent_id,
-            "total_sessions": len(sessions),
+            "total_sessions": len(chats),
             "sessions": sessions,
             "unique_users": unique_users,
             "inter_agent_sessions": inter_agent_sessions,
