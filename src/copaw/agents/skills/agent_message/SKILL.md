@@ -26,6 +26,41 @@ metadata: { "builtin_skill_version": "1.0", "copaw": { "emoji": "💬" } }
 
 ---
 
+**⛔ 禁止循环调用！防止Agent死循环**  
+**⛔ No Circular Calls! Prevent Agent Infinite Loops**
+
+```bash
+# ❌ 危险：Agent A 收到来自 Agent B 的消息，又回调 Agent B
+# Dangerous: Agent A receives from Agent B, then calls back Agent B
+# 当前agent: agent_a，收到来自 agent_b 的消息
+# Current agent: agent_a, received message from agent_b
+
+copaw message ask-agent \
+  --from-agent agent_a \
+  --to-agent agent_b \  # ❌ 不能调用消息来源agent！
+  --text "..."
+
+# ✅ 正确：调用不同的agent，或不调用
+# Correct: Call a different agent, or don't call at all
+copaw message ask-agent \
+  --from-agent agent_a \
+  --to-agent agent_c \  # ✅ 调用第三方agent
+  --text "..."
+```
+
+**规则 | Rules**：
+- 如果消息来自 Agent X，**不要**再调用 Agent X
+- If message is from Agent X, **DO NOT** call Agent X back
+- 检查消息来源（从消息文本中提取 `[来自智能体 xxx]` 或 `[Agent xxx]`）
+- Check message source (extract from message text: `[来自智能体 xxx]` or `[Agent xxx]`)
+- 避免 A→B→A 或 A→B→C→A 的循环调用链
+- Avoid circular chains like A→B→A or A→B→C→A
+
+**为什么？** 防止agent间无限循环调用，导致资源耗尽  
+**Why?** Prevent infinite loops between agents that exhaust resources
+
+---
+
 ## 📋 使用前必读 | Must Read Before Use
 
 ### ❌ 常见错误 | Common Mistakes
@@ -323,6 +358,33 @@ copaw message send \
 ## 三、智能体间通信（ask-agent）
 
 向其他agent发送消息并获取响应，实现agent协作。
+
+### ⛔ 3.0 循环调用检测（必读！）
+
+**在调用其他agent前，务必检查是否会造成循环调用！**
+
+#### 核心规则
+
+**检查上下文中的消息来源**，确保 `--to-agent` 不等于来源agent
+
+```bash
+# 你是 agent_a，收到来自 agent_b 的消息
+
+# ❌ 禁止：回调来源agent
+copaw message ask-agent --from-agent agent_a --to-agent agent_b
+→ 会造成 A→B→A→B... 死循环
+
+# ✅ 允许：调用第三方agent
+copaw message ask-agent --from-agent agent_a --to-agent agent_c
+
+# ✅ 允许：通过channel发送给用户
+copaw message send --agent-id agent_a --channel console --target-user ...
+```
+
+**检查清单**：
+- [ ] 已识别当前消息来源agent（从上下文获取）
+- [ ] `--to-agent` 不等于消息来源agent
+- [ ] 如无需调用其他agent，直接响应或通过channel发送
 
 ### 3.1 基础用法（推荐）
 
@@ -703,12 +765,41 @@ fi
 3. ✅ `copaw channels list` - 确认channel已配置
 4. ✅ 验证自己的agent_id（系统提示中查找）
 5. ✅ **在消息中标明身份** - 使用 `[来自智能体 <your_id>]` 前缀
+6. ✅ **检查循环调用** - 确保 `--to-agent` 不是消息来源agent
 
 ### 5.5 日志和调试
 
 - 使用 `--json-output` 查看完整响应结构
 - 检查 `~/.copaw/logs/` 中的日志文件
 - 用 `copaw app` 的日志输出排查问题
+
+### ⛔ 5.6 循环调用防止（重要！）
+
+**永远不要回调发送消息给你的agent！**
+
+#### 核心规则
+
+**检查上下文中的消息来源**，确保 `--to-agent` 不等于来源agent
+
+```
+示例：你是 agent_a，收到来自 agent_b 的消息
+
+❌ 禁止：
+copaw message ask-agent --from-agent agent_a --to-agent agent_b
+→ 会造成 A→B→A→B... 无限循环
+
+✅ 允许：
+copaw message ask-agent --from-agent agent_a --to-agent agent_c
+→ 调用第三方，不会循环
+
+✅ 允许：
+copaw message send --agent-id agent_a --channel console --target-user ...
+→ 直接回复用户，不经过 agent_b
+```
+
+**关键要点**：
+- 上下文中已包含消息来源信息，检查后确保不回调它
+- 替代方案：调用其他agent或通过channel发送结果
 
 ---
 
@@ -941,6 +1032,33 @@ copaw message send \
 ## III. Inter-Agent Communication (ask-agent)
 
 Send messages to other agents and receive responses.
+
+### ⛔ 3.0 Circular Call Prevention (Must Read!)
+
+**Always check for circular calls before calling other agents!**
+
+#### Core Rule
+
+**Check message source in your context**, ensure `--to-agent` does NOT equal source agent
+
+```bash
+# You are agent_a, received message from agent_b
+
+# ❌ Forbidden: Call back source agent
+copaw message ask-agent --from-agent agent_a --to-agent agent_b
+→ Creates A→B→A→B... infinite loop
+
+# ✅ Allowed: Call third-party agent
+copaw message ask-agent --from-agent agent_a --to-agent agent_c
+
+# ✅ Allowed: Send to user via channel
+copaw message send --agent-id agent_a --channel console --target-user ...
+```
+
+**Checklist** before calling `ask-agent`:
+- [ ] Identified message source agent (from context)
+- [ ] `--to-agent` does NOT equal source agent
+- [ ] If no need to call others, respond directly or send via channel
 
 ### 3.1 Basic Usage (Recommended)
 
@@ -1255,6 +1373,35 @@ copaw message send --agent-id bot --channel console \
 3. ✅ `copaw channels list` - Verify channel is configured
 4. ✅ Get your agent_id from system prompt (Agent Identity section)
 5. ✅ **Identify yourself in message** - Use `[Agent <your_id> requesting]` prefix
+6. ✅ **Check for circular calls** - Ensure `--to-agent` is NOT the source agent
+
+### ⛔ 5.4 Circular Call Prevention (Critical!)
+
+**Never call back the agent that sent you the message!**
+
+#### Core Rule
+
+**Check message source in your context**, ensure `--to-agent` does NOT equal source agent
+
+```
+Example: You are agent_a, received message from agent_b
+
+❌ Forbidden:
+copaw message ask-agent --from-agent agent_a --to-agent agent_b
+→ Results in A→B→A→B... infinite loop
+
+✅ Allowed:
+copaw message ask-agent --from-agent agent_a --to-agent agent_c
+→ Call third-party, no loop
+
+✅ Allowed:
+copaw message send --agent-id agent_a --channel console --target-user ...
+→ Reply to user directly, not through agent_b
+```
+
+**Key Points**:
+- Message source info is in your context, verify before calling
+- Alternative: call different agent or send result via channel
 
 ---
 
@@ -1293,3 +1440,9 @@ copaw message send --agent-id bot --channel console \
 5. **错误排查 | Troubleshooting**：
    - 中文：检查 `~/.copaw/logs/` 日志文件
    - English: Check `~/.copaw/logs/` for log files
+
+6. **⛔ 循环调用防止 | Circular Call Prevention**：
+   - 中文：**禁止**调用消息来源agent（从消息中提取来源，确保 `--to-agent` 不等于来源）
+   - English: **Never** call back the source agent (extract source from message, ensure `--to-agent` ≠ source)
+   - **原因 | Reason**: 防止 A→B→A 无限循环，导致资源耗尽
+   - **Why**: Prevents A→B→A infinite loops that exhaust resources
