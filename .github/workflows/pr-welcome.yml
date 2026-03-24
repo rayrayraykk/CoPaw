@@ -145,7 +145,7 @@ jobs:
               }
 
               if (!usedTemplate) {
-                comment += `### 📋 关于 Pull Request 模版 / About PR Template\n\n`;
+                comment += `### 📋 关于 Pull Request 模板 / About PR Template\n\n`;
                 comment += `为了帮助维护者更快地审查你的 PR，请确保包含以下信息：\n`;
                 comment += `To help maintainers review your PR faster, please make sure to include:\n\n`;
                 comment += `- ✅ **描述 / Description** - 说明这个 PR 做了什么以及为什么 / What this PR does and why\n`;
@@ -168,7 +168,7 @@ jobs:
                 comment += `Complete PR information helps speed up the review process. You can edit the PR description to add these details.\n\n`;
               } else if (usedTemplate && !hasTesting) {
                 comment += `### 💡 小提示 / Quick Tip\n\n`;
-                comment += `看起来你使用了 PR 模版，太棒了！别忘了填写 **Testing** 部分，说明如何测试你的变更。\n`;
+                comment += `看起来你使用了 PR 模板，太棒了！别忘了填写 **Testing** 部分，说明如何测试你的变更。\n`;
                 comment += `Great job using the PR template! Don't forget to fill in the **Testing** section with how to test your changes.\n\n`;
               }
 

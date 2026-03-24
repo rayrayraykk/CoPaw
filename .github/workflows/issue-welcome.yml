@@ -79,18 +79,15 @@ jobs:
             }
 
             // Check if this is a bug report by title or label
-            const titleContainsBug = /bug/i.test(issueTitle);
+            const titleContainsBug = /\bbug\b/i.test(issueTitle) || /^\s*\[bug\]\s*:/i.test(issueTitle);
             const labels = context.payload.issue.labels.map(label => label.name);
-            const hasBugLabel = labels.includes('bug');
+            const hasBugLabel = labels.some(name => name && name.toLowerCase() === 'bug');
             const isBugRelated = titleContainsBug || hasBugLabel;
 
             // Check if issue uses bug report template
             const usedBugTemplate = issueBody.includes('## CoPaw Version') ||
                                     issueBody.includes('## Environment') ||
                                     issueBody.includes('## Steps to Reproduce');
-
-            const hasRequiredInfo = issueBody.includes('## Description') &&
-                                     issueBody.length > 100;
 
             // If bug-related but template not used, need to remind
             const needBugTemplateReminder = isBugRelated && !usedBugTemplate;
@@ -124,8 +121,8 @@ jobs:
               }
 
               if (needBugTemplateReminder) {
-                comment += `### 📋 关于 Bug Report 模版 / About Bug Report Template\n\n`;
-                comment += `我们注意到你的 issue 似乎与 bug 相关，但没有使用 Bug Report 模版。为了帮助我们更快地定位和修复问题，请确保你的 bug report 包含以下信息：\n`;
+                comment += `### 📋 关于 Bug Report 模板 / About Bug Report Template\n\n`;
+                comment += `我们注意到你的 issue 似乎与 bug 相关，但没有使用 Bug Report 模板。为了帮助我们更快地定位和修复问题，请确保你的 bug report 包含以下信息：\n`;
                 comment += `We noticed your issue seems to be bug-related, but doesn't use the Bug Report template. To help us reproduce and fix the issue faster, please make sure your bug report includes:\n\n`;
                 comment += `- ✅ **CoPaw 版本 / Version** (使用 \`copaw --version\` 查看)\n`;
                 comment += `- ✅ **操作系统 / OS** (macOS/Linux/Windows 及版本)\n`;
