@@ -28,13 +28,13 @@ jobs:
           pip install -q -e ".[dev]"
 
       - name: Install pre-commit hooks
-        timeout-minutes: 15
+        timeout-minutes: 3
         run: |
           echo "Installing all pre-commit hook environments..."
           pre-commit install-hooks
 
       - name: Run pre-commit checks
-        timeout-minutes: 20
+        timeout-minutes: 3
         run: |
           echo "Running pre-commit on all files..."
           if ! pre-commit run --all-files --show-diff-on-failure; then
