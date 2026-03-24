@@ -50,32 +50,41 @@ jobs:
               hasValidIssueCount = false;
             }
 
-            // Check if user has starred the repo
+            // Check if user has starred the repo by listing user's starred
+            // repos
             let hasStarred = false;
             try {
-              await github.rest.activity.checkRepoIsStarredByAuthenticatedUser({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-              });
-              hasStarred = true;
-            } catch (error) {
-              if (error.status === 404) {
-                hasStarred = false;
-              }
-            }
+              const fullRepoName = `${context.repo.owner}/${context.repo.repo}`;
+              let page = 1;
+              let found = false;
 
-            // Alternative: check via user's starred repos
-            if (!hasStarred) {
-              try {
-                const { data: stargazers } = await github.rest.activity.listStargazersForRepo({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  per_page: 100
+              while (page <= 10 && !found) {
+                const { data: starredRepos } = await github.rest.activity.listReposStarredByUser({
+                  username: author,
+                  per_page: 100,
+                  page: page
                 });
-                hasStarred = stargazers.some(s => s.login === author);
-              } catch (e) {
-                console.log('Could not verify star status');
+
+                if (starredRepos.length === 0) break;
+
+                found = starredRepos.some(repo => repo.full_name === fullRepoName);
+                if (found) {
+                  hasStarred = true;
+                  console.log(`User ${author} has starred the repo`);
+                  break;
+                }
+
+                page++;
               }
+
+              if (!found) {
+                console.log(`User ${author} has not starred the repo`);
+              }
+            } catch (error) {
+              console.log(
+                `Could not verify star status for ${author}:`,
+                error.message
+              );
             }
 
             // Check if this is a bug report by title or label

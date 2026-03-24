@@ -74,35 +74,41 @@ jobs:
               }
             }
 
-            // Check if user has starred the repo
+            // Check if user has starred the repo by listing user's starred
+            // repos
             let hasStarred = false;
             try {
-              const { data: stargazers } = await github.rest.activity.listStargazersForRepo({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                per_page: 100
-              });
-              hasStarred = stargazers.some(s => s.login === author);
+              const fullRepoName = `${context.repo.owner}/${context.repo.repo}`;
+              let page = 1;
+              let found = false;
 
-              // Check additional pages if needed
-              if (!hasStarred && stargazers.length === 100) {
-                let page = 2;
-                let found = false;
-                while (page <= 5 && !found) {
-                  const { data: moreStars } = await github.rest.activity.listStargazersForRepo({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    per_page: 100,
-                    page: page
-                  });
-                  if (moreStars.length === 0) break;
-                  found = moreStars.some(s => s.login === author);
-                  if (found) hasStarred = true;
-                  page++;
+              while (page <= 10 && !found) {
+                const { data: starredRepos } = await github.rest.activity.listReposStarredByUser({
+                  username: author,
+                  per_page: 100,
+                  page: page
+                });
+
+                if (starredRepos.length === 0) break;
+
+                found = starredRepos.some(repo => repo.full_name === fullRepoName);
+                if (found) {
+                  hasStarred = true;
+                  console.log(`User ${author} has starred the repo`);
+                  break;
                 }
+
+                page++;
               }
-            } catch (e) {
-              console.log('Could not verify star status:', e.message);
+
+              if (!found) {
+                console.log(`User ${author} has not starred the repo`);
+              }
+            } catch (error) {
+              console.log(
+                `Could not verify star status for ${author}:`,
+                error.message
+              );
             }
 
             // Check if PR uses template properly
