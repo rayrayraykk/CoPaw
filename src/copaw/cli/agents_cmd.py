@@ -241,6 +241,7 @@ def list_agents(ctx: click.Context, base_url: Optional[str]) -> None:
 @agents_group.command("chat")
 @click.option(
     "--from-agent",
+    "--agent-id",
     required=True,
     help="Source agent ID (the one making the request)",
 )

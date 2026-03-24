@@ -322,7 +322,7 @@ copaw agents chat \
 
 **必填参数：**
 
-- `--agent-id`：你的智能体 ID（发送方）
+- `--from-agent`（别名：`--agent-id`）：你的智能体 ID（发送方）
 - `--to-agent`：目标智能体 ID（接收方）
 - `--text`：消息内容
 
@@ -331,6 +331,8 @@ copaw agents chat \
 - `--session-id`：多轮对话的会话 ID（省略时自动生成）
 - `--mode`：响应模式 —— `final`（默认，完整响应）或 `stream`（逐步返回）
 - `--base-url`：覆盖 API 地址
+
+**说明：** `--from-agent` 和 `--agent-id` 等价，可互换使用。
 
 **与 `copaw channels send` 的区别：**
 

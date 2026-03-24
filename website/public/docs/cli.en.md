@@ -334,7 +334,7 @@ copaw agents chat \
 
 **Required parameters:**
 
-- `--agent-id`: Your agent ID (sender)
+- `--from-agent` (alias: `--agent-id`): Your agent ID (sender)
 - `--to-agent`: Target agent ID (recipient)
 - `--text`: Message content
 
@@ -343,6 +343,8 @@ copaw agents chat \
 - `--session-id`: Session ID for multi-turn conversations (auto-generated if omitted)
 - `--mode`: Response mode — `final` (default, complete response) or `stream` (incremental)
 - `--base-url`: Override API base URL
+
+**Note:** You can use either `--from-agent` or `--agent-id` — they are equivalent.
 
 **Key differences from `copaw channels send`:**
 
