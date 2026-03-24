@@ -77,32 +77,28 @@ jobs:
             // Check if user has starred the repo
             let hasStarred = false;
             try {
-              const { data: stargazers } = await github.rest.activity.listStargazersForRepo({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                per_page: 100
-              });
-              hasStarred = stargazers.some(s => s.login === author);
-
-              // Check additional pages if needed
-              if (!hasStarred && stargazers.length === 100) {
-                let page = 2;
-                let found = false;
-                while (page <= 5 && !found) {
-                  const { data: moreStars } = await github.rest.activity.listStargazersForRepo({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    per_page: 100,
-                    page: page
-                  });
-                  if (moreStars.length === 0) break;
-                  found = moreStars.some(s => s.login === author);
-                  if (found) hasStarred = true;
-                  page++;
+              // Use the user starred check API to verify if specific user
+              // starred the repo
+              await github.request(
+                'GET /users/{username}/starred/{owner}/{repo}',
+                {
+                  username: author,
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
                 }
+              );
+              hasStarred = true;
+              console.log(`User ${author} has starred the repo`);
+            } catch (error) {
+              if (error.status === 404) {
+                hasStarred = false;
+                console.log(`User ${author} has not starred the repo`);
+              } else {
+                console.log(
+                  `Could not verify star status for ${author}:`,
+                  error.message
+                );
               }
-            } catch (e) {
-              console.log('Could not verify star status:', e.message);
             }
 
             // Check if PR uses template properly

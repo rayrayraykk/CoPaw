@@ -53,28 +53,27 @@ jobs:
             // Check if user has starred the repo
             let hasStarred = false;
             try {
-              await github.rest.activity.checkRepoIsStarredByAuthenticatedUser({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-              });
+              // Use the user starred check API to verify if specific user
+              // starred the repo
+              await github.request(
+                'GET /users/{username}/starred/{owner}/{repo}',
+                {
+                  username: author,
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                }
+              );
               hasStarred = true;
+              console.log(`User ${author} has starred the repo`);
             } catch (error) {
               if (error.status === 404) {
                 hasStarred = false;
-              }
-            }
-
-            // Alternative: check via user's starred repos
-            if (!hasStarred) {
-              try {
-                const { data: stargazers } = await github.rest.activity.listStargazersForRepo({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  per_page: 100
-                });
-                hasStarred = stargazers.some(s => s.login === author);
-              } catch (e) {
-                console.log('Could not verify star status');
+                console.log(`User ${author} has not starred the repo`);
+              } else {
+                console.log(
+                  `Could not verify star status for ${author}:`,
+                  error.message
+                );
               }
             }
 
