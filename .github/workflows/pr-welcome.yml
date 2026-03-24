@@ -139,16 +139,6 @@ jobs:
                 comment += `Hi @${author}, thank you for your Pull Request! 🎉\n\n`;
               }
 
-              if (!hasStarred) {
-                comment += `---\n\n`;
-                comment += `> [!TIP]\n`;
-                comment += `> ### ⭐ 如果你觉得 CoPaw 有帮助，请给我们一个 Star！\n`;
-                comment += `> ### ⭐ If you find CoPaw useful, please give us a Star!\n`;
-                comment += `> \n`;
-                comment += `> 你的 star 将帮助更多开发者发现这个项目！🙏\n`;
-                comment += `> Your star helps more developers discover this project! 🙏\n\n`;
-              }
-
               if (!usedTemplate) {
                 comment += `### 📋 关于 Pull Request 模板 / About PR Template\n\n`;
                 comment += `为了帮助维护者更快地审查你的 PR，请确保包含以下信息：\n`;
@@ -186,7 +176,20 @@ jobs:
               comment += `我们真诚地感谢你的热情，也期待你未来的更多贡献！😊\n`;
               comment += `We truly appreciate your enthusiasm—and look forward to your future contributions! 😊\n\n`;
               comment += `我们会尽快审查你的 PR。\n`;
-              comment += `We'll review your PR soon.`;
+              comment += `We'll review your PR soon.\n\n`;
+
+              // Star reminder at the end
+              if (!hasStarred) {
+                comment += `---\n\n`;
+                comment += `> [!TIP]\n`;
+                comment += `> **⭐ 如果你觉得 CoPaw 有帮助，请给我们一个 Star！**\n`;
+                comment += `> \n`;
+                comment += `> **⭐ If you find CoPaw useful, please give us a Star!**\n`;
+                comment += `> \n`;
+                comment += `> 你的 star 将帮助更多开发者发现这个项目！🐾\n`;
+                comment += `> \n`;
+                comment += `> Your star helps more developers discover this project! 🐾`;
+              }
 
             } else {
               // English only with logo
@@ -203,14 +206,6 @@ jobs:
                 }
               } else {
                 comment += `Hi @${author}, thank you for your Pull Request! 🎉\n\n`;
-              }
-
-              if (!hasStarred) {
-                comment += `---\n\n`;
-                comment += `> [!TIP]\n`;
-                comment += `> ### ⭐ If you find CoPaw useful, please give us a Star!\n`;
-                comment += `> \n`;
-                comment += `> Your star helps more developers discover this project! 🙏\n\n`;
               }
 
               if (!usedTemplate) {
@@ -242,7 +237,16 @@ jobs:
               comment += `Thanks so much for your contribution! We'd love to invite you to join the official CoPaw developer group! You can find the Discord and DingTalk group links under the "Developer Community" section on our docs page:\n`;
               comment += `https://copaw.agentscope.io/docs/community\n\n`;
               comment += `We truly appreciate your enthusiasm—and look forward to your future contributions! 😊\n\n`;
-              comment += `We'll review your PR soon.`;
+              comment += `We'll review your PR soon.\n\n`;
+
+              // Star reminder at the end
+              if (!hasStarred) {
+                comment += `---\n\n`;
+                comment += `> [!TIP]\n`;
+                comment += `> **⭐ If you find CoPaw useful, please give us a Star!**\n`;
+                comment += `> \n`;
+                comment += `> Your star helps more developers discover this project! 🐾`;
+              }
             }
 
             // Post comment
