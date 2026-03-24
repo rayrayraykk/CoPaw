@@ -24,7 +24,27 @@ jobs:
             // Check if Chinese characters exist in title
             const hasChinese = /[\u4e00-\u9fff]/.test(prTitle);
 
-            // Check if this is user's first PR in this repo
+            // Helper function for English ordinal suffix (1st, 2nd, 3rd, 4th...)
+            function getOrdinalSuffix(num) {
+              const j = num % 10;
+              const k = num % 100;
+              if (j === 1 && k !== 11) return 'st';
+              if (j === 2 && k !== 12) return 'nd';
+              if (j === 3 && k !== 13) return 'rd';
+              return 'th';
+            }
+
+            // Count user's total PRs in this repo
+            const { data: userPRs } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              creator: author,
+              state: 'all'
+            });
+
+            const prCount = userPRs.length;
+
+            // Check if this is user's first PR (for labeling)
             let isFirstPR = false;
             try {
               const { data: searchResult } = await github.rest.search.issuesAndPullRequests({
@@ -32,26 +52,23 @@ jobs:
               });
               isFirstPR = searchResult.total_count === 0;
 
-              if (!isFirstPR) {
-                console.log(`${author} has ${searchResult.total_count} closed PRs, not a first-time contributor`);
-                return;
+              // Add first-time-contributor label only for first PR
+              if (isFirstPR) {
+                await github.rest.issues.addLabels({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: prNumber,
+                  labels: ['first-time-contributor'],
+                });
+                console.log(`Labeled PR #${prNumber} as first-time-contributor`);
               }
             } catch (err) {
               if (err.status === 422 && err.message && err.message.includes('cannot be searched')) {
-                console.log(`Search API cannot look up author ${author}, skipping`);
-                return;
+                console.log(`Search API cannot look up author ${author}, continuing without label`);
+              } else {
+                throw err;
               }
-              throw err;
             }
-
-            // Add first-time-contributor label
-            await github.rest.issues.addLabels({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: prNumber,
-              labels: ['first-time-contributor'],
-            });
-            console.log(`Labeled PR #${prNumber} as first-time-contributor`);
 
             // Check if user has starred the repo
             let hasStarred = false;
@@ -104,8 +121,14 @@ jobs:
               comment += `<img src="https://copaw.agentscope.io/copaw_ip.svg" width="80" height="80" />\n\n`;
               comment += `## 欢迎来到 CoPaw! 🐾 Welcome to CoPaw!\n\n`;
               comment += `</div>\n\n`;
-              comment += `你好 @${author}，感谢你提交的第一个 Pull Request！🎉\n`;
-              comment += `Hi @${author}, thank you for your first Pull Request! 🎉\n\n`;
+
+              if (isFirstPR) {
+                comment += `你好 @${author}，感谢你提交的第一个 Pull Request！🎉\n`;
+                comment += `Hi @${author}, thank you for your first Pull Request! 🎉\n\n`;
+              } else {
+                comment += `你好 @${author}，这是你提交的第 ${prCount} 个 Pull Request。\n`;
+                comment += `Hi @${author}, this is your ${prCount}${getOrdinalSuffix(prCount)} Pull Request.\n\n`;
+              }
 
               if (!hasStarred) {
                 comment += `如果你觉得 CoPaw 对你有帮助，欢迎给我们一个 ⭐ star！这将帮助更多人发现这个项目。\n`;
@@ -157,7 +180,12 @@ jobs:
               comment += `<img src="https://copaw.agentscope.io/copaw_ip.svg" width="80" height="80" />\n\n`;
               comment += `## Welcome to CoPaw! 🐾\n\n`;
               comment += `</div>\n\n`;
-              comment += `Hi @${author}, thank you for your first Pull Request! 🎉\n\n`;
+
+              if (isFirstPR) {
+                comment += `Hi @${author}, thank you for your first Pull Request! 🎉\n\n`;
+              } else {
+                comment += `Hi @${author}, this is your ${prCount}${getOrdinalSuffix(prCount)} Pull Request.\n\n`;
+              }
 
               if (!hasStarred) {
                 comment += `If you find CoPaw useful, could you star us? ⭐ It helps others discover the project.\n\n`;
@@ -203,4 +231,4 @@ jobs:
               body: comment
             });
 
-            console.log(`Posted welcome comment on PR #${prNumber} for @${author}`);
+            console.log(`Posted welcome comment on PR #${prNumber} for @${author} (PR #${prCount}${isFirstPR ? ', first-time contributor' : ''})`);
