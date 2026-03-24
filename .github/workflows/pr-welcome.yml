@@ -140,8 +140,13 @@ jobs:
               }
 
               if (!hasStarred) {
-                comment += `如果你觉得 CoPaw 对你有帮助，欢迎给我们一个 ⭐ star！这将帮助更多人发现这个项目。\n`;
-                comment += `If you find CoPaw useful, could you star us? ⭐ It helps others discover the project.\n\n`;
+                comment += `---\n\n`;
+                comment += `> [!TIP]\n`;
+                comment += `> ### ⭐ 如果你觉得 CoPaw 有帮助，请给我们一个 Star！\n`;
+                comment += `> ### ⭐ If you find CoPaw useful, please give us a Star!\n`;
+                comment += `> \n`;
+                comment += `> 你的 star 将帮助更多开发者发现这个项目！🙏\n`;
+                comment += `> Your star helps more developers discover this project! 🙏\n\n`;
               }
 
               if (!usedTemplate) {
@@ -201,7 +206,11 @@ jobs:
               }
 
               if (!hasStarred) {
-                comment += `If you find CoPaw useful, could you star us? ⭐ It helps others discover the project.\n\n`;
+                comment += `---\n\n`;
+                comment += `> [!TIP]\n`;
+                comment += `> ### ⭐ If you find CoPaw useful, please give us a Star!\n`;
+                comment += `> \n`;
+                comment += `> Your star helps more developers discover this project! 🙏\n\n`;
               }
 
               if (!usedTemplate) {
