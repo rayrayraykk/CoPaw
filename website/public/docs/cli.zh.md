@@ -542,18 +542,18 @@ copaw --host 0.0.0.0 --port 9090 cron list
 
 ## 命令总览
 
-| 命令             | 子命令                                                                                                                                 |  需要服务运行？   |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------- | :---------------: |
-| `copaw init`     | —                                                                                                                                      |        否         |
-| `copaw app`      | —                                                                                                                                      | —（启动服务本身） |
+| 命令             | 子命令                                                       |  需要服务运行？   |
+| ---------------- | ------------------------------------------------------------ | :---------------: |
+| `copaw init`     | —                                                            |        否         |
+| `copaw app`      | —                                                            | —（启动服务本身） |
 | `copaw models`   | `list` · `config` · `config-key` · `set-llm` · `download` · `local` · `remove-local` · `ollama-pull` · `ollama-list` · `ollama-remove` |        否         |
-| `copaw env`      | `list` · `set` · `delete`                                                                                                              |        否         |
-| `copaw channels` | `list` · `send` · `install` · `add` · `remove` · `config`                                                                              |  否（send: 是）   |
-| `copaw agents`   | `list` · `chat`                                                                                                                        |  否（chat: 是）   |
-| `copaw cron`     | `list` · `get` · `state` · `create` · `delete` · `pause` · `resume` · `run`                                                            |      **是**       |
-| `copaw chats`    | `list` · `get` · `create` · `update` · `delete`                                                                                        |      **是**       |
-| `copaw skills`   | `list` · `config`                                                                                                                      |        否         |
-| `copaw clean`    | —                                                                                                                                      |        否         |
+| `copaw env`      | `list` · `set` · `delete`                                    |        否         |
+| `copaw channels` | `list` · `send` · `install` · `add` · `remove` · `config`    |      **是**       |
+| `copaw agents`   | `list` · `chat`                                              |      **是**       |
+| `copaw cron`     | `list` · `get` · `state` · `create` · `delete` · `pause` · `resume` · `run` |      **是**       |
+| `copaw chats`    | `list` · `get` · `create` · `update` · `delete`              |      **是**       |
+| `copaw skills`   | `list` · `config`                                            |        否         |
+| `copaw clean`    | —                                                            |        否         |
 
 ---
 
