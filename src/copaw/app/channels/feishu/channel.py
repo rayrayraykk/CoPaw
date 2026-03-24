@@ -24,6 +24,7 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
+import httpx
 from agentscope_runtime.engine.schemas.agent_schemas import (
     AudioContent,
     FileContent,
@@ -408,8 +409,6 @@ class FeishuChannel(BaseChannel):
 
         No SDK API available for bot info.
         """
-        import httpx
-
         try:
             # Get access token via SDK TokenManager
             from lark_oapi.core.token import TokenManager
@@ -1158,8 +1157,6 @@ class FeishuChannel(BaseChannel):
 
     async def _fetch_bytes_from_url(self, url: str) -> Optional[bytes]:
         """Download binary from URL. Supports http(s):// and file://."""
-        import httpx
-
         try:
             path = file_url_to_local_path(url)
             if path is not None:
