@@ -260,9 +260,16 @@ The interactive `config` flow lets you pick a channel, enable/disable it, and en
 
 > For platform-specific credential setup, see [Channels](./channels).
 
-#### Sending messages to channels
+#### Sending messages to channels (Proactive Notifications)
 
 Use `copaw channels send` to proactively push messages to users/sessions via any configured channel. This is a **one-way send** — no response expected.
+
+**Typical use cases:**
+
+- Notify user after task completion
+- Scheduled reminders, alerts, status updates
+- Push async processing results back to original session
+- User explicitly requested "notify me when done"
 
 ```bash
 # Step 1: Query available sessions
@@ -289,7 +296,12 @@ copaw channels send \
 
 - Always query sessions with `copaw chats list` first — do NOT guess `target-user` or `target-session`
 - If multiple sessions exist, prefer the most recently updated one
-- This is for proactive notifications only; for agent-to-agent communication, use `copaw agents chat` instead
+- This is for proactive notifications only; for agent-to-agent communication, use `copaw agents chat` (see "Agents" section below)
+
+**Key differences from `copaw agents chat`:**
+
+- `copaw channels send`: Agent-to-user/channel, one-way, no response
+- `copaw agents chat`: Agent-to-agent, bidirectional, with response
 
 ---
 
@@ -553,7 +565,7 @@ All config and data live in `~/.copaw` by default:
 | `COPAW_WORKING_DIR` | Override the working directory path |
 | `COPAW_CONFIG_FILE` | Override the config file path       |
 
-See [Config & Working Directory](./config) and [Multi-Agent Workspace](./multi-agent) for full details.
+See [Config & Working Directory](./config) and [Multi-Agent](./multi-agent) for full details.
 
 ---
 
@@ -582,4 +594,4 @@ See [Config & Working Directory](./config) and [Multi-Agent Workspace](./multi-a
 - [Heartbeat](./heartbeat) — Scheduled check-in / digest
 - [Skills](./skills) — Built-in and custom skills
 - [Config & Working Directory](./config) — Working directory and config.json
-- [Multi-Agent Workspace](./multi-agent) — Multi-agent setup and management
+- [Multi-Agent](./multi-agent) — Multi-agent setup, management, and collaboration

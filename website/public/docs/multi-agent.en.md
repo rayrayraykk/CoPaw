@@ -1,12 +1,14 @@
-# Multi-Agent Workspace
+# Multi-Agent
 
-CoPaw supports **multi-agent workspace**, allowing you to run multiple independent AI agents in a single CoPaw instance, each with its own configuration, memory, skills, and conversation history.
+CoPaw supports **multi-agent**, allowing you to run multiple independent AI agents in a single CoPaw instance, each with its own configuration, memory, skills, and conversation history. Additionally, agents can collaborate with each other to accomplish more complex tasks.
 
 > This feature was introduced in **v0.1.0**.
 
 ---
 
-## What is Multi-Agent?
+## Part 1: Multi-Agent Workspace
+
+### What is Multi-Agent?
 
 Simply put, **multi-agent** lets you run multiple "personas" in one CoPaw, where each persona:
 
@@ -237,6 +239,140 @@ If you previously used CoPaw **v0.0.x**, upgrading to **v0.1.0** will **automati
    ```bash
    cp -r ~/.copaw ~/.copaw.backup
    ```
+
+---
+
+## Part 2: Inter-Agent Collaboration
+
+Agents can communicate and collaborate with each other to handle complex tasks that a single agent cannot accomplish alone.
+
+### What is Agent Collaboration?
+
+An agent can request help from other agents when:
+
+- It needs another agent's **specialized expertise** (e.g., code agent asks writing agent to polish documentation)
+- It needs to access another agent's **workspace data** (e.g., read another agent's config files)
+- It needs a **second opinion** or professional review
+- The user **explicitly requests** a specific agent to participate
+
+### How to Trigger Collaboration?
+
+#### Method 1: User Explicitly Requests
+
+User directly asks for another agent in the conversation:
+
+```
+User: Please ask the code assistant to review this code
+```
+
+The current agent will automatically identify and call the `code assistant` agent.
+
+#### Method 2: Agent Initiates Proactively
+
+When processing a task, if an agent finds it needs another agent's capabilities, it will initiate collaboration:
+
+```
+User: Generate a technical document and polish it with professional language
+Agent A: [Generate draft] → [Call writing assistant to polish] → [Return final result]
+```
+
+### Collaboration Workflow
+
+1. **Initiating agent** calls `copaw agents list` to view available agents
+2. **Initiating agent** uses `copaw agents chat` to send request to target agent
+3. **Target agent** processes the request and returns results
+4. **Initiating agent** receives results and continues the task
+5. For multi-turn exchanges, use `--session-id` to maintain conversation context
+
+### Collaboration Examples
+
+#### Example 1: Cross-Domain Task
+
+```bash
+# Scheduler agent needs financial data
+copaw agents chat \
+  --from-agent scheduler_bot \
+  --to-agent finance_bot \
+  --text "[Agent scheduler_bot requesting] What are the pending financial tasks for today?"
+```
+
+#### Example 2: Multi-Turn Dialogue
+
+```bash
+# Round 1: Initial request
+copaw agents chat \
+  --from-agent code_bot \
+  --to-agent writer_bot \
+  --text "[Agent code_bot requesting] Please help polish this documentation: ..."
+
+# System returns: [SESSION: code_bot:to:writer_bot:1710912345:a1b2c3d4]
+
+# Round 2: Follow-up (preserving context)
+copaw agents chat \
+  --from-agent code_bot \
+  --to-agent writer_bot \
+  --session-id "code_bot:to:writer_bot:1710912345:a1b2c3d4" \
+  --text "[Agent code_bot requesting] Please make it more concise"
+```
+
+#### Example 3: User-Specified Agent
+
+```bash
+# User tells Agent A: "Let the code assistant help me review"
+# Agent A executes:
+copaw agents list  # First query available agents
+
+copaw agents chat \
+  --from-agent assistant_a \
+  --to-agent code_reviewer \
+  --text "[Agent assistant_a requesting] User explicitly requested your help. Please review the following code: ..."
+```
+
+### Collaboration Best Practices
+
+#### When to Use Collaboration
+
+✅ **Recommended**:
+
+- Task clearly needs another agent's specialty
+- Need to access another agent's workspace data
+- User explicitly requests a specific agent to participate
+- Need professional review or second opinion
+
+❌ **Not Recommended**:
+
+- Current agent can complete the task directly
+- Just a simple Q&A that doesn't need specialized skills
+- Insufficient information; should confirm with user first
+- Avoid circular calls (don't call back the agent that just messaged you)
+
+#### Message Format Recommendation
+
+When communicating between agents, use this format:
+
+```
+[Agent <initiator_id> requesting] <specific request>
+```
+
+Examples:
+
+```
+[Agent scheduler_bot requesting] Please provide today's financial task list
+[Agent code_bot requesting] User explicitly asked for your review. Please review the following code...
+```
+
+#### Session Management
+
+- **New conversation**: When first contacting an agent, don't pass `--session-id`
+- **Continuation**: When context is needed, must pass the `--session-id` from previous response
+- **View history**: Use `copaw chats list --agent-id <your_agent>` to view all sessions
+
+### Important Notes
+
+- **Avoid circular calls**: If you just received a message from Agent B, don't immediately call Agent B again
+- **Query before calling**: Use `copaw agents list` to confirm the target agent exists; don't guess IDs
+- **Maintain session continuity**: Always pass `--session-id` for multi-turn conversations
+- **Identify yourself**: Include the initiator's identity in messages to help the target agent understand the request source
 
 ---
 
