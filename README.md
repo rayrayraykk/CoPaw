@@ -386,15 +386,11 @@ For common questions, troubleshooting tips, and known issues, please visit the *
 
 ---
 
-<div align="center">
+## Staying ahead
 
-<img src="https://img.alicdn.com/imgextra/i1/O1CN0197AtT32351zYCnOUU_!!6000000007203-1-tps-2214-1080.gif" width="600" alt="Star CoPaw" />
-
-**Staying ahead**
+[![Star CoPaw](https://img.alicdn.com/imgextra/i1/O1CN0197AtT32351zYCnOUU_!!6000000007203-1-tps-2214-1080.gif)](https://github.com/agentscope-ai/CoPaw)
 
 Star CoPaw on GitHub and be instantly notified of new releases.
-
-</div>
 
 ---
 

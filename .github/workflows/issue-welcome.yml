@@ -158,7 +158,7 @@ jobs:
                 comment += `> \n`;
                 comment += `> <div align="center">\n`;
                 comment += `> \n`;
-                comment += `> <img src="https://img.alicdn.com/imgextra/i1/O1CN0197AtT32351zYCnOUU_!!6000000007203-1-tps-2214-1080.gif" width="600" alt="Star CoPaw" />\n`;
+                comment += `> [![Star CoPaw](https://img.alicdn.com/imgextra/i1/O1CN0197AtT32351zYCnOUU_!!6000000007203-1-tps-2214-1080.gif)](https://github.com/agentscope-ai/CoPaw)\n`;
                 comment += `> \n`;
                 comment += `> </div>\n`;
                 comment += `> \n`;
@@ -211,7 +211,7 @@ jobs:
                 comment += `> \n`;
                 comment += `> <div align="center">\n`;
                 comment += `> \n`;
-                comment += `> <img src="https://img.alicdn.com/imgextra/i1/O1CN0197AtT32351zYCnOUU_!!6000000007203-1-tps-2214-1080.gif" width="600" alt="Star CoPaw" />\n`;
+                comment += `> [![Star CoPaw](https://img.alicdn.com/imgextra/i1/O1CN0197AtT32351zYCnOUU_!!6000000007203-1-tps-2214-1080.gif)](https://github.com/agentscope-ai/CoPaw)\n`;
                 comment += `> \n`;
                 comment += `> </div>\n`;
                 comment += `> \n`;
