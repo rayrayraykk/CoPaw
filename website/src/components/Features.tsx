@@ -44,7 +44,8 @@ export function Features({ lang }: FeaturesProps) {
         transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
         style={{
           margin: "0 auto",
-          maxWidth: "var(--container)",
+          width: "90%",
+          maxWidth: "1400px",
           padding: "var(--space-8) var(--space-4)",
           textAlign: "center",
         }}
