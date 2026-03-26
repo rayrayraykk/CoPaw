@@ -55,7 +55,7 @@ def app_cmd(
     host: str,
     port: int,
     reload: bool,
-    workers: int,
+    workers: int,  # pylint: disable=unused-argument
     log_level: str,
     hide_access_paths: tuple[str, ...],
 ) -> None:
@@ -91,6 +91,6 @@ def app_cmd(
         host=host,
         port=port,
         reload=reload,
-        workers=workers,
+        workers=1,
         log_level=log_level,
     )
