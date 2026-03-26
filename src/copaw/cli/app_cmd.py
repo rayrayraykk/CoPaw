@@ -28,13 +28,6 @@ from ..utils.logging import setup_logger, SuppressPathAccessLogFilter
 )
 @click.option("--reload", is_flag=True, help="Enable auto-reload (dev only)")
 @click.option(
-    "--workers",
-    default=1,
-    type=int,
-    show_default=True,
-    help="Worker processes",
-)
-@click.option(
     "--log-level",
     default="info",
     type=click.Choice(
@@ -55,7 +48,6 @@ def app_cmd(
     host: str,
     port: int,
     reload: bool,
-    workers: int,
     log_level: str,
     hide_access_paths: tuple[str, ...],
 ) -> None:
@@ -91,6 +83,6 @@ def app_cmd(
         host=host,
         port=port,
         reload=reload,
-        workers=workers,
+        workers=1,
         log_level=log_level,
     )

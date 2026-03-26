@@ -40,7 +40,6 @@ copaw init --force      # 覆盖已有配置文件
 copaw app                             # 默认 127.0.0.1:8088
 copaw app --host 0.0.0.0 --port 9090 # 自定义地址
 copaw app --reload                    # 代码改动自动重载（开发用）
-copaw app --workers 4                 # 多 worker 模式
 copaw app --log-level debug           # 详细日志
 ```
 
@@ -49,7 +48,6 @@ copaw app --log-level debug           # 详细日志
 | `--host`      | `127.0.0.1` | 绑定地址                                                      |
 | `--port`      | `8088`      | 绑定端口                                                      |
 | `--reload`    | 关闭        | 文件变动时自动重载（仅开发用）                                |
-| `--workers`   | `1`         | Worker 进程数                                                 |
 | `--log-level` | `info`      | `critical` / `error` / `warning` / `info` / `debug` / `trace` |
 
 ### 控制台

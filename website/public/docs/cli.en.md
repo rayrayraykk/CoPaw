@@ -45,7 +45,6 @@ UI — depends on this.
 copaw app                             # Start on 127.0.0.1:8088
 copaw app --host 0.0.0.0 --port 9090 # Custom address
 copaw app --reload                    # Auto-reload on code change (dev)
-copaw app --workers 4                 # Multi-worker mode
 copaw app --log-level debug           # Verbose logging
 ```
 
@@ -54,7 +53,6 @@ copaw app --log-level debug           # Verbose logging
 | `--host`      | `127.0.0.1` | Bind host                                                     |
 | `--port`      | `8088`      | Bind port                                                     |
 | `--reload`    | off         | Auto-reload on file changes (dev only)                        |
-| `--workers`   | `1`         | Number of worker processes                                    |
 | `--log-level` | `info`      | `critical` / `error` / `warning` / `info` / `debug` / `trace` |
 
 ### Console
