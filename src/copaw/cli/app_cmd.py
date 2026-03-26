@@ -56,9 +56,9 @@ def app_cmd(
     host: str,
     port: int,
     reload: bool,
+    workers: int,  # pylint: disable=unused-argument
     log_level: str,
     hide_access_paths: tuple[str, ...],
-    workers: int | None,
 ) -> None:
     """Run CoPaw FastAPI app."""
     # Handle deprecated --workers parameter
