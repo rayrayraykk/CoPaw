@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """CLI commands for managing agents and inter-agent communication."""
+# pylint:disable=too-many-branches,too-many-statements
 from __future__ import annotations
 
 import json
@@ -181,6 +182,168 @@ def _handle_final_mode(
         )
 
 
+def _submit_background_task(
+    c: Any,
+    request_payload: Dict[str, Any],
+    headers: Dict[str, str],
+    session_id: str,
+    timeout: int,
+) -> None:
+    """Submit background task and return task_id."""
+    try:
+        r = c.post(
+            "/agent/process/task",
+            json=request_payload,
+            headers=headers,
+            timeout=timeout,
+        )
+        r.raise_for_status()
+        result = r.json()
+
+        task_id = result.get("task_id")
+        if not task_id:
+            click.echo("ERROR: No task_id returned from server", err=True)
+            return
+
+        click.echo(f"[TASK_ID: {task_id}]")
+        click.echo(f"[SESSION: {session_id}]")
+        click.echo()
+        click.echo("✅ Task submitted successfully")
+        click.echo()
+        click.echo("Check status with:")
+        click.echo(f"  copaw agents chat --background --task-id {task_id}")
+
+    except Exception as e:
+        click.echo(f"ERROR: Failed to submit task: {e}", err=True)
+        raise click.Abort()
+
+
+def _validate_chat_parameters(
+    ctx: click.Context,
+    background: bool,
+    task_id: Optional[str],
+    from_agent: Optional[str],
+    text: Optional[str],
+    mode: str,
+) -> None:
+    """Validate chat command parameters."""
+    # When not checking task status, require from_agent and text
+    if not (background and task_id):
+        if not from_agent:
+            click.echo(
+                "ERROR: --from-agent is required "
+                "(unless checking task status)",
+                err=True,
+            )
+            ctx.exit(1)
+
+        if not text:
+            click.echo(
+                "ERROR: --text is required (unless checking task status)",
+                err=True,
+            )
+            ctx.exit(1)
+
+    if task_id and not background:
+        click.echo(
+            "ERROR: --task-id requires --background flag",
+            err=True,
+        )
+        ctx.exit(1)
+
+    if background and mode == "stream":
+        click.echo(
+            "ERROR: --background and --mode stream are mutually exclusive",
+            err=True,
+        )
+        ctx.exit(1)
+
+
+def _check_task_status(
+    base_url: str,
+    to_agent: str,
+    task_id: str,
+    json_output: bool,
+) -> None:
+    """Check background task status and display result."""
+    with client(base_url) as c:
+        headers = {"X-Agent-Id": to_agent}
+
+        try:
+            r = c.get(
+                f"/agent/process/task/{task_id}",
+                headers=headers,
+                timeout=10,
+            )
+            r.raise_for_status()
+            result = r.json()
+
+            if json_output:
+                print_json(result)
+                return
+
+            status = result.get("status", "unknown")
+            click.echo(f"[TASK_ID: {task_id}]")
+            click.echo(f"[STATUS: {status}]")
+            click.echo()
+
+            if status == "finished":
+                task_result = result.get("result", {})
+                task_status = task_result.get("status")
+
+                if task_status == "completed":
+                    click.echo("✅ Task completed")
+                    click.echo()
+                    _extract_and_print_text(
+                        task_result,
+                        session_id=task_result.get("session_id"),
+                    )
+                elif task_status == "failed":
+                    error_info = task_result.get("error", {})
+                    error_msg = error_info.get("message", "Unknown error")
+                    click.echo("❌ Task failed")
+                    click.echo()
+                    click.echo(f"Error: {error_msg}")
+                else:
+                    click.echo(f"Status: {task_status}")
+                    if result:
+                        print_json(result)
+
+            elif status == "running":
+                click.echo("⏳ Task is still running...")
+                created_at = result.get("created_at", "N/A")
+                click.echo(f"   Started at: {created_at}")
+                click.echo()
+                click.echo("Check again later (wait 10-30s):")
+                click.echo(
+                    f"  copaw agents chat --background --task-id {task_id}",
+                )
+
+            elif status == "pending":
+                click.echo("⏸️  Task is pending in queue...")
+                click.echo()
+                click.echo("Check again in a few seconds:")
+                click.echo(
+                    f"  copaw agents chat --background --task-id {task_id}",
+                )
+
+            else:
+                click.echo(f"Unknown status: {status}")
+                if result:
+                    print_json(result)
+
+        except Exception as e:
+            if hasattr(e, "response") and e.response.status_code == 404:
+                click.echo(f"❌ Task not found: {task_id}", err=True)
+                click.echo(
+                    "   Task may have expired or never existed",
+                    err=True,
+                )
+            else:
+                click.echo(f"ERROR: {e}", err=True)
+            raise click.Abort()
+
+
 @click.group("agents")
 def agents_group() -> None:
     """Manage agents and inter-agent communication.
@@ -242,8 +405,8 @@ def list_agents(ctx: click.Context, base_url: Optional[str]) -> None:
 @click.option(
     "--from-agent",
     "--agent-id",
-    required=True,
-    help="Source agent ID (the one making the request)",
+    required=False,
+    help="Source agent ID (required unless checking task with --task-id)",
 )
 @click.option(
     "--to-agent",
@@ -252,8 +415,8 @@ def list_agents(ctx: click.Context, base_url: Optional[str]) -> None:
 )
 @click.option(
     "--text",
-    required=True,
-    help="Question or message text to send to the target agent",
+    required=False,
+    help="Question or message text (required unless checking with --task-id)",
 )
 @click.option(
     "--session-id",
@@ -283,6 +446,23 @@ def list_agents(ctx: click.Context, base_url: Optional[str]) -> None:
     ),
 )
 @click.option(
+    "--background",
+    is_flag=True,
+    default=False,
+    help=(
+        "Submit as background task (returns task_id immediately). "
+        "Use with --task-id to check task status."
+    ),
+)
+@click.option(
+    "--task-id",
+    default=None,
+    help=(
+        "Check status of existing background task. "
+        "Must be used with --background flag."
+    ),
+)
+@click.option(
     "--timeout",
     type=int,
     default=300,
@@ -308,6 +488,8 @@ def chat_cmd(
     session_id: Optional[str],
     new_session: bool,
     mode: str,
+    background: bool,
+    task_id: Optional[str],
     timeout: int,
     json_output: bool,
     base_url: Optional[str],
@@ -317,6 +499,18 @@ def chat_cmd(
     Sends a message to another agent via /api/agent/process endpoint
     and returns the response. By default generates unique session IDs
     to avoid concurrency issues.
+
+    \b
+    Background Task Mode (NEW):
+      # Submit complex task
+      copaw agents chat --background \\
+        --from-agent bot_a --to-agent bot_b \\
+        --text "Analyze large dataset"
+      # Output: [TASK_ID: xxx]
+
+      # Check task status
+      copaw agents chat --background --task-id <task_id>
+      # Output: [STATUS: completed] + result
 
     \b
     Output Format (text mode):
@@ -353,6 +547,17 @@ def chat_cmd(
         --text "What about tomorrow?"
       # Output: [SESSION: xxx] (same!)\\nTomorrow will be...
 
+      # Background task (complex task)
+      copaw agents chat --background \\
+        --from-agent bot_a \\
+        --to-agent bot_b \\
+        --text "Process complex data analysis"
+      # Output: [TASK_ID: xxx]
+
+      # Check background task status
+      copaw agents chat --background --task-id <task_id>
+      # Output: [STATUS: completed] + result
+
     \b
     Prerequisites:
       1. Use 'copaw agents list' to discover available agents
@@ -364,8 +569,18 @@ def chat_cmd(
       - Default: Text with [SESSION: xxx] header containing session_id
       - With --json-output: Full JSON with metadata and content
       - With --mode stream: Incremental updates (SSE)
-    """
-    base_url = resolve_base_url(ctx, base_url)
+      - With --background: Task ID for background task
+      - With --background --task-id: Task status and result
+"""
+    resolved_base_url = resolve_base_url(ctx, base_url)
+
+    # Validate parameters
+    _validate_chat_parameters(ctx, background, task_id, from_agent, text, mode)
+
+    # Check task status mode (early return)
+    if background and task_id:
+        _check_task_status(resolved_base_url, to_agent, task_id, json_output)
+        return
 
     final_session_id = _resolve_session_id(
         from_agent,
@@ -394,8 +609,18 @@ def chat_cmd(
         ],
     }
 
-    with client(base_url) as c:
+    with client(resolved_base_url) as c:
         headers = {"X-Agent-Id": to_agent}
+
+        if background:
+            _submit_background_task(
+                c,
+                request_payload,
+                headers,
+                final_session_id,
+                timeout,
+            )
+            return
 
         if mode == "stream":
             _handle_stream_mode(

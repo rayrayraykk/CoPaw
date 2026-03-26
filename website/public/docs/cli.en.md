@@ -331,7 +331,7 @@ When agents have the **multi_agent_collaboration** skill enabled, they can autom
 copaw agents list
 copaw agent list  # Same with singular alias
 
-# Chat with another agent (one-shot)
+# Chat with another agent (real-time mode, one-shot)
 copaw agents chat \
   --agent-id my_bot \
   --to-agent helper_bot \
@@ -344,7 +344,19 @@ copaw agents chat \
   --session-id collab_session_001 \
   --text "Follow-up question"
 
-# Stream mode (incremental response)
+# Complex task (background mode)
+copaw agents chat --background \
+  --agent-id my_bot \
+  --to-agent data_analyst \
+  --text "Analyze /data/logs/2026-03-26.log and generate detailed report"
+# Returns [TASK_ID: xxx]
+
+# Check background task status
+copaw agents chat --background \
+  --to-agent data_analyst \
+  --task-id <task_id>
+
+# Stream mode (incremental response, real-time mode only)
 copaw agents chat \
   --agent-id my_bot \
   --to-agent helper_bot \
@@ -352,19 +364,38 @@ copaw agents chat \
   --mode stream
 ```
 
-**Required parameters:**
+**Required parameters (real-time mode):**
 
 - `--from-agent` (alias: `--agent-id`): Your agent ID (sender)
 - `--to-agent`: Target agent ID (recipient)
 - `--text`: Message content
 
+**Background task parameters (new):**
+
+- `--background`: Background task mode
+- `--task-id`: Check background task status (use with `--background`)
+
 **Optional parameters:**
 
 - `--session-id`: Session ID for multi-turn conversations (auto-generated if omitted)
 - `--mode`: Response mode — `final` (default, complete response) or `stream` (incremental)
+  - **Note**: `--background` and `--mode stream` are mutually exclusive
 - `--base-url`: Override API base URL
+- `--timeout`: Timeout in seconds (default: 300)
+- `--json-output`: Output full JSON instead of text
 
-**Note:** You can use either `--from-agent` or `--agent-id` — they are equivalent.
+**Background mode explanation:**
+
+When tasks are complex (e.g., data analysis, batch processing, report generation), use `--background` to avoid blocking the current agent. After submission, it returns a `task_id` that can be used later to query the task status and result.
+
+**Use cases for background mode**:
+- Data analysis and statistics
+- Batch file processing
+- Generating detailed reports
+- Calling slow external APIs
+- Complex tasks with uncertain execution time
+
+**Note:** You can use either `--from-agent` or `--agent-id` — they are equivalent. When checking task status, only `--to-agent` and `--task-id` are needed.
 
 **Key differences from `copaw channels send`:**
 

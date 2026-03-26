@@ -319,7 +319,7 @@ copaw channels send \
 copaw agents list
 copaw agent list  # 单数别名效果相同
 
-# 与另一个智能体对话（单次）
+# 与另一个智能体对话（实时模式，单次）
 copaw agents chat \
   --agent-id my_bot \
   --to-agent helper_bot \
@@ -332,7 +332,19 @@ copaw agents chat \
   --session-id collab_session_001 \
   --text "继续上一个问题"
 
-# 流式模式（逐步返回）
+# 复杂任务（后台模式）
+copaw agents chat --background \
+  --agent-id my_bot \
+  --to-agent data_analyst \
+  --text "分析 /data/logs/2026-03-26.log 并生成详细报告"
+# 返回 [TASK_ID: xxx]
+
+# 查询后台任务状态
+copaw agents chat --background \
+  --to-agent data_analyst \
+  --task-id <task_id>
+
+# 流式模式（逐步返回，仅实时模式支持）
 copaw agents chat \
   --agent-id my_bot \
   --to-agent helper_bot \
@@ -340,19 +352,38 @@ copaw agents chat \
   --mode stream
 ```
 
-**必填参数：**
+**必填参数（实时模式）：**
 
 - `--from-agent`（别名：`--agent-id`）：你的智能体 ID（发送方）
 - `--to-agent`：目标智能体 ID（接收方）
 - `--text`：消息内容
 
+**后台任务参数（新增）：**
+
+- `--background`：后台任务模式
+- `--task-id`：查询后台任务状态（与 `--background` 一起使用）
+
 **可选参数：**
 
 - `--session-id`：多轮对话的会话 ID（省略时自动生成）
 - `--mode`：响应模式 —— `final`（默认，完整响应）或 `stream`（逐步返回）
+  - **注意**：`--background` 与 `--mode stream` 互斥
 - `--base-url`：覆盖 API 地址
+- `--timeout`：超时时间（秒，默认 300）
+- `--json-output`：输出完整 JSON 而非纯文本
 
-**说明：** `--from-agent` 和 `--agent-id` 等价，可互换使用。
+**后台模式说明：**
+
+当任务复杂（如数据分析、批量处理、报告生成）时，使用 `--background` 可以避免阻塞当前智能体。提交后返回 `task_id`，稍后可以查询任务状态和结果。
+
+**适用场景**：
+- 数据分析和统计
+- 批量文件处理
+- 生成详细报告
+- 调用慢速外部 API
+- 不确定执行时间的复杂任务
+
+**说明：** `--from-agent` 和 `--agent-id` 等价，可互换使用。查询任务状态时只需 `--to-agent` 和 `--task-id`。
 
 **与 `copaw channels send` 的区别：**
 

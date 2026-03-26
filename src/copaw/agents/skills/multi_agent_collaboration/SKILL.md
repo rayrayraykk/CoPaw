@@ -41,7 +41,7 @@ metadata: { "builtin_skill_version": "1.0", "copaw": { "emoji": "🤝" } }
 copaw agents list
 ```
 
-### 2) 发起新对话
+### 2) 发起新对话（实时模式）
 
 ```bash
 copaw agents chat \
@@ -50,7 +50,35 @@ copaw agents chat \
   --text "[Agent <your_agent> requesting] ..."
 ```
 
-### 3) 继续已有对话
+### 3) 发起复杂任务（后台模式）
+
+**复杂任务**包括：数据分析、报告生成、批量处理、外部API调用等。
+
+```bash
+copaw agents chat --background \
+  --from-agent <your_agent> \
+  --to-agent <target_agent> \
+  --text "[Agent <your_agent> requesting] ..."
+```
+
+**输出**：
+```
+[TASK_ID: xxx-xxx-xxx]
+[SESSION: ...]
+```
+
+### 4) 查询后台任务状态
+
+```bash
+copaw agents chat --background --to-agent <target_agent> --task-id <task_id>
+```
+
+**重要**：不要频繁查询！根据任务复杂度，等待合理时间后再查：
+- 简单分析：等待 10-20 秒
+- 复杂分析：等待 30-60 秒
+- 批量处理：等待 1-3 分钟
+
+### 5) 继续已有对话
 
 ```bash
 copaw agents chat \
@@ -63,10 +91,33 @@ copaw agents chat \
 **重点**:
 - 不传 `--session-id` = 新对话
 - 传 `--session-id` = 续聊（保留上下文）
+- 复杂任务用 `--background`，提交后记录 task_id
+
+---
+
+## 任务模式选择
+
+### 实时模式 vs 后台模式
+
+| 任务类型 | 使用模式 | 命令 |
+|---------|---------|------|
+| 简单快速查询 | 实时模式 | `copaw agents chat` |
+| 复杂任务（数据分析、批量处理等） | 后台模式 | `copaw agents chat --background` |
+
+**复杂任务示例**：
+- 分析大量数据或日志文件
+- 生成详细报告
+- 批量处理文件（10+ 个文件）
+- 调用慢速外部 API
+- 需要并行执行的独立任务
+
+**判断标准**：如果不确定任务会花多长时间，或者任务很复杂，优先使用后台模式。
 
 ---
 
 ## 最小工作流
+
+### 实时模式工作流
 
 ```
 1. 判断是否需要其他 agent，或用户是否明确要求调用
@@ -74,6 +125,18 @@ copaw agents chat \
 3. copaw agents chat 发起对话
 4. 从输出中记录 [SESSION: ...]
 5. 后续需要上下文时带上 --session-id
+```
+
+### 后台模式工作流
+
+```
+1. 判断任务是否复杂（数据分析、报告生成等）
+2. copaw agents list
+3. copaw agents chat --background 提交任务
+4. 从输出中记录 [TASK_ID: ...]
+5. 继续处理其他工作
+6. 等待合理时间（30-60秒）后查询状态
+7. 使用 --background --task-id 查询结果
 ```
 
 ---
@@ -202,10 +265,14 @@ copaw agents chat \
 
 ### copaw agents chat
 
-**必填参数**（3个）：
+**必填参数**（实时模式）：
 - `--from-agent`：发起方agent ID
 - `--to-agent`：目标agent ID
 - `--text`：消息内容
+
+**后台任务参数**（新增）：
+- `--background`：后台任务模式
+- `--task-id`：查询任务状态（与 --background 一起使用）
 
 **可选参数**：
 - `--session-id`：复用会话上下文（从之前的输出中复制）
@@ -214,6 +281,112 @@ copaw agents chat \
 - `--timeout`：超时时间（秒，默认300）
 - `--json-output`：输出完整JSON而非纯文本
 - `--base-url`：覆盖API地址
+
+---
+
+---
+
+## 后台任务模式详解（Background Task）
+
+### 什么时候用后台模式？
+
+当任务是**复杂任务**时，使用 `--background` 提交到后台：
+
+✅ **应该使用后台模式**：
+- 数据分析（分析日志、统计数据）
+- 报告生成（生成长篇报告、文档）
+- 批量处理（处理多个文件）
+- 外部 API 调用（调用慢速服务）
+- 不确定任务时长的复杂任务
+
+❌ **不需要后台模式**：
+- 简单快速查询
+- 明确知道很快完成的任务
+
+### 后台任务示例
+
+#### 提交复杂任务
+
+```bash
+copaw agents chat --background \
+  --from-agent scheduler \
+  --to-agent data_analyst \
+  --text "[Agent scheduler requesting] 分析 /data/logs/2026-03-26.log 中的用户行为，生成详细报告"
+```
+
+**输出**：
+```
+[TASK_ID: 20802ea3-832d-4fb4-86f0-666ad79fcc80]
+[SESSION: scheduler:to:data_analyst:1774516703206:ec02e542]
+
+✅ Task submitted successfully
+
+Check status with:
+  copaw agents chat --background --task-id 20802ea3-...
+```
+
+#### 查询任务状态
+
+**重要**：不要立即查询，等待合理时间（10-60秒）。
+
+```bash
+# 等待 30 秒后查询
+sleep 30
+
+copaw agents chat --background \
+  --to-agent data_analyst \
+  --task-id 20802ea3-832d-4fb4-86f0-666ad79fcc80
+```
+
+**可能的输出**：
+
+1. **运行中**：
+```
+[STATUS: running]
+⏳ Task is still running...
+   Started at: 1774516703
+
+Check again later (wait 10-30s):
+  copaw agents chat --background --task-id 20802ea3-...
+```
+
+2. **已完成**：
+```
+[STATUS: finished]
+✅ Task completed
+
+（任务结果内容...）
+```
+
+### 查询间隔策略
+
+**不要频繁查询！** 根据任务复杂度选择合理间隔：
+
+| 任务类型 | 建议首次查询 | 后续间隔 |
+|---------|------------|---------|
+| 简单分析 | 10 秒后 | 5-10 秒 |
+| 复杂分析 | 30 秒后 | 10-20 秒 |
+| 批量处理 | 1 分钟后 | 20-30 秒 |
+| 超大任务 | 2 分钟后 | 30-60 秒 |
+
+#### ✅ 推荐做法（递增间隔）
+
+```bash
+# 先快后慢
+sleep 10 && copaw agents chat --background --to-agent <agent> --task-id <id>
+sleep 20 && copaw agents chat --background --to-agent <agent> --task-id <id>
+sleep 30 && copaw agents chat --background --to-agent <agent> --task-id <id>
+```
+
+#### ❌ 不要这样做
+
+```bash
+# 错误：查询太频繁
+while true; do
+    copaw agents chat --background --to-agent <agent> --task-id <id>
+    sleep 1  # 太频繁了！
+done
+```
 
 ---
 
