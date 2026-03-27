@@ -72,6 +72,7 @@ class AgentRunner(Runner):
         )
         self._chat_manager = None  # Store chat_manager reference
         self._mcp_manager = None  # MCP client manager for hot-reload
+        self._workspace: Any = None  # Workspace instance for control commands
         self.memory_manager: BaseMemoryManager | None = None
 
     def set_chat_manager(self, chat_manager):
@@ -89,6 +90,14 @@ class AgentRunner(Runner):
             mcp_manager: MCPClientManager instance
         """
         self._mcp_manager = mcp_manager
+
+    def set_workspace(self, workspace):
+        """Set workspace for control command handlers.
+
+        Args:
+            workspace: Workspace instance
+        """
+        self._workspace = workspace
 
     _APPROVAL_TIMEOUT_SECONDS = TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS
 

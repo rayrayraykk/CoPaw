@@ -200,3 +200,36 @@ class ChatManager:
                 channel=channel,
             )
             return len(chats)
+
+    async def get_chat_id_by_session(
+        self,
+        session_id: str,
+        channel: str,
+    ) -> str | None:
+        """Get chat_id by session_id and channel.
+
+        Args:
+            session_id: Normalized session ID (e.g. "console:user1")
+            channel: Channel name
+
+        Returns:
+            chat_id (UUID) if found, None otherwise
+
+        Note:
+            O(N) scan of active chats. Future optimization: add index.
+        """
+        async with self._lock:
+            chats = await self._repo.filter_chats(channel=channel)
+            for chat in chats:
+                if chat.session_id == session_id:
+                    logger.debug(
+                        f"Found chat_id={chat.id} "
+                        f"for session={session_id[:30]}",
+                    )
+                    return chat.id
+
+            logger.debug(
+                f"No chat found for session={session_id[:30]} "
+                f"channel={channel}",
+            )
+            return None
