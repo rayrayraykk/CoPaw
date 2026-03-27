@@ -238,6 +238,34 @@ Load conversation history from a JSONL file into current memory. **Existing memo
 
 ---
 
+## Control Commands (Immediate Response)
+
+Control commands are processed immediately with high priority, without waiting for ongoing tasks to complete. Suitable for urgent operations.
+
+| Command                             | Description                                                    |
+| ----------------------------------- | -------------------------------------------------------------- |
+| `/stop`                             | Immediately terminate the running task in current session      |
+| `/stop session=<session_id>`        | Terminate task in specified session (optional parameter)       |
+
+**Example**:
+
+```
+User: Analyze this 1GB log file for me...
+Agent: [Processing...]
+
+User: /stop
+Agent: **Task Stopped**
+
+Task has been terminated.
+```
+
+**Features**:
+- **High-priority processing**: `/stop` is processed immediately even when other tasks are running
+- **Non-blocking**: Stopping a task doesn't affect other users or sessions
+- **Default to current session**: Without parameters, stops the current session's task
+
+---
+
 ## Daemon Commands (Ops)
 
 In chat, send `/daemon <subcommand>` or use short names (e.g., `/status` is equivalent to `/daemon status`). From the terminal, run `copaw daemon <subcommand>`. These run without going through the Agent.
