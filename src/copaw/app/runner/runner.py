@@ -13,6 +13,7 @@ from agentscope.message import Msg, TextBlock
 from agentscope.pipeline import stream_printing_messages
 from agentscope_runtime.engine.runner import Runner
 from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
+from agentscope_runtime.engine.schemas.exception import AgentException
 from dotenv import load_dotenv
 
 from .command_dispatch import (
@@ -376,7 +377,7 @@ class AgentRunner(Runner):
             logger.info(f"query_handler: {session_id} cancelled!")
             if agent is not None:
                 await agent.interrupt()
-            raise RuntimeError("Task has been cancelled!") from exc
+            raise AgentException("Task has been cancelled!") from exc
         except Exception as e:
             debug_dump_path = write_query_error_dump(
                 request=request,
