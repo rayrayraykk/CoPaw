@@ -213,23 +213,29 @@ class ChatManager:
             channel: Channel name
 
         Returns:
-            chat_id (UUID) if found, None otherwise
+            chat_id (UUID) of most recent chat if found, None otherwise
 
         Note:
+            Returns most recently updated chat if multiple matches exist.
             O(N) scan of active chats. Future optimization: add index.
         """
         async with self._lock:
             chats = await self._repo.filter_chats(channel=channel)
-            for chat in chats:
-                if chat.session_id == session_id:
-                    logger.debug(
-                        f"Found chat_id={chat.id} "
-                        f"for session={session_id[:30]}",
-                    )
-                    return chat.id
+            matching_chats = [
+                chat for chat in chats if chat.session_id == session_id
+            ]
 
+            if not matching_chats:
+                logger.debug(
+                    f"No chat found for session={session_id[:30]} "
+                    f"channel={channel}",
+                )
+                return None
+
+            most_recent = max(matching_chats, key=lambda c: c.updated_at)
             logger.debug(
-                f"No chat found for session={session_id[:30]} "
-                f"channel={channel}",
+                f"Found chat_id={most_recent.id} "
+                f"for session={session_id[:30]} "
+                f"(from {len(matching_chats)} matches)",
             )
-            return None
+            return most_recent.id
