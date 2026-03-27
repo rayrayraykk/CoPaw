@@ -142,8 +142,18 @@ class UnifiedQueueManager:
         # Update activity timestamp
         state.last_activity = time.time()
 
-        # Enqueue payload
-        await state.queue.put(payload)
+        # Enqueue payload with bounded wait to avoid indefinite blocking
+        try:
+            await asyncio.wait_for(state.queue.put(payload), timeout=5.0)
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Timeout while enqueuing message: "
+                f"channel={channel_id} "
+                f"session={session_id[:30]} "
+                f"priority={priority_level} "
+                f"qsize={state.queue.qsize()}",
+            )
+            raise
 
         logger.debug(
             f"Enqueued: channel={channel_id} "

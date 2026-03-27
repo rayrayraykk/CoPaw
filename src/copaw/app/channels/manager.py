@@ -35,9 +35,6 @@ OnLastDispatch = Optional[Callable[[str, str, str], None]]
 # Default max size per channel queue
 _CHANNEL_QUEUE_MAXSIZE = 1000
 
-# Workers per channel: drain same-session from queue and process in parallel
-_CONSUMER_WORKERS_PER_CHANNEL = 4
-
 
 async def _process_batch(ch: BaseChannel, batch: List[Any]) -> None:
     """Merge if needed and process one payload (native or request)."""
@@ -82,6 +79,9 @@ class ChannelManager:
         self._command_registry = CommandRegistry()
         self._queue_manager: UnifiedQueueManager | None = None
         self._workspace = None
+
+        # Track enqueue tasks for graceful shutdown
+        self._enqueue_tasks: set[asyncio.Task] = set()
 
     @classmethod
     def from_env(
@@ -286,22 +286,68 @@ class ChannelManager:
         # Extract normalized session_id
         session_id = self._extract_session_id(ch, payload)
 
-        # Route to unified queue manager
-        asyncio.create_task(
-            self._queue_manager.enqueue(
+        # Route to unified queue manager with task tracking
+        task = asyncio.create_task(
+            self._enqueue_with_timeout(
                 channel_id,
                 session_id,
                 priority_level,
                 payload,
+                query,
             ),
         )
+        self._enqueue_tasks.add(task)
+        task.add_done_callback(self._enqueue_tasks.discard)
 
-        logger.debug(
-            f"Enqueued: channel={channel_id} "
-            f"session={session_id[:30]} "
-            f"priority={priority_level} "
-            f"query={query[:40] if query else '(empty)'}",
-        )
+    async def _enqueue_with_timeout(
+        self,
+        channel_id: str,
+        session_id: str,
+        priority_level: int,
+        payload: Any,
+        query: str,
+    ) -> None:
+        """Enqueue with timeout protection to prevent unbounded blocking.
+
+        Args:
+            channel_id: Channel identifier
+            session_id: Normalized session ID
+            priority_level: Priority level
+            payload: Message payload
+            query: Extracted query text for logging
+        """
+        try:
+            await asyncio.wait_for(
+                self._queue_manager.enqueue(
+                    channel_id,
+                    session_id,
+                    priority_level,
+                    payload,
+                ),
+                timeout=30.0,
+            )
+            logger.debug(
+                f"Enqueued: channel={channel_id} "
+                f"session={session_id[:30]} "
+                f"priority={priority_level} "
+                f"query={query[:40] if query else '(empty)'}",
+            )
+        except asyncio.TimeoutError:
+            logger.error(
+                f"Enqueue timeout after 30s: channel={channel_id} "
+                f"session={session_id[:30]} priority={priority_level}",
+            )
+        except asyncio.CancelledError:
+            logger.debug(
+                f"Enqueue cancelled: channel={channel_id} "
+                f"session={session_id[:30]}",
+            )
+            raise
+        except Exception as e:
+            logger.exception(
+                f"Enqueue failed: channel={channel_id} "
+                f"session={session_id[:30]} error={e}",
+            )
 
     def enqueue(self, channel_id: str, payload: Any) -> None:
         """Enqueue a payload for the channel. Thread-safe (e.g. from sync
@@ -435,6 +481,28 @@ class ChannelManager:
 
     async def stop_all(self) -> None:
         """Stop all channels and queue manager."""
+        # Cancel all pending enqueue tasks
+        if self._enqueue_tasks:
+            logger.info(
+                f"Cancelling {len(self._enqueue_tasks)} pending enqueue tasks",
+            )
+            for task in self._enqueue_tasks:
+                task.cancel()
+
+            # Wait for tasks to finish cancellation
+            if self._enqueue_tasks:
+                _, pending = await asyncio.wait(
+                    self._enqueue_tasks,
+                    timeout=2.0,
+                    return_when=asyncio.ALL_COMPLETED,
+                )
+                if pending:
+                    logger.warning(
+                        f"stop_all: {len(pending)} enqueue task(s) "
+                        f"still pending after 2s",
+                    )
+            self._enqueue_tasks.clear()
+
         # Stop queue manager (stops all consumers and cleanup task)
         if self._queue_manager is not None:
             await self._queue_manager.stop_all()

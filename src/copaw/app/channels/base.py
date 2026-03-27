@@ -718,20 +718,20 @@ class BaseChannel(ABC):
         If workspace is available, routes through TaskTracker for tracking.
         Control commands bypass TaskTracker for immediate response.
         """
-        logger.info(
+        logger.debug(
             "base _consume_one_request: "
             f"has_workspace={self._workspace is not None}",
         )
 
         if self._workspace is not None and self._command_registry is not None:
             query_text = self._extract_query_from_payload(payload)
-            logger.info(
+            logger.debug(
                 f"base _consume_one_request: query={query_text[:50]}",
             )
             is_control = self._command_registry.is_control_command(
                 query_text,
             )
-            logger.info(
+            logger.debug(
                 f"base _consume_one_request: is_control={is_control}",
             )
             if not is_control:
