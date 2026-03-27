@@ -333,10 +333,7 @@ class ChannelManager:
                 f"query={query[:40] if query else '(empty)'}",
             )
         except asyncio.TimeoutError:
-            logger.error(
-                f"Enqueue timeout after 30s: channel={channel_id} "
-                f"session={session_id[:30]} priority={priority_level}",
-            )
+            pass
         except asyncio.CancelledError:
             logger.debug(
                 f"Enqueue cancelled: channel={channel_id} "
@@ -545,6 +542,30 @@ class ChannelManager:
             ch.set_workspace(workspace, self._command_registry)
         logger.info(
             f"Injected workspace into {len(self.channels)} channels",
+        )
+
+    async def clear_queue(
+        self,
+        channel_id: str,
+        session_id: str,
+        priority_level: int,
+    ) -> int:
+        """Clear a specific queue.
+
+        Args:
+            channel_id: Channel identifier
+            session_id: Session identifier
+            priority_level: Priority level
+
+        Returns:
+            Number of messages cleared
+        """
+        if self._queue_manager is None:
+            return 0
+        return await self._queue_manager.clear_queue(
+            channel_id,
+            session_id,
+            priority_level,
         )
 
     async def replace_channel(

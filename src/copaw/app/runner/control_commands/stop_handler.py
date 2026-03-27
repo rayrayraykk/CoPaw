@@ -69,23 +69,34 @@ class StopCommandHandler(BaseControlCommandHandler):
 
         stopped = await workspace.task_tracker.request_stop(chat_id)
 
-        if stopped:
+        cleared = await workspace.channel_manager.clear_queue(
+            channel_id,
+            target_session_id,
+            20,
+        )
+
+        if stopped or cleared > 0:
             logger.info(
-                f"/stop: Task stopped successfully: "
+                f"/stop: stopped={stopped} cleared={cleared} "
                 f"chat_id={chat_id} session={target_session_id[:30]}",
             )
+            status_parts = []
+            if stopped:
+                status_parts.append("running task stopped")
+            if cleared > 0:
+                status_parts.append(f"{cleared} queued message(s) cleared")
+            status_text = " and ".join(status_parts)
             return (
                 f"**Task Stopped**\n\n"
-                f"Task for session `{target_session_id[:40]}` "
-                f"has been stopped."
+                f"Session `{target_session_id[:40]}`: {status_text}."
             )
         else:
             logger.warning(
-                f"/stop: Task not running or already stopped: "
+                f"/stop: Nothing to stop: "
                 f"chat_id={chat_id} session={target_session_id[:30]}",
             )
             return (
                 f"**Task Not Running**\n\n"
-                f"No active task found for session "
+                f"No active task or queued messages for session "
                 f"`{target_session_id[:40]}`."
             )

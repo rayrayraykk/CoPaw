@@ -376,7 +376,11 @@ class BaseChannel(ABC):
         request: "AgentRequest",
         payload: Any,
     ) -> None:
-        """Consume message through TaskTracker for task tracking.
+        """Consume message with TaskTracker registration for cancellation.
+
+        TaskTracker is used to track the running task so /stop can cancel it.
+        Message serialization is ensured by UnifiedQueueManager which queues
+        messages per (channel, session, priority).
 
         Args:
             request: AgentRequest
@@ -385,11 +389,6 @@ class BaseChannel(ABC):
         session_id = getattr(request, "session_id", "") or ""
         user_id = getattr(request, "user_id", "") or ""
         channel_id = getattr(request, "channel", self.channel)
-
-        logger.info(
-            f"_consume_with_tracker: session={session_id[:30]} "
-            f"user={user_id[:30]} channel={channel_id}",
-        )
 
         chat = await self._workspace.chat_manager.get_or_create_chat(
             session_id,
@@ -400,24 +399,33 @@ class BaseChannel(ABC):
 
         logger.info(
             f"_consume_with_tracker: chat_id={chat.id} "
-            f"calling attach_or_start",
+            f"session={session_id[:30]}",
         )
 
-        _, is_new = await self._workspace.task_tracker.attach_or_start(
+        queue, is_new = await self._workspace.task_tracker.attach_or_start(
             chat.id,
             payload,
             self._stream_with_tracker,
         )
 
-        logger.info(
-            f"_consume_with_tracker: attach_or_start done "
-            f"is_new={is_new} chat_id={chat.id}",
-        )
-
-        if not is_new:
-            logger.debug(
-                f"Attached to existing task: "
-                f"chat_id={chat.id} session={session_id[:30]}",
+        if is_new:
+            try:
+                async for _ in self._workspace.task_tracker.stream_from_queue(
+                    queue,
+                    chat.id,
+                ):
+                    pass
+            except asyncio.CancelledError:
+                logger.info(
+                    f"Task cancelled: chat_id={chat.id} "
+                    f"session={session_id[:30]}",
+                )
+                raise
+        else:
+            logger.warning(
+                f"Message ignored (task already running): "
+                f"chat_id={chat.id} session={session_id[:30]}. "
+                f"This should not happen with UnifiedQueueManager.",
             )
 
     async def _stream_with_tracker(

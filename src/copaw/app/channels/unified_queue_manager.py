@@ -144,10 +144,10 @@ class UnifiedQueueManager:
 
         # Enqueue payload with bounded wait to avoid indefinite blocking
         try:
-            await asyncio.wait_for(state.queue.put(payload), timeout=5.0)
+            await asyncio.wait_for(state.queue.put(payload), timeout=30.0)
         except asyncio.TimeoutError:
             logger.warning(
-                "Timeout while enqueuing message: "
+                "Queue full timeout (30s): "
                 f"channel={channel_id} "
                 f"session={session_id[:30]} "
                 f"priority={priority_level} "
@@ -287,6 +287,44 @@ class UnifiedQueueManager:
             name="unified_queue_cleanup",
         )
         logger.info("Cleanup loop started")
+
+    async def clear_queue(
+        self,
+        channel_id: str,
+        session_id: str,
+        priority_level: int,
+    ) -> int:
+        """Clear a specific queue.
+
+        Args:
+            channel_id: Channel identifier
+            session_id: Session identifier
+            priority_level: Priority level
+
+        Returns:
+            Number of messages cleared
+        """
+        queue_key = (channel_id, session_id, priority_level)
+        cleared_count = 0
+
+        async with self._lock:
+            state = self._queues.get(queue_key)
+            if state:
+                while not state.queue.empty():
+                    try:
+                        state.queue.get_nowait()
+                        cleared_count += 1
+                    except asyncio.QueueEmpty:
+                        break
+
+        if cleared_count > 0:
+            logger.info(
+                f"Cleared {cleared_count} messages from queue: "
+                f"channel={channel_id} session={session_id[:30]} "
+                f"priority={priority_level}",
+            )
+
+        return cleared_count
 
     async def stop_all(self) -> None:
         """Stop all consumers and cleanup task gracefully.

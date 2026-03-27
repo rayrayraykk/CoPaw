@@ -145,6 +145,7 @@ class CommandRegistry:
         Examples:
             is_control_command("/stop") → True
             is_control_command("/daemon status") → True
+            is_control_command("/stopx") → False (no match)
             is_control_command("hello") → False
         """
         if not query or not isinstance(query, str):
@@ -155,9 +156,19 @@ class CommandRegistry:
         if not query_lower.startswith("/"):
             return False
 
-        for prefix in self._command_to_level:
+        sorted_prefixes = sorted(
+            self._command_to_level.keys(),
+            key=len,
+            reverse=True,
+        )
+        for prefix in sorted_prefixes:
             if query_lower.startswith(prefix):
-                return True
+                next_char_idx = len(prefix)
+                if next_char_idx >= len(query_lower):
+                    return True
+                next_char = query_lower[next_char_idx]
+                if next_char in (" ", "\t", "\n"):
+                    return True
 
         return False
 
@@ -173,6 +184,7 @@ class CommandRegistry:
         Examples:
             get_priority_level("/stop") → 0 (critical)
             get_priority_level("/status") → 10 (high)
+            get_priority_level("/statusx") → 20 (no match, default)
             get_priority_level("hello") → 20 (normal, default)
         """
         if not query or not isinstance(query, str):
@@ -180,19 +192,29 @@ class CommandRegistry:
 
         query_lower = query.strip().lower()
 
-        # Fast check: starts with /
         if not query_lower.startswith("/"):
             return self._default_level
 
-        # Find matching command prefix
-        for prefix, level in self._command_to_level.items():
+        sorted_prefixes = sorted(
+            self._command_to_level.items(),
+            key=lambda x: len(x[0]),
+            reverse=True,
+        )
+        for prefix, level in sorted_prefixes:
             if query_lower.startswith(prefix):
-                logger.debug(
-                    f"Query '{query[:30]}' → priority_level={level}",
-                )
-                return level
+                next_char_idx = len(prefix)
+                if next_char_idx >= len(query_lower):
+                    logger.debug(
+                        f"Query '{query[:30]}' → priority_level={level}",
+                    )
+                    return level
+                next_char = query_lower[next_char_idx]
+                if next_char in (" ", "\t", "\n"):
+                    logger.debug(
+                        f"Query '{query[:30]}' → priority_level={level}",
+                    )
+                    return level
 
-        # Default priority
         return self._default_level
 
     def get_priority_name(self, level: int) -> str:
