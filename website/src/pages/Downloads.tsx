@@ -142,19 +142,33 @@ interface DownloadsProps {
 
 export function Downloads({ config, lang, onLangClick }: DownloadsProps) {
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
   const [isEmpty, setIsEmpty] = useState(false);
   const [desktopIndex, setDesktopIndex] = useState<DesktopIndex | null>(null);
   const userOS = detectOS();
 
   useEffect(() => {
+    async function fetchWithRetry(url: string): Promise<Response> {
+      // Try HTTPS first
+      try {
+        const response = await fetch(url);
+        if (response.ok) return response;
+      } catch (err) {
+        console.warn(`HTTPS fetch failed for ${url}, trying HTTP...`, err);
+      }
+
+      // Fallback to HTTP
+      const httpUrl = url.replace("https://", "http://");
+      return await fetch(httpUrl);
+    }
+
     async function loadDownloads() {
       try {
         const CDN_BASE = "https://download.copaw.agentscope.io";
 
-        const mainIndexResponse = await fetch(
+        const mainIndexResponse = await fetchWithRetry(
           `${CDN_BASE}/metadata/index.json`,
         );
+
         if (!mainIndexResponse.ok) {
           if (mainIndexResponse.status === 404) {
             setIsEmpty(true);
@@ -163,10 +177,11 @@ export function Downloads({ config, lang, onLangClick }: DownloadsProps) {
           }
           throw new Error("Failed to fetch main index");
         }
+
         const mainIndex: MainIndex = await mainIndexResponse.json();
 
         if (mainIndex.products.desktop) {
-          const desktopIndexResponse = await fetch(
+          const desktopIndexResponse = await fetchWithRetry(
             `${CDN_BASE}${mainIndex.products.desktop.index_url}`,
           );
           if (desktopIndexResponse.ok) {
@@ -182,7 +197,7 @@ export function Downloads({ config, lang, onLangClick }: DownloadsProps) {
         setLoading(false);
       } catch (err) {
         console.error("Error loading downloads:", err);
-        setError(true);
+        setIsEmpty(true);
         setLoading(false);
       }
     }
@@ -217,17 +232,7 @@ export function Downloads({ config, lang, onLangClick }: DownloadsProps) {
           </div>
         )}
 
-        {error && (
-          <div className="error">
-            <p>
-              {lang === "zh"
-                ? "加载下载信息失败，请稍后重试。"
-                : "Failed to load download information. Please try again later."}
-            </p>
-          </div>
-        )}
-
-        {isEmpty && !loading && !error && (
+        {isEmpty && !loading && (
           <div className="empty-state">
             <div className="empty-icon">📦</div>
             <h3>
@@ -246,7 +251,7 @@ export function Downloads({ config, lang, onLangClick }: DownloadsProps) {
           </div>
         )}
 
-        {!loading && !error && !isEmpty && (
+        {!loading && !isEmpty && (
           <section className="downloads-section">
             {desktopIndex && (
               <div className="product-section">
