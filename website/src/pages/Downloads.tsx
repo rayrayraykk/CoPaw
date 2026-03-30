@@ -173,20 +173,6 @@ export function Downloads({ config, lang, onLangClick }: DownloadsProps) {
   const userOS = detectOS();
 
   useEffect(() => {
-    async function fetchWithRetry(url: string): Promise<Response> {
-      // Try HTTPS first
-      try {
-        const response = await fetch(url);
-        if (response.ok) return response;
-      } catch (err) {
-        console.warn(`HTTPS fetch failed for ${url}, trying HTTP...`, err);
-      }
-
-      // Fallback to HTTP
-      const httpUrl = url.replace("https://", "http://");
-      return await fetch(httpUrl);
-    }
-
     async function loadDownloads() {
       try {
         const CDN_BASE = "https://download.copaw.agentscope.io";
@@ -195,7 +181,7 @@ export function Downloads({ config, lang, onLangClick }: DownloadsProps) {
           "Fetching main index from:",
           `${CDN_BASE}/metadata/index.json`,
         );
-        const mainIndexResponse = await fetchWithRetry(
+        const mainIndexResponse = await fetch(
           `${CDN_BASE}/metadata/index.json`,
         );
 
@@ -220,7 +206,7 @@ export function Downloads({ config, lang, onLangClick }: DownloadsProps) {
           const desktopIndexUrl = `${CDN_BASE}${mainIndex.products.desktop.index_url}`;
           console.log("Fetching desktop index from:", desktopIndexUrl);
 
-          const desktopIndexResponse = await fetchWithRetry(desktopIndexUrl);
+          const desktopIndexResponse = await fetch(desktopIndexUrl);
           console.log(
             "Desktop index response status:",
             desktopIndexResponse.status,
