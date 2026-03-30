@@ -45,7 +45,6 @@ UI — depends on this.
 copaw app                             # Start on 127.0.0.1:8088
 copaw app --host 0.0.0.0 --port 9090 # Custom address
 copaw app --reload                    # Auto-reload on code change (dev)
-copaw app --workers 4                 # Multi-worker mode
 copaw app --log-level debug           # Verbose logging
 ```
 
@@ -54,8 +53,10 @@ copaw app --log-level debug           # Verbose logging
 | `--host`      | `127.0.0.1` | Bind host                                                     |
 | `--port`      | `8088`      | Bind port                                                     |
 | `--reload`    | off         | Auto-reload on file changes (dev only)                        |
-| `--workers`   | `1`         | Number of worker processes                                    |
 | `--log-level` | `info`      | `critical` / `error` / `warning` / `info` / `debug` / `trace` |
+| `--workers`   | —           | **[DEPRECATED]** Ignored. CoPaw always uses 1 worker          |
+
+> **Note:** The `--workers` option is deprecated for stability reasons. CoPaw is designed to run with a single worker process. Multi-worker mode can cause issues with in-memory state management and WebSocket connections. This option will be removed in a future version.
 
 ### Console
 
@@ -110,12 +111,9 @@ Manage LLM providers and the active model.
 | `copaw models config`                  | Full interactive setup: API keys → active model      |
 | `copaw models config-key [provider]`   | Configure a single provider's API key                |
 | `copaw models set-llm`                 | Switch the active model (API keys unchanged)         |
-| `copaw models download <repo_id>`      | Download a local model (llama.cpp / MLX)             |
+| `copaw models download <repo_id>`      | Download a local model (llama.cpp)                   |
 | `copaw models local`                   | List downloaded local models                         |
 | `copaw models remove-local <model_id>` | Delete a downloaded local model                      |
-| `copaw models ollama-pull <model>`     | Download an Ollama model                             |
-| `copaw models ollama-list`             | List Ollama models                                   |
-| `copaw models ollama-remove <model>`   | Delete an Ollama model                               |
 
 ```bash
 copaw models list                    # See what's configured
@@ -128,34 +126,28 @@ copaw models set-llm                 # Change active model only
 
 #### Local models
 
-CoPaw can also run models locally via llama.cpp or MLX — no API key needed.
-Install the backend first: `pip install 'copaw[llamacpp]'` or
-`pip install 'copaw[mlx]'`.
+CoPaw can also run models locally via llama.cpp — no API key needed.
+Install the backend first: `pip install 'copaw[local]'`
 
 ```bash
 # Download a model (auto-selects Q4_K_M GGUF)
 copaw models download Qwen/Qwen3-4B-GGUF
-
-# Download an MLX model
-copaw models download Qwen/Qwen3-4B --backend mlx
 
 # Download from ModelScope
 copaw models download Qwen/Qwen2-0.5B-Instruct-GGUF --source modelscope
 
 # List downloaded models
 copaw models local
-copaw models local --backend mlx
 
 # Delete a downloaded model
 copaw models remove-local <model_id>
 copaw models remove-local <model_id> --yes   # skip confirmation
 ```
 
-| Option      | Short | Default       | Description                                                           |
-| ----------- | ----- | ------------- | --------------------------------------------------------------------- |
-| `--backend` | `-b`  | `llamacpp`    | Target backend (`llamacpp` or `mlx`)                                  |
-| `--source`  | `-s`  | `huggingface` | Download source (`huggingface` or `modelscope`)                       |
-| `--file`    | `-f`  | _(auto)_      | Specific filename. If omitted, auto-selects (prefers Q4_K_M for GGUF) |
+| Option     | Short | Default       | Description                                                           |
+| ---------- | ----- | ------------- | --------------------------------------------------------------------- |
+| `--source` | `-s`  | `huggingface` | Download source (`huggingface` or `modelscope`)                       |
+| `--file`   | `-f`  | _(auto)_      | Specific filename. If omitted, auto-selects (prefers Q4_K_M for GGUF) |
 
 #### Ollama models
 
@@ -165,15 +157,14 @@ Install the Ollama SDK: `pip install 'copaw[ollama]'` (or re-run the installer w
 
 ```bash
 # Download an Ollama model
-copaw models ollama-pull mistral:7b
-copaw models ollama-pull qwen3:8b
+ollama pull mistral:7b
+ollama pull qwen3:8b
 
 # List Ollama models
-copaw models ollama-list
+ollama list
 
 # Remove an Ollama model
-copaw models ollama-remove mistral:7b
-copaw models ollama-remove qwen3:8b --yes   # skip confirmation
+ollama rm mistral:7b
 
 # Use in config flow (auto-detects Ollama models)
 copaw models config           # Select Ollama → Choose from model list
@@ -183,7 +174,7 @@ copaw models set-llm          # Switch to a different Ollama model
 **Key differences from local models:**
 
 - Models come from Ollama daemon (not downloaded by CoPaw)
-- Use `ollama-pull` / `ollama-remove` instead of `download` / `remove-local`
+- Use `ollama` CLI to manage models (not `copaw models download/remove-local`)
 - Model list updates dynamically when you add/remove via Ollama CLI or CoPaw
 
 > **Note:** You are responsible for ensuring the API key is valid. CoPaw does
@@ -260,9 +251,20 @@ The interactive `config` flow lets you pick a channel, enable/disable it, and en
 
 > For platform-specific credential setup, see [Channels](./channels).
 
-#### Sending messages to channels
+#### Sending messages to channels (Proactive Notifications)
+
+> Corresponding skill: **Channel Message**
 
 Use `copaw channels send` to proactively push messages to users/sessions via any configured channel. This is a **one-way send** — no response expected.
+
+When agents have the **channel_message** skill enabled, they can automatically use this command to send proactive notifications when needed.
+
+**Typical use cases:**
+
+- Notify user after task completion
+- Scheduled reminders, alerts, status updates
+- Push async processing results back to original session
+- User explicitly requested "notify me when done"
 
 ```bash
 # Step 1: Query available sessions
@@ -289,7 +291,12 @@ copaw channels send \
 
 - Always query sessions with `copaw chats list` first — do NOT guess `target-user` or `target-session`
 - If multiple sessions exist, prefer the most recently updated one
-- This is for proactive notifications only; for agent-to-agent communication, use `copaw agents chat` instead
+- This is for proactive notifications only; for agent-to-agent communication, use `copaw agents chat` (see "Agents" section below)
+
+**Key differences from `copaw agents chat`:**
+
+- `copaw channels send`: Agent-to-user/channel, one-way, no response
+- `copaw agents chat`: Agent-to-agent, bidirectional, with response
 
 ---
 
@@ -298,6 +305,10 @@ copaw channels send \
 Manage agents and enable inter-agent communication.
 
 ### copaw agents
+
+> Corresponding skill: **Multi-Agent Collaboration**
+
+When agents have the **multi_agent_collaboration** skill enabled, they can automatically use `copaw agents chat` to collaborate with other agents as needed.
 
 **Alias:** You can use `copaw agent` (singular) as a shorthand for `copaw agents`.
 
@@ -311,7 +322,7 @@ Manage agents and enable inter-agent communication.
 copaw agents list
 copaw agent list  # Same with singular alias
 
-# Chat with another agent (one-shot)
+# Chat with another agent (real-time mode, one-shot)
 copaw agents chat \
   --agent-id my_bot \
   --to-agent helper_bot \
@@ -324,7 +335,20 @@ copaw agents chat \
   --session-id collab_session_001 \
   --text "Follow-up question"
 
-# Stream mode (incremental response)
+# Complex task (background mode)
+copaw agents chat --background \
+  --agent-id my_bot \
+  --to-agent data_analyst \
+  --text "Analyze /data/logs/2026-03-26.log and generate detailed report"
+# Returns [TASK_ID: xxx] [SESSION: xxx]
+
+# Check background task status (--to-agent is optional when querying)
+copaw agents chat --background \
+  --task-id <task_id>
+# Status flow: submitted → pending → running → finished
+# When finished, result shows: completed (✅) or failed (❌)
+
+# Stream mode (incremental response, real-time mode only)
 copaw agents chat \
   --agent-id my_bot \
   --to-agent helper_bot \
@@ -332,19 +356,46 @@ copaw agents chat \
   --mode stream
 ```
 
-**Required parameters:**
+**Required parameters (real-time mode):**
 
 - `--from-agent` (alias: `--agent-id`): Your agent ID (sender)
 - `--to-agent`: Target agent ID (recipient)
 - `--text`: Message content
 
+**Background task parameters (new):**
+
+- `--background`: Background task mode
+- `--task-id`: Check background task status (use with `--background`)
+
 **Optional parameters:**
 
 - `--session-id`: Session ID for multi-turn conversations (auto-generated if omitted)
 - `--mode`: Response mode — `final` (default, complete response) or `stream` (incremental)
+  - **Note**: `--background` and `--mode stream` are mutually exclusive
 - `--base-url`: Override API base URL
+- `--timeout`: Timeout in seconds (default: 300)
+- `--json-output`: Output full JSON instead of text
 
-**Note:** You can use either `--from-agent` or `--agent-id` — they are equivalent.
+**Background mode explanation:**
+
+When tasks are complex (e.g., data analysis, batch processing, report generation), use `--background` to avoid blocking the current agent. After submission, it returns a `task_id` that can be used later to query the task status and result.
+
+**Use cases for background mode**:
+
+- Data analysis and statistics
+- Batch file processing
+- Generating detailed reports
+- Calling slow external APIs
+- Complex tasks with uncertain execution time
+
+**Task Status Flow**:
+
+- `submitted`: Task accepted, waiting to start
+- `pending`: Queued for execution
+- `running`: Currently executing
+- `finished`: Completed (result shows `completed` for success or `failed` for error)
+
+**Note:** You can use either `--from-agent` or `--agent-id` — they are equivalent. When checking task status, only `--task-id` is required (`--to-agent` is optional).
 
 **Key differences from `copaw channels send`:**
 
@@ -553,24 +604,24 @@ All config and data live in `~/.copaw` by default:
 | `COPAW_WORKING_DIR` | Override the working directory path |
 | `COPAW_CONFIG_FILE` | Override the config file path       |
 
-See [Config & Working Directory](./config) and [Multi-Agent Workspace](./multi-agent) for full details.
+See [Config & Working Directory](./config) and [Multi-Agent](./multi-agent) for full details.
 
 ---
 
 ## Command overview
 
-| Command          | Subcommands                                                                                                                            | Requires server? |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------- | :--------------: |
-| `copaw init`     | —                                                                                                                                      |        No        |
-| `copaw app`      | —                                                                                                                                      |  — (starts it)   |
-| `copaw models`   | `list` · `config` · `config-key` · `set-llm` · `download` · `local` · `remove-local` · `ollama-pull` · `ollama-list` · `ollama-remove` |        No        |
-| `copaw env`      | `list` · `set` · `delete`                                                                                                              |        No        |
-| `copaw channels` | `list` · `send` · `install` · `add` · `remove` · `config`                                                                              |     **Yes**      |
-| `copaw agents`   | `list` · `chat`                                                                                                                        |     **Yes**      |
-| `copaw cron`     | `list` · `get` · `state` · `create` · `delete` · `pause` · `resume` · `run`                                                            |     **Yes**      |
-| `copaw chats`    | `list` · `get` · `create` · `update` · `delete`                                                                                        |     **Yes**      |
-| `copaw skills`   | `list` · `config`                                                                                                                      |        No        |
-| `copaw clean`    | —                                                                                                                                      |        No        |
+| Command          | Subcommands                                                                          | Requires server? |
+| ---------------- | ------------------------------------------------------------------------------------ | :--------------: |
+| `copaw init`     | —                                                                                    |        No        |
+| `copaw app`      | —                                                                                    |  — (starts it)   |
+| `copaw models`   | `list` · `config` · `config-key` · `set-llm` · `download` · `local` · `remove-local` |        No        |
+| `copaw env`      | `list` · `set` · `delete`                                                            |        No        |
+| `copaw channels` | `list` · `send` · `install` · `add` · `remove` · `config`                            |     **Yes**      |
+| `copaw agents`   | `list` · `chat`                                                                      |     **Yes**      |
+| `copaw cron`     | `list` · `get` · `state` · `create` · `delete` · `pause` · `resume` · `run`          |     **Yes**      |
+| `copaw chats`    | `list` · `get` · `create` · `update` · `delete`                                      |     **Yes**      |
+| `copaw skills`   | `list` · `config`                                                                    |        No        |
+| `copaw clean`    | —                                                                                    |        No        |
 
 ---
 
@@ -582,4 +633,4 @@ See [Config & Working Directory](./config) and [Multi-Agent Workspace](./multi-a
 - [Heartbeat](./heartbeat) — Scheduled check-in / digest
 - [Skills](./skills) — Built-in and custom skills
 - [Config & Working Directory](./config) — Working directory and config.json
-- [Multi-Agent Workspace](./multi-agent) — Multi-agent setup and management
+- [Multi-Agent](./multi-agent) — Multi-agent setup, management, and collaboration

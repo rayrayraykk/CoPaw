@@ -6,6 +6,7 @@ export const i18n: Record<Lang, Record<string, string>> = {
     "nav.more": "更多",
     "nav.releaseNotes": "更新日志",
     "nav.download": "下载",
+    "nav.installGuide": "安装向导",
     "nav.github": "GitHub",
     "nav.githubComingSoon": "Coming Soon",
     "nav.lang": "EN",
@@ -33,6 +34,9 @@ export const i18n: Record<Lang, Record<string, string>> = {
     "features.private.title": "由你掌控",
     "features.private.desc":
       "记忆与个性化由你掌控，本地或云端均可；定时与协作发往指定频道。",
+    "features.multiagent.title": "多智能体",
+    "features.multiagent.desc":
+      "创建多个独立智能体，各司其职；启用协作技能，智能体间可互相通信协作。",
     "features.skills.title": "Skills 扩展",
     "features.skills.desc": "内置定时任务，自定义技能目录，CoPaw 自动加载。",
     "testimonials.title": "社区怎么说",
@@ -102,7 +106,8 @@ export const i18n: Record<Lang, Record<string, string>> = {
     "quickstart.cloud.aliyunDoc": "查看说明文档",
     "quickstart.cloud.modelscopeGo": "前往魔搭创空间",
     "quickstart.desktop.platforms": "支持平台",
-    "quickstart.desktop.downloadGithub": "前往 GitHub 下载",
+    "quickstart.desktop.downloadGithub": "从 GitHub 下载",
+    "quickstart.desktop.downloadCDN": "镜像下载",
     "quickstart.desktop.viewGuide": "查看使用指南",
     "quickstart.desktop.recommended": "推荐",
     "quickstart.badgeBeta": "Beta",
@@ -138,6 +143,7 @@ export const i18n: Record<Lang, Record<string, string>> = {
     "nav.more": "More",
     "nav.releaseNotes": "Release Notes",
     "nav.download": "Download",
+    "nav.installGuide": "Installation Guide",
     "nav.github": "GitHub",
     "nav.githubComingSoon": "Coming Soon",
     "nav.lang": "中文",
@@ -165,6 +171,9 @@ export const i18n: Record<Lang, Record<string, string>> = {
     "features.private.title": "Under your control",
     "features.private.desc":
       "Memory and personalization under your control. Deploy locally or in the cloud; scheduled reminders and collaboration to any channel.",
+    "features.multiagent.title": "Multi-Agent",
+    "features.multiagent.desc":
+      "Create multiple independent agents, each with their own specialty; enable collaboration skill for inter-agent communication.",
     "features.skills.title": "Skills",
     "features.skills.desc":
       "Built-in Cron; custom skills in your workspace, auto-loaded.",
@@ -240,6 +249,7 @@ export const i18n: Record<Lang, Record<string, string>> = {
     "quickstart.cloud.modelscopeGo": "Go to ModelScope Studio",
     "quickstart.desktop.platforms": "Supported Platforms",
     "quickstart.desktop.downloadGithub": "Download from GitHub",
+    "quickstart.desktop.downloadCDN": "Mirror Download",
     "quickstart.desktop.viewGuide": "View User Guide",
     "quickstart.desktop.recommended": "recommended",
     "quickstart.badgeBeta": "Beta",

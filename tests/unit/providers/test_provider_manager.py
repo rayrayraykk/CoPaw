@@ -9,9 +9,9 @@ import pytest
 
 import copaw.providers.provider_manager as provider_manager_module
 from copaw.providers.anthropic_provider import AnthropicProvider
-from copaw.providers.multimodal_prober import ProbeResult
+from copaw.providers.models import ModelSlotConfig
 from copaw.providers.openai_provider import OpenAIProvider
-from copaw.providers.provider import DefaultProvider, ModelInfo
+from copaw.providers.provider import ModelInfo
 from copaw.providers.provider_manager import ProviderManager
 
 
@@ -154,6 +154,55 @@ async def test_activate_provider_persists_active_model(
     assert reloaded.active_model is not None
     assert reloaded.active_model.provider_id == "openai"
     assert reloaded.active_model.model == "gpt-5"
+
+
+async def test_resume_local_model_restores_server_and_runtime_state(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+    model_id = "AgentScope/CoPaw-flash-2B-Q4_K_M"
+    manager.update_provider(
+        "copaw-local",
+        {
+            "base_url": "http://127.0.0.1:9000/v1",
+            "extra_models": [
+                {
+                    "id": model_id,
+                    "name": model_id,
+                },
+            ],
+        },
+    )
+    manager.active_model = ModelSlotConfig(
+        provider_id="copaw-local",
+        model=model_id,
+    )
+    manager.save_active_model(manager.active_model)
+
+    class FakeLocalManager:
+        def __init__(self) -> None:
+            self.restored_model_id = None
+
+        def check_llamacpp_installation(self) -> bool:
+            return True
+
+        def is_model_downloaded(self, requested_model_id: str) -> bool:
+            return requested_model_id == model_id
+
+        async def setup_server(self, requested_model_id: str) -> int:
+            self.restored_model_id = requested_model_id
+            return 43111
+
+    local_manager = FakeLocalManager()
+
+    await manager._resume_local_model(local_manager)
+
+    provider = manager.get_provider("copaw-local")
+
+    assert local_manager.restored_model_id == model_id
+    assert provider is not None
+    assert provider.base_url == "http://127.0.0.1:43111/v1"
+    assert [model.id for model in provider.extra_models] == [model_id]
 
 
 async def test_remove_custom_provider_missing_file_is_safe(
@@ -354,22 +403,6 @@ def test_provider_from_data_dispatch_to_anthropic(isolated_secret_dir) -> None:
     assert isinstance(provider, AnthropicProvider)
 
 
-def test_provider_from_data_dispatch_to_default_local(
-    isolated_secret_dir,
-) -> None:
-    manager = ProviderManager()
-
-    provider = manager._provider_from_data(
-        {
-            "id": "local-default",
-            "name": "Local Default",
-            "is_local": True,
-        },
-    )
-
-    assert isinstance(provider, DefaultProvider)
-
-
 def test_provider_from_data_fallback_to_openai(isolated_secret_dir) -> None:
     manager = ProviderManager()
 
@@ -438,280 +471,3 @@ def test_init_from_storage_migrates_with_different_provider(
     assert (
         manager.get_provider("ollama").base_url == "http://legacy-ollama:11434"
     )
-
-
-# ---------------------------------------------------------------------------
-# Task 9.2 — ProviderManager default annotation & discrepancy comparison tests
-# ---------------------------------------------------------------------------
-
-
-def _make_minimal_manager(monkeypatch, tmp_path):
-    """Create a ProviderManager with heavy __init__ patching so we can
-    test individual methods in isolation.
-
-    Returns (mgr, original_methods) where original_methods is a dict of
-    the real unpatched methods so tests can call them explicitly.
-    """
-    secret_dir = tmp_path / ".copaw.secret"
-    monkeypatch.setattr(provider_manager_module, "SECRET_DIR", secret_dir)
-
-    # Save originals before patching
-    _orig_apply = ProviderManager._apply_default_annotations
-
-    # Bypass the expensive __init__ side-effects
-    monkeypatch.setattr(
-        ProviderManager,
-        "_prepare_disk_storage",
-        lambda self: None,
-    )
-    monkeypatch.setattr(
-        ProviderManager,
-        "_init_builtins",
-        lambda self: None,
-    )
-    monkeypatch.setattr(
-        ProviderManager,
-        "_migrate_legacy_providers",
-        lambda self: None,
-    )
-    monkeypatch.setattr(
-        ProviderManager,
-        "_init_from_storage",
-        lambda self: None,
-    )
-    monkeypatch.setattr(
-        ProviderManager,
-        "_apply_default_annotations",
-        lambda self: None,
-    )
-    monkeypatch.setattr(
-        ProviderManager,
-        "update_local_models",
-        lambda self: None,
-    )
-
-    mgr = ProviderManager()
-    return mgr, {"_apply_default_annotations": _orig_apply}
-
-
-def test_apply_default_annotations_sets_documentation_probe_source(
-    monkeypatch,
-    tmp_path,
-):
-    """_apply_default_annotations should set probe_source='documentation'
-    and populate capability fields from the registry for models whose
-    supports_multimodal is None."""
-    mgr, originals = _make_minimal_manager(monkeypatch, tmp_path)
-
-    # Set up a builtin provider with supports_multimodal=None
-    # openai/gpt-4o: expected_image=True, expected_video=True
-
-    model = ModelInfo(id="gpt-4o", name="GPT-4o")
-    assert model.supports_multimodal is None  # precondition
-
-    provider = OpenAIProvider(
-        id="openai",
-        name="OpenAI",
-        base_url="https://api.openai.com/v1",
-        models=[model],
-    )
-    mgr.builtin_providers = {"openai": provider}
-
-    # Call the real (unpatched) method
-    originals["_apply_default_annotations"](mgr)
-
-    assert model.probe_source == "documentation"
-    assert model.supports_image is True
-    assert model.supports_video is True
-    assert model.supports_multimodal is True
-
-
-def test_apply_default_annotations_skips_already_probed_models(
-    monkeypatch,
-    tmp_path,
-):
-    """Models with supports_multimodal already set (not None) should NOT
-    be overwritten by _apply_default_annotations."""
-    mgr, originals = _make_minimal_manager(monkeypatch, tmp_path)
-
-    model = ModelInfo(
-        id="gpt-4o",
-        name="GPT-4o",
-        supports_multimodal=True,
-        supports_image=True,
-        supports_video=True,
-        probe_source="probed",
-    )
-
-    provider = OpenAIProvider(
-        id="openai",
-        name="OpenAI",
-        base_url="https://api.openai.com/v1",
-        models=[model],
-    )
-    mgr.builtin_providers = {"openai": provider}
-
-    originals["_apply_default_annotations"](mgr)
-
-    # Nothing should have changed
-    assert model.probe_source == "probed"
-    assert model.supports_image is True
-    assert model.supports_video is True
-    assert model.supports_multimodal is True
-
-
-async def test_probe_model_multimodal_sets_probed_source(
-    monkeypatch,
-    tmp_path,
-):
-    """After calling ProviderManager.probe_model_multimodal, the model's
-    probe_source should be set to 'probed'."""
-    mgr, _ = _make_minimal_manager(monkeypatch, tmp_path)
-
-    model = ModelInfo(id="gpt-4o", name="GPT-4o")
-    provider = OpenAIProvider(
-        id="openai",
-        name="OpenAI",
-        base_url="https://api.openai.com/v1",
-        models=[model],
-    )
-    mgr.builtin_providers = {"openai": provider}
-
-    # Mock the provider-level probe to return a known result
-    async def fake_probe(self_prov, model_id, timeout=10):
-        return ProbeResult(
-            supports_image=True,
-            supports_video=False,
-            image_message="ok",
-            video_message="not supported",
-        )
-
-    monkeypatch.setattr(OpenAIProvider, "probe_model_multimodal", fake_probe)
-    monkeypatch.setattr(
-        ProviderManager,
-        "_save_provider",
-        lambda self, *a, **kw: None,
-    )
-
-    result = await mgr.probe_model_multimodal("openai", "gpt-4o")
-
-    assert model.probe_source == "probed"
-    assert model.supports_image is True
-    assert model.supports_video is False
-    assert model.supports_multimodal is True
-    assert result["supports_image"] is True
-    assert result["supports_video"] is False
-
-
-async def test_probe_model_multimodal_logs_discrepancy_warning(
-    monkeypatch,
-    tmp_path,
-    caplog,
-):
-    """When probe result differs from expected baseline, a WARNING log
-    should be emitted."""
-    import logging
-
-    mgr, _ = _make_minimal_manager(monkeypatch, tmp_path)
-
-    # openai/gpt-4o expects image=True, video=False
-    # We'll return image=False to trigger a discrepancy
-    model = ModelInfo(id="gpt-4o", name="GPT-4o")
-    provider = OpenAIProvider(
-        id="openai",
-        name="OpenAI",
-        base_url="https://api.openai.com/v1",
-        models=[model],
-    )
-    mgr.builtin_providers = {"openai": provider}
-
-    async def fake_probe(self_prov, model_id, timeout=10):
-        return ProbeResult(
-            supports_image=False,
-            supports_video=False,
-            image_message="not supported",
-            video_message="not supported",
-        )
-
-    monkeypatch.setattr(OpenAIProvider, "probe_model_multimodal", fake_probe)
-    monkeypatch.setattr(
-        ProviderManager,
-        "_save_provider",
-        lambda self, *a, **kw: None,
-    )
-
-    # Enable propagation so caplog can capture log records
-    copaw_logger = logging.getLogger("copaw")
-    monkeypatch.setattr(copaw_logger, "propagate", True)
-
-    with caplog.at_level(
-        logging.WARNING,
-        logger="copaw.providers.provider_manager",
-    ):
-        await mgr.probe_model_multimodal("openai", "gpt-4o")
-
-    # Should have a warning about the image discrepancy
-    warning_messages = [
-        r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING
-    ]
-    assert any(
-        "Probe discrepancy" in msg and "image" in msg
-        for msg in warning_messages
-    ), f"Expected a discrepancy warning about 'image', got: {warning_messages}"
-
-
-async def test_probe_model_multimodal_no_warning_when_matching(
-    monkeypatch,
-    tmp_path,
-    caplog,
-):
-    """When probe result matches expected baseline, no WARNING log should
-    be emitted."""
-    import logging
-
-    mgr, _ = _make_minimal_manager(monkeypatch, tmp_path)
-
-    # openai/gpt-4o expects image=True, video=True — return matching values
-    model = ModelInfo(id="gpt-4o", name="GPT-4o")
-    provider = OpenAIProvider(
-        id="openai",
-        name="OpenAI",
-        base_url="https://api.openai.com/v1",
-        models=[model],
-    )
-    mgr.builtin_providers = {"openai": provider}
-
-    async def fake_probe(self_prov, model_id, timeout=10):
-        return ProbeResult(
-            supports_image=True,
-            supports_video=True,
-            image_message="ok",
-            video_message="ok",
-        )
-
-    monkeypatch.setattr(OpenAIProvider, "probe_model_multimodal", fake_probe)
-    monkeypatch.setattr(
-        ProviderManager,
-        "_save_provider",
-        lambda self, *a, **kw: None,
-    )
-
-    # Enable propagation so caplog can capture log records
-    copaw_logger = logging.getLogger("copaw")
-    monkeypatch.setattr(copaw_logger, "propagate", True)
-
-    with caplog.at_level(
-        logging.WARNING,
-        logger="copaw.providers.provider_manager",
-    ):
-        await mgr.probe_model_multimodal("openai", "gpt-4o")
-
-    warning_messages = [
-        r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING
-    ]
-    discrepancy_warnings = [
-        m for m in warning_messages if "Probe discrepancy" in m
-    ]
-    assert (
-        len(discrepancy_warnings) == 0
-    ), f"Expected no discrepancy warnings, got: {discrepancy_warnings}"
