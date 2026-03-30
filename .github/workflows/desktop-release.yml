@@ -207,21 +207,25 @@ jobs:
           # Upload file (versioned)
           ossutil cp "$WIN_EXE" \
             "oss://copaw-download/files/apps/desktop/win/CoPaw-Setup-${VERSION}.exe" \
+            --acl public-read \
             --force
 
           # Upload file (latest)
           ossutil cp "$WIN_EXE" \
             "oss://copaw-download/files/apps/desktop/win/CoPaw-Setup-latest.exe" \
+            --acl public-read \
             --force
 
           # Upload metadata (versioned)
           ossutil cp win-metadata.json \
             "oss://copaw-download/metadata/apps/desktop/win/CoPaw-Setup-${VERSION}.exe.json" \
+            --acl public-read \
             --force
 
           # Upload metadata (latest)
           ossutil cp win-metadata.json \
             "oss://copaw-download/metadata/apps/desktop/win/CoPaw-Setup-latest.exe.json" \
+            --acl public-read \
             --force
 
           echo "✓ Windows artifacts uploaded"
@@ -250,21 +254,25 @@ jobs:
           # Upload file (versioned)
           ossutil cp "$MAC_ZIP" \
             "oss://copaw-download/files/apps/desktop/mac/CoPaw-${VERSION}-macOS.zip" \
+            --acl public-read \
             --force
 
           # Upload file (latest)
           ossutil cp "$MAC_ZIP" \
             "oss://copaw-download/files/apps/desktop/mac/CoPaw-latest-macOS.zip" \
+            --acl public-read \
             --force
 
           # Upload metadata (versioned)
           ossutil cp mac-metadata.json \
             "oss://copaw-download/metadata/apps/desktop/mac/CoPaw-${VERSION}-macOS.zip.json" \
+            --acl public-read \
             --force
 
           # Upload metadata (latest)
           ossutil cp mac-metadata.json \
             "oss://copaw-download/metadata/apps/desktop/mac/CoPaw-latest-macOS.zip.json" \
+            --acl public-read \
             --force
 
           echo "✓ macOS artifacts uploaded"
@@ -311,15 +319,10 @@ jobs:
           # Upload updated desktop/index.json
           ossutil cp desktop-index.json \
             "oss://copaw-download/metadata/apps/desktop/index.json" \
+            --acl public-read \
             --force
 
           echo "✓ Desktop index updated"
-
-      - name: Set public read permissions
-        run: |
-          ossutil set-acl oss://copaw-download/files/ public-read -r
-          ossutil set-acl oss://copaw-download/metadata/ public-read -r
-          echo "✓ Public read permissions set"
 
       - name: Update main index
         run: |
@@ -359,6 +362,7 @@ jobs:
           # Upload main index
           ossutil cp main-index.json \
             "oss://copaw-download/metadata/index.json" \
+            --acl public-read \
             --force
 
           echo "✓ Main index updated"

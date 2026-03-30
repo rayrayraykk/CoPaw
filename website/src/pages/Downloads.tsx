@@ -165,12 +165,19 @@ export function Downloads({ config, lang, onLangClick }: DownloadsProps) {
       try {
         const CDN_BASE = "https://download.copaw.agentscope.io";
 
+        console.log(
+          "Fetching main index from:",
+          `${CDN_BASE}/metadata/index.json`,
+        );
         const mainIndexResponse = await fetchWithRetry(
           `${CDN_BASE}/metadata/index.json`,
         );
 
+        console.log("Main index response status:", mainIndexResponse.status);
+
         if (!mainIndexResponse.ok) {
           if (mainIndexResponse.status === 404) {
+            console.warn("Main index not found (404)");
             setIsEmpty(true);
             setLoading(false);
             return;
@@ -179,18 +186,37 @@ export function Downloads({ config, lang, onLangClick }: DownloadsProps) {
         }
 
         const mainIndex: MainIndex = await mainIndexResponse.json();
+        console.log("Main index data:", mainIndex);
 
-        if (mainIndex.products.desktop) {
-          const desktopIndexResponse = await fetchWithRetry(
-            `${CDN_BASE}${mainIndex.products.desktop.index_url}`,
+        let hasDesktopData = false;
+
+        if (mainIndex.products?.desktop) {
+          const desktopIndexUrl = `${CDN_BASE}${mainIndex.products.desktop.index_url}`;
+          console.log("Fetching desktop index from:", desktopIndexUrl);
+
+          const desktopIndexResponse = await fetchWithRetry(desktopIndexUrl);
+          console.log(
+            "Desktop index response status:",
+            desktopIndexResponse.status,
           );
+
           if (desktopIndexResponse.ok) {
             const desktopData: DesktopIndex = await desktopIndexResponse.json();
+            console.log("Desktop index data:", desktopData);
             setDesktopIndex(desktopData);
+            hasDesktopData = true;
+          } else {
+            console.warn(
+              "Desktop index fetch failed with status:",
+              desktopIndexResponse.status,
+            );
           }
+        } else {
+          console.warn("No desktop product found in main index");
         }
 
-        if (!mainIndex.products.desktop) {
+        if (!hasDesktopData) {
+          console.warn("No desktop data available, showing empty state");
           setIsEmpty(true);
         }
 
