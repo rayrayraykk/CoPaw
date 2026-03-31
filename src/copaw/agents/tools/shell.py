@@ -102,7 +102,16 @@ def _execute_subprocess_sync(
 
     try:
         cmd = _sanitize_win_cmd(cmd)
-        wrapped = f'cmd /D /S /C "{cmd}"'
+        # Pass ``cmd`` as one argv token after ``/C``, not ``cmd /C "..."``.
+        # Wrapping the whole string in extra quotes breaks on embedded
+        # newlines / nested quotes (e.g. GitHub issue #2481).
+        cmd_argv = [
+            os.environ.get("COMSPEC", "cmd.exe"),
+            "/D",
+            "/S",
+            "/C",
+            cmd,
+        ]
 
         stdout_fd, stdout_path = tempfile.mkstemp(prefix="copaw_out_")
         stderr_fd, stderr_path = tempfile.mkstemp(prefix="copaw_err_")
@@ -110,7 +119,7 @@ def _execute_subprocess_sync(
         stderr_file = os.fdopen(stderr_fd, "wb")
 
         proc = subprocess.Popen(  # pylint: disable=consider-using-with
-            wrapped,
+            cmd_argv,
             shell=False,
             stdout=stdout_file,
             stderr=stderr_file,
