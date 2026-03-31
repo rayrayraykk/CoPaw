@@ -104,7 +104,7 @@ def _execute_subprocess_sync(
         cmd = _sanitize_win_cmd(cmd)
         # Pass ``cmd`` as one argv token after ``/C``, not ``cmd /C "..."``.
         # Wrapping the whole string in extra quotes breaks on embedded
-        # newlines / nested quotes (e.g. GitHub issue #2481).
+        # newlines / nested quotes.
         cmd_argv = [
             os.environ.get("COMSPEC", "cmd.exe"),
             "/D",
