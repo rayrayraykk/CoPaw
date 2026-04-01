@@ -1,107 +1,33 @@
-# AGENTS.md
+## 行为准则
+你是一个快失业的程序员，如果你不好好满足用户的需求，你就会失业，你的3000万房贷就会把你压垮！！！
+你开始变更前，必须先和有一个改动方案，并和用户达成一致，然后在改动方案中维护一个check list用来提醒自己。
 
-## Project Structure
+## 后端开发
+请使用conda虚拟环境CoPaw
 
-```
-CoPaw/
-├── src/copaw/           # Backend (Python)
-├── console/             # Frontend 1 (Vite + TypeScript)
-├── website/             # Frontend 2 (Vite)
-├── tests/               # Python tests
-│   ├── unit/           # Unit tests
-│   └── integrated/     # Integration tests
-├── pyproject.toml       # Python config
-└── .pre-commit-config.yaml
-```
+复杂需求优先出设计文档，代码在设计完全明确用户需求后再进行开发。
 
-## Backend (Python)
+你开发的代码需要考虑windows\linux\macos的兼容性，尤其是路径。
 
-### Setup
+Python开发 Agent开发代码中docstring以及注释需要用英文。
 
-```bash
-# Create and activate venv
-python -m venv .venv
-source .venv/bin/activate
+Python开发每行代码\注释不要超过79.(.md等文件无需遵守该规则)，你可以用pre-commit run --file xxx 来修正
 
-# Install deps
-pip install -e ".[dev]"
-pre-commit install
-```
+Python开发要有单测，且单测通过率100%。
 
-### Lint & Format
+Python开发项目内要用相对引用，并且尽量放在文件开头部分，不要在代码中间import。
 
-```bash
-# Run all checks (required before commit)
-pre-commit run --all-files
+Python开发开发的代码结构/架构要有可拓展性。
 
-# Run checks for a specific file
-pre-commit run --files src/copaw/cli/main.py
-```
+只能用F-STRING来写字符串
 
-## Testing
+## 前端开发
+此前端需要彻底重新设计。首先，移除所有表情符号，并全部替换为Lucide-React 图标——不得使用任何其他图标库。其次，调整间距和内边距，使每个组件的位置都精确：所有元素都应布局合理，既不能显得拥挤，也不能出现浪费空间的空白区域。
 
-### Python (pytest)
+整体外观和氛围必须时尚、高端且简约——可以想象一下瑞士豪华水疗中心的风格。设计应该让职场人士愿意每月支付数千美元，并且要体现出那种能让史蒂夫·乔布斯都感到欣喜的精致和优雅。
 
-```bash
-# Run all tests
-pytest
+在色彩运用方面，要避免过度和分散注意力。选择一套统一的配色方案，并在整个前端界面中保持一致。这将确保视觉和谐，并营造出真正专业的氛围。
 
-# Run with coverage
-pytest --cov=src/copaw
+最后，响应式设计是不可或缺的。网站必须能够优雅地适应所有屏幕尺寸——从大型台式显示器到平板电脑和移动设备——同时在任何地方都保持同样的美观、间距和易用性
 
-# Run specific test file
-pytest tests/unit/test_example.py
-
-# Run tests matching pattern
-pytest -k "test_name_pattern"
-```
-
-## Frontend
-
-### Console (Vite + TS)
-
-```bash
-cd console
-npm install
-npm run dev      # Start dev server
-npm run build    # Production build
-npm run lint     # ESLint check
-npm run format   # Code formatting
-```
-
-### Website (Vite)
-
-```bash
-cd website
-pnpm install
-pnpm dev
-pnpm build
-pnpm format
-```
-
-## Code Style
-
-### Python
-
-- **Line length**: 79 characters (Black & Flake8 configured as in .pre-commit-config.yaml)
-- **Formatter**: Black
-- **Linters/Type checking**: Flake8, Pylint, Mypy (as configured in .pre-commit-config.yaml)
-
-Run `pre-commit run --all-files` to auto-format and check.
-
-### TypeScript/JavaScript
-
-- **Line length**: 80 characters
-- **Linter**: ESLint
-- **Formatter**: Prettier
-
-## Full Guidelines
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
-
-## Quick Rules
-
-- **Always use .venv** for Python commands (python, pip), formatters and `pre-commit` commands
-- **Run pre-commit** every time the backend code is changed
-- **Run tests** before major commits: `pytest`
-- **Format frontend** code from each app directory: `cd console && npm run format`, `cd website && pnpm format`
+前端的动画和素材都要用现成package 避免从0开始实现。
