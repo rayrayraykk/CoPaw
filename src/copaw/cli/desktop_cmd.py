@@ -216,40 +216,27 @@ def _create_loading_html(
             font-size: 12px;
             opacity: 0.35;
             font-weight: 400;
-            margin-bottom: 48px;
+            margin-bottom: 32px;
         }}
 
-        .tips-container {{
-            display: flex;
-            gap: 12px;
-            justify-content: center;
-            flex-wrap: wrap;
-            max-width: 600px;
-            margin: 0 auto;
-        }}
-
-        .tip-card {{
-            background: rgba(255, 127, 22, 0.08);
-            border: 1px solid rgba(255, 127, 22, 0.15);
-            border-radius: 8px;
-            padding: 12px 16px;
-            cursor: pointer;
-            transition: all 0.2s ease;
+        .tip-text {{
             font-size: 13px;
-            color: rgba(0, 0, 0, 0.75);
-            display: flex;
-            align-items: center;
-            gap: 8px;
+            color: rgba(0, 0, 0, 0.55);
+            text-align: center;
+            min-height: 20px;
+            transition: opacity 0.3s ease;
         }}
 
-        .tip-card:hover {{
-            background: rgba(255, 127, 22, 0.12);
-            border-color: rgba(255, 127, 22, 0.25);
-            transform: translateY(-2px);
+        .tip-link {{
+            color: #FF7F16;
+            text-decoration: none;
+            cursor: pointer;
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.2s ease;
         }}
 
-        .tip-icon {{
-            font-size: 16px;
+        .tip-link:hover {{
+            border-bottom-color: #FF7F16;
         }}
 
         .fade-out {{
@@ -293,43 +280,72 @@ def _create_loading_html(
         <div class="progress-text" id="progress-text">Initializing...</div>
         <div class="elapsed-time" id="elapsed-time">0s</div>
 
-        <div class="tips-container">
-            <div class="tip-card" onclick="openDocs('quickstart')">
-                <span class="tip-icon">🚀</span>
-                <span>Quick Start</span>
-            </div>
-            <div class="tip-card" onclick="openDocs('console')">
-                <span class="tip-icon">💻</span>
-                <span>Console Guide</span>
-            </div>
-            <div class="tip-card" onclick="openDocs('channels')">
-                <span class="tip-icon">📱</span>
-                <span>Connect Channels</span>
-            </div>
-            <div class="tip-card" onclick="openDocs('skills')">
-                <span class="tip-icon">⚡</span>
-                <span>Explore Skills</span>
-            </div>
-        </div>
+        <div class="tip-text" id="tip-text"></div>
     </div>
 
     <script>
         let progress = 0;
         let backendReady = false;
         const startTime = Date.now();
+        let currentTipIndex = 0;
 
-        function openDocs(section) {{
-            const baseUrl = 'https://copaw.agentscope.io/docs/';
-            const urls = {{
-                'quickstart': baseUrl + 'quickstart',
-                'console': baseUrl + 'console',
-                'channels': baseUrl + 'channels',
-                'skills': baseUrl + 'skills'
-            }};
-            if (urls[section]) {{
-                window.open(urls[section], '_blank');
+        const tips = [
+            {{
+                text: '你可以在<a class="tip-link" href="#" \
+data-url="https://copaw.agentscope.io/docs/quickstart">\
+快速开始</a>查看安装和配置指南',
+            }},
+            {{
+                text: '访问<a class="tip-link" href="#" \
+data-url="https://copaw.agentscope.io/docs/console">\
+控制台文档</a>了解如何使用Web界面',
+            }},
+            {{
+                text: '在<a class="tip-link" href="#" \
+data-url="https://copaw.agentscope.io/docs/channels">\
+频道配置</a>中接入钉钉、飞书等应用',
+            }},
+            {{
+                text: '浏览<a class="tip-link" href="#" \
+data-url="https://copaw.agentscope.io/docs/skills">\
+技能文档</a>探索CoPaw的各种能力',
+            }},
+            {{
+                text: '查看<a class="tip-link" href="#" \
+data-url="https://copaw.agentscope.io/docs/models">\
+模型配置</a>了解如何设置API Key或本地模型',
+            }},
+        ];
+
+        function openInBrowser(url) {{
+            if (window.pywebview && window.pywebview.api) {{
+                window.pywebview.api.open_external_link(url);
+            }} else {{
+                window.open(url, '_blank');
             }}
         }}
+
+        function updateTip() {{
+            const tipElement = document.getElementById('tip-text');
+            tipElement.style.opacity = '0';
+
+            setTimeout(() => {{
+                tipElement.innerHTML = tips[currentTipIndex].text;
+                const links = tipElement.querySelectorAll('.tip-link');
+                links.forEach(link => {{
+                    link.addEventListener('click', (e) => {{
+                        e.preventDefault();
+                        const url = e.target.getAttribute('data-url');
+                        openInBrowser(url);
+                    }});
+                }});
+                tipElement.style.opacity = '1';
+                currentTipIndex = (currentTipIndex + 1) % tips.length;
+            }}, 300);
+        }}
+
+        updateTip();
+        setInterval(updateTip, 5000);
 
         function updateElapsed() {{
             const elapsed = Math.floor((Date.now() - startTime) / 1000);
