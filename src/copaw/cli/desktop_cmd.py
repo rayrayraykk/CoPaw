@@ -216,6 +216,40 @@ def _create_loading_html(
             font-size: 12px;
             opacity: 0.35;
             font-weight: 400;
+            margin-bottom: 48px;
+        }}
+
+        .tips-container {{
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            flex-wrap: wrap;
+            max-width: 600px;
+            margin: 0 auto;
+        }}
+
+        .tip-card {{
+            background: rgba(255, 127, 22, 0.08);
+            border: 1px solid rgba(255, 127, 22, 0.15);
+            border-radius: 8px;
+            padding: 12px 16px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-size: 13px;
+            color: rgba(0, 0, 0, 0.75);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }}
+
+        .tip-card:hover {{
+            background: rgba(255, 127, 22, 0.12);
+            border-color: rgba(255, 127, 22, 0.25);
+            transform: translateY(-2px);
+        }}
+
+        .tip-icon {{
+            font-size: 16px;
         }}
 
         .fade-out {{
@@ -258,12 +292,44 @@ def _create_loading_html(
         </div>
         <div class="progress-text" id="progress-text">Initializing...</div>
         <div class="elapsed-time" id="elapsed-time">0s</div>
+
+        <div class="tips-container">
+            <div class="tip-card" onclick="openDocs('quickstart')">
+                <span class="tip-icon">🚀</span>
+                <span>Quick Start</span>
+            </div>
+            <div class="tip-card" onclick="openDocs('console')">
+                <span class="tip-icon">💻</span>
+                <span>Console Guide</span>
+            </div>
+            <div class="tip-card" onclick="openDocs('channels')">
+                <span class="tip-icon">📱</span>
+                <span>Connect Channels</span>
+            </div>
+            <div class="tip-card" onclick="openDocs('skills')">
+                <span class="tip-icon">⚡</span>
+                <span>Explore Skills</span>
+            </div>
+        </div>
     </div>
 
     <script>
         let progress = 0;
         let backendReady = false;
         const startTime = Date.now();
+
+        function openDocs(section) {{
+            const baseUrl = 'https://copaw.agentscope.io/docs/';
+            const urls = {{
+                'quickstart': baseUrl + 'quickstart',
+                'console': baseUrl + 'console',
+                'channels': baseUrl + 'channels',
+                'skills': baseUrl + 'skills'
+            }};
+            if (urls[section]) {{
+                window.open(urls[section], '_blank');
+            }}
+        }}
 
         function updateElapsed() {{
             const elapsed = Math.floor((Date.now() - startTime) / 1000);
