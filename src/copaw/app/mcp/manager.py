@@ -10,12 +10,19 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import sys
 from typing import Any, Dict, List, TYPE_CHECKING
 
 from agentscope.mcp import HttpStatefulClient, StdIOStatefulClient
 
 if TYPE_CHECKING:
     from ...config.config import MCPClientConfig, MCPConfig
+
+# Python 3.10 compatibility: asyncio.timeout() is only available in 3.11+
+if sys.version_info >= (3, 11):
+    from asyncio import timeout as asyncio_timeout
+else:
+    from async_timeout import timeout as asyncio_timeout
 
 logger = logging.getLogger(__name__)
 
@@ -96,8 +103,10 @@ class MCPClientManager:
         new_client = self._build_client(client_config)
 
         try:
-            # Add timeout to prevent indefinite blocking
-            await asyncio.wait_for(new_client.connect(), timeout=timeout)
+            # Use asyncio.timeout() instead of wait_for() to avoid task
+            # boundary issues with AsyncExitStack (Issue #2960)
+            async with asyncio_timeout(timeout):
+                await new_client.connect()
         except BaseException:
             await self._force_cleanup_client(new_client)
             raise
@@ -115,6 +124,9 @@ class MCPClientManager:
                     logger.warning(
                         f"Error closing old MCP client '{key}': {e}",
                     )
+                    # Fallback: force cleanup if normal close fails
+                    # This handles clients connected with old code
+                    await self._force_cleanup_client(old_client)
             else:
                 logger.debug(f"Added new MCP client: {key}")
 
@@ -133,6 +145,8 @@ class MCPClientManager:
                 await old_client.close()
             except Exception as e:
                 logger.warning(f"Error closing MCP client '{key}': {e}")
+                # Fallback: force cleanup if normal close fails
+                await self._force_cleanup_client(old_client)
 
     async def close_all(self) -> None:
         """Close all MCP clients.
@@ -150,6 +164,8 @@ class MCPClientManager:
                     await client.close()
                 except Exception as e:
                     logger.warning(f"Error closing MCP client '{key}': {e}")
+                    # Fallback: force cleanup if normal close fails
+                    await self._force_cleanup_client(client)
 
     async def _add_client(
         self,
@@ -167,7 +183,10 @@ class MCPClientManager:
         client = self._build_client(client_config)
 
         try:
-            await asyncio.wait_for(client.connect(), timeout=timeout)
+            # Use asyncio.timeout() instead of wait_for() to avoid task
+            # boundary issues with AsyncExitStack (Issue #2960)
+            async with asyncio_timeout(timeout):
+                await client.connect()
         except BaseException:
             await self._force_cleanup_client(client)
             raise
