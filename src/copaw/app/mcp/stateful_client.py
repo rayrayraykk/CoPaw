@@ -47,8 +47,8 @@ class StdIOStatefulClient:
 
     def __init__(
         self,
-        name: str,
-        command: str,
+        name: Any,
+        command: Any,
         args: list[str] | None = None,
         env: dict[str, str] | None = None,
         cwd: str | None = None,
@@ -69,7 +69,17 @@ class StdIOStatefulClient:
             cwd: The working directory to use when spawning the process
             encoding: The text encoding used when sending/receiving messages
             encoding_error_handler: The text encoding error handler
+
+        Raises:
+            TypeError: If name or command is not a string
         """
+        if not isinstance(name, str):
+            raise TypeError(f"name must be str, got {type(name).__name__}")
+        if not isinstance(command, str):
+            raise TypeError(
+                f"command must be str, got {type(command).__name__}",
+            )
+
         self.name = name
         self.server_params = StdioServerParameters(
             command=command,
@@ -315,9 +325,9 @@ class HttpStatefulClient:
 
     def __init__(
         self,
-        name: str,
-        transport: Literal["streamable_http", "sse"],
-        url: str,
+        name: Any,
+        transport: Any,
+        url: Any,
         headers: dict[str, str] | None = None,
         timeout: float = 30,
         sse_read_timeout: float = 60 * 5,
@@ -333,7 +343,25 @@ class HttpStatefulClient:
             timeout: The timeout for the HTTP request in seconds
             sse_read_timeout: The timeout for reading SSE in seconds
             **client_kwargs: Additional keyword arguments for the client
+
+        Raises:
+            TypeError: If name, transport, or url is not a string
+            ValueError: If transport is not "streamable_http" or "sse"
         """
+        if not isinstance(name, str):
+            raise TypeError(f"name must be str, got {type(name).__name__}")
+        if not isinstance(transport, str):
+            raise TypeError(
+                f"transport must be str, got {type(transport).__name__}",
+            )
+        if transport not in ["streamable_http", "sse"]:
+            raise ValueError(
+                f"transport must be 'streamable_http' or 'sse', "
+                f"got {transport!r}",
+            )
+        if not isinstance(url, str):
+            raise TypeError(f"url must be str, got {type(url).__name__}")
+
         self.name = name
         self.transport = transport
         self.url = url

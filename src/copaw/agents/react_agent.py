@@ -621,8 +621,7 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         try:
             if transport == "stdio":
                 rebuilt_client = StdIOStatefulClient(
-                    name=name,  # type: ignore[arg-type]
-                    # type: ignore[arg-type]
+                    name=name,
                     command=rebuild_info.get("command"),
                     args=rebuild_info.get("args", []),
                     env=rebuild_info.get("env", {}),
@@ -638,9 +637,9 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
                 else None
             )
             rebuilt_client = HttpStatefulClient(
-                name=name,  # type: ignore[arg-type]
-                transport=transport,  # type: ignore[arg-type]
-                url=rebuild_info.get("url"),  # type: ignore[arg-type]
+                name=name,
+                transport=transport,
+                url=rebuild_info.get("url"),
                 headers=headers,
             )
             setattr(rebuilt_client, "_copaw_rebuild_info", rebuild_info)
