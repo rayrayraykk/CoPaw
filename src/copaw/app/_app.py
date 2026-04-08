@@ -266,6 +266,27 @@ async def lifespan(
     app.state.plugin_loader = plugin_loader
     app.state.plugin_registry = plugin_loader.registry
 
+    # ==================== Execute Startup Hooks ====================
+    logger.info("Executing plugin startup hooks...")
+    startup_hooks = plugin_loader.registry.get_startup_hooks()
+    for hook in startup_hooks:
+        try:
+            logger.info(
+                f"Executing startup hook '{hook.hook_name}' "
+                f"from plugin '{hook.plugin_id}' (priority={hook.priority})",
+            )
+            hook.callback()
+            logger.info(
+                f"✓ Completed startup hook '{hook.hook_name}' "
+                f"from plugin '{hook.plugin_id}'",
+            )
+        except Exception as e:
+            logger.error(
+                f"✗ Failed to execute startup hook '{hook.hook_name}' "
+                f"from plugin '{hook.plugin_id}': {e}",
+                exc_info=True,
+            )
+
     # Setup approval service with default agent's channel_manager
     default_agent = await multi_agent_manager.get_agent("default")
     if default_agent.channel_manager:
@@ -283,6 +304,31 @@ async def lifespan(
     try:
         yield
     finally:
+        # ==================== Execute Shutdown Hooks ====================
+        plugin_registry = getattr(app.state, "plugin_registry", None)
+        if plugin_registry is not None:
+            logger.info("Executing plugin shutdown hooks...")
+            shutdown_hooks = plugin_registry.get_shutdown_hooks()
+            for hook in shutdown_hooks:
+                try:
+                    logger.info(
+                        f"Executing shutdown hook '{hook.hook_name}' "
+                        f"from plugin '{hook.plugin_id}' (priority"
+                        f"={hook.priority})",
+                    )
+                    hook.callback()
+                    logger.info(
+                        f"✓ Completed shutdown hook '{hook.hook_name}' "
+                        f"from plugin '{hook.plugin_id}'",
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"✗ Failed to execute shutdown hook "
+                        f"'{hook.hook_name}' "
+                        f"from plugin '{hook.plugin_id}': {e}",
+                        exc_info=True,
+                    )
+
         local_model_mgr = getattr(app.state, "local_model_manager", None)
         if local_model_mgr is not None:
             logger.info("Stopping local model server...")

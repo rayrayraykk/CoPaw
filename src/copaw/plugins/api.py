@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Plugin API for plugin developers."""
 
-from typing import Any, Dict, Type
+from typing import Any, Callable, Dict, Type
 import logging
 
 logger = logging.getLogger(__name__)
@@ -84,6 +84,70 @@ class PluginApi:
             logger.info(
                 f"Plugin '{self.plugin_id}' registered provider "
                 f"'{provider_id}'",
+            )
+
+    def register_startup_hook(
+        self,
+        hook_name: str,
+        callback: Callable,
+        priority: int = 100,
+    ):
+        """Register a startup hook.
+
+        Args:
+            hook_name: Unique hook identifier
+            callback: Async or sync function to call on startup
+            priority: Execution priority (lower = earlier, default=100)
+
+        Example:
+            >>> api.register_startup_hook(
+            ...     hook_name="init_sdk",
+            ...     callback=self.on_startup,
+            ...     priority=0,  # Execute first
+            ... )
+        """
+        if self._registry:
+            self._registry.register_startup_hook(
+                plugin_id=self.plugin_id,
+                hook_name=hook_name,
+                callback=callback,
+                priority=priority,
+            )
+            logger.info(
+                f"Plugin '{self.plugin_id}' registered startup hook "
+                f"'{hook_name}' (priority={priority})",
+            )
+
+    def register_shutdown_hook(
+        self,
+        hook_name: str,
+        callback: Callable,
+        priority: int = 100,
+    ):
+        """Register a shutdown hook.
+
+        Args:
+            hook_name: Unique hook identifier
+            callback: Async or sync function to call on shutdown
+            priority: Execution priority (lower = earlier, default=100)
+
+        Example:
+            >>> api.register_shutdown_hook(
+            ...     hook_name="cleanup_sdk",
+            ...     callback=self.on_shutdown,
+            ...     priority=100,
+            ... )
+        """
+        if self._registry:
+            self._registry.register_shutdown_hook(
+                plugin_id=self.plugin_id,
+                hook_name=hook_name,
+                callback=callback,
+                priority=priority,
+            )
+            logger.info(
+                f"Plugin '{self.plugin_id}' registered shutdown hook "
+                f"'{hook_name}' (priority={priority})",
             )
 
     @property

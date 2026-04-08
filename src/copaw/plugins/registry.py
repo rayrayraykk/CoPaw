@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Central plugin registry."""
 
-from typing import Any, Dict, Optional, Type
+from typing import Any, Callable, Dict, List, Optional, Type
 from dataclasses import dataclass, field
 import logging
 
@@ -18,6 +18,16 @@ class ProviderRegistration:
     label: str
     base_url: str
     metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class HookRegistration:
+    """Hook registration record."""
+
+    plugin_id: str
+    hook_name: str
+    callback: Callable
+    priority: int = 100
 
 
 class PluginRegistry:
@@ -44,6 +54,8 @@ class PluginRegistry:
             return
 
         self._providers: Dict[str, ProviderRegistration] = {}
+        self._startup_hooks: List[HookRegistration] = []
+        self._shutdown_hooks: List[HookRegistration] = []
         self._runtime_helpers = None
 
         self._initialized = True
@@ -123,3 +135,77 @@ class PluginRegistry:
             RuntimeHelpers instance or None
         """
         return self._runtime_helpers
+
+    def register_startup_hook(
+        self,
+        plugin_id: str,
+        hook_name: str,
+        callback: Callable,
+        priority: int = 100,
+    ):
+        """Register a startup hook.
+
+        Args:
+            plugin_id: Plugin identifier
+            hook_name: Hook name
+            callback: Callback function
+            priority: Priority (lower = earlier execution)
+        """
+        hook = HookRegistration(
+            plugin_id=plugin_id,
+            hook_name=hook_name,
+            callback=callback,
+            priority=priority,
+        )
+        self._startup_hooks.append(hook)
+        # Sort by priority (lower = earlier)
+        self._startup_hooks.sort(key=lambda h: h.priority)
+        logger.info(
+            f"Registered startup hook '{hook_name}' from plugin '{plugin_id}' "
+            f"(priority={priority})",
+        )
+
+    def register_shutdown_hook(
+        self,
+        plugin_id: str,
+        hook_name: str,
+        callback: Callable,
+        priority: int = 100,
+    ):
+        """Register a shutdown hook.
+
+        Args:
+            plugin_id: Plugin identifier
+            hook_name: Hook name
+            callback: Callback function
+            priority: Priority (lower = earlier execution)
+        """
+        hook = HookRegistration(
+            plugin_id=plugin_id,
+            hook_name=hook_name,
+            callback=callback,
+            priority=priority,
+        )
+        self._shutdown_hooks.append(hook)
+        # Sort by priority (lower = earlier)
+        self._shutdown_hooks.sort(key=lambda h: h.priority)
+        logger.info(
+            f"Registered shutdown hook '{hook_name}' from plugin "
+            f"'{plugin_id}' (priority={priority})",
+        )
+
+    def get_startup_hooks(self) -> List[HookRegistration]:
+        """Get all startup hooks sorted by priority.
+
+        Returns:
+            List of HookRegistration
+        """
+        return self._startup_hooks.copy()
+
+    def get_shutdown_hooks(self) -> List[HookRegistration]:
+        """Get all shutdown hooks sorted by priority.
+
+        Returns:
+            List of HookRegistration
+        """
+        return self._shutdown_hooks.copy()
