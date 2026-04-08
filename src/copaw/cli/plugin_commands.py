@@ -7,6 +7,7 @@ import json
 import logging
 import shutil
 import subprocess
+import sys
 import tempfile
 import urllib.request
 import zipfile
@@ -172,8 +173,18 @@ def install(source: str, force: bool):
     if requirements_file.exists():
         click.echo("📦 Installing dependencies...")
         try:
+            # Use sys.executable to ensure we use the correct Python
+            # environment
+            # This works across different platforms (Windows, Linux, macOS)
             _ = subprocess.run(
-                ["pip", "install", "-r", str(requirements_file)],
+                [
+                    sys.executable,
+                    "-m",
+                    "pip",
+                    "install",
+                    "-r",
+                    str(requirements_file),
+                ],
                 check=True,
                 capture_output=True,
                 text=True,
@@ -181,7 +192,10 @@ def install(source: str, force: bool):
             click.echo("✓ Dependencies installed")
         except subprocess.CalledProcessError as e:
             click.echo("❌ Failed to install dependencies:", err=True)
-            click.echo(e.stderr, err=True)
+            click.echo(f"  {e.stderr}", err=True)
+            # Clean up the failed installation
+            if target_dir.exists():
+                shutil.rmtree(target_dir)
             return
         except FileNotFoundError:
             click.echo(
@@ -189,6 +203,10 @@ def install(source: str, force: bool):
                 err=True,
             )
             click.echo(f"   pip install -r {requirements_file}")
+            # Clean up the failed installation
+            if target_dir.exists():
+                shutil.rmtree(target_dir)
+            return
 
     click.echo(f"\n✅ Plugin '{plugin_name}' installed successfully!")
     click.echo(f"📍 Location: {target_dir}")
