@@ -34,14 +34,37 @@ def _check_copaw_not_running():
         raise click.Abort()
 
 
-def _download_plugin_from_url(url: str) -> Path:
+def _safe_extract_zip(zip_ref: zipfile.ZipFile, extract_path: Path):
+    """Safely extract zip file, preventing Zip Slip attacks.
+
+    Args:
+        zip_ref: ZipFile object
+        extract_path: Target extraction directory
+
+    Raises:
+        ValueError: If any zip member attempts path traversal
+    """
+    for member in zip_ref.namelist():
+        # Resolve the full path and ensure it's within extract_path
+        member_path = (extract_path / member).resolve()
+        if not str(member_path).startswith(str(extract_path.resolve())):
+            raise ValueError(
+                f"Zip Slip detected: {member} attempts to extract "
+                f"outside target directory",
+            )
+
+    # Safe to extract
+    zip_ref.extractall(extract_path)
+
+
+def _download_plugin_from_url(url: str) -> tuple[Path, Path]:
     """Download and extract plugin from URL.
 
     Args:
         url: Plugin zip file URL
 
     Returns:
-        Path to extracted plugin directory
+        Tuple of (plugin_directory_path, temp_directory_for_cleanup)
 
     Raises:
         Exception: If download or extraction fails
@@ -57,15 +80,16 @@ def _download_plugin_from_url(url: str) -> Path:
     temp_dir = Path(tempfile.mkdtemp())
     try:
         with zipfile.ZipFile(zip_path, "r") as zip_ref:
-            zip_ref.extractall(temp_dir)
+            # Safe extraction with Zip Slip protection
+            _safe_extract_zip(zip_ref, temp_dir)
         click.echo("✓ Downloaded and extracted")
 
         # Find the plugin directory (should be the only directory or root)
         plugin_dirs = [d for d in temp_dir.iterdir() if d.is_dir()]
         if len(plugin_dirs) == 1:
-            return plugin_dirs[0]
+            return plugin_dirs[0], temp_dir
         if (temp_dir / "plugin.json").exists():
-            return temp_dir
+            return temp_dir, temp_dir
         raise ValueError("Invalid plugin archive structure")
     finally:
         # Clean up zip file
@@ -103,8 +127,7 @@ def install(source: str, force: bool):
 
     if is_url:
         try:
-            source_path = _download_plugin_from_url(source)
-            temp_dir = source_path.parent
+            source_path, temp_dir = _download_plugin_from_url(source)
         except Exception as e:
             click.echo(f"❌ Failed to download plugin: {e}", err=True)
             return

@@ -801,25 +801,3 @@ A: 可以，通过 monkey patch 或 hook 机制。但请谨慎使用，确保不
 ### Q: 插件之间会冲突吗？
 
 A: 如果多个插件注册相同的 provider_id 或 command_name，后注册的会覆盖先注册的。建议使用唯一的 ID。
-
-### Q: 插件可以持久化数据吗？
-
-A: 可以，插件可以在 `~/.copaw/plugins/<plugin-id>/` 目录下存储数据。
-
-### Q: 如何调试插件？
-
-A:
-
-1. 使用 `--log-level debug` 启动 CoPaw
-2. 查看日志：`tail -f ~/.copaw/logs/copaw.log`
-3. 在插件代码中添加 `logger.debug()` 输出
-
-## 更多资源
-
-- [插件系统设计文档](../../docs/PLUGIN_SYSTEM.md)
-- [GitHub Issues](https://github.com/your-org/copaw/issues)
-- [社区讨论](https://github.com/your-org/copaw/discussions)
-
-## 贡献
-
-欢迎贡献插件和改进插件系统！请参考 [贡献指南](./contributing.zh.md)。

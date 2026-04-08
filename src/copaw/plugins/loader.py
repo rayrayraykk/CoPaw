@@ -2,6 +2,7 @@
 """Plugin loader for discovering and loading plugins."""
 
 import importlib.util
+import inspect
 import json
 import sys
 from pathlib import Path
@@ -80,7 +81,7 @@ class PluginLoader:
             data = json.load(f)
         return PluginManifest.from_dict(data)
 
-    def load_plugin(
+    async def load_plugin(
         self,
         manifest: PluginManifest,
         source_path: Path,
@@ -115,13 +116,13 @@ class PluginLoader:
             )
 
         try:
-            # Add plugin directory to sys.path for relative imports
-            plugin_dir_str = str(source_path)
-            if plugin_dir_str not in sys.path:
-                sys.path.insert(0, plugin_dir_str)
-
             # Dynamic import of plugin module
+            # Use unique module name to avoid conflicts
             module_name = f"copaw_plugin_{plugin_id.replace('-', '_')}"
+            plugin_dir_str = str(source_path)
+
+            # submodule_search_locations enables relative imports within plugin
+            # without polluting global sys.path
             spec = importlib.util.spec_from_file_location(
                 module_name,
                 entry_file,
@@ -135,8 +136,9 @@ class PluginLoader:
             module = importlib.util.module_from_spec(spec)
             sys.modules[module_name] = module
 
-            # Set __package__ to enable relative imports
+            # Set __package__ and __path__ to enable relative imports
             module.__package__ = module_name
+            module.__path__ = [plugin_dir_str]  # Enable submodule discovery
 
             spec.loader.exec_module(module)
 
@@ -163,9 +165,11 @@ class PluginLoader:
             api = PluginApi(plugin_id, config or {}, manifest_dict)
             api.set_registry(self.registry)
 
-            # Call plugin's register method
+            # Call plugin's register method (support both sync and async)
             if hasattr(plugin_def, "register"):
-                plugin_def.register(api)
+                result = plugin_def.register(api)
+                if inspect.iscoroutine(result) or inspect.isawaitable(result):
+                    await result
             else:
                 raise AttributeError(
                     "Plugin must implement 'register(api)' method",
@@ -192,7 +196,7 @@ class PluginLoader:
             )
             raise
 
-    def load_all_plugins(
+    async def load_all_plugins(
         self,
         configs: Optional[Dict[str, Dict]] = None,
     ) -> Dict[str, PluginRecord]:
@@ -210,7 +214,7 @@ class PluginLoader:
             config = configs.get(manifest.id) if configs else None
 
             try:
-                self.load_plugin(manifest, plugin_dir, config)
+                await self.load_plugin(manifest, plugin_dir, config)
             except Exception as e:
                 logger.error(f"Failed to load plugin '{manifest.id}': {e}")
 

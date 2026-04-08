@@ -240,8 +240,15 @@ async def lifespan(
     # Create plugin loader
     plugin_loader = PluginLoader(plugin_dirs)
 
-    # Load all plugins (without config for now)
-    loaded_plugins = plugin_loader.load_all_plugins(configs=None)
+    # Load plugin configurations from main config
+    config = load_config(get_config_path())
+    plugin_configs = config.plugins if hasattr(config, "plugins") else {}
+    logger.info(f"Loading plugins with {len(plugin_configs)} config(s)")
+
+    # Load all plugins with their configurations (async)
+    loaded_plugins = await plugin_loader.load_all_plugins(
+        configs=plugin_configs,
+    )
     logger.info(f"✓ Loaded {len(loaded_plugins)} plugin(s)")
 
     # Set runtime helpers
@@ -309,7 +316,14 @@ async def lifespan(
                 f"Executing startup hook '{hook.hook_name}' "
                 f"from plugin '{hook.plugin_id}' (priority={hook.priority})",
             )
-            hook.callback()
+
+            # Support both sync and async callbacks
+            import inspect
+
+            result = hook.callback()
+            if inspect.iscoroutine(result) or inspect.isawaitable(result):
+                await result
+
             logger.info(
                 f"✓ Completed startup hook '{hook.hook_name}' "
                 f"from plugin '{hook.plugin_id}'",
@@ -350,7 +364,16 @@ async def lifespan(
                         f"from plugin '{hook.plugin_id}' (priority"
                         f"={hook.priority})",
                     )
-                    hook.callback()
+
+                    # Support both sync and async callbacks
+                    import inspect
+
+                    result = hook.callback()
+                    if inspect.iscoroutine(result) or inspect.isawaitable(
+                        result,
+                    ):
+                        await result
+
                     logger.info(
                         f"✓ Completed shutdown hook '{hook.hook_name}' "
                         f"from plugin '{hook.plugin_id}'",

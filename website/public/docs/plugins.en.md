@@ -801,25 +801,3 @@ A: Yes, through monkey patching or hook mechanisms. But use with caution to avoi
 ### Q: Will plugins conflict with each other?
 
 A: If multiple plugins register the same provider_id or command_name, the later one will override the earlier one. Use unique IDs.
-
-### Q: Can plugins persist data?
-
-A: Yes, plugins can store data in the `~/.copaw/plugins/<plugin-id>/` directory.
-
-### Q: How to debug plugins?
-
-A:
-
-1. Start CoPaw with `--log-level debug`
-2. View logs: `tail -f ~/.copaw/logs/copaw.log`
-3. Add `logger.debug()` statements in plugin code
-
-## More Resources
-
-- [Plugin System Design Documentation](../../docs/PLUGIN_SYSTEM.md)
-- [GitHub Issues](https://github.com/your-org/copaw/issues)
-- [Community Discussions](https://github.com/your-org/copaw/discussions)
-
-## Contributing
-
-Contributions to plugins and plugin system improvements are welcome! Please refer to the [Contributing Guide](./contributing.en.md).
