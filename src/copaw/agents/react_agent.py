@@ -618,44 +618,32 @@ class CoPawAgent(ToolGuardMixin, ReActAgent):
         transport = rebuild_info.get("transport")
         name = rebuild_info.get("name")
 
-        # Validate required fields
-        if not name or not isinstance(name, str):
-            return None
-
         try:
-            rebuilt_client = None
-
             if transport == "stdio":
-                command = rebuild_info.get("command")
-                if command and isinstance(command, str):
-                    rebuilt_client = StdIOStatefulClient(
-                        name=name,
-                        command=command,
-                        args=rebuild_info.get("args", []),
-                        env=rebuild_info.get("env", {}),
-                        cwd=rebuild_info.get("cwd"),
-                    )
-            elif (
-                transport in ["streamable_http", "sse"]
-                and rebuild_info.get("url")
-                and isinstance(rebuild_info.get("url"), str)
-            ):
-                raw_headers = rebuild_info.get("headers") or {}
-                headers = (
-                    {k: os.path.expandvars(v) for k, v in raw_headers.items()}
-                    if raw_headers
-                    else None
+                rebuilt_client = StdIOStatefulClient(
+                    name=name,  # type: ignore[arg-type]
+                    # type: ignore[arg-type]
+                    command=rebuild_info.get("command"),
+                    args=rebuild_info.get("args", []),
+                    env=rebuild_info.get("env", {}),
+                    cwd=rebuild_info.get("cwd"),
                 )
-                rebuilt_client = HttpStatefulClient(
-                    name=name,
-                    transport=transport,
-                    url=rebuild_info["url"],
-                    headers=headers,
-                )
-
-            if rebuilt_client:
                 setattr(rebuilt_client, "_copaw_rebuild_info", rebuild_info)
+                return rebuilt_client
 
+            raw_headers = rebuild_info.get("headers") or {}
+            headers = (
+                {k: os.path.expandvars(v) for k, v in raw_headers.items()}
+                if raw_headers
+                else None
+            )
+            rebuilt_client = HttpStatefulClient(
+                name=name,  # type: ignore[arg-type]
+                transport=transport,  # type: ignore[arg-type]
+                url=rebuild_info.get("url"),  # type: ignore[arg-type]
+                headers=headers,
+            )
+            setattr(rebuilt_client, "_copaw_rebuild_info", rebuild_info)
             return rebuilt_client
         except Exception:  # pylint: disable=broad-except
             return None
