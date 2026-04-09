@@ -100,7 +100,7 @@ def main() -> int:
         default=None,
         help=(
             "Wheel path to install. If omitted, pick the newest "
-            "dist/copaw-*.whl."
+            "dist/qwenpaw-*.whl."
         ),
     )
     parser.add_argument(
@@ -192,7 +192,7 @@ def main() -> int:
                 # Step 2: Install from local wheel (no third-party index)
                 # Use --no-index to prevent fallback to PyPI, --find-links for
                 # local wheel dir. Dependencies will be resolved from PyPI when
-                # installing copaw[full] later.
+                # installing qwenpaw[full] later.
                 print("Installing llama-cpp-python from downloaded wheel...")
                 _run(
                     [
@@ -214,11 +214,11 @@ def main() -> int:
         except subprocess.CalledProcessError:
             print(
                 "Prebuilt wheel not available, will compile from source when "
-                "installing copaw[full]"
+                "installing qwenpaw[full]"
             )
             needs_llama_compile = True
 
-        # Install copaw with all dependencies
+        # Install qwenpaw with all dependencies
         # Scope CMAKE_ARGS to this specific command to avoid affecting other
         # CMake-based packages. Only set if we need to compile from source.
         install_env = {}

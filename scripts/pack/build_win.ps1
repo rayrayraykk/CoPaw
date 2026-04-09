@@ -9,7 +9,7 @@ $PackDir = $PSScriptRoot
 $Dist = if ($env:DIST) { $env:DIST } else { "dist" }
 $Archive = Join-Path $Dist "qwenpaw-env.zip"
 $Unpacked = Join-Path $Dist "win-unpacked"
-$NsiPath = Join-Path $PackDir "copaw_desktop.nsi"
+$NsiPath = Join-Path $PackDir "desktop.nsi"
 
 # Packages affected by conda-unpack bug on Windows (conda-pack Issue #154)
 # conda-unpack corrupts Python string escaping when replacing path prefixes.
@@ -167,7 +167,7 @@ if not defined QWENPAW_LOG_LEVEL set "QWENPAW_LOG_LEVEL=info"
 
 REM Set SSL certificate paths for packaged environment
 REM Use temp file to avoid for /f blocking issue in bat scripts
-set "CERT_TMP=%TEMP%\copaw_cert_%RANDOM%.txt"
+set "CERT_TMP=%TEMP%\qwenpaw_cert_%RANDOM%.txt"
 "%~dp0python.exe" -u -c "import certifi; print(certifi.where())" > "%CERT_TMP%" 2>nul
 set /p CERT_FILE=<"%CERT_TMP%"
 del "%CERT_TMP%" 2>nul
@@ -200,7 +200,7 @@ if not defined QWENPAW_LOG_LEVEL set "QWENPAW_LOG_LEVEL=debug"
 
 REM Set SSL certificate paths for packaged environment
 REM Use temp file to avoid for /f blocking issue in bat scripts
-set "CERT_TMP=%TEMP%\copaw_cert_%RANDOM%.txt"
+set "CERT_TMP=%TEMP%\qwenpaw_cert_%RANDOM%.txt"
 "%~dp0python.exe" -u -c "import certifi; print(certifi.where())" > "%CERT_TMP%" 2>nul
 set /p CERT_FILE=<"%CERT_TMP%"
 del "%CERT_TMP%" 2>nul
