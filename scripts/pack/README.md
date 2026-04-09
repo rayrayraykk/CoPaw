@@ -1,4 +1,4 @@
-# CoPaw Desktop packaging scripts
+# QwenPaw Desktop packaging scripts
 
 One-click build: each script first builds a **wheel** via
 `scripts/wheel_build.sh` (includes the console frontend), then uses a
@@ -27,7 +27,7 @@ From the **repo root**:
 **macOS**
 ```bash
 bash ./scripts/pack/build_macos.sh
-# Output: dist/CoPaw.app
+# Output: dist/QwenPaw.app
 
 CREATE_ZIP=1 bash ./scripts/pack/build_macos.sh   # also create .zip
 ```
@@ -35,10 +35,10 @@ CREATE_ZIP=1 bash ./scripts/pack/build_macos.sh   # also create .zip
 **Windows (PowerShell)**
 ```powershell
 ./scripts/pack/build_win.ps1
-# Output: dist/CoPaw-Setup-<version>.exe
+# Output: dist/QwenPaw-Setup-<version>.exe
 # Creates two launchers:
-#   - CoPaw Desktop.vbs (silent, no console window)
-#   - CoPaw Desktop (Debug).bat (shows console for troubleshooting)
+#   - QwenPaw Desktop.vbs (silent, no console window)
+#   - QwenPaw Desktop (Debug).bat (shows console for troubleshooting)
 # Note: Pre-compiles all Python files to .pyc for faster startup
 ```
 
