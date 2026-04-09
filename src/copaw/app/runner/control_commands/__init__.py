@@ -19,6 +19,7 @@ import logging
 from typing import Any, Dict
 
 from .base import BaseControlCommandHandler, ControlContext
+from .model_handler import ModelCommandHandler
 from .stop_handler import StopCommandHandler
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,7 @@ _COMMAND_REGISTRY: Dict[str, BaseControlCommandHandler] = {}
 def _register_defaults() -> None:
     """Register default control command handlers."""
     register_command(StopCommandHandler())
+    register_command(ModelCommandHandler())
 
 
 def register_command(handler: BaseControlCommandHandler) -> None:
@@ -95,19 +97,22 @@ def parse_args(query: str, command_prefix: str) -> Dict[str, Any]:
         command_prefix: Command prefix (e.g. "/stop")
 
     Returns:
-        Dict of parsed arguments
+        Dict of parsed arguments with "_raw_args" key for raw arguments
 
     Example:
         parse_args("/stop session=console:user1", "/stop")
-        → {"session": "console:user1"}
+        → {"session": "console:user1", "_raw_args": "session=console:user1"}
 
-        parse_args("/stop user=123 force=true", "/stop")
-        → {"user": "123", "force": "true"}
+        parse_args("/model openai:gpt-4o", "/model")
+        → {"_raw_args": "openai:gpt-4o"}
     """
     args: Dict[str, Any] = {}
 
     # Remove command prefix
     args_str = query[len(command_prefix) :].strip()
+
+    # Store raw arguments for handlers that need full text
+    args["_raw_args"] = args_str
 
     if not args_str:
         return args
@@ -118,9 +123,6 @@ def parse_args(query: str, command_prefix: str) -> Dict[str, Any]:
         if "=" in part:
             key, value = part.split("=", 1)
             args[key.strip()] = value.strip()
-        else:
-            # Positional argument (future extension)
-            pass
 
     return args
 
@@ -177,6 +179,7 @@ _register_defaults()
 __all__ = [
     "BaseControlCommandHandler",
     "ControlContext",
+    "ModelCommandHandler",
     "StopCommandHandler",
     "is_control_command",
     "handle_control_command",

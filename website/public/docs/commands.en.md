@@ -258,6 +258,224 @@ Load conversation history from a JSONL file into current memory. **Existing memo
 
 ---
 
+## Model Management Commands
+
+Commands for managing and switching AI models. These commands execute directly without going through the Agent.
+
+| Command                           | Description                                      | Chat |
+| --------------------------------- | ------------------------------------------------ | ---- |
+| `/model`                          | Show current active model                        | ✅   |
+| `/model -h` or `/model help`      | Show help information                            | ✅   |
+| `/model list`                     | List all available models                        | ✅   |
+| `/model <provider>:<model>`       | Switch to specified model                        | ✅   |
+| `/model reset`                    | Reset to global default model                    | ✅   |
+| `/model info <provider>:<model>`  | Show detailed information about a specific model | ✅   |
+
+---
+
+### /model - Show Current Model
+
+Display the currently active model for this agent.
+
+**Usage:**
+
+```
+/model
+```
+
+**Example response:**
+
+```
+**Current Model**
+
+Provider: `openai`
+Model: `gpt-4o` ✓
+
+Use `/model list` to see all available models.
+```
+
+---
+
+### /model -h or /model help - Show Help
+
+Display help information for all `/model` commands.
+
+**Usage:**
+
+```
+/model -h
+/model --help
+/model help
+```
+
+**Example response:**
+
+```
+**Model Management Commands**
+
+Manage and switch AI models for the current agent.
+
+**Available Commands:**
+
+`/model` - Show current active model
+`/model list` - List all available models
+`/model <provider>:<model>` - Switch to specified model
+`/model reset` - Reset to global default model
+`/model info <provider>:<model>` - Show model information
+`/model help` or `/model -h` - Show this help message
+
+**Examples:**
+
+`/model` - Show current model
+`/model list` - List all models
+`/model openai:gpt-4o` - Switch to GPT-4o
+`/model reset` - Reset to global default
+`/model info openai:gpt-4o` - Show GPT-4o information
+
+**Capability Indicators:**
+
+🖼️ - Supports image input
+🎥 - Supports video input
+```
+
+---
+
+### /model list - List All Models
+
+Display all configured providers and their available models. The currently active model is marked with **[ACTIVE]**.
+
+**Usage:**
+
+```
+/model list
+```
+
+**Example response:**
+
+```
+**Available Models**
+
+**OpenAI** (`openai`)
+  - `gpt-4o` 🖼️ **[ACTIVE]**
+  - `gpt-4o-mini` 🖼️
+  - `gpt-3.5-turbo`
+
+**Anthropic** (`anthropic`)
+  - `claude-3-5-sonnet-20241022`
+  - `claude-3-opus-20240229`
+
+**Google** (`gemini`)
+  - `gemini-2.0-flash-exp` 🖼️🎥
+
+---
+Total: 3 provider(s), 7 model(s)
+
+Use `/model <provider>:<model>` to switch models.
+Example: `/model openai:gpt-4o`
+```
+
+**Capability indicators:**
+- 🖼️ - Supports image input
+- 🎥 - Supports video input
+
+---
+
+### /model <provider>:<model> - Switch Model
+
+Switch the current agent to use a different model.
+
+**Usage:**
+
+```
+/model <provider>:<model>
+```
+
+**Examples:**
+
+```
+/model openai:gpt-4o
+/model anthropic:claude-3-5-sonnet-20241022
+/model gemini:gemini-2.0-flash-exp
+```
+
+**Example response:**
+
+```
+**Model Switched**
+
+Provider: `anthropic`
+Model: `claude-3-5-sonnet-20241022`
+
+The new model will be used for subsequent messages.
+```
+
+> 💡 **Tip**: Model changes only affect the current agent. Other agents continue using their configured models.
+
+---
+
+### /model reset - Reset to Global Default
+
+Reset the current agent's model to the global default model configured in the web UI.
+
+**Usage:**
+
+```
+/model reset
+```
+
+**Example response:**
+
+```
+**Model Reset**
+
+Agent model has been reset to global default:
+
+Provider: `openai`
+Model: `gpt-4o`
+
+The global default model will be used for subsequent messages.
+```
+
+> 💡 **Tip**: Use this command to revert agent-specific model overrides.
+
+---
+
+### /model info - Show Model Information
+
+Display detailed information about a specific model, including capabilities and current status.
+
+**Usage:**
+
+```
+/model info <provider>:<model>
+```
+
+**Examples:**
+
+```
+/model info openai:gpt-4o
+/model info anthropic:claude-3-5-sonnet-20241022
+```
+
+**Example response:**
+
+```
+**Model Information**
+
+**Provider:** `openai` (OpenAI)
+**Model ID:** `gpt-4o`
+**Model Name:** GPT-4o
+**Capabilities:** 🖼️ Image, 🎨 Multimodal
+**Probe Source:** documentation
+
+**Status:** ✓ Currently active
+
+---
+Use `/model openai:gpt-4o` to switch to this model.
+```
+
+---
+
 ## System Control Commands
 
 Commands for controlling and monitoring CoPaw's runtime status. These commands execute directly without going through the Agent.
