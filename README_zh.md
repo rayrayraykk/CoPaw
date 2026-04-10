@@ -453,7 +453,7 @@ QwenPaw 内置多层安全防护机制，保障你的数据与系统安全：
 ## 掌握最新动态
 
 <a href="https://github.com/agentscope-ai/QwenPaw">
-  <img src="https://img.alicdn.com/imgextra/i1/O1CN0197AtT32351zYCnOUU_!!6000000007203-1-tps-2214-1080.gif" width="600" alt="Star QwenPaw" />
+  <img src="https://img.alicdn.com/imgextra/i1/O1CN01V8HYv61By0HYcIDaq_!!6000000000013-1-tps-1698-954.gif" width="600" alt="Star QwenPaw" />
 </a>
 
 在 GitHub 上 Star QwenPaw，第一时间收到新版本发布通知。

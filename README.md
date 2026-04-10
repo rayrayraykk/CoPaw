@@ -389,7 +389,7 @@ For common questions, troubleshooting tips, and known issues, please visit the *
 ## Staying ahead
 
 <a href="https://github.com/agentscope-ai/QwenPaw">
-  <img src="https://img.alicdn.com/imgextra/i1/O1CN0197AtT32351zYCnOUU_!!6000000007203-1-tps-2214-1080.gif" width="600" alt="Star QwenPaw" />
+  <img src="https://img.alicdn.com/imgextra/i1/O1CN01V8HYv61By0HYcIDaq_!!6000000000013-1-tps-1698-954.gif" width="600" alt="Star QwenPaw" />
 </a>
 
 Star QwenPaw on GitHub and be instantly notified of new releases.
