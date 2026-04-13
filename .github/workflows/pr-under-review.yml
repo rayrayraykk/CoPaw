@@ -123,7 +123,7 @@ jobs:
               if (error.status === 403) {
                 core.info(`Unable to add label due to permissions (403). This is expected for review events on fork PRs.`);
               } else {
-                throw error;
+                core.warning(`Failed to add label: ${error.message}`);
               }
             }
 
