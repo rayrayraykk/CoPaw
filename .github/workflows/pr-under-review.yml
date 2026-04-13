@@ -24,20 +24,40 @@ jobs:
           script: |
             // Get commenter information and PR number
             let commenter;
+            let commenterType;
             let prNumber;
+            let prAuthor;
 
             if (context.eventName === 'issue_comment') {
               commenter = context.payload.comment.user.login;
+              commenterType = context.payload.comment.user.type;
               prNumber = context.payload.issue.number;
+              prAuthor = context.payload.issue.user.login;
             } else if (context.eventName === 'pull_request_review') {
               commenter = context.payload.review.user.login;
+              commenterType = context.payload.review.user.type;
               prNumber = context.payload.pull_request.number;
+              prAuthor = context.payload.pull_request.user.login;
             } else if (context.eventName === 'pull_request_review_comment') {
               commenter = context.payload.comment.user.login;
+              commenterType = context.payload.comment.user.type;
               prNumber = context.payload.pull_request.number;
+              prAuthor = context.payload.pull_request.user.login;
             }
 
-            core.info(`Processing comment from @${commenter} on PR #${prNumber}`);
+            core.info(`Processing comment from @${commenter} (type: ${commenterType}) on PR #${prNumber} by @${prAuthor}`);
+
+            // Ignore bots
+            if (commenterType === 'Bot' || commenter.endsWith('[bot]')) {
+              core.info(`@${commenter} is a bot, skipping`);
+              return;
+            }
+
+            // Ignore PR author self-comments
+            if (commenter === prAuthor) {
+              core.info(`@${commenter} is the PR author, skipping self-comment`);
+              return;
+            }
 
             // Check if label already exists first
             const { data: labels } = await github.rest.issues.listLabelsOnIssue({
@@ -65,12 +85,14 @@ jobs:
               });
               permission = response.data;
             } catch (error) {
-              // Handle bots or non-user accounts
+              // Handle non-collaborators (404) or other API errors
               if (error.status === 404) {
-                core.info(`@${commenter} is not a user (likely a bot), skipping`);
+                core.info(`@${commenter} is not a collaborator, skipping`);
                 return;
               }
-              throw error;
+              // For other errors, log and exit gracefully
+              core.warning(`Failed to get permissions for @${commenter}: ${error.message}`);
+              return;
             }
 
             core.info(`@${commenter} permission level: ${permission.permission}`);
