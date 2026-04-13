@@ -55,11 +55,23 @@ jobs:
 
             // Get commenter's permission level
             core.info(`Checking permissions for @${commenter}`);
-            const { data: permission } = await github.rest.repos.getCollaboratorPermissionLevel({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              username: commenter,
-            });
+
+            let permission;
+            try {
+              const response = await github.rest.repos.getCollaboratorPermissionLevel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                username: commenter,
+              });
+              permission = response.data;
+            } catch (error) {
+              // Handle bots or non-user accounts
+              if (error.status === 404) {
+                core.info(`@${commenter} is not a user (likely a bot), skipping`);
+                return;
+              }
+              throw error;
+            }
 
             core.info(`@${commenter} permission level: ${permission.permission}`);
 
