@@ -381,7 +381,7 @@ Full docs in this repo: [website/public/docs/](website/public/docs/).
 
 ## Security Features
 
-QwenPaw includes multi-layer security mechanisms to protect your data and system:
+QwenPaw includes multi-layer security mechanisms to protect your data and system
 
 - **Tool guard** — Automatically intercepts dangerous shell commands (e.g., `rm -rf /`, fork bombs, reverse shells, etc.)
 - **File access guard** — Restricts agent access to sensitive paths (e.g., `~/.ssh`, key files, system directories, etc.)
