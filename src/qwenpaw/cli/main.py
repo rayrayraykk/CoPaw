@@ -141,6 +141,7 @@ class LazyGroup(click.Group):
             ".plugin_commands",
         ),
         "task": ("qwenpaw.cli.task_cmd", "task_cmd", ".task_cmd"),
+        "ralph": ("qwenpaw.cli.ralph_cmd", "ralph_group", ".ralph_cmd"),
     },
 )
 @click.version_option(version=__version__, prog_name="QwenPaw")

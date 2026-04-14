@@ -1173,6 +1173,12 @@
       },
       "deny": {
         "description": "Deny the pending tool action"
+      },
+      "ralph": {
+        "description": "Start a Ralph Loop for iterative long-task execution"
+      },
+      "longTask": {
+        "description": "Alias for /ralph — iterative long-task execution"
       }
     },
     "attachments": {

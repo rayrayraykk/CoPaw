@@ -708,6 +708,16 @@ export default function ChatPage() {
         value: "deny",
         description: t("chat.commands.deny.description"),
       },
+      {
+        command: "/ralph",
+        value: "ralph",
+        description: t("chat.commands.ralph.description"),
+      },
+      {
+        command: "/long-task",
+        value: "long-task",
+        description: t("chat.commands.longTask.description"),
+      },
     ];
 
     const handleBeforeSubmit = async () => {

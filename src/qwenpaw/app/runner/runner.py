@@ -26,6 +26,10 @@ from .command_dispatch import (
     run_command_path,
 )
 from .query_error_dump import write_query_error_dump
+from .ralph_dispatch import (
+    maybe_handle_ralph_command,
+    detect_active_ralph_phase,
+)
 from .session import SafeJSONSession
 from .utils import build_env_context
 from ..channels.schema import DEFAULT_CHANNEL
@@ -507,16 +511,60 @@ class AgentRunner(Runner):
                     f"session_id={session_id}",
                 )
 
-            # Skill info (/<name> without input) is display-only:
-            # persisted in chat history but not in agent memory.
-            skill_response = self._maybe_inject_skill(
-                query,
-                msgs,
-                agent.toolkit.skills,
+            # Ralph Loop: /ralph or /long-task
+            _ws = self.workspace_dir or WORKING_DIR
+            ralph_phase_info: dict | None = None
+
+            ralph_result = await maybe_handle_ralph_command(
+                query=query,
+                msgs=msgs,
+                workspace_dir=_ws,
+                agent_id=self.agent_id,
+                rewrite_fn=self._rewrite_last_message_text,
+                session_id=session_id,
             )
-            if skill_response is not None:
-                yield skill_response, True
+            if isinstance(ralph_result, Msg):
+                yield ralph_result, True
                 return
+            if isinstance(ralph_result, dict):
+                ralph_phase_info = ralph_result
+
+            # Active Ralph loop: auto-route follow-up messages
+            if ralph_phase_info is None:
+                ralph_phase_info = detect_active_ralph_phase(
+                    _ws,
+                    session_id=session_id,
+                )
+                if ralph_phase_info is not None:
+                    # Inject a lightweight context refresher so the agent
+                    # stays on track even across session boundaries.
+                    loop_dir = ralph_phase_info["loop_dir"]
+                    refresher = (
+                        f"[Ralph Loop active — loop dir: `{loop_dir}`]\n"
+                        f"You are in Ralph Loop Phase 1 (PRD review). "
+                        f"The user's message follows.\n"
+                        f"If the user is confirming the PRD, update "
+                        f"`{loop_dir}/loop_config.json` setting "
+                        f"`current_phase` to `execution_confirmed`.\n"
+                        f"If the user requests changes, modify prd.json.\n"
+                        f"---\n"
+                    )
+                    original = query or ""
+                    self._rewrite_last_message_text(
+                        msgs,
+                        refresher + original,
+                    )
+
+            # Skill info (/<name> without input) is display-only
+            if ralph_phase_info is None:
+                skill_response = self._maybe_inject_skill(
+                    query,
+                    msgs,
+                    agent.toolkit.skills,
+                )
+                if skill_response is not None:
+                    yield skill_response, True
+                    return
 
             try:
                 await self.session.load_session_state(
@@ -537,11 +585,42 @@ class AgentRunner(Runner):
             # in the session state.
             agent.rebuild_sys_prompt()
 
-            async for msg, last in stream_printing_messages(
-                agents=[agent],
-                coroutine_task=agent(msgs),
-            ):
-                yield msg, last
+            # --- Execution: Ralph Loop (phased) or standard -------
+            if ralph_phase_info is not None:
+                from ...agents.ralph.ralph_runner import (
+                    run_ralph_phase1,
+                    run_ralph_phase2,
+                )
+
+                phase = ralph_phase_info["ralph_phase"]
+                loop_dir = Path(ralph_phase_info["loop_dir"])
+                max_iters = ralph_phase_info.get(
+                    "max_iterations",
+                    20,
+                )
+
+                if phase == 1:
+                    async for msg, last in run_ralph_phase1(
+                        agent=agent,
+                        msgs=msgs,
+                        loop_dir=loop_dir,
+                        max_iterations=max_iters,
+                    ):
+                        yield msg, last
+                else:
+                    async for msg, last in run_ralph_phase2(
+                        agent=agent,
+                        msgs=msgs,
+                        loop_dir=loop_dir,
+                        max_iterations=max_iters,
+                    ):
+                        yield msg, last
+            else:
+                async for msg, last in stream_printing_messages(
+                    agents=[agent],
+                    coroutine_task=agent(msgs),
+                ):
+                    yield msg, last
 
         except asyncio.CancelledError as exc:
             logger.info(f"query_handler: {session_id} cancelled!")
