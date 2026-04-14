@@ -378,6 +378,16 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 "Background startup completed in "
                 f"{startup_elapsed:.3f} seconds",
             )
+
+            # Print server URL again so it's visible after background logs
+            from ..config.utils import read_last_api
+
+            api_info = read_last_api()
+            if api_info:
+                host, port = api_info
+                logger.info(f"✨ QwenPaw ready! → http://{host}:{port}")
+            else:
+                logger.info("✨ QwenPaw ready!")
         except Exception:
             logger.error(
                 "Background startup encountered an error",
