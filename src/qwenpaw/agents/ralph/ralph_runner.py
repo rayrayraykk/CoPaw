@@ -184,9 +184,14 @@ def _remaining_summary(
         f"{passed}/{len(stories)} stories passed. "
         f"{len(remaining)} remaining:\n"
         + "\n".join(f"  ⬜ {s['id']}: {s['title']}" for s in remaining)
-        + "\n\nContinue dispatching workers for the remaining stories. "
-        "Remember: you are the CONTROLLER — delegate all work via "
-        "`qwenpaw agents chat --background`."
+        + "\n\nContinue with the **worker → verifier** pipeline:\n"
+        "1. Dispatch **workers** for remaining stories\n"
+        "2. Once a worker finishes, dispatch a **verifier** for "
+        "that story\n"
+        "3. Parse verifier VERDICT: PASS → set `passes: true` "
+        "in prd.json; FAIL → retry with error context\n\n"
+        "Remember: you are the CONTROLLER — delegate ALL work "
+        "via `qwenpaw agents chat --background`."
     )
 
 

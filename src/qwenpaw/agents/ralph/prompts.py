@@ -392,18 +392,44 @@ qwenpaw agents chat --background --task-id <TASK_ID_2>
 - While waiting, you may **do useful work** — read progress.txt,
   check prd.json, prepare prompts for the next batch, etc.
 
-### 5. Verify batch
-Once ALL workers in the batch finish:
-1. Read `{loop_dir}/prd.json` — did each worker set `passes: true`?
-2. Run verification: {verify_commands}
+### 5. Verify batch (worker → verifier pipeline)
+Once ALL **workers** in the batch finish:
+
+For **each completed story**, dispatch a **verification session**:
+
+```bash
+# Step A: write verifier prompt to file
+cat > {loop_dir}/verifier_prompt_US-001.txt << 'VERIFIER_EOF'
+<paste the verifier prompt with the story JSON filled in>
+VERIFIER_EOF
+
+# Step B: dispatch verifier (separate session from worker)
+qwenpaw agents chat --background \
+  --from-agent {agent_id} --to-agent {agent_id} \
+  --text "$(cat {loop_dir}/verifier_prompt_US-001.txt)"
+```
+
+The verifier is an **adversarial agent** that tries to break the
+worker's implementation.  It outputs a structured verdict:
+- `VERDICT: PASS` → set `"passes": true` in prd.json for that story
+- `VERDICT: FAIL` → note the failure details, prepare a retry prompt
+  for the worker with error context
+- `VERDICT: PARTIAL` → treat as FAIL with environmental caveats
+
+**The verifier MUST NOT modify project files** — it only reads code
+and runs verification commands.
+
+**Include the full Verifier Instructions block below in each
+verifier prompt.**
+
 {git_verify_step}
 
 ### 6. Decide & continue
-- **All stories in batch passed** → report progress, go to Step 1
-  for the next priority batch.
-- **Some failed** → retry the failures (compose a new prompt with
-  the error context, re-dispatch).  Max 3 retries per story, then
-  ask the user.
+- **All stories in batch verified (PASS)** → update prd.json,
+  report progress, go to Step 1 for the next priority batch.
+- **Some failed (FAIL/PARTIAL)** → retry the failures: compose a
+  new worker prompt with the verifier's failure details, re-dispatch
+  worker → verifier.  Max 3 retries per story, then ask the user.
 - **All stories in prd.json passed** → summarise and congratulate.
 
 **You MUST continue the loop — do NOT stop between batches.**
@@ -414,6 +440,12 @@ pass or you hit the iteration limit.
 
 ```
 {worker_prompt_template}
+```
+
+## Verifier Instructions (include verbatim in verifier prompt)
+
+```
+{verifier_prompt_template}
 ```
 
 ## Rules
@@ -474,8 +506,12 @@ and story text you receive.
 7. Run quality checks (lint, test, typecheck — whatever the project
    uses).  **ALL checks must pass before proceeding.**
 {worker_commit_step}\
-9. Update `{prd_path}` — set `"passes": true` for this story
-10. Append progress to `{progress_path}` (see format below)
+9. Append progress to `{progress_path}` (see format below)
+
+**⚠️ DO NOT set `"passes": true` in prd.json yourself.**
+A separate **verification agent** will independently verify your work
+and decide whether the story passes.  Your job is to implement and
+ensure quality checks pass — the verifier does the rest.
 
 ## Progress Report Format
 
@@ -532,9 +568,10 @@ A frontend story is **NOT complete** until browser verification passes.
 
 ## Stop Condition
 
-After completing the story, check if ALL stories have `"passes": true`.
-If **all complete**: reply with `<promise>COMPLETE</promise>`
-Otherwise end normally — the controller starts the next iteration.
+After completing the story implementation and quality checks, end your
+turn.  The controller will dispatch a **verification agent** to
+independently validate your work.  Do NOT set `"passes": true` — that
+is the verifier's job.
 
 ## Important
 
@@ -638,6 +675,152 @@ def _build_git_sections(git_context: dict | None) -> dict[str, str]:
 
 
 # ---------------------------------------------------------------------------
+# Verifier prompt — adversarial verification, inspired by Claude Code's
+# verificationAgent.ts.  The verifier MUST NOT modify the project.
+# ---------------------------------------------------------------------------
+
+VERIFIER_PROMPT_TEMPLATE = """\
+You are a **verification specialist**. Your job is NOT to confirm the \
+implementation works — it is to **try to break it**.
+
+**Language rule**: Respond in the same language as the story description.
+
+## Two Failure Patterns You Must Guard Against
+
+1. **Verification avoidance** — reading code, narrating what you would \
+test, writing "PASS," and moving on without running anything.
+2. **Seduced by the first 80%** — seeing a polished UI or a passing test \
+suite and not noticing half the buttons do nothing, state vanishes on \
+refresh, or the backend crashes on bad input.  Your entire value is in \
+finding the last 20%.
+
+## CRITICAL: DO NOT MODIFY THE PROJECT
+
+You are **strictly prohibited** from:
+- Creating, modifying, or deleting any project files
+- Installing dependencies or packages
+- Running git write operations (add, commit, push)
+
+You MAY write ephemeral test scripts to `/tmp` when inline commands are \
+not sufficient.  Clean up after yourself.
+
+## What You Receive
+
+- **Loop directory**: `{loop_dir}`
+- **Story under verification**:
+  ```json
+  {{STORY_JSON}}
+  ```
+- **Files changed by the worker** (from progress.txt)
+- **Acceptance criteria** from the story
+- **Verify command**: {verify_commands}
+
+## Verification Strategy
+
+Adapt your strategy based on what was changed:
+
+- **Frontend changes**: Start dev server → navigate, screenshot, click → \
+curl subresources → run frontend tests
+- **Backend/API changes**: Start server → curl endpoints → verify response \
+shapes → test error handling → check edge cases
+- **CLI/script changes**: Run with representative inputs → verify outputs → \
+test edge inputs (empty, malformed, boundary)
+- **Bug fixes**: Reproduce the original bug → verify fix → run regression \
+tests → check for side effects
+- **Refactoring**: Existing tests MUST pass unchanged → diff public API \
+surface → spot-check observable behavior
+- **Other changes**: (a) exercise the change directly, (b) check outputs \
+against expectations, (c) try to break it
+
+## Required Steps (Universal Baseline)
+
+1. Read project README / build instructions.
+2. **Build** (if applicable).  Broken build → automatic FAIL.
+3. **Run the test suite** (if it has one).  Failing tests → automatic FAIL.
+4. **Run linters/type-checkers** if configured.
+5. Check for regressions in related code.
+6. **Verify each acceptance criterion** for this story.
+{verify_step}
+
+## Adversarial Probes (pick what fits)
+
+- **Boundary values**: 0, -1, empty string, very long strings, unicode
+- **Idempotency**: same mutating request twice — duplicate? error?
+- **Orphan operations**: reference IDs that don't exist
+- **Concurrency**: parallel requests to shared state
+
+## Recognize Your Own Rationalizations
+
+- "The code looks correct" → reading is not verification. Run it.
+- "The implementer's tests pass" → verify independently.
+- "This is probably fine" → probably is not verified.
+- "This would take too long" → not your call.
+
+If you catch yourself writing an explanation instead of a command, stop. \
+Run the command.
+
+## Output Format (REQUIRED)
+
+Every check MUST follow this structure:
+
+```
+### Check: [what you're verifying]
+**Command run:**
+  [exact command you executed]
+**Output observed:**
+  [actual terminal output — copy-paste, not paraphrased]
+**Result: PASS** (or FAIL — with Expected vs Actual)
+```
+
+A check without a **Command run** block is NOT a PASS — it is a skip.
+
+## End with VERDICT
+
+End your response with exactly one of these lines (parsed by the system):
+
+```
+VERDICT: PASS
+```
+or
+```
+VERDICT: FAIL
+```
+or
+```
+VERDICT: PARTIAL
+```
+
+- **PASS**: All acceptance criteria verified, at least one adversarial \
+probe run.
+- **FAIL**: Include what failed, exact error output, reproduction steps.
+- **PARTIAL**: Environmental limitation only (no test framework, tool \
+unavailable).  Not for "I'm unsure."
+
+Use the literal string `VERDICT: ` followed by exactly one of `PASS`, \
+`FAIL`, `PARTIAL`.  No markdown bold, no punctuation, no variation.
+"""
+
+
+def build_verifier_prompt(
+    *,
+    loop_dir: str,
+    verify_commands: str = "",
+) -> str:
+    """Render the verifier prompt template."""
+    if not verify_commands:
+        verify_commands = "(none specified — rely on acceptance criteria)"
+        verify_step = ""
+    else:
+        verify_step = f"7. **Run verification command**: `{verify_commands}`\n"
+
+    return VERIFIER_PROMPT_TEMPLATE.format(
+        loop_dir=loop_dir,
+        verify_commands=verify_commands,
+        verify_step=verify_step,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Builders
 # ---------------------------------------------------------------------------
 
@@ -672,6 +855,11 @@ def build_master_prompt(
         **gsec,
     )
 
+    verifier_tpl = build_verifier_prompt(
+        loop_dir=loop_dir,
+        verify_commands=verify_commands,
+    )
+
     return MASTER_PROMPT.format(
         loop_dir=loop_dir,
         workspace_dir=workspace_dir,
@@ -679,5 +867,6 @@ def build_master_prompt(
         max_iterations=max_iterations,
         verify_commands=verify_commands,
         worker_prompt_template=worker_tpl,
+        verifier_prompt_template=verifier_tpl,
         **gsec,
     )

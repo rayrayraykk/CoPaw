@@ -200,6 +200,7 @@ async def handle_ralph_command(  # pylint: disable=too-many-return-statements
         "max_iterations": max_iterations,
         "current_phase": "prd_generation",
         "session_id": session_id,
+        "verify_commands": args["verify_commands"],
     }
     write_loop_config(loop_dir, loop_config)
 
