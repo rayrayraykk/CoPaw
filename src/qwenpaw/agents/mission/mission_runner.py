@@ -42,13 +42,14 @@ logger = logging.getLogger(__name__)
 # ── Tool-group name used for implementation tools ────────────────────────
 MISSION_IMPL_GROUP = "mission_impl"
 
-# Tools that are *implementation* tools — only workers should use them in
-# Phase 2.  Everything NOT in this set stays in the "basic" group and is
-# always available to the master agent.
+# Tools restricted in Phase 2 — the master agent must *not* directly
+# implement features; it delegates all coding to workers.
+# NOTE: execute_shell_command and write_file are intentionally kept
+# available because the master needs shell to dispatch workers
+# (`qwenpaw agents chat --background …`) and write_file to update
+# prd.json / progress.txt.
 IMPLEMENTATION_TOOLS = frozenset(
     {
-        "execute_shell_command",
-        "write_file",
         "edit_file",
         "browser_use",
         "desktop_screenshot",
@@ -117,7 +118,7 @@ def migrate_tools_to_group(agent: Any) -> None:
     if MISSION_IMPL_GROUP in toolkit.groups:
         return
 
-    toolkit.add_tool_group(
+    toolkit.create_tool_group(
         MISSION_IMPL_GROUP,
         description=(
             "Implementation tools (shell, write, edit).  "
@@ -386,6 +387,22 @@ async def run_mission_phase2(
     """
     _update_phase(loop_dir, "execution")
     set_phase2_tool_restrictions(agent)
+
+    # Build initial message for the first iteration if none provided
+    if not msgs:
+        prd = read_prd(loop_dir)
+        msgs = [
+            Msg(
+                name="user",
+                role="user",
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=_remaining_summary(prd, 0, max_iterations),
+                    ),
+                ],
+            ),
+        ]
 
     try:
         for iteration in range(1, max_iterations + 1):
