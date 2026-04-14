@@ -14,10 +14,10 @@ from other loops and the shared agent workspace.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import shutil
-import subprocess
 import time
 from pathlib import Path
 from typing import Any
@@ -35,8 +35,27 @@ def _ts() -> str:
 # ── git detection (three-level) ──────────────────────────────────────────
 
 
-def detect_git_context(workspace_dir: Path) -> dict[str, Any]:
-    """Probe the environment for git availability.
+async def _git_cmd(
+    *args: str,
+    cwd: str,
+) -> tuple[int, str]:
+    """Run a git sub-command asynchronously, return (returncode, stdout)."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=cwd,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
+        return proc.returncode or 0, stdout.decode().strip()
+    except (asyncio.TimeoutError, OSError):
+        return 1, ""
+
+
+async def detect_git_context(workspace_dir: Path) -> dict[str, Any]:
+    """Probe the environment for git availability (async).
 
     Returns a dict with keys::
 
@@ -58,54 +77,51 @@ def detect_git_context(workspace_dir: Path) -> dict[str, Any]:
         return ctx
     ctx["git_installed"] = True
 
+    cwd = str(workspace_dir)
+
     try:
-        r = subprocess.run(
-            ["git", "rev-parse", "--is-inside-work-tree"],
-            capture_output=True,
-            text=True,
-            cwd=str(workspace_dir),
-            timeout=10,
-            check=False,
-        )
-        if r.returncode != 0:
+        rc, _ = await _git_cmd("rev-parse", "--is-inside-work-tree", cwd=cwd)
+        if rc != 0:
             return ctx
         ctx["is_git_repo"] = True
 
-        r = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            cwd=str(workspace_dir),
-            timeout=10,
-            check=False,
+        # Run remaining queries concurrently
+        toplevel_task = _git_cmd("rev-parse", "--show-toplevel", cwd=cwd)
+        branch_task = _git_cmd("rev-parse", "--abbrev-ref", "HEAD", cwd=cwd)
+        main_task = _git_cmd(
+            "rev-parse",
+            "--verify",
+            "refs/heads/main",
+            cwd=cwd,
         )
-        if r.returncode == 0:
-            ctx["repo_root"] = r.stdout.strip()
-
-        r = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            capture_output=True,
-            text=True,
-            cwd=str(workspace_dir),
-            timeout=10,
-            check=False,
+        master_task = _git_cmd(
+            "rev-parse",
+            "--verify",
+            "refs/heads/master",
+            cwd=cwd,
         )
-        if r.returncode == 0:
-            ctx["current_branch"] = r.stdout.strip()
 
-        for candidate in ("main", "master"):
-            r = subprocess.run(
-                ["git", "rev-parse", "--verify", f"refs/heads/{candidate}"],
-                capture_output=True,
-                text=True,
-                cwd=str(workspace_dir),
-                timeout=10,
-                check=False,
-            )
-            if r.returncode == 0:
-                ctx["default_branch"] = candidate
-                break
-        if not ctx["default_branch"]:
+        (
+            (rc_top, out_top),
+            (rc_br, out_br),
+            (rc_main, _),
+            (rc_master, _),
+        ) = await asyncio.gather(
+            toplevel_task,
+            branch_task,
+            main_task,
+            master_task,
+        )
+
+        if rc_top == 0:
+            ctx["repo_root"] = out_top
+        if rc_br == 0:
+            ctx["current_branch"] = out_br
+        if rc_main == 0:
+            ctx["default_branch"] = "main"
+        elif rc_master == 0:
+            ctx["default_branch"] = "master"
+        else:
             ctx["default_branch"] = ctx["current_branch"]
     except Exception:
         logger.debug("git detection failed", exc_info=True)

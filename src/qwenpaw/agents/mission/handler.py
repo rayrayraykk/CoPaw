@@ -186,7 +186,7 @@ async def handle_mission_command(  # pylint: disable=too-many-return-statements
     write_task_md(loop_dir, task_text)
     init_progress_txt(loop_dir)
 
-    git_ctx = detect_git_context(workspace_dir)
+    git_ctx = await detect_git_context(workspace_dir)
     max_iterations = args["max_iterations"]
 
     loop_config: dict[str, Any] = {

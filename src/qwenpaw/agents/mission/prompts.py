@@ -64,12 +64,12 @@ into a structured prd.json.  You have tools — use them.
 **What good prd.json looks like (refer to this as your template):**
 
 ```json
-{
+{{
   "project": "AuthSystem",
   "branchName": "ralph/auth-jwt",
   "description": "User authentication with JWT and tests",
   "userStories": [
-    {
+    {{
       "id": "US-001",
       "title": "Add user model and database table",
       "description": "As a developer, I need to store user credentials.",
@@ -77,8 +77,8 @@ into a structured prd.json.  You have tools — use them.
       "priority": 1,
       "passes": false,
       "notes": ""
-    },
-    {
+    }},
+    {{
       "id": "US-002",
       "title": "Implement JWT token generation",
       "description": "As the backend, I need to generate JWT tokens.",
@@ -86,9 +86,9 @@ into a structured prd.json.  You have tools — use them.
       "priority": 2,
       "passes": false,
       "notes": ""
-    }
+    }}
   ]
-}
+}}
 ```
 
 ### 0a. Understand the task
@@ -124,12 +124,12 @@ Write `{loop_dir}/prd.json` with this **exact structure**:
 **Example prd.json:**
 
 ```json
-{
+{{
   "project": "TaskApp",
   "branchName": "ralph/task-status",
   "description": "Add task status tracking with filters",
   "userStories": [
-    {
+    {{
       "id": "US-001",
       "title": "Add status field to database",
       "description": "As a developer, I need to store task status.",
@@ -141,8 +141,8 @@ Write `{loop_dir}/prd.json` with this **exact structure**:
       "priority": 1,
       "passes": false,
       "notes": ""
-    },
-    {
+    }},
+    {{
       "id": "US-002",
       "title": "Display status badge",
       "description": "As a user, I want to see status at a glance.",
@@ -155,9 +155,9 @@ Write `{loop_dir}/prd.json` with this **exact structure**:
       "priority": 2,
       "passes": false,
       "notes": ""
-    }
+    }}
   ]
-}
+}}
 ```
 
 **⚠️ CRITICAL: You MUST use this exact structure.  Do NOT invent your
@@ -168,11 +168,11 @@ own fields like "project_name", "requirements", "tech_stack",
 
 **❌ WRONG example (do NOT do this):**
 ```json
-{
+{{
   "project_name": "MyProject",
-  "requirements": { "functional": [...] },
-  "tech_stack": {...}
-}
+  "requirements": {{ "functional": [...] }},
+  "tech_stack": {{...}}
+}}
 ```
 
 **✅ CORRECT: Use the structure shown in the examples above.**
@@ -615,7 +615,7 @@ def _build_git_sections(git_context: dict | None) -> dict[str, str]:
             ),
             "worker_commit_step": (
                 "8. If checks pass, commit ALL changes: "
-                '`git commit -am "feat: {{STORY_ID}} - {{STORY_TITLE}}"`\n'
+                '`git commit -am "feat: {STORY_ID} - {STORY_TITLE}"`\n'
             ),
             "commit_or_save_reminder": "Commit frequently",
         }
@@ -637,7 +637,7 @@ def _build_git_sections(git_context: dict | None) -> dict[str, str]:
             "worker_git_step": ("4. If not a git repo yet, run `git init`.\n"),
             "worker_commit_step": (
                 "8. If checks pass, commit ALL changes: "
-                '`git commit -am "feat: {{STORY_ID}} - {{STORY_TITLE}}"`\n'
+                '`git commit -am "feat: {STORY_ID} - {STORY_TITLE}"`\n'
             ),
             "commit_or_save_reminder": "Commit frequently",
         }
@@ -667,7 +667,7 @@ def _build_git_sections(git_context: dict | None) -> dict[str, str]:
         ),
         "worker_commit_step": (
             "8. If git available, commit: "
-            '`git commit -am "feat: {{STORY_ID}} - {{STORY_TITLE}}"`\n'
+            '`git commit -am "feat: {STORY_ID} - {STORY_TITLE}"`\n'
             "   If not, skip.\n"
         ),
         "commit_or_save_reminder": "Save frequently",

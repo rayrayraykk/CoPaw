@@ -198,6 +198,49 @@ def _remaining_summary(
 # ── Main execution ───────────────────────────────────────────────────────
 
 
+_PRD_FIX_PROMPT = """\
+⚠️ **prd.json schema validation FAILED**. Problems found:
+{problems}
+
+You MUST rewrite `{loop_dir}/prd.json` using the **exact** schema below.
+Do NOT invent your own fields.
+
+**Required top-level structure:**
+```json
+{{
+  "project": "<short name>",
+  "branchName": "mission/<kebab-case>",
+  "description": "<one-line summary>",
+  "userStories": [
+    {{
+      "id": "US-001",
+      "title": "<short title>",
+      "description": "As a <user>, I want <feature> so that <benefit>",
+      "acceptanceCriteria": ["<verifiable criterion 1>", ...],
+      "priority": 1,
+      "passes": false,
+      "notes": ""
+    }}
+  ]
+}}
+```
+
+**Rules:**
+- Top-level MUST have `userStories` (array), NOT `features`, `tasks`, etc.
+- Each story MUST have: id, title, description, \
+acceptanceCriteria, priority, passes, notes
+- `id` format: "US-001", "US-002", etc.
+- All `passes` MUST be `false` initially
+- `acceptanceCriteria` MUST be a non-empty array of strings
+
+Rewrite prd.json NOW with the correct format. \
+Keep the same task decomposition \
+but restructure it into the required schema.
+"""
+
+_MAX_PRD_FIX_ATTEMPTS = 2
+
+
 async def run_mission_phase1(
     agent: Any,
     msgs: list,
@@ -207,7 +250,8 @@ async def run_mission_phase1(
     """Execute Phase 1 (PRD generation / user follow-up).
 
     Runs the agent for one turn.  After the agent finishes:
-    - If prd.json exists but is invalid → report errors.
+    - If prd.json has schema errors → auto-inject correction prompt
+      and re-run (up to ``_MAX_PRD_FIX_ATTEMPTS`` times).
     - If the agent set ``current_phase`` to ``"execution_confirmed"``
       in loop_config.json → seamlessly transition to Phase 2.
     - Otherwise → return control to the user.
@@ -231,25 +275,98 @@ async def run_mission_phase1(
             yield msg, last
         return
 
-    # Still in Phase 1 — validate prd.json if it exists
+    # Still in Phase 1 — validate prd.json and auto-fix if needed
     prd = read_prd(loop_dir)
-    if prd:
-        problems = validate_prd(prd)
-        if problems:
-            detail = "\n".join(f"  - {p}" for p in problems)
-            yield Msg(
-                name="system",
-                role="assistant",
-                content=[
-                    TextBlock(
-                        type="text",
-                        text=(
-                            f"⚠️ **prd.json validation failed**:\n{detail}\n\n"
-                            "Please fix the prd.json format before confirming."
-                        ),
+    if not prd:
+        return
+
+    problems = validate_prd(prd)
+    if not problems:
+        return
+
+    for attempt in range(1, _MAX_PRD_FIX_ATTEMPTS + 1):
+        detail = "\n".join(f"  - {p}" for p in problems)
+        logger.warning(
+            "Mission Phase 1: PRD validation failed (attempt %d/%d): %s",
+            attempt,
+            _MAX_PRD_FIX_ATTEMPTS,
+            detail,
+        )
+
+        yield Msg(
+            name="system",
+            role="assistant",
+            content=[
+                TextBlock(
+                    type="text",
+                    text=(
+                        f"⚠️ prd.json 格式不正确 (尝试修正 {attempt}"
+                        f"/{_MAX_PRD_FIX_ATTEMPTS}):\n{detail}\n\n"
+                        "正在要求 agent 按正确格式重写..."
                     ),
-                ],
-            ), True
+                ),
+            ],
+        ), False
+
+        fix_text = _PRD_FIX_PROMPT.format(
+            problems=detail,
+            loop_dir=loop_dir,
+        )
+        fix_msgs = [
+            Msg(
+                name="user",
+                role="user",
+                content=[TextBlock(type="text", text=fix_text)],
+            ),
+        ]
+
+        async for msg, last in stream_printing_messages(
+            agents=[agent],
+            coroutine_task=agent(fix_msgs),
+        ):
+            yield msg, last
+
+        # Re-check after agent's fix attempt
+        cfg = read_loop_config(loop_dir)
+        if cfg.get("current_phase") == "execution_confirmed":
+            logger.info(
+                "Mission: agent confirmed PRD during fix, "
+                "transitioning to Phase 2",
+            )
+            async for msg, last in run_mission_phase2(
+                agent=agent,
+                msgs=[],
+                loop_dir=loop_dir,
+                max_iterations=max_iterations,
+            ):
+                yield msg, last
+            return
+
+        prd = read_prd(loop_dir)
+        problems = validate_prd(prd) if prd else ["prd.json not found"]
+        if not problems:
+            logger.info(
+                "Mission Phase 1: PRD fixed on attempt %d",
+                attempt,
+            )
+            return
+
+    # Exhausted fix attempts
+    detail = "\n".join(f"  - {p}" for p in problems)
+    yield Msg(
+        name="system",
+        role="assistant",
+        content=[
+            TextBlock(
+                type="text",
+                text=(
+                    f"⚠️ **prd.json 仍然不符合格式** "
+                    f"(已尝试 {_MAX_PRD_FIX_ATTEMPTS} 次):\n{detail}\n\n"
+                    "请手动检查并修正 prd.json 后再确认。"
+                ),
+            ),
+        ],
+    ), True
 
 
 async def run_mission_phase2(
