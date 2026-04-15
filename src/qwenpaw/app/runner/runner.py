@@ -629,6 +629,7 @@ class AgentRunner(Runner):
                         msgs=msgs,
                         loop_dir=loop_dir,
                         max_iterations=max_iters,
+                        agent_id=self.agent_id,
                     ):
                         yield msg, last
                 else:
@@ -637,6 +638,7 @@ class AgentRunner(Runner):
                         msgs=msgs,
                         loop_dir=loop_dir,
                         max_iterations=max_iters,
+                        agent_id=self.agent_id,
                     ):
                         yield msg, last
             else:

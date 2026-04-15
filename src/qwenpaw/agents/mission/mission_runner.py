@@ -305,6 +305,7 @@ async def run_mission_phase1(
     msgs: list,
     loop_dir: Path,
     max_iterations: int = 20,
+    agent_id: str = None,
 ) -> AsyncGenerator[tuple[Msg, bool], None]:
     """Execute Phase 1 (PRD generation / user follow-up).
 
@@ -333,7 +334,7 @@ async def run_mission_phase1(
                 content=[
                     TextBlock(
                         type="text",
-                        text=_get_message("phase2_no_prd", agent.agent_id),
+                        text=_get_message("phase2_no_prd", agent_id),
                     ),
                 ],
             ), True
@@ -351,7 +352,7 @@ async def run_mission_phase1(
                         type="text",
                         text=_get_message(
                             "phase2_invalid_prd",
-                            agent.agent_id,
+                            agent_id,
                             detail=detail,
                         ),
                     ),
@@ -456,7 +457,7 @@ async def run_mission_phase1(
                 type="text",
                 text=_get_message(
                     "prd_still_invalid",
-                    agent.agent_id,
+                    agent_id,
                     attempts=_MAX_PRD_FIX_ATTEMPTS,
                     detail=detail,
                 ),
@@ -470,6 +471,7 @@ async def run_mission_phase2(
     msgs: list,
     loop_dir: Path,
     max_iterations: int = 20,
+    agent_id: str = None,
 ) -> AsyncGenerator[tuple[Msg, bool], None]:
     """Execute Phase 2 (iteration loop with code-level control).
 
@@ -489,7 +491,7 @@ async def run_mission_phase2(
             content=[
                 TextBlock(
                     type="text",
-                    text=_get_message("phase2_startup_no_prd", agent.agent_id),
+                    text=_get_message("phase2_startup_no_prd", agent_id),
                 ),
             ],
         ), True
@@ -507,7 +509,7 @@ async def run_mission_phase2(
                     type="text",
                     text=_get_message(
                         "phase2_startup_invalid",
-                        agent.agent_id,
+                        agent_id,
                         detail=detail,
                     ),
                 ),
@@ -564,7 +566,7 @@ async def run_mission_phase2(
                             type="text",
                             text=_get_message(
                                 "prd_no_stories",
-                                agent.agent_id,
+                                agent_id,
                             ),
                         ),
                     ],
@@ -579,7 +581,7 @@ async def run_mission_phase2(
                     content=[
                         TextBlock(
                             type="text",
-                            text=_completion_summary(prd, agent.agent_id),
+                            text=_completion_summary(prd, agent_id),
                         ),
                     ],
                 ), True
@@ -608,7 +610,7 @@ async def run_mission_phase2(
                     type="text",
                     text=_get_message(
                         "mission_max_iterations",
-                        agent.agent_id,
+                        agent_id,
                         max_iter=max_iterations,
                         passed=passed,
                         total=len(stories),
