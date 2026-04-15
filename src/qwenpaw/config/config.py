@@ -425,6 +425,12 @@ class MemorySummaryConfig(BaseModel):
         ),
     )
 
+    dream_cron: str = Field(
+        default="0 23 * * *",
+        description="Cron expression for dream-based memory optimization job "
+        "(empty to disable)",
+    )
+
     force_memory_search: bool = Field(
         default=False,
         description="Whether to force memory search on every turn",
@@ -464,6 +470,15 @@ class MemorySummaryConfig(BaseModel):
             "Whether to clear and rebuild the memory search index when the"
             " agent starts. Set to False to skip re-indexing and only monitor"
             " new file changes."
+        ),
+    )
+
+    recursive_file_watcher: bool = Field(
+        default=False,
+        description=(
+            "Whether to watch memory directory recursively. "
+            "Set to True to include subdirectories like memory/subdirectory/* "
+            "in vector search indexing."
         ),
     )
 

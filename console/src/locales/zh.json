@@ -438,7 +438,7 @@
     "runtimeMaxConcurrency": "最大并发数",
     "runtimeTimeoutSeconds": "超时时间（秒）",
     "runtimeMisfireGraceSeconds": "错过执行宽限期（秒）",
-    "idTooltip": "任务的唯一标识符。建议使用小写字母、数字、连字符和下划线。",
+    "idTooltip": "任务的唯一标识符（UUID）由系统在创建时自动分配，不可修改。",
     "nameTooltip": "任务的友好名称，便于识别。",
     "cronTooltip": "定义任务执行时间",
     "cronExample": "常用示例：'0 9 * * *' = 每天9点 | '*/30 * * * *' = 每30分钟 | '0 */2 * * *' = 每2小时 | '0 0 * * 0' = 每周日0点",
@@ -740,6 +740,7 @@
     "manageModelsTitle": "{{provider}} — 模型管理",
     "userAdded": "用户添加",
     "addModel": "添加模型",
+    "autoDiscoverModels": "自动发现模型",
     "addModelTitle": "为 {{provider}} 添加模型",
     "modelIdLabel": "模型 ID",
     "modelIdPlaceholder": "例如 gpt-4o, gemini-2.0-flash",
@@ -749,6 +750,9 @@
     "modelNamePlaceholder": "例如 GPT-4o, Gemini 2.0 Flash",
     "modelAdded": "模型 \"{{name}}\" 已添加",
     "modelAddFailed": "添加模型失败",
+    "autoDiscoverModelsSuccess": "自动发现完成，新增 {{count}} 个模型",
+    "autoDiscoverModelsNoNew": "自动发现完成，未新增模型",
+    "autoDiscoverModelsFailed": "自动发现模型失败",
     "removeModel": "移除",
     "removeModelConfirm": "确定从 {{provider}} 中移除模型 \"{{name}}\"？",
     "modelRemoved": "模型 \"{{name}}\" 已移除",
@@ -1027,6 +1031,9 @@
     "memorySummaryTitle": "长期记忆配置",
     "memorySummaryEnabled": "启动记忆总结",
     "memorySummaryEnabledTooltip": "在上下文压缩时自动生成并保存记忆总结",
+    "dreamCron": "梦境",
+    "dreamCronTooltip": "设置梦境任务自动整理和优化长期记忆（留空则禁用）",
+    "dreamCronPlaceholder": "0 23 * * *",
     "forceMemorySearch": "强制记忆搜索(beta)",
     "forceMemorySearchTooltip": "每轮对话都强制触发记忆搜索。每次 query 进来都会调用记忆，让 QwenPaw 更懂你，但会增加 token 消耗。注意：强制记忆搜索会破坏 KV Cache，造成缓存命中率降低，请谨慎开启。",
     "forceMaxResults": "强制搜索最大结果数",
@@ -1173,7 +1180,8 @@
       "noResults": "未找到结果",
       "resultsCount": "找到 {{count}} 个结果",
       "userMessage": "用户",
-      "assistantMessage": "助手"
+      "assistantMessage": "助手",
+      "titleMatch": "标题"
     }
   },
   "security": {

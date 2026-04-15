@@ -415,7 +415,7 @@
     "runtimeMaxConcurrency": "最大同時実行数",
     "runtimeTimeoutSeconds": "タイムアウト（秒）",
     "runtimeMisfireGraceSeconds": "遅延許容時間（秒）",
-    "idTooltip": "このジョブの一意識別子。小文字・数字・ハイフン・アンダースコアが使用できます。",
+    "idTooltip": "タスクの作成時にシステムによって生成され、編集不可の一意のUUID。",
     "nameTooltip": "このジョブを識別するためのわかりやすい名前。",
     "cronTooltip": "タスクの実行タイミングを定義します",
     "cronExample": "よく使う例: '0 9 * * *' = 毎日9時 | '*/30 * * * *' = 30分ごと | '0 */2 * * *' = 2時間ごと | '0 0 * * 0' = 日曜0時",
@@ -704,6 +704,7 @@
     "manageModelsTitle": "{{provider}} — モデル管理",
     "userAdded": "ユーザー追加",
     "addModel": "モデルを追加",
+    "autoDiscoverModels": "モデルを自動検出",
     "addModelTitle": "{{provider}} にモデルを追加",
     "modelIdLabel": "モデルID",
     "modelIdPlaceholder": "例: gpt-4o, gemini-2.0-flash",
@@ -713,6 +714,9 @@
     "modelNamePlaceholder": "例: GPT-4o, Gemini 2.0 Flash",
     "modelAdded": "モデル \"{{name}}\" を追加しました",
     "modelAddFailed": "モデルの追加に失敗しました",
+    "autoDiscoverModelsSuccess": "自動検出が完了しました。{{count}} 件のモデルを追加しました",
+    "autoDiscoverModelsNoNew": "自動検出が完了しました。新しいモデルは追加されませんでした",
+    "autoDiscoverModelsFailed": "モデルの自動検出に失敗しました",
     "removeModel": "削除",
     "removeModelConfirm": "{{provider}} からモデル \"{{name}}\" を削除しますか？",
     "modelRemoved": "モデル \"{{name}}\" を削除しました",
@@ -970,6 +974,9 @@
     "memorySummaryTitle": "長期記憶設定",
     "memorySummaryEnabled": "記憶まとめを起動",
     "memorySummaryEnabledTooltip": "コンテキスト圧縮時に自動的に記憶サマリーを生成・保存します",
+    "dreamCron": "ドリームベースの記憶最適化",
+    "dreamCronTooltip": "ドリーム状態を通じて定期的に長期記憶を最適化するためのCron式（空欄で無効化）",
+    "dreamCronPlaceholder": "0 23 * * *",
     "forceMemorySearch": "強制記憶検索(beta)",
     "forceMemorySearchTooltip": "毎回の会話で記憶検索を強制実行します。各クエリで関連する記憶を取得し、QwenPawがあなたをより理解できますが、トークン消費が増加します。注意：強制記憶検索を有効にすると KV キャッシュが無効になり、キャッシュヒット率が低下します。慎重に有効にしてください。",
     "forceMaxResults": "強制検索の最大結果数",
@@ -1113,7 +1120,8 @@
       "noResults": "結果が見つかりません",
       "resultsCount": "{{count}} 件の結果が見つかりました",
       "userMessage": "ユーザー",
-      "assistantMessage": "アシスタント"
+      "assistantMessage": "アシスタント",
+      "titleMatch": "タイトル"
     }
   },
   "security": {
