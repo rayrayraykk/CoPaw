@@ -23,6 +23,7 @@ from .gemini_provider import GeminiProvider
 from .models import ModelSlotConfig
 from .ollama_provider import OllamaProvider
 from .openai_provider import OpenAIProvider
+from .lmstudio_provider import LMStudioProvider
 from .provider import (
     ModelInfo,
     Provider,
@@ -254,23 +255,7 @@ OPENAI_MODELS: List[ModelInfo] = [
     ),
 ]
 
-OPENCODE_MODELS: List[ModelInfo] = [
-    # Free models from OpenCode Zen
-    ModelInfo(
-        id="big-pickle",
-        name="Big Pickle",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="nemotron-3-super-free",
-        name="Nemotron 3 Super Free",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-]
+OPENCODE_MODELS: List[ModelInfo] = []
 
 AZURE_OPENAI_MODELS: List[ModelInfo] = [
     ModelInfo(
@@ -568,7 +553,7 @@ PROVIDER_OPENCODE = OpenAIProvider(
     api_key_prefix="",
     models=OPENCODE_MODELS,
     freeze_url=True,
-    support_model_discovery=True,
+    require_api_key=False,
 )
 
 PROVIDER_AZURE_OPENAI = OpenAIProvider(
@@ -645,7 +630,6 @@ PROVIDER_GEMINI = GeminiProvider(
     models=GEMINI_MODELS,
     chat_model="GeminiChatModel",
     freeze_url=True,
-    support_model_discovery=True,
 )
 
 PROVIDER_OLLAMA = OllamaProvider(
@@ -664,10 +648,9 @@ PROVIDER_OPENROUTER = OpenRouterProvider(
     api_key_prefix="sk-or-v1-",
     models=[],
     freeze_url=True,
-    support_model_discovery=True,
 )
 
-PROVIDER_LMSTUDIO = OpenAIProvider(
+PROVIDER_LMSTUDIO = LMStudioProvider(
     id="lmstudio",
     name="LM Studio",
     is_local=True,
@@ -685,7 +668,6 @@ PROVIDER_SILICONFLOW_CN = OpenAIProvider(
     api_key_prefix="sk-",
     models=[],
     freeze_url=True,
-    support_model_discovery=True,
     require_api_key=True,
 )
 
@@ -696,7 +678,6 @@ PROVIDER_SILICONFLOW_INTL = OpenAIProvider(
     api_key_prefix="sk-",
     models=[],
     freeze_url=True,
-    support_model_discovery=True,
     require_api_key=True,
 )
 
@@ -753,7 +734,6 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self._add_builtin(PROVIDER_DASHSCOPE)
         self._add_builtin(PROVIDER_ALIYUN_CODINGPLAN)
         self._add_builtin(PROVIDER_OPENAI)
-        self._add_builtin(PROVIDER_OPENCODE)
         self._add_builtin(PROVIDER_AZURE_OPENAI)
         self._add_builtin(PROVIDER_ANTHROPIC)
         self._add_builtin(PROVIDER_GEMINI)
@@ -763,6 +743,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self._add_builtin(PROVIDER_MINIMAX_CN)
         self._add_builtin(PROVIDER_MINIMAX)
         self._add_builtin(PROVIDER_OPENROUTER)
+        self._add_builtin(PROVIDER_OPENCODE)
         self._add_builtin(PROVIDER_ZHIPU_CN)
         self._add_builtin(PROVIDER_ZHIPU_CN_CODINGPLAN)
         self._add_builtin(PROVIDER_ZHIPU_INTL)
@@ -1577,10 +1558,6 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
             is_custom=False,  # Mark as non-custom (like builtin, cannot be
             # deleted)
             require_api_key=metadata.get("require_api_key", True),
-            support_model_discovery=metadata.get(
-                "support_model_discovery",
-                False,
-            ),
             meta=metadata.get("meta", {}),  # Pass meta from plugin
         )
 

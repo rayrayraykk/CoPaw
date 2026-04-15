@@ -425,6 +425,12 @@ class MemorySummaryConfig(BaseModel):
         ),
     )
 
+    dream_cron: str = Field(
+        default="0 23 * * *",
+        description="Cron expression for dream-based memory optimization job "
+        "(empty to disable)",
+    )
+
     force_memory_search: bool = Field(
         default=False,
         description="Whether to force memory search on every turn",
@@ -464,6 +470,15 @@ class MemorySummaryConfig(BaseModel):
             "Whether to clear and rebuild the memory search index when the"
             " agent starts. Set to False to skip re-indexing and only monitor"
             " new file changes."
+        ),
+    )
+
+    recursive_file_watcher: bool = Field(
+        default=False,
+        description=(
+            "Whether to watch memory directory recursively. "
+            "Set to True to include subdirectories like memory/subdirectory/* "
+            "in vector search indexing."
         ),
     )
 
@@ -914,14 +929,17 @@ class BuiltinToolConfig(BaseModel):
     """Configuration for a single built-in tool."""
 
     name: str = Field(..., description="Tool function name")
-    enabled: bool = Field(True, description="Whether the tool is enabled")
+    enabled: bool = Field(
+        default=True,
+        description="Whether the tool is enabled",
+    )
     description: str = Field(default="", description="Tool description")
     display_to_user: bool = Field(
-        True,
+        default=True,
         description="Whether tool output is rendered to user channels",
     )
     async_execution: bool = Field(
-        False,
+        default=False,
         description="Whether to execute the tool asynchronously in background",
     )
     icon: str | None = Field(
@@ -1018,6 +1036,18 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
             enabled=True,
             description="Get llm token usage",
             icon="📊",
+        ),
+        "list_agents": BuiltinToolConfig(
+            name="list_agents",
+            enabled=True,
+            description="List configured agents from the local API",
+            icon="🤖",
+        ),
+        "chat_with_agent": BuiltinToolConfig(
+            name="chat_with_agent",
+            enabled=True,
+            description="Send a message to another configured agent",
+            icon="💬",
         ),
     }
 
