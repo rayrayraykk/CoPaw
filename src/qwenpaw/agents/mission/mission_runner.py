@@ -51,9 +51,9 @@ _MESSAGES = {
         "phase2_startup_no_prd": "⚠️ **Phase 2 启动失败**: prd.json 未找到或为空。\n无法继续执行。",
         "phase2_startup_invalid": "⚠️ **Phase 2 启动失败**: prd.json 格式错误:\n{detail}\n\n请返回 Phase 1 修正 PRD。",
         "prd_still_invalid": "⚠️ **prd.json 仍然不符合格式** (已尝试 {attempts} 次):\n{detail}\n\n请手动检查并修正 prd.json 后再确认。",
-        "mission_complete": "**Mission Complete** — {passed}/{total} stories passed ✅\n",
-        "mission_max_iterations": "⚠️ **Mission reached max iterations** ({max_iter}). {passed}/{total} stories passed.\n\nYou can check with `/mission status` to see what remains, then start a new mission or manually complete the work.",
-        "prd_no_stories": "⚠️ prd.json has no user stories. Loop aborted.",
+        "mission_complete": "**Mission 完成** — {passed}/{total} stories 通过 ✅\n",
+        "mission_max_iterations": "⚠️ **Mission 已达到最大迭代次数** ({max_iter})。已完成 {passed}/{total} 个 story。\n\n你可以使用 `/mission status` 查看剩余内容，然后启动一个新的 mission，或手动完成剩余工作。",
+        "prd_no_stories": "⚠️ prd.json 缺失 user stories. 循环终止.",
     },
     "en": {
         "phase2_no_prd": "⚠️ **Cannot enter Phase 2**: prd.json not found or empty.\nPlease generate a valid PRD first.",
@@ -81,7 +81,7 @@ def _get_message(key: str, agent_id: str, **kwargs) -> str:
     """
     try:
         config = load_agent_config(agent_id)
-        lang = config.get("language", "en")
+        lang = getattr(config, "language", "en")
         # Normalize: if not 'zh', use 'en'
         lang = "zh" if lang == "zh" else "en"
     except Exception:
@@ -367,6 +367,7 @@ async def run_mission_phase1(
             msgs=[],
             loop_dir=loop_dir,
             max_iterations=max_iterations,
+            agent_id=agent_id,
         ):
             yield msg, last
         return
@@ -434,6 +435,7 @@ async def run_mission_phase1(
                 msgs=[],
                 loop_dir=loop_dir,
                 max_iterations=max_iterations,
+                agent_id=agent_id,
             ):
                 yield msg, last
             return

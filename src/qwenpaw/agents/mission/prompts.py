@@ -66,7 +66,7 @@ into a structured prd.json.  You have tools — use them.
 ```json
 {{
   "project": "AuthSystem",
-  "branchName": "ralph/auth-jwt",
+  "branchName": "mission/auth-jwt",
   "description": "User authentication with JWT and tests",
   "userStories": [
     {{
@@ -108,7 +108,7 @@ Write `{loop_dir}/prd.json` with this **exact structure**:
 
 **Required fields (do NOT rename or omit):**
 - `project`: short project name
-- `branchName`: "ralph/feature-name-kebab-case"
+- `branchName`: "mission/feature-name-kebab-case"
 - `description`: one-line summary
 - `userStories`: array of story objects
 
@@ -126,7 +126,7 @@ Write `{loop_dir}/prd.json` with this **exact structure**:
 ```json
 {{
   "project": "TaskApp",
-  "branchName": "ralph/task-status",
+  "branchName": "mission/task-status",
   "description": "Add task status tracking with filters",
   "userStories": [
     {{
@@ -254,7 +254,7 @@ For stories that change UI, also add: "Verify in browser".
 3. Priority: based on dependency order, then document order.
 4. All stories start with `"passes": false` and `"notes": ""`.
 5. `branchName`: derive from feature name, kebab-case, prefixed
-   with `ralph/`.
+   with `mission/`.
 
 ### 0g. Splitting large features — example
 
