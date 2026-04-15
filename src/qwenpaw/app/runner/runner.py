@@ -446,27 +446,36 @@ class AgentRunner(Runner):
 
             logger.debug(f"Enabled MCP: {mcp_clients}")
 
+            # Build base request context
+            base_request_context = {
+                "session_id": session_id,
+                "user_id": user_id,
+                "channel": channel,
+                "agent_id": self.agent_id,
+                **(
+                    {
+                        "forced_tool_call_json": json.dumps(
+                            approved_tool_call,
+                            ensure_ascii=False,
+                        ),
+                    }
+                    if approved_tool_call
+                    else {}
+                ),
+            }
+
+            # Merge custom request_context from request
+            # (e.g., _headless_tool_guard)
+            custom_context = getattr(request, "request_context", None)
+            if custom_context and isinstance(custom_context, dict):
+                base_request_context.update(custom_context)
+
             agent = QwenPawAgent(
                 agent_config=agent_config,
                 env_context=env_context,
                 mcp_clients=mcp_clients,
                 memory_manager=self.memory_manager,
-                request_context={
-                    "session_id": session_id,
-                    "user_id": user_id,
-                    "channel": channel,
-                    "agent_id": self.agent_id,
-                    **(
-                        {
-                            "forced_tool_call_json": json.dumps(
-                                approved_tool_call,
-                                ensure_ascii=False,
-                            ),
-                        }
-                        if approved_tool_call
-                        else {}
-                    ),
-                },
+                request_context=base_request_context,
                 workspace_dir=self.workspace_dir,
                 task_tracker=self._task_tracker,
             )

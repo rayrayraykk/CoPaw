@@ -649,6 +649,10 @@ def chat_cmd(
         ],
     }
 
+    # Background tasks bypass tool guard (cannot respond to /approve prompts)
+    if background:
+        request_payload["request_context"] = {"_headless_tool_guard": "false"}
+
     with client(resolved_base_url) as c:
         headers = {"X-Agent-Id": to_agent}
 

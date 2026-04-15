@@ -183,6 +183,12 @@ async def handle_mission_command(  # pylint: disable=too-many-return-statements
             f"- `--max-iterations <n>` — max Phase 2 iterations "
             f"(range: {_MIN_MAX_ITERATIONS}-{_MAX_MAX_ITERATIONS}, "
             f"default: {_DEFAULT_MAX_ITERATIONS})\n\n"
+            "⚠️ **Security Warning**:\n"
+            "- Worker agents bypass security guards (auto-disabled via "
+            "`--background`)\n"
+            "- Sensitive operations (shell, file writes) execute without "
+            "approval\n"
+            "- **Only use in trusted codebases**\n\n"
             "**Note**: Task description must be at least 5 characters."
         )
 

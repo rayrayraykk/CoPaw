@@ -791,6 +791,12 @@ mission-20260415-123456/
 3. **工具限制**：Phase 2 中，master agent **不能**直接使用 `edit_file`、`browser_use` 等实现工具，只能通过 worker 完成
 4. **迭代上限**：达到 `--max-iterations` 后自动停止，避免无限循环
 5. **Git 支持**：如果工作目录是 Git 仓库，agent 会自动 commit 变更（可选）
+6. **⚠️ 工具安全护栏绕过**：
+   - **Worker 和 verifier agents 会自动绕过安全护栏**（通过 `--background` 模式自动禁用）
+   - 这是因为后台 session 无法响应 `/approve` 交互提示
+   - Master agent 自身仍受护栏保护（除非手动绕过）
+   - **安全提示**：所有 worker 操作都在 `missions/<mission-xxx>/` 目录下进行，但仍建议**仅在完全信任的代码仓库中使用 Mission Mode**
+   - 敏感操作（如删除文件、执行 shell 命令）会直接执行，无需人工审批
 
 ### 高级用法
 
