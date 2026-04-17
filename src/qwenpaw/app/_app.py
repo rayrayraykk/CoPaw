@@ -434,7 +434,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             from ..utils.startup_display import print_ready_banner
 
             api_info = read_last_api()
-            print_ready_banner(api_info)
+            print_ready_banner(api_info, startup_elapsed)
         except Exception:
             logger.error(
                 "Background startup encountered an error",
