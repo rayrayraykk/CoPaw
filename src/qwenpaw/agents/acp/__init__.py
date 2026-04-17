@@ -2,8 +2,6 @@
 """Minimal ACP exports."""
 
 from .core import (
-    ACPAgentConfig,
-    ACPConfig,
     ACPConfigurationError,
     ACPProtocolError,
     ACPSessionError,
@@ -15,8 +13,6 @@ from .core import (
 from .service import ACPService, get_acp_service, init_acp_service
 
 __all__ = [
-    "ACPAgentConfig",
-    "ACPConfig",
     "ACPErrors",
     "ACPConfigurationError",
     "ACPProtocolError",
