@@ -51,6 +51,24 @@ export interface BuiltinImportSpec {
   status?: "missing" | "current" | "conflict" | string;
 }
 
+export interface BuiltinRemovedSpec {
+  name: string;
+  description?: string;
+  current_version_text?: string;
+  current_source?: string;
+}
+
+export interface BuiltinUpdateNotice {
+  fingerprint: string;
+  has_updates: boolean;
+  total_changes: number;
+  actionable_skill_names: string[];
+  added: BuiltinImportSpec[];
+  missing: BuiltinImportSpec[];
+  updated: BuiltinImportSpec[];
+  removed: BuiltinRemovedSpec[];
+}
+
 export interface HubSkillSpec {
   slug: string;
   name: string;
@@ -64,7 +82,6 @@ export interface HubInstallTaskResponse {
   bundle_url: string;
   version: string;
   enable: boolean;
-  overwrite: boolean;
   status: "pending" | "importing" | "completed" | "failed" | "cancelled";
   error: string | null;
   result: {

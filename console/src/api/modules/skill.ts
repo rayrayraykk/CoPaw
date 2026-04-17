@@ -3,6 +3,7 @@ import { getApiUrl } from "../config";
 import { buildAuthHeaders } from "../authHeaders";
 import type {
   BuiltinImportSpec,
+  BuiltinUpdateNotice,
   HubInstallTaskResponse,
   HubSkillSpec,
   PoolSkillSpec,
@@ -49,6 +50,8 @@ export function invalidateSkillCache(options?: {
     // Targeted invalidation based on options
     if (options.pool && key === "/skills/pool") {
       apiCache.delete(key);
+      apiCache.delete("/skills/pool/builtin-notice");
+      apiCache.delete("/skills/pool/builtin-sources");
     } else if (options.workspaces && key === "/skills/workspaces") {
       apiCache.delete(key);
     } else if (options.agentId && key === `/skills?agent=${options.agentId}`) {
@@ -70,7 +73,6 @@ async function _uploadZip(
   file: File,
   options?: {
     enable?: boolean;
-    overwrite?: boolean;
     target_name?: string;
     rename_map?: Record<string, string>;
   },
@@ -81,9 +83,6 @@ async function _uploadZip(
   const params = new URLSearchParams();
   if (options?.enable !== undefined) {
     params.set("enable", String(options.enable));
-  }
-  if (options?.overwrite !== undefined) {
-    params.set("overwrite", String(options.overwrite));
   }
   if (options?.target_name) {
     params.set("target_name", options.target_name);
@@ -197,6 +196,7 @@ export const skillApi = {
     content: string;
     source_name?: string;
     config?: Record<string, unknown>;
+    overwrite?: boolean;
   }) =>
     request<{
       success: boolean;
@@ -222,6 +222,7 @@ export const skillApi = {
     content: string;
     source_name?: string;
     config?: Record<string, unknown>;
+    overwrite?: boolean;
   }) =>
     request<{
       success: boolean;
@@ -273,7 +274,6 @@ export const skillApi = {
     bundle_url: string;
     version?: string;
     enable?: boolean;
-    overwrite?: boolean;
     target_name?: string;
   }) =>
     request<HubInstallTaskResponse>("/skills/hub/install/start", {
@@ -284,7 +284,6 @@ export const skillApi = {
   importPoolSkillFromHub: (payload: {
     bundle_url: string;
     version?: string;
-    overwrite?: boolean;
     target_name?: string;
   }) =>
     request<{
@@ -312,6 +311,18 @@ export const skillApi = {
 
   listPoolBuiltinSources: () =>
     request<BuiltinImportSpec[]>("/skills/pool/builtin-sources"),
+
+  getPoolBuiltinNotice: async () => {
+    const cacheKey = "/skills/pool/builtin-notice";
+    const cached = getCached<BuiltinUpdateNotice>(cacheKey);
+    if (cached) return cached;
+
+    const data = await request<BuiltinUpdateNotice>(
+      "/skills/pool/builtin-notice",
+    );
+    setCache(cacheKey, data);
+    return data;
+  },
 
   importSelectedPoolBuiltins: (payload: {
     skill_names: string[];
@@ -349,8 +360,8 @@ export const skillApi = {
   uploadWorkspaceSkillToPool: (payload: {
     workspace_id: string;
     skill_name: string;
-    new_name?: string;
     overwrite?: boolean;
+    preview_only?: boolean;
   }) =>
     request<{ success: boolean; name: string }>("/skills/pool/upload", {
       method: "POST",
@@ -359,9 +370,10 @@ export const skillApi = {
 
   downloadSkillPoolSkill: (payload: {
     skill_name: string;
-    targets: Array<{ workspace_id: string; target_name?: string }>;
+    targets: Array<{ workspace_id: string }>;
     all_workspaces?: boolean;
     overwrite?: boolean;
+    preview_only?: boolean;
   }) =>
     request<{
       downloaded: Array<{
@@ -371,9 +383,12 @@ export const skillApi = {
       }>;
       conflicts?: Array<{
         reason?: string;
+        skill_name?: string;
         workspace_id?: string;
         workspace_name?: string;
         suggested_name?: string;
+        current_version_text?: string;
+        source_version_text?: string;
       }>;
     }>("/skills/pool/download", {
       method: "POST",
@@ -514,7 +529,6 @@ export const skillApi = {
     file: File,
     options?: {
       enable?: boolean;
-      overwrite?: boolean;
       target_name?: string;
       rename_map?: Record<string, string>;
     },
@@ -533,7 +547,6 @@ export const skillApi = {
   uploadSkillPoolZip: (
     file: File,
     options?: {
-      overwrite?: boolean;
       target_name?: string;
       rename_map?: Record<string, string>;
     },
