@@ -327,7 +327,7 @@ class Workspace:
             logger.debug(f"Workspace already started: {self.agent_id}")
             return
 
-        logger.debug(f"Starting workspace: {self.agent_id}")
+        logger.info(f"Starting workspace: {self.agent_id}")
 
         from ...agents.skills_manager import (
             ensure_skill_pool_initialized,
@@ -349,7 +349,7 @@ class Workspace:
             await self._service_manager.start_all()
 
             self._started = True
-            logger.debug(f"Workspace started successfully: {self.agent_id}")
+            logger.info(f"Workspace started successfully: {self.agent_id}")
 
         except Exception as e:
             logger.error(

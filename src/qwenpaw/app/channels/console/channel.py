@@ -581,7 +581,7 @@ class ConsoleChannel(BaseChannel):
         if not self.enabled:
             logger.debug("console channel disabled")
             return
-        logger.debug("Console channel started")
+        logger.info("Console channel started")
 
     async def stop(self) -> None:
         if not self.enabled:

@@ -887,7 +887,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 exc,
                 exc_info=exc,
             )
-        logger.debug("Background local model restore completed")
+        logger.info("Background local model restore completed")
 
     async def fetch_provider_models(
         self,

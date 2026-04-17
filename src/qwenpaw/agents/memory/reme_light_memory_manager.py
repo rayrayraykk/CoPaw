@@ -66,7 +66,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         self._reme_version_ok: bool = self._check_reme_version()
         self._reme = None
 
-        logger.debug(
+        logger.info(
             f"ReMeLightMemoryManager init: "
             f"agent_id={agent_id}, working_dir={working_dir}",
         )
@@ -105,7 +105,7 @@ See: https://docs.trychroma.com/docs/overview/troubleshooting#sqlite
             **emb_config,
             "api_key": self._mask_key(emb_config["api_key"]),
         }
-        logger.debug(
+        logger.info(
             f"Embedding config: {log_cfg}, vector_enabled={vector_enabled}",
         )
 

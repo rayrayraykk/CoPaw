@@ -286,7 +286,7 @@ class UnifiedQueueManager:
             self._cleanup_idle_queues(),
             name="unified_queue_cleanup",
         )
-        logger.debug("Cleanup loop started")
+        logger.info("Cleanup loop started")
 
     async def clear_queue(
         self,
@@ -379,7 +379,7 @@ class UnifiedQueueManager:
         Runs every cleanup_interval seconds and removes queues
         that have been empty and idle for longer than idle_timeout.
         """
-        logger.debug("Cleanup loop running")
+        logger.info("Cleanup loop running")
 
         while self._running:
             try:
