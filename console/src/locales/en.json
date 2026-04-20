@@ -1174,7 +1174,27 @@
     "embeddingEnableHint": "Fill in both Base URL and Model Name to enable the embedding feature. API Key is optional.",
     "rebuildMemoryIndexOnStart": "Rebuild Memory Index on Start",
     "rebuildMemoryIndexOnStartTooltip": "Clear and rebuild the memory search index when the agent starts. Disable to skip re-indexing and only watch for new file changes (faster startup, but index may be out of sync).",
-    "toolResultCompactRecentGtOld": "Recent messages threshold must be greater than or equal to the older messages threshold"
+    "toolResultCompactRecentGtOld": "Recent messages threshold must be greater than or equal to the older messages threshold",
+    "approvalTitle": "Approval",
+    "approval": {
+      "level": {
+        "default": "Default Approval Level",
+        "cron": "Cron Job Approval Level",
+        "agentCli": "Agent Chat CLI Approval Level",
+        "agentTool": "Agent Chat Tool Approval Level",
+        "off": "Bypass all tool guards",
+        "strict": "Require approval for all tools",
+        "auto": "Require approval when blocked by security guard",
+        "smart": "Auto-approve low-risk blocks, require approval for high-risk"
+      },
+      "useDefault": "Use Default",
+      "usingDefault": "Using default",
+      "reference": "Approval Level Reference",
+      "saving": "Saving...",
+      "saved": "Saved successfully",
+      "fetchError": "Failed to fetch approval configuration",
+      "saveError": "Failed to save approval configuration"
+    }
   },
   "tools": {
     "title": "Built-in Tools",

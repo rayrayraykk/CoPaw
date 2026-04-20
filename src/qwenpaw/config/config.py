@@ -873,6 +873,26 @@ class AgentProfileConfig(BaseModel):
         description="Approval level for tool guard (STRICT/AUTO/SMART/OFF). "
         "None means use global default.",
     )
+    approval_level_cron: Optional[str] = Field(
+        default=None,
+        description=(
+            "Approval level for cron jobs. " "None means use approval_level."
+        ),
+    )
+    approval_level_agent_cli: Optional[str] = Field(
+        default=None,
+        description=(
+            "Approval level for Agent Chat CLI. "
+            "None means use approval_level."
+        ),
+    )
+    approval_level_agent_tool: Optional[str] = Field(
+        default=None,
+        description=(
+            "Approval level for Agent Chat Tool. "
+            "None means use approval_level."
+        ),
+    )
 
     # Agent-specific configurations
     channels: Optional["ChannelConfig"] = Field(

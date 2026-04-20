@@ -641,3 +641,105 @@ async def remove_from_whitelist(
         )
     save_config(config)
     return {"removed": True, "skill_name": skill_name}
+
+
+# ============ Approval Level Configuration ============
+
+
+class ApprovalLevelResponse(BaseModel):
+    """Response for approval level configuration."""
+
+    approval_level: str
+    approval_level_cron: str | None
+    approval_level_agent_cli: str | None
+    approval_level_agent_tool: str | None
+    available_levels: list[str]
+
+
+class ApprovalLevelUpdateRequest(BaseModel):
+    """Request to update approval level."""
+
+    approval_level: str
+    approval_level_cron: str | None = None
+    approval_level_agent_cli: str | None = None
+    approval_level_agent_tool: str | None = None
+
+
+@router.get(
+    "/approval-level",
+    summary="Get agent approval level",
+    description="Get approval level configuration for current agent",
+)
+async def get_approval_level(request: Request) -> ApprovalLevelResponse:
+    """Get agent approval level from agent profile."""
+    from ...app.approvals.level import ApprovalLevel
+    from ..agent_context import get_agent_for_request
+
+    agent = await get_agent_for_request(request)
+    agent_config = agent.config
+
+    # Get approval levels from agent config
+    approval_level = agent_config.approval_level or "AUTO"
+    approval_level_cron = agent_config.approval_level_cron
+    approval_level_agent_cli = agent_config.approval_level_agent_cli
+    approval_level_agent_tool = agent_config.approval_level_agent_tool
+
+    return ApprovalLevelResponse(
+        approval_level=approval_level,
+        approval_level_cron=approval_level_cron,
+        approval_level_agent_cli=approval_level_agent_cli,
+        approval_level_agent_tool=approval_level_agent_tool,
+        available_levels=[level.value for level in ApprovalLevel],
+    )
+
+
+@router.put(
+    "/approval-level",
+    summary="Update agent approval level",
+    description="Update approval level configuration for current agent",
+)
+async def put_approval_level(
+    request: Request,
+    body: ApprovalLevelUpdateRequest = Body(...),
+) -> ApprovalLevelResponse:
+    """Update agent approval level and save to agent config."""
+    from ...app.approvals.level import parse_approval_level, ApprovalLevel
+    from ..agent_context import get_agent_for_request
+    from ...config.config import save_agent_config
+
+    # Validate the approval levels
+    level = parse_approval_level(body.approval_level)
+
+    # Validate optional levels if provided
+    level_cron = None
+    level_agent_cli = None
+    level_agent_tool = None
+
+    if body.approval_level_cron is not None:
+        level_cron = parse_approval_level(body.approval_level_cron).value
+    if body.approval_level_agent_cli is not None:
+        level_agent_cli = parse_approval_level(
+            body.approval_level_agent_cli,
+        ).value
+    if body.approval_level_agent_tool is not None:
+        level_agent_tool = parse_approval_level(
+            body.approval_level_agent_tool,
+        ).value
+
+    agent = await get_agent_for_request(request)
+    agent.config.approval_level = level.value
+    agent.config.approval_level_cron = level_cron
+    agent.config.approval_level_agent_cli = level_agent_cli
+    agent.config.approval_level_agent_tool = level_agent_tool
+    save_agent_config(agent.agent_id, agent.config)
+
+    # Schedule agent reload to pick up new config
+    schedule_agent_reload(request, agent.agent_id)
+
+    return ApprovalLevelResponse(
+        approval_level=level.value,
+        approval_level_cron=level_cron,
+        approval_level_agent_cli=level_agent_cli,
+        approval_level_agent_tool=level_agent_tool,
+        available_levels=[lvl.value for lvl in ApprovalLevel],
+    )

@@ -1148,7 +1148,27 @@
     "embeddingEnableHint": "同时填写 Base URL 和模型名称后即可启用向量模型功能，API Key 按需填写",
     "rebuildMemoryIndexOnStart": "启动时重建记忆索引",
     "rebuildMemoryIndexOnStartTooltip": "智能体启动时清空并重建记忆搜索索引。关闭后跳过重新索引，仅监听新文件变化（启动更快，但索引可能与文件不同步）",
-    "toolResultCompactRecentGtOld": "最新消息阈值必须大于或等于早期消息阈值"
+    "toolResultCompactRecentGtOld": "最新消息阈值必须大于或等于早期消息阈值",
+    "approvalTitle": "审批配置",
+    "approval": {
+      "level": {
+        "default": "默认审批等级",
+        "cron": "定时任务审批等级",
+        "agentCli": "Agent对话CLI审批等级",
+        "agentTool": "Agent对话工具审批等级",
+        "off": "跳过所有工具守卫",
+        "strict": "所有工具都需审批",
+        "auto": "被安全守卫拦截时需审批",
+        "smart": "低风险自动通过，高风险需审批"
+      },
+      "useDefault": "使用默认",
+      "usingDefault": "使用默认",
+      "reference": "审批等级说明",
+      "saving": "保存中...",
+      "saved": "保存成功",
+      "fetchError": "获取审批配置失败",
+      "saveError": "保存审批配置失败"
+    }
   },
   "tools": {
     "title": "内置工具",
