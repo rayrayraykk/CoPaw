@@ -511,14 +511,8 @@ class AgentRunner(Runner):
                     session_id=session_id,
                 )
 
-            # Mission Mode: bypass tool guard
-            # (workers can't respond to /approve)
+            # Mission Mode
             if mission_info is not None:
-                base_request_context["_headless_tool_guard"] = "false"
-                logger.info(
-                    "Mission Mode: bypassing tool guard for session %s",
-                    session_id,
-                )
                 # Inject context reminder for active mission
                 loop_dir = mission_info.get("loop_dir", "")
                 phase = mission_info.get("mission_phase", 1)

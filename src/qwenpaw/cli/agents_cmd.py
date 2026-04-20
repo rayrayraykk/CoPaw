@@ -924,10 +924,6 @@ def chat_cmd(
     # The calling agent's session becomes the parent of the new session
     request_payload["request_context"]["parent_session_id"] = final_session_id
 
-    # Background tasks bypass Tool Guard (cannot respond to /approve prompts)
-    if background:
-        request_payload["request_context"]["_headless_tool_guard"] = "false"
-
     # Set approval level for agent chat CLI
     from ..app.approvals.level import get_scenario_approval_level
 

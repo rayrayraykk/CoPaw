@@ -792,12 +792,6 @@ mission-20260415-123456/
 3. **Tool Restrictions**: In Phase 2, master agent **cannot** directly use `edit_file`, `browser_use` and other implementation tools, must delegate to workers
 4. **Iteration Limit**: Automatically stops after reaching `--max-iterations` to avoid infinite loops
 5. **Git Support**: If working directory is a Git repo, agent will automatically commit changes (optional)
-6. **⚠️ Tool Guard Bypass**:
-   - **Worker and verifier agents automatically bypass the security tool guard** (disabled via `--background` mode)
-   - This is necessary because background sessions cannot respond to `/approve` interactive prompts
-   - The master agent itself will also bypass the guard
-   - **Security Warning**: All worker operations occur within `missions/<mission-xxx>/` directory, but it is still recommended to **only use Mission Mode in fully trusted codebases**
-   - Sensitive operations (e.g., deleting files, executing shell commands) will execute directly without manual approval
 
 ### Advanced Usage
 
