@@ -1180,8 +1180,7 @@
       "level": {
         "default": "Default Approval Level",
         "cron": "Cron Job Approval Level",
-        "agentCli": "Agent Chat CLI Approval Level",
-        "agentTool": "Agent Chat Tool Approval Level",
+        "agentChat": "Agent Chat Approval Level",
         "off": "Bypass all tool guards",
         "strict": "Require approval for all tools",
         "auto": "Require approval when blocked by security guard",

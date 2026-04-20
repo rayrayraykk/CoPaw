@@ -651,8 +651,7 @@ class ApprovalLevelResponse(BaseModel):
 
     approval_level: str
     approval_level_cron: str | None
-    approval_level_agent_cli: str | None
-    approval_level_agent_tool: str | None
+    approval_level_agent_chat: str | None
     available_levels: list[str]
 
 
@@ -661,8 +660,7 @@ class ApprovalLevelUpdateRequest(BaseModel):
 
     approval_level: str
     approval_level_cron: str | None = None
-    approval_level_agent_cli: str | None = None
-    approval_level_agent_tool: str | None = None
+    approval_level_agent_chat: str | None = None
 
 
 @router.get(
@@ -681,14 +679,12 @@ async def get_approval_level(request: Request) -> ApprovalLevelResponse:
     # Get approval levels from agent config
     approval_level = agent_config.approval_level or "AUTO"
     approval_level_cron = agent_config.approval_level_cron
-    approval_level_agent_cli = agent_config.approval_level_agent_cli
-    approval_level_agent_tool = agent_config.approval_level_agent_tool
+    approval_level_agent_chat = agent_config.approval_level_agent_chat
 
     return ApprovalLevelResponse(
         approval_level=approval_level,
         approval_level_cron=approval_level_cron,
-        approval_level_agent_cli=approval_level_agent_cli,
-        approval_level_agent_tool=approval_level_agent_tool,
+        approval_level_agent_chat=approval_level_agent_chat,
         available_levels=[level.value for level in ApprovalLevel],
     )
 
@@ -712,25 +708,19 @@ async def put_approval_level(
 
     # Validate optional levels if provided
     level_cron = None
-    level_agent_cli = None
-    level_agent_tool = None
+    level_agent_chat = None
 
     if body.approval_level_cron is not None:
         level_cron = parse_approval_level(body.approval_level_cron).value
-    if body.approval_level_agent_cli is not None:
-        level_agent_cli = parse_approval_level(
-            body.approval_level_agent_cli,
-        ).value
-    if body.approval_level_agent_tool is not None:
-        level_agent_tool = parse_approval_level(
-            body.approval_level_agent_tool,
+    if body.approval_level_agent_chat is not None:
+        level_agent_chat = parse_approval_level(
+            body.approval_level_agent_chat,
         ).value
 
     agent = await get_agent_for_request(request)
     agent.config.approval_level = level.value
     agent.config.approval_level_cron = level_cron
-    agent.config.approval_level_agent_cli = level_agent_cli
-    agent.config.approval_level_agent_tool = level_agent_tool
+    agent.config.approval_level_agent_chat = level_agent_chat
     save_agent_config(agent.agent_id, agent.config)
 
     # Schedule agent reload to pick up new config
@@ -739,7 +729,6 @@ async def put_approval_level(
     return ApprovalLevelResponse(
         approval_level=level.value,
         approval_level_cron=level_cron,
-        approval_level_agent_cli=level_agent_cli,
-        approval_level_agent_tool=level_agent_tool,
+        approval_level_agent_chat=level_agent_chat,
         available_levels=[lvl.value for lvl in ApprovalLevel],
     )

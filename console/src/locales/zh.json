@@ -1154,11 +1154,10 @@
       "level": {
         "default": "默认审批等级",
         "cron": "定时任务审批等级",
-        "agentCli": "Agent对话CLI审批等级",
-        "agentTool": "Agent对话工具审批等级",
-        "off": "跳过所有工具守卫",
+        "agentChat": "Agent对话审批等级",
+        "off": "跳过所有安全护栏",
         "strict": "所有工具都需审批",
-        "auto": "被安全守卫拦截时需审批",
+        "auto": "被安全护栏拦截时需审批",
         "smart": "低风险自动通过，高风险需审批"
       },
       "useDefault": "使用默认",

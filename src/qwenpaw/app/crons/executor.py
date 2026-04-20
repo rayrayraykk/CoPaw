@@ -62,6 +62,22 @@ class CronExecutor:
         req["user_id"] = target_user_id or "cron"
         req["session_id"] = target_session_id or f"cron:{job.id}"
 
+        # Set approval level for cron jobs
+        from ...app.approvals.level import get_scenario_approval_level
+
+        if "request_context" not in req:
+            req["request_context"] = {}
+
+        # Get agent_id from request or use "default"
+        agent_id = req.get("agent_id", "default")
+        cron_approval_level = get_scenario_approval_level(agent_id, "cron")
+        if cron_approval_level:
+            req["request_context"]["approval_level"] = cron_approval_level
+            logger.debug(
+                f"Set cron approval_level={cron_approval_level} "
+                f"for job_id={job.id}",
+            )
+
         async def _run() -> None:
             async for event in self._runner.stream_query(req):
                 await self._channel_manager.send_event(

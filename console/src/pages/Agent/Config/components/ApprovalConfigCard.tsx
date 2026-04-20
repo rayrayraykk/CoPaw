@@ -14,8 +14,7 @@ const APPROVAL_LEVELS = [
 interface ApprovalLevelConfig {
   approval_level: string;
   approval_level_cron: string | null;
-  approval_level_agent_cli: string | null;
-  approval_level_agent_tool: string | null;
+  approval_level_agent_chat: string | null;
   available_levels?: string[];
 }
 
@@ -25,10 +24,7 @@ export function ApprovalConfigCard() {
   const [approvalLevelCron, setApprovalLevelCron] = useState<string | null>(
     null,
   );
-  const [approvalLevelAgentCli, setApprovalLevelAgentCli] = useState<
-    string | null
-  >(null);
-  const [approvalLevelAgentTool, setApprovalLevelAgentTool] = useState<
+  const [approvalLevelAgentChat, setApprovalLevelAgentChat] = useState<
     string | null
   >(null);
   const [loading, setLoading] = useState(true);
@@ -52,8 +48,7 @@ export function ApprovalConfigCard() {
       const data: ApprovalLevelConfig = await res.json();
       setApprovalLevel(data.approval_level);
       setApprovalLevelCron(data.approval_level_cron);
-      setApprovalLevelAgentCli(data.approval_level_agent_cli);
-      setApprovalLevelAgentTool(data.approval_level_agent_tool);
+      setApprovalLevelAgentChat(data.approval_level_agent_chat);
     } catch (err) {
       const errorMsg =
         err instanceof Error ? err.message : "Unknown error occurred";
@@ -75,10 +70,8 @@ export function ApprovalConfigCard() {
         body: JSON.stringify({
           approval_level: updates.approval_level ?? approvalLevel,
           approval_level_cron: updates.approval_level_cron ?? approvalLevelCron,
-          approval_level_agent_cli:
-            updates.approval_level_agent_cli ?? approvalLevelAgentCli,
-          approval_level_agent_tool:
-            updates.approval_level_agent_tool ?? approvalLevelAgentTool,
+          approval_level_agent_chat:
+            updates.approval_level_agent_chat ?? approvalLevelAgentChat,
         }),
       });
 
@@ -89,8 +82,7 @@ export function ApprovalConfigCard() {
       const data: ApprovalLevelConfig = await res.json();
       setApprovalLevel(data.approval_level);
       setApprovalLevelCron(data.approval_level_cron);
-      setApprovalLevelAgentCli(data.approval_level_agent_cli);
-      setApprovalLevelAgentTool(data.approval_level_agent_tool);
+      setApprovalLevelAgentChat(data.approval_level_agent_chat);
 
       message.success(t("agentConfig.approval.saved"));
     } catch (err) {
@@ -109,14 +101,9 @@ export function ApprovalConfigCard() {
     await saveAllLevels({ approval_level_cron: newValue });
   };
 
-  const handleAgentCliLevelChange = async (value: string) => {
+  const handleAgentChatLevelChange = async (value: string) => {
     const newValue = value === "default" ? null : value;
-    await saveAllLevels({ approval_level_agent_cli: newValue });
-  };
-
-  const handleAgentToolLevelChange = async (value: string) => {
-    const newValue = value === "default" ? null : value;
-    await saveAllLevels({ approval_level_agent_tool: newValue });
+    await saveAllLevels({ approval_level_agent_chat: newValue });
   };
 
   const getLevelDescription = (level: string): string => {
@@ -239,7 +226,7 @@ export function ApprovalConfigCard() {
           </div>
         </div>
 
-        {/* Agent Chat CLI Approval Level */}
+        {/* Agent Chat Approval Level (CLI + Tool) */}
         <div>
           <div
             style={{
@@ -251,15 +238,15 @@ export function ApprovalConfigCard() {
             }}
           >
             <Shield size={16} />
-            {t("agentConfig.approval.level.agentCli")}
+            {t("agentConfig.approval.level.agentChat")}
           </div>
           <Select
-            value={approvalLevelAgentCli || "default"}
+            value={approvalLevelAgentChat || "default"}
             options={[
               { value: "default", label: t("agentConfig.approval.useDefault") },
               ...APPROVAL_LEVELS,
             ]}
-            onChange={handleAgentCliLevelChange}
+            onChange={handleAgentChatLevelChange}
             loading={saving}
             disabled={saving}
             style={{ width: "100%", maxWidth: "320px" }}
@@ -271,46 +258,8 @@ export function ApprovalConfigCard() {
               color: "#6b7280",
             }}
           >
-            {approvalLevelAgentCli
-              ? getLevelDescription(approvalLevelAgentCli)
-              : t("agentConfig.approval.usingDefault") + ": " + approvalLevel}
-          </div>
-        </div>
-
-        {/* Agent Chat Tool Approval Level */}
-        <div>
-          <div
-            style={{
-              marginBottom: "8px",
-              fontWeight: 500,
-              display: "flex",
-              alignItems: "center",
-              gap: "6px",
-            }}
-          >
-            <Shield size={16} />
-            {t("agentConfig.approval.level.agentTool")}
-          </div>
-          <Select
-            value={approvalLevelAgentTool || "default"}
-            options={[
-              { value: "default", label: t("agentConfig.approval.useDefault") },
-              ...APPROVAL_LEVELS,
-            ]}
-            onChange={handleAgentToolLevelChange}
-            loading={saving}
-            disabled={saving}
-            style={{ width: "100%", maxWidth: "320px" }}
-          />
-          <div
-            style={{
-              marginTop: "8px",
-              fontSize: "13px",
-              color: "#6b7280",
-            }}
-          >
-            {approvalLevelAgentTool
-              ? getLevelDescription(approvalLevelAgentTool)
+            {approvalLevelAgentChat
+              ? getLevelDescription(approvalLevelAgentChat)
               : t("agentConfig.approval.usingDefault") + ": " + approvalLevel}
           </div>
         </div>

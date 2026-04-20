@@ -870,7 +870,7 @@ class AgentProfileConfig(BaseModel):
     )
     approval_level: Optional[str] = Field(
         default=None,
-        description="Approval level for tool guard (STRICT/AUTO/SMART/OFF). "
+        description="Approval level for Tool Guard (STRICT/AUTO/SMART/OFF). "
         "None means use global default.",
     )
     approval_level_cron: Optional[str] = Field(
@@ -879,17 +879,10 @@ class AgentProfileConfig(BaseModel):
             "Approval level for cron jobs. " "None means use approval_level."
         ),
     )
-    approval_level_agent_cli: Optional[str] = Field(
+    approval_level_agent_chat: Optional[str] = Field(
         default=None,
         description=(
-            "Approval level for Agent Chat CLI. "
-            "None means use approval_level."
-        ),
-    )
-    approval_level_agent_tool: Optional[str] = Field(
-        default=None,
-        description=(
-            "Approval level for Agent Chat Tool. "
+            "Approval level for Agent Chat (CLI and Tool). "
             "None means use approval_level."
         ),
     )
@@ -1446,7 +1439,7 @@ class Config(BaseModel):
     )
     approval_level: str = Field(
         default="AUTO",
-        description="Global default approval level for tool guard "
+        description="Global default approval level for Tool Guard "
         "(STRICT/AUTO/SMART/OFF). Default: AUTO for backward compatibility.",
     )
 

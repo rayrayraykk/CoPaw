@@ -450,6 +450,21 @@ async def chat_with_agent(
         from_agent=None,
     )
 
+    # Set approval level for agent chat tool
+    from ...app.approvals.level import get_scenario_approval_level
+
+    if "request_context" not in request_payload:
+        request_payload["request_context"] = {}
+
+    chat_approval_level = get_scenario_approval_level(
+        normalized_to_agent,
+        "agent_chat",
+    )
+    if chat_approval_level:
+        request_payload["request_context"][
+            "approval_level"
+        ] = chat_approval_level
+
     response_data = await asyncio.to_thread(
         collect_final_agent_chat_response,
         None,
@@ -519,6 +534,22 @@ async def submit_to_agent(
         session_id=normalized_session_id,
         from_agent=None,
     )
+
+    # Set approval level for agent chat (submit_to_agent tool)
+    from ...app.approvals.level import get_scenario_approval_level
+
+    if "request_context" not in request_payload:
+        request_payload["request_context"] = {}
+
+    chat_approval_level = get_scenario_approval_level(
+        normalized_to_agent,
+        "agent_chat",
+    )
+    if chat_approval_level:
+        request_payload["request_context"][
+            "approval_level"
+        ] = chat_approval_level
+
     result = await asyncio.to_thread(
         submit_agent_chat_task,
         None,

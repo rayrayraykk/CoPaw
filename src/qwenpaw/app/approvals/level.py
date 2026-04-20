@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
-"""Approval level strategies for tool guard.
+"""Approval level strategies for Tool Guard.
 
 Defines approval levels and policy logic for determining whether a tool call
-should bypass guard, require approval, or auto-approve based on risk level.
+should bypass guardrails, require approval, or auto-approve based on risk.
 
 Approval Levels:
-- STRICT: All tool calls require manual approval (regardless of guard)
-- AUTO: Current mode - tools blocked by guard require approval
+- STRICT: All tool calls require manual approval (regardless of guardrails)
+- AUTO: Current mode - tools blocked by guardrails require approval
 - SMART: Low-risk blocked tools auto-approve, high-risk require approval
-- OFF: Bypass tool guard entirely (no security checks)
+- OFF: Bypass Tool Guard entirely (no security checks)
 
 Default Levels:
 - Interactive agents: AUTO (current behavior, backward compatible)
@@ -28,16 +28,16 @@ logger = logging.getLogger(__name__)
 
 
 class ApprovalLevel(str, Enum):
-    """Approval level for tool guard.
+    """Approval level for Tool Guard.
 
     Attributes:
         STRICT: All tool calls require manual approval
-            (even if guard passes)
-        AUTO: Tool calls blocked by guard require approval
+            (even if guardrails pass)
+        AUTO: Tool calls blocked by guardrails require approval
             (current default for interactive agents)
         SMART: Auto-approve low-risk blocks, require approval for
             high-risk (recommended for background tasks)
-        OFF: Bypass tool guard entirely (no security checks)
+        OFF: Bypass Tool Guard entirely (no security checks)
     """
 
     STRICT = "STRICT"
@@ -92,31 +92,31 @@ def should_require_approval(
 
     Args:
         level: Approval level
-        guard_result: Tool guard result (None if guard bypassed/disabled)
+        guard_result: Tool Guard result (None if guardrails bypassed/disabled)
 
     Returns:
         True if requires manual approval, False if can proceed
 
     Logic:
-        OFF: Never require approval (guard disabled)
+        OFF: Never require approval (guardrails disabled)
         STRICT: Always require approval
-        AUTO: Require approval if guard blocked (findings_count > 0)
+        AUTO: Require approval if guardrails blocked (findings_count > 0)
         SMART: Require approval only for high-risk blocks
     """
     if level == ApprovalLevel.OFF:
-        # OFF: Tool guard disabled, never require approval
+        # OFF: Tool Guard disabled, never require approval
         return False
 
     if level == ApprovalLevel.STRICT:
         # STRICT: All tool calls require approval
         return True
 
-    # No guard result means guard passed or was bypassed
+    # No guard result means guardrails passed or were bypassed
     if guard_result is None or guard_result.findings_count == 0:
         return False
 
     if level == ApprovalLevel.AUTO:
-        # AUTO: Require approval if guard found any issues
+        # AUTO: Require approval if guardrails found any issues
         return True
 
     if level == ApprovalLevel.SMART:
@@ -141,7 +141,7 @@ def _is_high_risk(guard_result: "ToolGuardResult") -> bool:
     - findings_count <= 2 AND no CRITICAL findings
 
     Args:
-        guard_result: Tool guard result
+        guard_result: Tool Guard result
 
     Returns:
         True if high-risk (requires approval), False if low-risk
@@ -242,3 +242,45 @@ def get_effective_approval_level(
 
     # Priority 4: Hardcoded fallback (backward compatible)
     return DEFAULT_APPROVAL_LEVEL
+
+
+def get_scenario_approval_level(
+    agent_id: str,
+    scenario: str,
+) -> str | None:
+    """Get approval level for a specific scenario (cron/agent_chat).
+
+    Args:
+        agent_id: Agent ID to load config from
+        scenario: Scenario type ("cron" or "agent_chat")
+
+    Returns:
+        Approval level string to use in request_context, or None if not set
+
+    Example:
+        # Get cron job approval level
+        level = get_scenario_approval_level("default", "cron")
+        # Returns agent_config.approval_level_cron or None
+
+        # Get agent chat approval level (for CLI and Tool)
+        level = get_scenario_approval_level("default", "agent_chat")
+        # Returns agent_config.approval_level_agent_chat or None
+    """
+    from ...config.config import load_agent_config
+
+    try:
+        agent_config = load_agent_config(agent_id)
+    except Exception as exc:
+        logger.warning(
+            f"Failed to load agent config for {agent_id}: {exc}",
+        )
+        return None
+
+    # Get scenario-specific approval level
+    if scenario == "cron":
+        return agent_config.approval_level_cron
+    elif scenario == "agent_chat":
+        return agent_config.approval_level_agent_chat
+    else:
+        logger.warning(f"Unknown scenario: {scenario}")
+        return None
