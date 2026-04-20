@@ -138,8 +138,25 @@ class ToolGuardMixin:
             global_level=global_level,
         )
 
+        logger.debug(
+            "Tool Guard approval check: request_level=%s, agent_level=%s, "
+            "global_level=%s, effective_level=%s, guard_result=%s",
+            request_level,
+            agent_level,
+            global_level,
+            effective_level,
+            "None"
+            if guard_result is None
+            else f"findings={guard_result.findings_count}",
+        )
+
         # Delegate to approval level policy
-        return should_require_approval(effective_level, guard_result)
+        result = should_require_approval(effective_level, guard_result)
+        logger.debug(
+            "Tool Guard approval decision: requires_approval=%s",
+            result,
+        )
+        return result
 
     def _get_agent_approval_level(self) -> str | None:
         """Get agent-specific approval level from config.
@@ -150,16 +167,29 @@ class ToolGuardMixin:
         try:
             from ..config.config import load_agent_config
 
-            agent_id = getattr(self, "agent_id", None)
+            agent_id = getattr(getattr(self, "_agent_config", {}), "id", None)
+            logger.debug(
+                "Getting agent approval level: agent_id=%s",
+                agent_id,
+            )
             if not agent_id:
+                logger.debug("No agent_id found, returning None")
                 return None
 
             agent_config = load_agent_config(agent_id)
-            return agent_config.approval_level
-        except Exception as exc:
+            level = agent_config.approval_level
             logger.debug(
-                "Failed to load agent approval level: %s",
+                "Agent approval level loaded: agent_id=%s, level=%s",
+                agent_id,
+                level,
+            )
+            return level
+        except Exception as exc:
+            logger.warning(
+                "Failed to load agent approval level: agent_id=%s, error=%s",
+                getattr(self, "agent_id", None),
                 exc,
+                exc_info=True,
             )
             return None
 
@@ -361,7 +391,7 @@ class ToolGuardMixin:
 
         if ids_to_delete:
             removed = await self.memory.delete(ids_to_delete)
-            logger.info(
+            logger.debug(
                 "Tool guard: cleaned up %d denied message(s)",
                 removed,
             )
@@ -395,7 +425,7 @@ class ToolGuardMixin:
         # Check if approval_level is OFF (bypass guard entirely)
         approval_level_str = ctx.get("approval_level", "").upper()
         if approval_level_str == "OFF":
-            logger.info(
+            logger.debug(
                 "Tool guard: approval_level=OFF, bypassing guard for tool=%s",
                 tool_call.get("name", ""),
             )
@@ -539,7 +569,7 @@ class ToolGuardMixin:
             tool_params=tool_input,
         )
         if consumed:
-            logger.info(
+            logger.debug(
                 "Tool guard: pre-approved '%s' (session %s), skipping",
                 tool_name,
                 session_id[:8],
