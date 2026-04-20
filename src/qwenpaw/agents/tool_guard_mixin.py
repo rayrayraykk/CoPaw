@@ -478,18 +478,22 @@ class ToolGuardMixin:
             tool_input,
             only_always_run=not guarded,
         )
-        if guard_result is not None and guard_result.findings:
-            from qwenpaw.security.tool_guard.utils import log_findings
 
-            log_findings(tool_name, guard_result)
-            # Pass guard_result to check approval level policy
-            if self._should_require_approval(guard_result):
-                return _GuardAction(
-                    "needs_approval",
-                    tool_name,
-                    tool_input,
-                    guard_result=guard_result,
-                )
+        # Check if approval is required (considers approval level policy)
+        # STRICT mode requires approval even without findings
+        if self._should_require_approval(guard_result):
+            if guard_result is not None and guard_result.findings:
+                from qwenpaw.security.tool_guard.utils import log_findings
+
+                log_findings(tool_name, guard_result)
+
+            return _GuardAction(
+                "needs_approval",
+                tool_name,
+                tool_input,
+                guard_result=guard_result,
+            )
+
         return None
 
     async def _execute_guard_action(
