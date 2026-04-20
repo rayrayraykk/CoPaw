@@ -868,6 +868,11 @@ class AgentProfileConfig(BaseModel):
         default=None,
         description="Builtin template used when this agent was created",
     )
+    approval_level: Optional[str] = Field(
+        default=None,
+        description="Approval level for tool guard (STRICT/AUTO/SMART/OFF). "
+        "None means use global default.",
+    )
 
     # Agent-specific configurations
     channels: Optional["ChannelConfig"] = Field(
@@ -1418,6 +1423,11 @@ class Config(BaseModel):
         default_factory=dict,
         description="Plugin configurations. Key is plugin_id, "
         "value is plugin-specific config dict.",
+    )
+    approval_level: str = Field(
+        default="AUTO",
+        description="Global default approval level for tool guard "
+        "(STRICT/AUTO/SMART/OFF). Default: AUTO for backward compatibility.",
     )
 
 

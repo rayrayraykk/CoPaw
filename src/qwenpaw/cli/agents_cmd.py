@@ -916,9 +916,17 @@ def chat_cmd(
         from_agent=from_agent,
     )
 
+    # Phase 2: Initialize request_context if not exists
+    if "request_context" not in request_payload:
+        request_payload["request_context"] = {}
+
+    # Phase 2: Pass parent_session_id for session relationship tree
+    # The calling agent's session becomes the parent of the new session
+    request_payload["request_context"]["parent_session_id"] = final_session_id
+
     # Background tasks bypass tool guard (cannot respond to /approve prompts)
     if background:
-        request_payload["request_context"] = {"_headless_tool_guard": "false"}
+        request_payload["request_context"]["_headless_tool_guard"] = "false"
 
     click.echo(f"INFO: Using session_id: {final_session_id}", err=True)
 

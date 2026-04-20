@@ -95,9 +95,91 @@ class ToolGuardMixin:
     # Helpers
     # ------------------------------------------------------------------
 
-    def _should_require_approval(self) -> bool:
-        """``True`` when a ``session_id`` is available for approval."""
-        return bool(self._request_context.get("session_id"))
+    def _should_require_approval(
+        self,
+        guard_result: Any = None,
+    ) -> bool:
+        """Check if tool call requires manual approval based on level & risk.
+
+        Args:
+            guard_result: Tool guard result (None if guard passed/bypassed)
+
+        Returns:
+            True if requires manual approval, False if can proceed
+
+        Logic:
+            1. No session_id → cannot do approval → proceed (backward compat)
+            2. Get effective approval level (request > agent > global > AUTO)
+            3. Delegate to approval level policy
+        """
+        # Backward compatibility: no session_id means can't do approval
+        session_id = self._request_context.get("session_id")
+        if not session_id:
+            return False
+
+        # Get approval level from multiple sources
+        from ..app.approvals.level import (
+            get_effective_approval_level,
+            should_require_approval,
+        )
+
+        # Priority 1: Request-level (from request_context)
+        request_level = self._request_context.get("approval_level")
+
+        # Priority 2: Agent-level (from agent config)
+        agent_level = self._get_agent_approval_level()
+
+        # Priority 3: Global-level (from global config)
+        global_level = self._get_global_approval_level()
+
+        effective_level = get_effective_approval_level(
+            request_level=request_level,
+            agent_level=agent_level,
+            global_level=global_level,
+        )
+
+        # Delegate to approval level policy
+        return should_require_approval(effective_level, guard_result)
+
+    def _get_agent_approval_level(self) -> str | None:
+        """Get agent-specific approval level from config.
+
+        Returns:
+            Agent approval level or None if not configured
+        """
+        try:
+            from ..config.config import load_agent_config
+
+            agent_id = getattr(self, "agent_id", None)
+            if not agent_id:
+                return None
+
+            agent_config = load_agent_config(agent_id)
+            return agent_config.approval_level
+        except Exception as exc:
+            logger.debug(
+                "Failed to load agent approval level: %s",
+                exc,
+            )
+            return None
+
+    def _get_global_approval_level(self) -> str | None:
+        """Get global default approval level from config.
+
+        Returns:
+            Global approval level or None if not configured
+        """
+        try:
+            from ..config.utils import load_config
+
+            config = load_config()
+            return config.approval_level
+        except Exception as exc:
+            logger.debug(
+                "Failed to load global approval level: %s",
+                exc,
+            )
+            return None
 
     def _tool_guard_ui_lang(self) -> str:
         """Locale for tool-guard alerts from agent language."""
@@ -291,13 +373,14 @@ class ToolGuardMixin:
     async def _acting(self, tool_call) -> dict | None:  # noqa: C901
         """Intercept sensitive tool calls before execution.
 
-        1. If tool is in *denied_tools*, auto-deny unconditionally.
-        2. If tool is in the guarded scope, check for a one-shot
+        1. If approval_level=OFF, bypass guard entirely
+        2. If tool is in *denied_tools*, auto-deny unconditionally.
+        3. If tool is in the guarded scope, check for a one-shot
            pre-approval, then run all guardians.
-        3. For non-guarded tools, run only ``always_run`` guardians
+        4. For non-guarded tools, run only ``always_run`` guardians
            (e.g. sensitive file path checks).
-        4. If findings exist, enter the approval flow.
-        5. Otherwise, delegate to ``super()._acting``.
+        5. If findings exist, check approval level policy.
+        6. Otherwise, delegate to ``super()._acting``.
 
         The guard *decision* block is serialised via ``_tool_guard_lock``
         so that ``parallel_tool_calls=True`` does not cause state races
@@ -307,6 +390,15 @@ class ToolGuardMixin:
         """
         ctx = getattr(self, "_request_context", None) or {}
         if ctx.get("_headless_tool_guard", "true").lower() == "false":
+            return await super()._acting(tool_call)  # type: ignore[misc]
+
+        # Check if approval_level is OFF (bypass guard entirely)
+        approval_level_str = ctx.get("approval_level", "").upper()
+        if approval_level_str == "OFF":
+            logger.info(
+                "Tool guard: approval_level=OFF, bypassing guard for tool=%s",
+                tool_call.get("name", ""),
+            )
             return await super()._acting(tool_call)  # type: ignore[misc]
 
         self._ensure_tool_guard()
@@ -390,7 +482,8 @@ class ToolGuardMixin:
             from qwenpaw.security.tool_guard.utils import log_findings
 
             log_findings(tool_name, guard_result)
-            if self._should_require_approval():
+            # Pass guard_result to check approval level policy
+            if self._should_require_approval(guard_result):
                 return _GuardAction(
                     "needs_approval",
                     tool_name,
@@ -575,8 +668,20 @@ class ToolGuardMixin:
         session_id = str(
             self._request_context.get("session_id") or "",
         )
+        # Phase 2: Read parent_session_id from request_context
+        parent_session_id = str(
+            self._request_context.get("parent_session_id") or "",
+        )
+
         tool_call_id = tool_call.get("id", "")
         svc = self._tool_guard_approval_service
+
+        # Phase 2: Register session relationship and get root
+        root_session_id = await svc.register_session_relationship(
+            session_id=session_id,
+            parent_session_id=parent_session_id if parent_session_id else None,
+        )
+
         if session_id:
             if tool_call_id:
                 await svc.cancel_stale_pending_for_tool_call(
@@ -591,6 +696,7 @@ class ToolGuardMixin:
                         qid,
                     )
 
+        # Phase 2: Pass root_session_id to create_pending
         await svc.create_pending(
             session_id=session_id,
             user_id=str(
@@ -600,6 +706,7 @@ class ToolGuardMixin:
             tool_name=tool_name,
             result=guard_result,
             extra=extra,
+            root_session_id=root_session_id,
         )
 
         guardians = list(

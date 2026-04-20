@@ -264,7 +264,9 @@ class AgentRunner(Runner):
         - ``(Msg, True, None)``   — denied; yield the Msg and stop.
         - ``(None, True, dict)``  — approved with stored tool call.
 
-        Approvals are resolved FIFO per session (oldest pending first).
+        Phase 2: Supports cross-session approval lookup.
+        First tries current session (backward compatible),
+        then queries all pending under root session.
         """
         if not session_id:
             return None, False, None
@@ -272,7 +274,20 @@ class AgentRunner(Runner):
         from ..approvals import get_approval_service
 
         svc = get_approval_service()
+
+        # Phase 2: Try current session first (backward compatible)
         pending = await svc.get_pending_by_session(session_id)
+
+        # Phase 2: If not found, try cross-session lookup
+        if pending is None:
+            root_session_id = await svc.get_root_session(session_id)
+            all_pending = await svc.get_all_pending_by_root_session(
+                root_session_id,
+            )
+            if all_pending:
+                # Use oldest pending (FIFO)
+                pending = all_pending[0]
+
         if pending is None:
             return None, False, None
 

@@ -20,6 +20,7 @@ from typing import Any, Dict
 
 from qwenpaw.exceptions import SystemCommandException
 from .base import BaseControlCommandHandler, ControlContext
+from .approval_handler import ApprovalCommandHandler
 from .model_handler import ModelCommandHandler
 from .skills_handler import SkillsCommandHandler
 from .stop_handler import StopCommandHandler
@@ -35,6 +36,7 @@ def _register_defaults() -> None:
     register_command(StopCommandHandler())
     register_command(ModelCommandHandler())
     register_command(SkillsCommandHandler())
+    register_command(ApprovalCommandHandler())
 
 
 def register_command(handler: BaseControlCommandHandler) -> None:
@@ -180,6 +182,7 @@ _register_defaults()
 __all__ = [
     "BaseControlCommandHandler",
     "ControlContext",
+    "ApprovalCommandHandler",
     "ModelCommandHandler",
     "SkillsCommandHandler",
     "StopCommandHandler",

@@ -410,18 +410,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                     )
 
             # ---- Approval Service ----
-            try:
-                default_agent = await multi_agent_manager.get_agent(
-                    "default",
-                )
-                if default_agent.channel_manager:
-                    from .approvals import get_approval_service
-
-                    get_approval_service().set_channel_manager(
-                        default_agent.channel_manager,
-                    )
-            except Exception as e:
-                logger.warning(f"Approval service setup skipped: {e}")
+            # Note: ApprovalService now uses HTTP API for notifications
+            # No need to set channel_manager (would break on zero reload)
 
             startup_elapsed = time.time() - startup_start_time
             logger.info(
