@@ -40,6 +40,8 @@ class PendingApproval:
     session_id: str
     user_id: str
     channel: str
+    agent_id: str  # Which agent is requesting approval
+    parent_agent_id: str | None  # For sub-agent support (future)
     tool_name: str
     created_at: float
     future: asyncio.Future[ApprovalDecision]
@@ -47,6 +49,7 @@ class PendingApproval:
     resolved_at: float | None = None
     result_summary: str = ""
     findings_count: int = 0
+    severity: str = "medium"  # For frontend display
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -56,17 +59,17 @@ class PendingApproval:
 
 
 class ApprovalService:
-    """Central approval service.
+    """Global singleton approval service.
 
-    Tracks pending and completed approval records.  Approval is
-    resolved via ``/daemon approve`` (see ``runner.py`` and
-    ``daemon_commands.py``).
+    Manages all tool approval requests across sessions and agents.
+    Approval is resolved via ``/approval`` control command.
     """
 
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
         self._pending: dict[str, PendingApproval] = {}
-        self._completed: dict[str, PendingApproval] = {}
+        # Agent hierarchy for future sub-agent support
+        self._agent_hierarchy: dict[str, str] = {}  # child_id -> parent_id
         self._channel_manager: Any | None = None
 
     def set_channel_manager(self, channel_manager: Any) -> None:
@@ -83,6 +86,8 @@ class ApprovalService:
         session_id: str,
         user_id: str,
         channel: str,
+        agent_id: str,
+        parent_agent_id: str | None = None,
         tool_name: str,
         result: "ToolGuardResult",
         extra: dict[str, Any] | None = None,
@@ -98,18 +103,29 @@ class ApprovalService:
             session_id=session_id,
             user_id=user_id,
             channel=channel,
+            agent_id=agent_id,
+            parent_agent_id=parent_agent_id,
             tool_name=tool_name,
             created_at=time.time(),
             future=loop.create_future(),
             result_summary=format_findings_summary(result),
             findings_count=result.findings_count,
+            severity=result.max_severity.value,
             extra=dict(extra or {}),
         )
 
         async with self._lock:
             self._pending[request_id] = pending
             self._gc_pending_locked()
-            self._gc_completed_locked()
+
+        logger.info(
+            "Approval pending created: request_id=%s agent_id=%s tool=%s "
+            "severity=%s",
+            request_id[:8],
+            agent_id,
+            tool_name,
+            pending.severity,
+        )
 
         return pending
 
@@ -118,28 +134,36 @@ class ApprovalService:
         request_id: str,
         decision: ApprovalDecision,
     ) -> PendingApproval | None:
-        """Resolve one pending approval request."""
+        """Resolve pending approval by setting Future result."""
         async with self._lock:
             pending = self._pending.pop(request_id, None)
             if pending is None:
-                return self._completed.get(request_id)
+                logger.warning(
+                    "Approval request %s not found (already resolved?)",
+                    request_id[:8],
+                )
+                return None
 
             pending.status = decision.value
             pending.resolved_at = time.time()
-            self._completed[request_id] = pending
-            self._gc_completed_locked()
 
+        # Set Future result outside lock
         if not pending.future.done():
             pending.future.set_result(decision)
+
+        logger.info(
+            "Approval request %s resolved: decision=%s tool=%s",
+            request_id[:8],
+            decision.value,
+            pending.tool_name,
+        )
 
         return pending
 
     async def get_request(self, request_id: str) -> PendingApproval | None:
-        """Get a request by id whether pending or already resolved."""
+        """Get a pending request by id."""
         async with self._lock:
-            return self._pending.get(request_id) or self._completed.get(
-                request_id,
-            )
+            return self._pending.get(request_id)
 
     async def get_pending_by_session(
         self,
@@ -171,6 +195,66 @@ class ApprovalService:
                 if p.session_id == session_id and p.status == "pending"
             ]
 
+    async def list_pending_by_session(
+        self,
+        session_id: str,
+        include_subagents: bool = True,  # pylint: disable=unused-argument
+    ) -> list[PendingApproval]:
+        """List all pending approvals for a session (FIFO order).
+
+        Args:
+            session_id: Session ID to filter
+            include_subagents: If False, exclude sub-agent approvals (future)
+
+        Returns:
+            List of pending approvals sorted by creation time
+        """
+        async with self._lock:
+            result = [
+                p
+                for p in self._pending.values()
+                if p.session_id == session_id and p.status == "pending"
+            ]
+            # TODO: When sub-agent support is implemented,
+            # filter by parent_agent_id if not include_subagents:
+            #     result = [p for p in result if p.parent_agent_id is None]
+
+            return sorted(result, key=lambda p: p.created_at)
+
+    async def wait_for_approval(
+        self,
+        request_id: str,
+        timeout_seconds: float,
+    ) -> ApprovalDecision:
+        """Block and wait for approval decision with timeout.
+
+        Args:
+            request_id: Approval request ID
+            timeout_seconds: Maximum wait time in seconds
+
+        Returns:
+            ApprovalDecision (APPROVED/DENIED/TIMEOUT)
+
+        Raises:
+            ValueError: If request_id not found
+        """
+        async with self._lock:
+            pending = self._pending.get(request_id)
+
+        if pending is None:
+            raise ValueError(f"Approval request {request_id} not found")
+
+        try:
+            decision = await asyncio.wait_for(
+                pending.future,
+                timeout=timeout_seconds,
+            )
+        except asyncio.TimeoutError:
+            decision = ApprovalDecision.TIMEOUT
+            await self.resolve_request(request_id, decision)
+
+        return decision
+
     async def cancel_stale_pending_for_tool_call(
         self,
         session_id: str,
@@ -178,7 +262,7 @@ class ApprovalService:
     ) -> int:
         """Cancel pending approvals whose stored tool_call id matches.
 
-        When a tool call is replayed (e.g. after ``/approve`` triggers
+        When a tool call is replayed (e.g. after approval triggers
         sibling replay), the guard may create a *new* pending for the
         same logical tool call.  This method cancels the old pending
         first so orphaned records don't accumulate.
@@ -202,7 +286,6 @@ class ApprovalService:
                     pending.future.set_result(ApprovalDecision.TIMEOUT)
                 pending.status = "superseded"
                 pending.resolved_at = now
-                self._completed[k] = pending
                 cancelled += 1
         if cancelled:
             logger.info(
@@ -213,53 +296,6 @@ class ApprovalService:
                 session_id[:8],
             )
         return cancelled
-
-    async def consume_approval(
-        self,
-        session_id: str,
-        tool_name: str,
-        tool_params: dict[str, Any] | None = None,
-    ) -> bool:
-        """Check and consume a one-shot tool approval.
-
-        If *tool_name* was recently approved via ``/daemon approve``
-        for *session_id*, remove the completed record and return
-        ``True`` so the caller can skip the guard check.
-
-        When *tool_params* is given, the approved call's stored
-        parameters are compared.  A mismatch causes the approval
-        to be rejected (returns ``False``), preventing an approved
-        ``rm foo.txt`` from being used to execute ``rm -rf /``.
-        """
-        async with self._lock:
-            for key, completed in list(self._completed.items()):
-                if (
-                    completed.session_id == session_id
-                    and completed.tool_name == tool_name
-                    and completed.status == "approved"
-                ):
-                    if tool_params is not None:
-                        approved_call = completed.extra.get(
-                            "tool_call",
-                            {},
-                        )
-                        approved_params = approved_call.get(
-                            "input",
-                            {},
-                        )
-                        if approved_params != tool_params:
-                            logger.warning(
-                                "Tool guard: params mismatch for "
-                                "'%s' (session %s), rejecting "
-                                "stale approval",
-                                tool_name,
-                                session_id[:8],
-                            )
-                            del self._completed[key]
-                            return False
-                    del self._completed[key]
-                    return True
-        return False
 
     # ------------------------------------------------------------------
     # Garbage collection
@@ -282,7 +318,6 @@ class ApprovalService:
                 pending.future.set_result(ApprovalDecision.TIMEOUT)
             pending.status = "timeout"
             pending.resolved_at = now
-            self._completed[k] = pending
 
         overflow = len(self._pending) - _GC_MAX_PENDING
         if overflow <= 0:
@@ -297,32 +332,6 @@ class ApprovalService:
                 pending.future.set_result(ApprovalDecision.TIMEOUT)
             pending.status = "timeout"
             pending.resolved_at = now
-            self._completed[key] = pending
-
-    def _gc_completed_locked(self) -> None:
-        """Remove stale/overflow completed records.
-
-        Caller must hold ``_lock``.
-        """
-        now = time.time()
-        expired = [
-            k
-            for k, v in self._completed.items()
-            if v.resolved_at and now - v.resolved_at > _GC_MAX_AGE_SECONDS
-        ]
-        for k in expired:
-            del self._completed[k]
-
-        # Still over cap: evict oldest completed records first.
-        overflow = len(self._completed) - _GC_MAX_COMPLETED
-        if overflow <= 0:
-            return
-        ordered = sorted(
-            self._completed.items(),
-            key=lambda item: item[1].resolved_at or item[1].created_at,
-        )
-        for key, _pending in ordered[:overflow]:
-            del self._completed[key]
 
 
 # ------------------------------------------------------------------

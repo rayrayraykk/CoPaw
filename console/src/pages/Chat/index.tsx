@@ -27,6 +27,13 @@ import { IconButton } from "@agentscope-ai/design";
 import ChatActionGroup from "./components/ChatActionGroup";
 import ChatHeaderTitle from "./components/ChatHeaderTitle";
 import ChatSessionInitializer from "./components/ChatSessionInitializer";
+import { ApprovalCard } from "../../components/ApprovalCard";
+import { commandsApi } from "../../api/modules/commands";
+import {
+  processMessagePayload,
+  type ApprovalMessageData,
+  type MessageQueueHandlers,
+} from "../../hooks/useMessageQueue";
 import {
   toDisplayUrl,
   copyText,
@@ -458,12 +465,135 @@ export default function ChatPage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const runtimeLoadingBridgeRef = useRef<RuntimeLoadingBridgeApi | null>(null);
   const { message } = useAppMessage();
+  const [approvalRequests, setApprovalRequests] = useState<
+    Map<string, ApprovalMessageData>
+  >(new Map());
+
+  // Track processed approval request IDs to prevent re-adding after approval
+  // Map<requestId, timestamp> to enable cleanup of old entries
+  const processedApprovalIds = useRef<Map<string, number>>(new Map());
 
   const isChatActiveRef = useRef(false);
   isChatActiveRef.current =
     location.pathname === "/" || location.pathname.startsWith("/chat");
 
   const isChatActive = useCallback(() => isChatActiveRef.current, []);
+
+  // Message queue handlers
+  const messageHandlersRef = useRef<MessageQueueHandlers>({
+    onApprovalMessage: (data: ApprovalMessageData) => {
+      console.log("[Approval] Received approval message:", data);
+
+      // Clean up old processed IDs (older than 1 hour)
+      const now = Date.now();
+      const oneHour = 60 * 60 * 1000;
+      for (const [id, timestamp] of processedApprovalIds.current.entries()) {
+        if (now - timestamp > oneHour) {
+          processedApprovalIds.current.delete(id);
+        }
+      }
+
+      // Skip if already processed (approved/denied)
+      if (processedApprovalIds.current.has(data.requestId)) {
+        console.log("[Approval] Skipping already processed request:", data.requestId);
+        return;
+      }
+
+      setApprovalRequests((prev) => {
+        const next = new Map(prev);
+        next.set(data.requestId, data);
+        console.log("[Approval] Updated requests map, size:", next.size);
+        return next;
+      });
+    },
+  });
+
+  const handleApprove = useCallback(
+    async (requestId: string) => {
+      console.log("[Approval] handleApprove called:", requestId);
+      console.log("[Approval] Current requests map size:", approvalRequests.size);
+      const request = approvalRequests.get(requestId);
+      if (!request) {
+        console.error("[Approval] Request not found:", requestId);
+        return;
+      }
+
+      console.log("[Approval] Sending approve command:", {
+        requestId,
+        sessionId: request.sessionId,
+      });
+
+      try {
+        // Add exit animation class
+        const cardElement = document.querySelector(`[data-approval-id="${requestId}"]`);
+        if (cardElement) {
+          cardElement.classList.add("approvalCardExit");
+        }
+        
+        await commandsApi.sendApprovalCommand(
+          "approve",
+          requestId,
+          request.sessionId,
+        );
+        console.log("[Approval] Approve command sent successfully");
+        message.success(t("approval.approved"));
+        
+        // Mark as processed with timestamp to prevent re-adding from SSE replay
+        processedApprovalIds.current.set(requestId, Date.now());
+        
+        // Delay removal to let animation complete
+        setTimeout(() => {
+          setApprovalRequests((prev) => {
+            const next = new Map(prev);
+            next.delete(requestId);
+            return next;
+          });
+        }, 300); // Match animation duration
+      } catch (error) {
+        message.error(t("approval.approveFailed"));
+        console.error("[Approval] Failed to approve:", error);
+      }
+    },
+    [approvalRequests, t, message],
+  );
+
+  const handleDeny = useCallback(
+    async (requestId: string) => {
+      const request = approvalRequests.get(requestId);
+      if (!request) return;
+
+      try {
+        // Add exit animation class
+        const cardElement = document.querySelector(`[data-approval-id="${requestId}"]`);
+        if (cardElement) {
+          cardElement.classList.add("approvalCardExit");
+        }
+        
+        await commandsApi.sendApprovalCommand(
+          "deny",
+          requestId,
+          request.sessionId,
+        );
+        message.success(t("approval.denied"));
+        
+        // Mark as processed with timestamp to prevent re-adding from SSE replay
+        processedApprovalIds.current.set(requestId, Date.now());
+        
+        // Delay removal to let animation complete
+        setTimeout(() => {
+          setApprovalRequests((prev) => {
+            const next = new Map(prev);
+            next.delete(requestId);
+            return next;
+          });
+        }, 300); // Match animation duration
+      } catch (error) {
+        message.error(t("approval.denyFailed"));
+        console.error("Failed to deny:", error);
+      }
+    },
+    [approvalRequests, t, message],
+  );
 
   // Use custom hooks for better separation of concerns
   const isComposingRef = useIMEComposition(isChatActive);
@@ -755,16 +885,6 @@ export default function ChatPage() {
         description: t("chat.commands.compact.description"),
       },
       {
-        command: "/approve",
-        value: "approve",
-        description: t("chat.commands.approve.description"),
-      },
-      {
-        command: "/deny",
-        value: "deny",
-        description: t("chat.commands.deny.description"),
-      },
-      {
         command: "/mission",
         value: "mission",
         description: t("chat.commands.mission.description"),
@@ -845,13 +965,25 @@ export default function ChatPage() {
         fetch: customFetch,
         responseParser: (chunk: string) => {
           const payload = JSON.parse(chunk) as Record<string, unknown>;
-          if (payloadRequestsHistoryClear(payload)) {
+
+          // Process message payload (filter heartbeat, extract approval)
+          const processedPayload = processMessagePayload(
+            payload,
+            messageHandlersRef.current,
+          );
+
+          // Skip heartbeat messages completely
+          if (processedPayload === null) {
+            return null as any;
+          }
+
+          if (payloadRequestsHistoryClear(processedPayload)) {
             pendingClearHistoryRef.current = true;
-            if (payloadCompletesResponse(payload)) {
+            if (payloadCompletesResponse(processedPayload)) {
               scheduleHistoryClear();
             }
           }
-          return payload as any;
+          return processedPayload as any;
         },
         replaceMediaURL: (url: string) => {
           return toDisplayUrl(url);
@@ -929,6 +1061,34 @@ export default function ChatPage() {
           options={options}
         />
       </div>
+
+      {/* Render approval cards as overlays */}
+      {Array.from(approvalRequests.values()).map((request) => (
+        <div
+          key={request.requestId}
+          data-approval-id={request.requestId}
+          style={{
+            position: "fixed",
+            bottom: 80,
+            right: 24,
+            zIndex: 1000,
+            maxWidth: 480,
+            width: "calc(100vw - 48px)",
+          }}
+        >
+          <ApprovalCard
+            requestId={request.requestId}
+            toolName={request.toolName}
+            severity={request.severity}
+            findingsCount={request.findingsCount}
+            findingsSummary={request.findingsSummary}
+            toolParams={request.toolParams}
+            createdAt={request.createdAt}
+            onApprove={handleApprove}
+            onDeny={handleDeny}
+          />
+        </div>
+      ))}
 
       <Modal
         open={showModelPrompt}

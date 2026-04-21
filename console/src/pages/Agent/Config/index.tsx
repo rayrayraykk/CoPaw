@@ -10,6 +10,7 @@ import {
   ToolResultCompactCard,
   MemorySummaryCard,
   EmbeddingConfigCard,
+  ToolExecutionLevelCard,
 } from "./components";
 import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
@@ -164,6 +165,19 @@ function AgentConfigPage() {
                 children: (
                   <div className={styles.tabContent}>
                     <EmbeddingConfigCard />
+                  </div>
+                ),
+              },
+              {
+                key: "toolExecutionLevel",
+                label: (
+                  <span className={styles.tabLabel}>
+                    {t("agentConfig.toolExecutionLevel.title")}
+                  </span>
+                ),
+                children: (
+                  <div className={styles.tabContent}>
+                    <ToolExecutionLevelCard />
                   </div>
                 ),
               },

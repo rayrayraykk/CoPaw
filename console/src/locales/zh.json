@@ -1195,6 +1195,21 @@
     "embeddingMaxBatchSizeTooltip": "单次批量向量化请求的最大条目数",
     "embeddingMaxBatchSizeRequired": "最大批处理大小为必填项",
     "embeddingRestartWarning": "向量模型配置不支持热更新，保存后需要重启服务才能生效",
+    "toolExecutionLevel": {
+      "title": "工具执行安全",
+      "alertMessage": "配置工具调用的审批策略，控制智能体执行工具时的安全级别",
+      "strict": "严格模式",
+      "strictDesc": "所有工具调用都需要审批，最高安全级别",
+      "smart": "智能模式",
+      "smartDesc": "低风险工具自动放行，中高风险工具需要审批",
+      "auto": "自动模式",
+      "autoDesc": "仅被明确标记为需要审批的工具才会要求审批（默认）",
+      "off": "关闭模式",
+      "offDesc": "关闭所有工具审批，所有工具自动执行"
+    },
+    "saveLevelSuccess": "工具执行安全级别已保存",
+    "saveLevelFailed": "保存工具执行安全级别失败",
+    "loadFailed": "加载配置失败",
     "maxContextLength": "最大上下文长度",
     "maxContextLengthTooltip": "模型上下文窗口的最大 token 数，决定每次请求能携带的最大历史长度",
     "maxContextLengthRequired": "最大上下文长度为必填项",
@@ -1636,5 +1651,21 @@
     "progressSaving": "正在写入备份文件...",
     "progressDone": "备份完成",
     "localModelsNotice": "备份文件不包含本地模型文件。如需跨设备迁移，请在目标设备上重新下载所需的本地模型。"
+  },
+  "approval": {
+    "card": {
+      "title": "工具调用审批",
+      "tool": "工具",
+      "severity": "风险等级",
+      "findings": "个风险点",
+      "riskSummary": "风险摘要",
+      "parameters": "参数详情",
+      "approve": "批准",
+      "deny": "拒绝"
+    },
+    "approved": "已批准工具调用",
+    "denied": "已拒绝工具调用",
+    "approveFailed": "批准失败",
+    "denyFailed": "拒绝失败"
   }
 }

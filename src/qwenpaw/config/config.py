@@ -903,6 +903,16 @@ class AgentProfileConfig(BaseModel):
         default="zh",
         description="Language setting for this agent",
     )
+    approval_level: str = Field(
+        default="AUTO",
+        description=(
+            "Tool execution security level: "
+            "STRICT (all tools need approval), "
+            "SMART (low-risk auto-allowed), "
+            "AUTO (only guarded tools), "
+            "OFF (guard disabled)"
+        ),
+    )
     system_prompt_files: List[str] = Field(
         default_factory=lambda: ["AGENTS.md", "SOUL.md", "PROFILE.md"],
         description="System prompt markdown files",

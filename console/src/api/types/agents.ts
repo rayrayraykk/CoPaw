@@ -22,6 +22,7 @@ export interface AgentProfileConfig {
   name: string;
   description?: string;
   workspace_dir?: string;
+  approval_level?: string;
   channels?: unknown;
   mcp?: unknown;
   heartbeat?: unknown;
