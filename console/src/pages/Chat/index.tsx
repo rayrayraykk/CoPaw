@@ -495,7 +495,10 @@ export default function ChatPage() {
 
       // Skip if already processed (approved/denied)
       if (processedApprovalIds.current.has(data.requestId)) {
-        console.log("[Approval] Skipping already processed request:", data.requestId);
+        console.log(
+          "[Approval] Skipping already processed request:",
+          data.requestId,
+        );
         return;
       }
 
@@ -511,7 +514,10 @@ export default function ChatPage() {
   const handleApprove = useCallback(
     async (requestId: string) => {
       console.log("[Approval] handleApprove called:", requestId);
-      console.log("[Approval] Current requests map size:", approvalRequests.size);
+      console.log(
+        "[Approval] Current requests map size:",
+        approvalRequests.size,
+      );
       const request = approvalRequests.get(requestId);
       if (!request) {
         console.error("[Approval] Request not found:", requestId);
@@ -525,11 +531,13 @@ export default function ChatPage() {
 
       try {
         // Add exit animation class
-        const cardElement = document.querySelector(`[data-approval-id="${requestId}"]`);
+        const cardElement = document.querySelector(
+          `[data-approval-id="${requestId}"]`,
+        );
         if (cardElement) {
           cardElement.classList.add("approvalCardExit");
         }
-        
+
         await commandsApi.sendApprovalCommand(
           "approve",
           requestId,
@@ -537,10 +545,10 @@ export default function ChatPage() {
         );
         console.log("[Approval] Approve command sent successfully");
         message.success(t("approval.approved"));
-        
+
         // Mark as processed with timestamp to prevent re-adding from SSE replay
         processedApprovalIds.current.set(requestId, Date.now());
-        
+
         // Delay removal to let animation complete
         setTimeout(() => {
           setApprovalRequests((prev) => {
@@ -564,21 +572,23 @@ export default function ChatPage() {
 
       try {
         // Add exit animation class
-        const cardElement = document.querySelector(`[data-approval-id="${requestId}"]`);
+        const cardElement = document.querySelector(
+          `[data-approval-id="${requestId}"]`,
+        );
         if (cardElement) {
           cardElement.classList.add("approvalCardExit");
         }
-        
+
         await commandsApi.sendApprovalCommand(
           "deny",
           requestId,
           request.sessionId,
         );
         message.success(t("approval.denied"));
-        
+
         // Mark as processed with timestamp to prevent re-adding from SSE replay
         processedApprovalIds.current.set(requestId, Date.now());
-        
+
         // Delay removal to let animation complete
         setTimeout(() => {
           setApprovalRequests((prev) => {

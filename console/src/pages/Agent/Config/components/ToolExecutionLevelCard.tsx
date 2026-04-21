@@ -36,7 +36,9 @@ export function ToolExecutionLevelCard() {
     setLoading(true);
     try {
       const config = await agentsApi.getAgent(selectedAgent);
-      const currentLevel = (config?.approval_level || "AUTO").toUpperCase() as ToolExecutionLevel;
+      const currentLevel = (
+        config?.approval_level || "AUTO"
+      ).toUpperCase() as ToolExecutionLevel;
       setLevel(currentLevel);
     } catch (error) {
       console.error("Failed to load tool execution level:", error);

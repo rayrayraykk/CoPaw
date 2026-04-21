@@ -101,9 +101,7 @@ export function ApprovalCard({
 
       <div className={styles.content}>
         <div className={styles.infoRow}>
-          <Text className={styles.label}>
-            {t("approval.tool", "Tool")}:
-          </Text>
+          <Text className={styles.label}>{t("approval.tool", "Tool")}:</Text>
           <Text className={styles.value} code>
             {toolName}
           </Text>
