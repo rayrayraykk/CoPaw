@@ -1142,17 +1142,27 @@ export default function ChatPage() {
             onDeny={handleDeny}
             onCancel={() => {
               console.log("[Chat] onCancel called for approval card");
-              const chatIdToStop = chatId || window.currentSessionId;
-              if (chatIdToStop) {
-                console.log("[Chat] Calling stopChat for:", chatIdToStop);
+              const sessionId = window.currentSessionId || chatId || "";
+              const resolvedChatId =
+                sessionApi.getRealIdForSession(sessionId) ?? sessionId;
+              console.log(
+                "[Chat] Resolved chat_id:",
+                resolvedChatId,
+                "from session_id:",
+                sessionId,
+              );
+              if (resolvedChatId) {
+                console.log("[Chat] Calling stopChat for:", resolvedChatId);
                 chatApi
-                  .stopChat(chatIdToStop)
+                  .stopChat(resolvedChatId)
                   .then(() => {
                     console.log("[Chat] stopChat succeeded");
                   })
                   .catch((err) => {
                     console.error("[Chat] stopChat failed:", err);
                   });
+              } else {
+                console.warn("[Chat] No chat_id found, cannot cancel task");
               }
             }}
           />
