@@ -47,10 +47,7 @@ export function ApprovalCard({
 
   useEffect(() => {
     const elapsed = Date.now() / 1000 - createdAt;
-    const initialRemaining = Math.max(
-      0,
-      Math.floor(timeoutSeconds - elapsed),
-    );
+    const initialRemaining = Math.max(0, Math.floor(timeoutSeconds - elapsed));
     setRemaining(initialRemaining);
 
     const timer = setInterval(() => {

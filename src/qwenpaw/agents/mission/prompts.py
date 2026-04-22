@@ -444,16 +444,6 @@ pass or you hit the iteration limit.
 workers using Agent Chat tools (`submit_to_agent`, `check_agent_task`).
 ALL coding, building, and testing is done by workers.
 
-**Important about Tool Approvals:**
-- Workers may require tool approval for sensitive operations (file
-  writes, shell commands, etc.)
-- These approval requests will automatically route to your main
-  session (the user's session), thanks to cross-session approval routing
-- The user can approve worker tools using `/approval approve <request_id>`
-  or `/approval list --all` to see all pending approvals across sessions
-- Workers will resume execution after approval is granted
-- You do NOT need to bypass security or use `--no-guard` flags
-
 **Phase 2 continuity:** The system automatically loops back to you after
 each turn if stories remain.  Focus on dispatching the current batch,
 polling results, and reporting progress.  Do not worry about "ending
