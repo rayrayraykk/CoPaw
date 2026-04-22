@@ -192,13 +192,13 @@ async def post_console_chat_stop(
     chat_id: str = Query(..., description="Chat id (ChatSpec.id) to stop"),
 ) -> dict:
     """Stop the running chat. Only stops when called."""
-    logger.info("[STOP API] Received stop request for chat_id=%s", chat_id)
+    logger.debug("[STOP API] Received stop request for chat_id=%s", chat_id)
     workspace = await get_agent_for_request(request)
-    logger.info(
+    logger.debug(
         "[STOP API] Got workspace, calling task_tracker.request_stop...",
     )
     stopped = await workspace.task_tracker.request_stop(chat_id)
-    logger.info(
+    logger.debug(
         "[STOP API] task_tracker.request_stop returned: stopped=%s",
         stopped,
     )

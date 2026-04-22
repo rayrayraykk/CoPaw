@@ -512,32 +512,51 @@ class ToolGuardMixin:
             ApprovalDecision,
         )
 
-        logger.info(
-            "Waiting for approval: request_id=%s timeout=%.0fs",
+        logger.debug(
+            "[APPROVAL WAIT] Waiting for approval: request_id=%s "
+            "timeout=%.0fs",
             request_id[:8],
             timeout_seconds,
         )
 
         # Create a wrapper task that can be cancelled
         async def wait_for_future():
-            return await future
+            logger.debug(
+                "[APPROVAL WAIT] wait_for_future started for request_id=%s",
+                request_id[:8],
+            )
+            result = await future
+            logger.debug(
+                "[APPROVAL WAIT] wait_for_future completed for request_id=%s",
+                request_id[:8],
+            )
+            return result
 
         wait_task = asyncio.create_task(wait_for_future())
+        logger.debug(
+            "[APPROVAL WAIT] Created wait_task for request_id=%s",
+            request_id[:8],
+        )
 
         try:
+            logger.debug(
+                "[APPROVAL WAIT] Calling asyncio.wait_for for request_id=%s",
+                request_id[:8],
+            )
             decision = await asyncio.wait_for(
                 wait_task,
                 timeout=timeout_seconds,
             )
-            logger.info(
-                "Approval resolved: request_id=%s decision=%s",
+            logger.debug(
+                "[APPROVAL WAIT] asyncio.wait_for completed for request_id=%s "
+                "decision=%s",
                 request_id[:8],
                 decision.value if hasattr(decision, "value") else decision,
             )
             return decision
         except asyncio.TimeoutError:
-            logger.warning(
-                "Approval timeout: request_id=%s after %.0fs",
+            logger.debug(
+                "[APPROVAL WAIT] Timeout for request_id=%s after %.0fs",
                 request_id[:8],
                 timeout_seconds,
             )
@@ -546,9 +565,9 @@ class ToolGuardMixin:
         except asyncio.CancelledError:
             # Task cancelled (e.g., user /stop or SSE disconnect)
             # Cancel the wait task and auto-deny the pending approval
-            logger.warning(
-                "Approval cancelled: request_id=%s auto-denying due to "
-                "task cancellation",
+            logger.debug(
+                "[APPROVAL WAIT] CancelledError caught for request_id=%s, "
+                "cancelling wait_task and auto-denying",
                 request_id[:8],
             )
             wait_task.cancel()
@@ -556,6 +575,11 @@ class ToolGuardMixin:
             await svc.resolve_request(
                 request_id,
                 ApprovalDecision.DENIED,
+            )
+            logger.debug(
+                "[APPROVAL WAIT] Auto-denied request_id=%s, re-raising "
+                "CancelledError",
+                request_id[:8],
             )
             # Re-raise to propagate cancellation
             raise

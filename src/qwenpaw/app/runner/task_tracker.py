@@ -188,24 +188,27 @@ class TaskTracker:
 
     async def request_stop(self, run_key: str) -> bool:
         """Cancel the run. Returns ``True`` if it was running."""
-        logger.info("[STOP] request_stop called for run_key=%s", run_key)
+        logger.debug("[STOP] request_stop called for run_key=%s", run_key)
         async with self._lock:
             state = self._runs.get(run_key)
-            logger.info(
+            logger.debug(
                 "[STOP] run_key=%s state=%s done=%s",
                 run_key,
                 "found" if state else "not_found",
                 state.task.done() if state else "N/A",
             )
             if state is None or state.task.done():
-                logger.warning(
+                logger.debug(
                     "[STOP] Cannot stop run_key=%s (not running)",
                     run_key,
                 )
                 return False
-            logger.info("[STOP] Calling task.cancel() for run_key=%s", run_key)
+            logger.debug(
+                "[STOP] Calling task.cancel() for run_key=%s",
+                run_key,
+            )
             state.task.cancel()
-            logger.info("[STOP] task.cancel() called for run_key=%s", run_key)
+            logger.debug("[STOP] task.cancel() called for run_key=%s", run_key)
             return True
 
     async def attach_or_start(
