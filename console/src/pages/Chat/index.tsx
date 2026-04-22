@@ -1142,19 +1142,14 @@ export default function ChatPage() {
             onDeny={handleDeny}
             onCancel={() => {
               console.log("[Chat] onCancel called for approval card");
-              const sessionId = window.currentSessionId || chatId || "";
-              const resolvedChatId =
-                sessionApi.getRealIdForSession(sessionId) ?? sessionId;
-              console.log(
-                "[Chat] Resolved chat_id:",
-                resolvedChatId,
-                "from session_id:",
-                sessionId,
-              );
-              if (resolvedChatId) {
-                console.log("[Chat] Calling stopChat for:", resolvedChatId);
+              console.log("[Chat] chatId (UUID):", chatId);
+              console.log("[Chat] window.currentSessionId:", window.currentSessionId);
+
+              // chatId is the UUID from URL params, which is what we need for task_tracker
+              if (chatId) {
+                console.log("[Chat] Calling stopChat with chatId (UUID):", chatId);
                 chatApi
-                  .stopChat(resolvedChatId)
+                  .stopChat(chatId)
                   .then(() => {
                     console.log("[Chat] stopChat succeeded");
                   })
@@ -1162,7 +1157,7 @@ export default function ChatPage() {
                     console.error("[Chat] stopChat failed:", err);
                   });
               } else {
-                console.warn("[Chat] No chat_id found, cannot cancel task");
+                console.warn("[Chat] No chatId found, cannot cancel task");
               }
             }}
           />
