@@ -273,13 +273,46 @@ async def get_push_messages(
     session_id: str | None = Query(None, description="Optional session id"),
 ):
     """
-    Return pending push messages. Without session_id: recent messages
-    (all sessions, last 60s), not consumed so every tab sees them.
+    Return pending push messages and ALL approval requests.
+
+    Messages:
+    - With session_id: consumed messages for that session
+    - Without session_id: recent messages (all sessions, last 60s)
+
+    Approvals:
+    - Always returns ALL pending approvals across all sessions
+    - Frontend filters by current session_id for display
+    - Includes session_id in each approval for filtering
     """
     from ..console_push_store import get_recent, take
+    from ..approvals import get_approval_service
 
+    # Get messages (session-specific or global)
     if session_id:
         messages = await take(session_id)
     else:
         messages = await get_recent()
-    return {"messages": messages}
+
+    # Get ALL pending approvals (not filtered by session)
+    approval_svc = get_approval_service()
+    # pylint: disable=protected-access
+    async with approval_svc._lock:
+        all_pending = list(approval_svc._pending.values())
+
+    # Serialize approval data with session_id for frontend filtering
+    approvals_data = [
+        {
+            "request_id": p.request_id,
+            "session_id": p.session_id,
+            "agent_id": p.agent_id,
+            "tool_name": p.tool_name,
+            "severity": p.severity,
+            "findings_count": p.findings_count,
+            "findings_summary": p.result_summary,
+            "tool_params": p.extra.get("tool_call", {}).get("input", {}),
+            "created_at": p.created_at,
+        }
+        for p in all_pending
+    ]
+
+    return {"messages": messages, "pending_approvals": approvals_data}

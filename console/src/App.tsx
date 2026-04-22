@@ -23,6 +23,7 @@ dayjs.extend(relativeTime);
 import MainLayout from "./layouts/MainLayout";
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
 import { PluginProvider } from "./plugins/PluginContext";
+import { ApprovalProvider } from "./contexts/ApprovalContext";
 import LoginPage from "./pages/Login";
 import { authApi } from "./api/modules/auth";
 import { languageApi } from "./api/modules/language";
@@ -173,17 +174,19 @@ function AppInner() {
         }}
       >
         <AntdApp>
-          <Routes>
-            <Route path="/login" element={<LoginPage />} />
-            <Route
-              path="/*"
-              element={
-                <AuthGuard>
-                  <MainLayout />
-                </AuthGuard>
-              }
-            />
-          </Routes>
+          <ApprovalProvider>
+            <Routes>
+              <Route path="/login" element={<LoginPage />} />
+              <Route
+                path="/*"
+                element={
+                  <AuthGuard>
+                    <MainLayout />
+                  </AuthGuard>
+                }
+              />
+            </Routes>
+          </ApprovalProvider>
         </AntdApp>
       </ConfigProvider>
     </BrowserRouter>
