@@ -1142,14 +1142,31 @@ export default function ChatPage() {
             onDeny={handleDeny}
             onCancel={() => {
               console.log("[Chat] onCancel called for approval card");
-              console.log("[Chat] chatId (UUID):", chatId);
-              console.log("[Chat] window.currentSessionId:", window.currentSessionId);
+              console.log("[Chat] chatId (from URL):", chatId);
+              console.log(
+                "[Chat] window.currentSessionId:",
+                window.currentSessionId,
+              );
 
-              // chatId is the UUID from URL params, which is what we need for task_tracker
-              if (chatId) {
-                console.log("[Chat] Calling stopChat with chatId (UUID):", chatId);
+              // Use the same logic as cancel() function:
+              // 1. If chatId exists (from URL), use it directly
+              // 2. Otherwise, resolve from session_id using sessionApi
+              const sessionId = window.currentSessionId || "";
+              const resolvedChatId = chatId
+                ? chatId
+                : sessionApi.getRealIdForSession(sessionId) ?? sessionId;
+
+              console.log(
+                "[Chat] Resolved chat_id for stop:",
+                resolvedChatId,
+                "from session_id:",
+                sessionId,
+              );
+
+              if (resolvedChatId) {
+                console.log("[Chat] Calling stopChat with:", resolvedChatId);
                 chatApi
-                  .stopChat(chatId)
+                  .stopChat(resolvedChatId)
                   .then(() => {
                     console.log("[Chat] stopChat succeeded");
                   })
@@ -1157,7 +1174,7 @@ export default function ChatPage() {
                     console.error("[Chat] stopChat failed:", err);
                   });
               } else {
-                console.warn("[Chat] No chatId found, cannot cancel task");
+                console.warn("[Chat] No chat_id resolved, cannot cancel task");
               }
             }}
           />
