@@ -320,8 +320,17 @@ class AgentRunner(Runner):
             # Merge custom request_context from request
             # (e.g., root_session_id from inter-agent calls)
             custom_context = getattr(request, "request_context", None)
+            logger.debug(
+                "Runner: custom_context=%s type=%s",
+                custom_context,
+                type(custom_context),
+            )
             if custom_context and isinstance(custom_context, dict):
                 base_request_context.update(custom_context)
+                logger.debug(
+                    "Runner: merged custom_context, base_request_context=%s",
+                    base_request_context,
+                )
 
             # Set root_session_id in context for agent tools
             root_session_id = base_request_context.get("root_session_id")
