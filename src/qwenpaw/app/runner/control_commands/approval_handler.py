@@ -56,7 +56,7 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
             return self._usage_hint()
 
     async def _handle_approve(self, context: ControlContext) -> str:
-        """Approve a pending tool execution."""
+        """Approve a pending tool execution (supports cross-session)."""
         svc = get_approval_service()
         request_id = context.args.get("request_id")
 
@@ -67,28 +67,53 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
                 return "❌ **无待审批工具**\n\n" "当前会话没有需要审批的工具调用。"
             request_id = pending.request_id
 
+        # Get pending by request_id (supports cross-session)
+        pending = await svc.get_request(request_id)
+        if pending is None:
+            return (
+                f"❌ **审批请求不存在**\n\n"
+                f"请求 ID: `{request_id[:16]}`\n\n"
+                f"可能已被处理或已超时。"
+            )
+
+        # Permission check: can only approve own agent's requests
+        if pending.agent_id != context.agent_id:
+            return (
+                f"❌ **权限不足**\n\n"
+                f"无法审批其他Agent的工具请求。\n"
+                f"- 请求所属Agent: `{pending.agent_id}`\n"
+                f"- 当前Agent: `{context.agent_id}`"
+            )
+
         # Resolve the Future to unblock waiting agent
         resolved = await svc.resolve_request(
             request_id,
             ApprovalDecision.APPROVED,
         )
 
-        if resolved is None:
-            return (
-                f"❌ **审批请求不存在**\n\n"
-                f"请求 ID: `{request_id[:16]}`\n\n"
-                f"可能已被处理或已超时。使用 `/approval list` 查看待审批列表。"
-            )
+        # Show cross-session hint if applicable
+        cross_session_hint = ""
+        if pending.session_id != context.session_id:
+            if pending.root_session_id == pending.session_id:
+                cross_session_hint = (
+                    f"\n\n🔗 **跨Session操作**\n"
+                    f"审批了其他会话的工具: `{pending.session_id[:8]}`"
+                )
+            else:
+                cross_session_hint = (
+                    f"\n\n🔗 **跨Session操作**\n"
+                    f"审批了子Agent的工具 (Session: `{pending.session_id[:8]}`)"
+                )
 
         return (
             f"✅ **工具已批准**\n\n"
             f"- 工具: `{resolved.tool_name}`\n"
             f"- 请求 ID: `{request_id[:16]}`\n"
-            f"- 状态: 正在执行..."
+            f"- 状态: 正在执行...{cross_session_hint}"
         )
 
     async def _handle_deny(self, context: ControlContext) -> str:
-        """Deny a pending tool execution."""
+        """Deny a pending tool execution (supports cross-session)."""
         svc = get_approval_service()
         request_id = context.args.get("request_id")
         reason = context.args.get("reason", "用户拒绝")
@@ -100,54 +125,105 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
                 return "❌ **无待审批工具**\n\n" "当前会话没有需要审批的工具调用。"
             request_id = pending.request_id
 
+        # Get pending by request_id (supports cross-session)
+        pending = await svc.get_request(request_id)
+        if pending is None:
+            return (
+                f"❌ **审批请求不存在**\n\n"
+                f"请求 ID: `{request_id[:16]}`\n\n"
+                f"可能已被处理或已超时。"
+            )
+
+        # Permission check: can only deny own agent's requests
+        if pending.agent_id != context.agent_id:
+            return (
+                f"❌ **权限不足**\n\n"
+                f"无法拒绝其他Agent的工具请求。\n"
+                f"- 请求所属Agent: `{pending.agent_id}`\n"
+                f"- 当前Agent: `{context.agent_id}`"
+            )
+
         # Resolve the Future to unblock waiting agent
         resolved = await svc.resolve_request(
             request_id,
             ApprovalDecision.DENIED,
         )
 
-        if resolved is None:
-            return (
-                f"❌ **审批请求不存在**\n\n"
-                f"请求 ID: `{request_id[:16]}`\n\n"
-                f"可能已被处理或已超时。使用 `/approval list` 查看待审批列表。"
-            )
+        # Show cross-session hint if applicable
+        cross_session_hint = ""
+        if pending.session_id != context.session_id:
+            if pending.root_session_id == pending.session_id:
+                cross_session_hint = (
+                    f"\n\n🔗 **跨Session操作**\n"
+                    f"拒绝了其他会话的工具: `{pending.session_id[:8]}`"
+                )
+            else:
+                cross_session_hint = (
+                    f"\n\n🔗 **跨Session操作**\n"
+                    f"拒绝了子Agent的工具 (Session: `{pending.session_id[:8]}`)"
+                )
 
         return (
             f"🚫 **工具已拒绝**\n\n"
             f"- 工具: `{resolved.tool_name}`\n"
             f"- 请求 ID: `{request_id[:16]}`\n"
-            f"- 原因: {reason}"
+            f"- 原因: {reason}{cross_session_hint}"
         )
 
     async def _handle_list(self, context: ControlContext) -> str:
-        """List all pending approvals for current session."""
+        """List pending approvals.
+
+        Supports:
+            /approval list           # Current session (includes children)
+            /approval list --all     # All sessions for this agent
+            /approval list -a        # Same as --all (short form)
+        """
         svc = get_approval_service()
-        pending_list = await svc.list_pending_by_session(
-            context.session_id,
-            include_subagents=True,
-        )
+        show_all = context.args.get("all", False)
+
+        if show_all:
+            # Query all pending approvals for this agent (all sessions)
+            pending_list = await svc.get_all_pending_by_agent(
+                context.agent_id,
+            )
+            header = "📋 **全局待审批工具列表** (所有会话)\n"
+        else:
+            # Default: query current root session (includes children)
+            pending_list = await svc.get_pending_by_root_session(
+                context.session_id,
+            )
+            header = "📋 **待审批工具列表** (当前会话)\n"
 
         if not pending_list:
-            return "✅ **无待审批工具**\n\n" "当前会话所有工具调用已处理完毕。"
+            return "✅ **无待审批工具**\n\n当前无需要审批的工具调用。"
 
-        lines = ["📋 **待审批工具列表**\n"]
+        lines = [header]
         for i, pending in enumerate(pending_list, 1):
             elapsed = int(time.time() - pending.created_at)
             severity_emoji = self._severity_emoji(pending.severity)
+
+            # Show session info for cross-session cases
+            session_info = ""
+            if show_all or pending.session_id != context.session_id:
+                is_sub = pending.root_session_id != pending.session_id
+                if is_sub:
+                    session_info = f" [子Session: `{pending.session_id[:8]}`]"
+                else:
+                    session_info = f" [Session: `{pending.session_id[:8]}`]"
+
             lines.append(
                 f"{i}. `{pending.tool_name}` "
                 f"{severity_emoji} `{pending.severity.upper()}` "
-                f"- {elapsed}s 前\n"
+                f"- {elapsed}s 前{session_info}\n"
                 f"   请求 ID: `{pending.request_id[:16]}`\n"
                 f"   发现问题: {pending.findings_count} 个\n",
             )
 
         lines.append(
             "\n💡 **操作提示**\n"
-            "- 批准: `/approval approve` 或 `/approval approve <request_id>`\n"
-            "- 拒绝: `/approval deny` 或 `/approval deny <request_id>`\n"
-            "- 若不指定 request_id，默认操作队首工具（FIFO）",
+            "- 批准: `/approval approve <request_id>` (支持跨session审批)\n"
+            "- 拒绝: `/approval deny <request_id>`\n"
+            "- 全局查看: `/approval list --all` 或 `/approval list -a`",
         )
 
         return "\n".join(lines)

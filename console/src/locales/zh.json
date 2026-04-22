@@ -1652,19 +1652,19 @@
     "localModelsNotice": "备份文件不包含本地模型文件。如需跨设备迁移，请在目标设备上重新下载所需的本地模型。"
   },
   "approval": {
-    "card": {
-      "title": "工具调用审批",
-      "tool": "工具",
-      "severity": "风险等级",
-      "findings": "个风险点",
-      "riskSummary": "风险摘要",
-      "parameters": "参数详情",
-      "approve": "批准",
-      "deny": "拒绝"
-    },
+    "title": "安全审批",
+    "tool": "工具",
+    "severity": "严重性",
+    "findings": "发现",
+    "parameters": "参数",
+    "approve": "批准",
+    "deny": "拒绝",
+    "source": "来源",
+    "subSession": "子Agent",
     "approved": "已批准工具调用",
     "denied": "已拒绝工具调用",
     "approveFailed": "批准失败",
+    "cancelTask": "取消任务",
     "denyFailed": "拒绝失败"
   }
 }

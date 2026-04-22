@@ -153,6 +153,7 @@ class ToolGuardMixin:
         true parallelism.
         """
         ctx = getattr(self, "_request_context", None) or {}
+        # TODO: remove this
         if ctx.get("_headless_tool_guard", "true").lower() == "false":
             return await super()._acting(tool_call)  # type: ignore[misc]
 
@@ -408,6 +409,11 @@ class ToolGuardMixin:
         channel = str(self._request_context.get("channel") or "")
         agent_id = str(self._request_context.get("agent_id", "unknown"))
 
+        # Get root_session_id for cross-session approval routing
+        root_session_id = str(
+            self._request_context.get("root_session_id") or session_id,
+        )
+
         svc = self._tool_guard_approval_service
         tool_call_id = tool_call.get("id", "")
 
@@ -422,11 +428,13 @@ class ToolGuardMixin:
         extra: dict[str, Any] = {"tool_call": tool_call}
         pending = await svc.create_pending(
             session_id=session_id,
+            root_session_id=root_session_id,
             user_id=user_id,
             channel=channel,
             agent_id=agent_id,
             tool_name=tool_name,
             result=guard_result,
+            timeout_seconds=TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
             extra=extra,
         )
 
@@ -486,10 +494,11 @@ class ToolGuardMixin:
         timeout_seconds: float,
         heartbeat_interval: float = (TOOL_GUARD_APPROVAL_HEARTBEAT_INTERVAL),
     ) -> "ApprovalDecision":
-        """Wait for approval decision with timeout.
+        """Wait for approval decision with timeout and cancellation support.
 
-        Directly awaits the Future with a single timeout instead of polling
-        loop to avoid triggering cleanup logic prematurely.
+        Waits for approval Future while also listening for task cancellation.
+        If the outer task is cancelled (e.g., user /stop), immediately
+        auto-denies the approval and re-raises CancelledError.
 
         Args:
             request_id: Approval request ID
@@ -504,27 +513,77 @@ class ToolGuardMixin:
             ApprovalDecision,
         )
 
-        logger.info(
-            "Waiting for approval: request_id=%s timeout=%.0fs",
+        logger.debug(
+            "[APPROVAL WAIT] Waiting for approval: request_id=%s "
+            "timeout=%.0fs",
             request_id[:8],
             timeout_seconds,
         )
 
+        # Create a wrapper task that can be cancelled
+        async def wait_for_future():
+            logger.debug(
+                "[APPROVAL WAIT] wait_for_future started for request_id=%s",
+                request_id[:8],
+            )
+            result = await future
+            logger.debug(
+                "[APPROVAL WAIT] wait_for_future completed for request_id=%s",
+                request_id[:8],
+            )
+            return result
+
+        wait_task = asyncio.create_task(wait_for_future())
+        logger.debug(
+            "[APPROVAL WAIT] Created wait_task for request_id=%s",
+            request_id[:8],
+        )
+
         try:
-            decision = await asyncio.wait_for(future, timeout=timeout_seconds)
-            logger.info(
-                "Approval resolved: request_id=%s decision=%s",
+            logger.debug(
+                "[APPROVAL WAIT] Calling asyncio.wait_for for request_id=%s",
+                request_id[:8],
+            )
+            decision = await asyncio.wait_for(
+                wait_task,
+                timeout=timeout_seconds,
+            )
+            logger.debug(
+                "[APPROVAL WAIT] asyncio.wait_for completed for request_id=%s "
+                "decision=%s",
                 request_id[:8],
                 decision.value if hasattr(decision, "value") else decision,
             )
             return decision
         except asyncio.TimeoutError:
-            logger.warning(
-                "Approval timeout: request_id=%s after %.0fs",
+            logger.debug(
+                "[APPROVAL WAIT] Timeout for request_id=%s after %.0fs",
                 request_id[:8],
                 timeout_seconds,
             )
+            wait_task.cancel()
             return ApprovalDecision.TIMEOUT
+        except asyncio.CancelledError:
+            # Task cancelled (e.g., user /stop or SSE disconnect)
+            # Cancel the wait task and auto-deny the pending approval
+            logger.debug(
+                "[APPROVAL WAIT] CancelledError caught for request_id=%s, "
+                "cancelling wait_task and auto-denying",
+                request_id[:8],
+            )
+            wait_task.cancel()
+            svc = self._tool_guard_approval_service
+            await svc.resolve_request(
+                request_id,
+                ApprovalDecision.DENIED,
+            )
+            logger.debug(
+                "[APPROVAL WAIT] Auto-denied request_id=%s, re-raising "
+                "CancelledError",
+                request_id[:8],
+            )
+            # Re-raise to propagate cancellation
+            raise
 
     async def _emit_waiting_for_approval_blocking(
         self,
@@ -619,7 +678,7 @@ class ToolGuardMixin:
         denied_text = (
             f"🚫 **{tg('tool_blocked')}**\n\n"
             f"- {tg('tool')}: `{tool_name}`\n"
-            f"- Reason: User denied execution\n\n"
+            f"- {tg('reason')}: {tg('reason_denied')}\n\n"
             f"{findings_text}"
         )
 
@@ -661,11 +720,15 @@ class ToolGuardMixin:
             format_findings_summary(guard_result) if guard_result else ""
         )
 
+        reason_text = tg("reason_timeout").replace(
+            "{timeout}",
+            str(TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS),
+        )
+
         timeout_text = (
-            f"⏰ **Approval Timeout**\n\n"
+            f"{tg('timeout_title')}\n\n"
             f"- {tg('tool')}: `{tool_name}`\n"
-            f"- Reason: Approval timeout after "
-            f"{TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS}s, auto-denied\n\n"
+            f"- {tg('reason')}: {reason_text}\n\n"
             f"{findings_text}"
         )
 

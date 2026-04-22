@@ -140,8 +140,14 @@ def parse_args(query: str, command_prefix: str) -> Dict[str, Any]:
         # First part is action (approve/deny/list/cancel)
         args["action"] = parts[0].lower()
 
+        # Parse flags for list command (--all / -a)
+        if args["action"] == "list" and len(parts) > 1:
+            for part in parts[1:]:
+                if part in ("--all", "-a"):
+                    args["all"] = True
+
         # Second part (if exists) is request_id
-        if len(parts) > 1:
+        if len(parts) > 1 and not parts[1].startswith("-"):
             args["request_id"] = parts[1]
 
         # Remaining parts (for deny) are reason

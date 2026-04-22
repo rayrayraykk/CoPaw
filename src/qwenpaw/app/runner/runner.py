@@ -257,6 +257,7 @@ class AgentRunner(Runner):
         from ..agent_context import (
             set_current_agent_id,
             set_current_session_id,
+            set_current_root_session_id,
         )
 
         set_current_agent_id(self.agent_id)
@@ -316,11 +317,31 @@ class AgentRunner(Runner):
                 "agent_id": self.agent_id,
             }
 
-            # Merge custom request_context from request
-            # (e.g., _headless_tool_guard)
-            custom_context = getattr(request, "request_context", None)
-            if custom_context and isinstance(custom_context, dict):
-                base_request_context.update(custom_context)
+            # Extract root_session_id from request payload (agent chat)
+            payload_root_session = getattr(request, "root_session_id", "")
+            if payload_root_session and isinstance(payload_root_session, str):
+                base_request_context["root_session_id"] = payload_root_session
+                set_current_root_session_id(payload_root_session)
+                root_preview = (
+                    payload_root_session[:12]
+                    if len(payload_root_session) >= 12
+                    else payload_root_session
+                )
+                logger.debug(
+                    "Runner: using root_session_id from payload: %s",
+                    root_preview,
+                )
+            else:
+                # Current session is the root
+                base_request_context["root_session_id"] = session_id
+                set_current_root_session_id(session_id)
+                session_preview = (
+                    session_id[:12] if len(session_id) >= 12 else session_id
+                )
+                logger.debug(
+                    "Runner: current session is root: %s",
+                    session_preview,
+                )
 
             # Mission Mode: /mission
             _ws = self.workspace_dir or WORKING_DIR
@@ -348,14 +369,8 @@ class AgentRunner(Runner):
                     session_id=session_id,
                 )
 
-            # Mission Mode: bypass tool guard
-            # (workers can't respond to /approve)
+            # Mission Mode: inject context reminder for active mission
             if mission_info is not None:
-                base_request_context["_headless_tool_guard"] = "false"
-                logger.info(
-                    "Mission Mode: bypassing tool guard for session %s",
-                    session_id,
-                )
                 # Inject context reminder for active mission
                 loop_dir = mission_info.get("loop_dir", "")
                 phase = mission_info.get("mission_phase", 1)
@@ -508,6 +523,29 @@ class AgentRunner(Runner):
 
         except asyncio.CancelledError as exc:
             logger.info(f"query_handler: {session_id} cancelled!")
+
+            # Cancel all pending approvals for this root session
+            root_session_id = base_request_context.get(
+                "root_session_id",
+                session_id,
+            )
+            from ..approvals.service import get_approval_service
+
+            approval_svc = get_approval_service()
+            cancelled_count = (
+                await approval_svc.cancel_all_pending_by_root_session(
+                    root_session_id,
+                )
+            )
+            if cancelled_count > 0:
+                logger.info(
+                    "Auto-denied %d pending approval(s) for root session %s",
+                    cancelled_count,
+                    root_session_id[:8]
+                    if len(root_session_id) >= 8
+                    else root_session_id,
+                )
+
             if agent is not None:
                 await agent.interrupt()
             raise AgentException("Task has been cancelled!") from exc

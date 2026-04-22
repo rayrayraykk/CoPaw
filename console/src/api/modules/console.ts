@@ -8,6 +8,7 @@ export interface PushMessage {
 export interface PendingApproval {
   request_id: string;
   session_id: string;
+  root_session_id: string;
   agent_id: string;
   tool_name: string;
   severity: string;
@@ -15,6 +16,7 @@ export interface PendingApproval {
   findings_summary: string;
   tool_params: Record<string, unknown>;
   created_at: number;
+  timeout_seconds: number;
 }
 
 export const consoleApi = {

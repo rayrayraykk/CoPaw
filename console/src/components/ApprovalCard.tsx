@@ -14,8 +14,12 @@ export interface ApprovalCardProps {
   findingsSummary: string;
   toolParams: Record<string, unknown>;
   createdAt: number;
+  timeoutSeconds: number;
+  sessionId?: string;
+  rootSessionId?: string;
   onApprove: (requestId: string) => Promise<void>;
   onDeny: (requestId: string) => Promise<void>;
+  onCancel?: () => void;
 }
 
 export function ApprovalCard({
@@ -26,22 +30,29 @@ export function ApprovalCard({
   findingsSummary,
   toolParams,
   createdAt,
+  timeoutSeconds,
+  sessionId,
+  rootSessionId,
   onApprove,
   onDeny,
+  onCancel,
 }: ApprovalCardProps) {
   const { t } = useTranslation();
   const [loading, setLoading] = useState<"approve" | "deny" | null>(null);
-  const [remaining, setRemaining] = useState<number>(300);
+  const [remaining, setRemaining] = useState<number>(timeoutSeconds);
+
+  // Check if this is a cross-session approval
+  const isCrossSession =
+    sessionId && rootSessionId && sessionId !== rootSessionId;
 
   useEffect(() => {
-    const timeout = 300;
     const elapsed = Date.now() / 1000 - createdAt;
-    const initialRemaining = Math.max(0, Math.floor(timeout - elapsed));
+    const initialRemaining = Math.max(0, Math.floor(timeoutSeconds - elapsed));
     setRemaining(initialRemaining);
 
     const timer = setInterval(() => {
       const newElapsed = Date.now() / 1000 - createdAt;
-      const newRemaining = Math.max(0, Math.floor(timeout - newElapsed));
+      const newRemaining = Math.max(0, Math.floor(timeoutSeconds - newElapsed));
       setRemaining(newRemaining);
 
       if (newRemaining <= 0) {
@@ -50,7 +61,7 @@ export function ApprovalCard({
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [createdAt]);
+  }, [createdAt, timeoutSeconds]);
 
   const handleApprove = async () => {
     console.log("[ApprovalCard] Approve button clicked:", requestId);
@@ -126,6 +137,17 @@ export function ApprovalCard({
           <Text className={styles.value}>{findingsCount}</Text>
         </div>
 
+        {isCrossSession && (
+          <div className={styles.infoRow}>
+            <Text className={styles.label}>
+              {t("approval.source", "Source")}:
+            </Text>
+            <Tag color="blue" className={styles.crossSessionTag}>
+              {t("approval.subSession", "Sub-Agent")} ({sessionId?.slice(0, 8)})
+            </Tag>
+          </div>
+        )}
+
         {findingsSummary && (
           <div className={styles.summaryBox}>
             <Text className={styles.summaryText}>{findingsSummary}</Text>
@@ -165,6 +187,19 @@ export function ApprovalCard({
         >
           {t("approval.approve", "Approve")}
         </Button>
+        {onCancel && (
+          <Button
+            type="default"
+            danger
+            onClick={() => {
+              console.log("[ApprovalCard] Cancel task button clicked");
+              onCancel();
+            }}
+            disabled={loading !== null}
+          >
+            {t("approval.cancelTask", "Cancel Task")}
+          </Button>
+        )}
       </div>
     </Card>
   );

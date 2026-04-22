@@ -14,6 +14,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from ...constant import TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS
 from ...security.tool_guard.approval import ApprovalDecision
 
 if TYPE_CHECKING:
@@ -38,13 +39,14 @@ class PendingApproval:
 
     request_id: str
     session_id: str
+    root_session_id: str  # Root session for cross-session approval routing
     user_id: str
     channel: str
     agent_id: str  # Which agent is requesting approval
-    parent_agent_id: str | None  # For sub-agent support (future)
     tool_name: str
     created_at: float
     future: asyncio.Future[ApprovalDecision]
+    timeout_seconds: float = 300.0  # Approval timeout in seconds
     status: str = "pending"
     resolved_at: float | None = None
     result_summary: str = ""
@@ -68,8 +70,6 @@ class ApprovalService:
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
         self._pending: dict[str, PendingApproval] = {}
-        # Agent hierarchy for future sub-agent support
-        self._agent_hierarchy: dict[str, str] = {}  # child_id -> parent_id
         self._channel_manager: Any | None = None
 
     def set_channel_manager(self, channel_manager: Any) -> None:
@@ -84,12 +84,13 @@ class ApprovalService:
         self,
         *,
         session_id: str,
+        root_session_id: str,
         user_id: str,
         channel: str,
         agent_id: str,
-        parent_agent_id: str | None = None,
         tool_name: str,
         result: "ToolGuardResult",
+        timeout_seconds: float = TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
         extra: dict[str, Any] | None = None,
     ) -> PendingApproval:
         """Create a pending approval record and return it."""
@@ -101,13 +102,14 @@ class ApprovalService:
         pending = PendingApproval(
             request_id=request_id,
             session_id=session_id,
+            root_session_id=root_session_id,
             user_id=user_id,
             channel=channel,
             agent_id=agent_id,
-            parent_agent_id=parent_agent_id,
             tool_name=tool_name,
             created_at=time.time(),
             future=loop.create_future(),
+            timeout_seconds=timeout_seconds,
             result_summary=format_findings_summary(result),
             findings_count=result.findings_count,
             severity=result.max_severity.value,
@@ -120,11 +122,13 @@ class ApprovalService:
 
         logger.info(
             "Approval pending created: request_id=%s agent_id=%s tool=%s "
-            "severity=%s",
+            "severity=%s session=%s root=%s",
             request_id[:8],
             agent_id,
             tool_name,
             pending.severity,
+            session_id[:8],
+            root_session_id[:8],
         )
 
         return pending
@@ -215,10 +219,49 @@ class ApprovalService:
                 for p in self._pending.values()
                 if p.session_id == session_id and p.status == "pending"
             ]
-            # TODO: When sub-agent support is implemented,
-            # filter by parent_agent_id if not include_subagents:
-            #     result = [p for p in result if p.parent_agent_id is None]
+            return sorted(result, key=lambda p: p.created_at)
 
+    async def get_pending_by_root_session(
+        self,
+        root_session_id: str,
+    ) -> list[PendingApproval]:
+        """Get all pending approvals for root session and its children.
+
+        Args:
+            root_session_id: Root session ID
+
+        Returns:
+            List of pending approvals sorted by creation time (FIFO)
+        """
+        async with self._lock:
+            result = [
+                p
+                for p in self._pending.values()
+                if p.root_session_id == root_session_id
+                and p.status == "pending"
+            ]
+            return sorted(result, key=lambda p: p.created_at)
+
+    async def get_all_pending_by_agent(
+        self,
+        agent_id: str,
+    ) -> list[PendingApproval]:
+        """Get all pending approvals for an agent (across all sessions).
+
+        Used by /approval list --all command.
+
+        Args:
+            agent_id: Agent ID
+
+        Returns:
+            List of pending approvals sorted by creation time (FIFO)
+        """
+        async with self._lock:
+            result = [
+                p
+                for p in self._pending.values()
+                if p.agent_id == agent_id and p.status == "pending"
+            ]
             return sorted(result, key=lambda p: p.created_at)
 
     async def wait_for_approval(
@@ -294,6 +337,48 @@ class ApprovalService:
                 cancelled,
                 tool_call_id,
                 session_id[:8],
+            )
+        return cancelled
+
+    async def cancel_all_pending_by_root_session(
+        self,
+        root_session_id: str,
+    ) -> int:
+        """Cancel all pending approvals for root session and its children.
+
+        Called when user stops/cancels a task (e.g., /stop command or
+        SSE disconnect). Auto-denies all pending approvals to unblock
+        waiting tasks.
+
+        Args:
+            root_session_id: Root session ID
+
+        Returns:
+            Number of approvals cancelled
+        """
+        now = time.time()
+        cancelled = 0
+        async with self._lock:
+            to_cancel = [
+                k
+                for k, p in self._pending.items()
+                if p.root_session_id == root_session_id
+                and p.status == "pending"
+            ]
+            for k in to_cancel:
+                pending = self._pending.pop(k)
+                if not pending.future.done():
+                    pending.future.set_result(ApprovalDecision.DENIED)
+                pending.status = "cancelled"
+                pending.resolved_at = now
+                cancelled += 1
+        if cancelled:
+            logger.info(
+                "Cancelled %d pending approval(s) for root session %s",
+                cancelled,
+                root_session_id[:8]
+                if len(root_session_id) >= 8
+                else root_session_id,
             )
         return cancelled
 

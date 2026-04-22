@@ -69,7 +69,7 @@ async def post_approval_approve(
         body.session_id,
     )
 
-    # Verify the request belongs to the specified session
+    # Verify the request belongs to the root session (support cross-session)
     pending = await svc.get_request(body.request_id)
     if pending is None:
         logger.warning(
@@ -81,16 +81,16 @@ async def post_approval_approve(
             detail=f"Approval request not found: {body.request_id[:16]}",
         )
 
-    if pending.session_id != body.session_id:
+    if pending.root_session_id != body.session_id:
         logger.warning(
-            "Session mismatch: request %s belongs to session %s, not %s",
+            "Root session mismatch: request %s (root: %s) not in session %s",
             body.request_id[:16],
-            pending.session_id,
+            pending.root_session_id,
             body.session_id,
         )
         raise HTTPException(
             status_code=403,
-            detail="Session ID mismatch",
+            detail="Root session mismatch: cannot approve other session trees",
         )
 
     # Resolve the Future
@@ -139,7 +139,7 @@ async def post_approval_deny(
         reason,
     )
 
-    # Verify the request belongs to the specified session
+    # Verify the request belongs to the root session (support cross-session)
     pending = await svc.get_request(body.request_id)
     if pending is None:
         logger.warning(
@@ -151,16 +151,16 @@ async def post_approval_deny(
             detail=f"Approval request not found: {body.request_id[:16]}",
         )
 
-    if pending.session_id != body.session_id:
+    if pending.root_session_id != body.session_id:
         logger.warning(
-            "Session mismatch: request %s belongs to session %s, not %s",
+            "Root session mismatch: request %s (root: %s) not in session %s",
             body.request_id[:16],
-            pending.session_id,
+            pending.root_session_id,
             body.session_id,
         )
         raise HTTPException(
             status_code=403,
-            detail="Session ID mismatch",
+            detail="Root session mismatch: cannot approve other session trees",
         )
 
     # Resolve the Future
@@ -200,8 +200,12 @@ async def get_approval_list(
     svc = get_approval_service()
 
     if session_id:
-        logger.debug("Listing approvals for session: %s", session_id)
-        pending_list = await svc.list_pending_by_session(session_id)
+        logger.debug(
+            "Listing approvals for root session (includes children): %s",
+            session_id,
+        )
+        # Use get_pending_by_root_session for cross-session support
+        pending_list = await svc.get_pending_by_root_session(session_id)
     else:
         logger.debug("Listing all pending approvals")
         # pylint: disable=protected-access
@@ -215,11 +219,13 @@ async def get_approval_list(
             {
                 "request_id": pending.request_id,
                 "session_id": pending.session_id,
+                "root_session_id": pending.root_session_id,
                 "agent_id": pending.agent_id,
                 "tool_name": pending.tool_name,
                 "severity": pending.severity,
                 "findings_count": pending.findings_count,
                 "created_at": pending.created_at,
+                "timeout_seconds": pending.timeout_seconds,
                 "result_summary": pending.result_summary,
             },
         )
