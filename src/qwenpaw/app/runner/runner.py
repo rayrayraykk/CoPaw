@@ -329,6 +329,8 @@ class AgentRunner(Runner):
                 set_current_root_session_id(root_session_id)
             else:
                 # Current session is the root
+                root_session_id = session_id
+                base_request_context["root_session_id"] = session_id
                 set_current_root_session_id(session_id)
 
             # Mission Mode: /mission

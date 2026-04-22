@@ -118,11 +118,13 @@ class ApprovalService:
 
         logger.info(
             "Approval pending created: request_id=%s agent_id=%s tool=%s "
-            "severity=%s",
+            "severity=%s session=%s root=%s",
             request_id[:8],
             agent_id,
             tool_name,
             pending.severity,
+            session_id[:8],
+            root_session_id[:8],
         )
 
         return pending

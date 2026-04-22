@@ -493,8 +493,26 @@ export default function ChatPage() {
     if (!currentSessionId) return;
 
     // Filter approvals by root_session_id (includes children sessions)
+    console.log(
+      "[Approval] Filtering approvals:",
+      "currentSessionId=",
+      currentSessionId,
+      "approvals=",
+      approvals.map((a) => ({
+        tool: a.tool_name,
+        session: a.session_id.slice(0, 8),
+        root: a.root_session_id.slice(0, 8),
+      })),
+    );
+
     const sessionApprovals = approvals.filter(
       (approval) => approval.root_session_id === currentSessionId,
+    );
+
+    console.log(
+      "[Approval] After filtering:",
+      sessionApprovals.length,
+      "approval(s)",
     );
 
     // Convert to map for display
