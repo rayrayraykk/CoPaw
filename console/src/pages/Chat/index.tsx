@@ -1028,12 +1028,19 @@ export default function ChatPage() {
           return toDisplayUrl(url);
         },
         cancel(data: { session_id: string }) {
+          console.log("[Cancel] Cancel button clicked, session_id:", data.session_id);
           const chatId =
             sessionApi.getRealIdForSession(data.session_id) ?? data.session_id;
+          console.log("[Cancel] Resolved chat_id:", chatId);
           if (chatId) {
-            chatApi.stopChat(chatId).catch((err) => {
-              console.error("Failed to stop chat:", err);
+            console.log("[Cancel] Calling stopChat API...");
+            chatApi.stopChat(chatId).then(() => {
+              console.log("[Cancel] stopChat API succeeded");
+            }).catch((err) => {
+              console.error("[Cancel] Failed to stop chat:", err);
             });
+          } else {
+            console.warn("[Cancel] No chat_id found, cannot stop");
           }
         },
         async reconnect(data: { session_id: string; signal?: AbortSignal }) {
