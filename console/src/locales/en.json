@@ -1644,16 +1644,13 @@
     "usernameEmpty": "Username cannot be blank"
   },
   "approval": {
-    "card": {
-      "title": "Tool Call Approval",
-      "tool": "Tool",
-      "severity": "Risk Level",
-      "findings": "findings",
-      "riskSummary": "Risk Summary",
-      "parameters": "Parameters",
-      "approve": "Approve",
-      "deny": "Deny"
-    },
+    "title": "Security Approval Required",
+    "tool": "Tool",
+    "severity": "Severity",
+    "findings": "Findings",
+    "parameters": "Parameters",
+    "approve": "Approve",
+    "deny": "Deny",
     "source": "Source",
     "subSession": "Sub-Agent",
     "approved": "Tool call approved",

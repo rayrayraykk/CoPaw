@@ -677,7 +677,7 @@ class ToolGuardMixin:
         denied_text = (
             f"🚫 **{tg('tool_blocked')}**\n\n"
             f"- {tg('tool')}: `{tool_name}`\n"
-            f"- Reason: User denied execution\n\n"
+            f"- {tg('reason')}: {tg('reason_denied')}\n\n"
             f"{findings_text}"
         )
 
@@ -719,11 +719,15 @@ class ToolGuardMixin:
             format_findings_summary(guard_result) if guard_result else ""
         )
 
+        reason_text = tg("reason_timeout").replace(
+            "{timeout}",
+            str(TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS),
+        )
+
         timeout_text = (
-            f"⏰ **Approval Timeout**\n\n"
+            f"{tg('timeout_title')}\n\n"
             f"- {tg('tool')}: `{tool_name}`\n"
-            f"- Reason: Approval timeout after "
-            f"{TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS}s, auto-denied\n\n"
+            f"- {tg('reason')}: {reason_text}\n\n"
             f"{findings_text}"
         )
 
