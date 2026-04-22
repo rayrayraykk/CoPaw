@@ -1667,6 +1667,7 @@
     "approved": "已批准工具调用",
     "denied": "已拒绝工具调用",
     "approveFailed": "批准失败",
+    "cancelTask": "取消任务",
     "denyFailed": "拒绝失败"
   }
 }

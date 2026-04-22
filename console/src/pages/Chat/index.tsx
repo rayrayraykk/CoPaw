@@ -1140,6 +1140,21 @@ export default function ChatPage() {
             rootSessionId={request.rootSessionId}
             onApprove={handleApprove}
             onDeny={handleDeny}
+            onCancel={() => {
+              console.log("[Chat] onCancel called for approval card");
+              const chatIdToStop = chatId || window.currentSessionId;
+              if (chatIdToStop) {
+                console.log("[Chat] Calling stopChat for:", chatIdToStop);
+                chatApi
+                  .stopChat(chatIdToStop)
+                  .then(() => {
+                    console.log("[Chat] stopChat succeeded");
+                  })
+                  .catch((err) => {
+                    console.error("[Chat] stopChat failed:", err);
+                  });
+              }
+            }}
           />
         </div>
       ))}

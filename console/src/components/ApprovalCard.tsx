@@ -18,6 +18,7 @@ export interface ApprovalCardProps {
   rootSessionId?: string;
   onApprove: (requestId: string) => Promise<void>;
   onDeny: (requestId: string) => Promise<void>;
+  onCancel?: () => void;
 }
 
 export function ApprovalCard({
@@ -32,6 +33,7 @@ export function ApprovalCard({
   rootSessionId,
   onApprove,
   onDeny,
+  onCancel,
 }: ApprovalCardProps) {
   const { t } = useTranslation();
   const [loading, setLoading] = useState<"approve" | "deny" | null>(null);
@@ -184,6 +186,19 @@ export function ApprovalCard({
         >
           {t("approval.approve", "Approve")}
         </Button>
+        {onCancel && (
+          <Button
+            type="default"
+            danger
+            onClick={() => {
+              console.log("[ApprovalCard] Cancel task button clicked");
+              onCancel();
+            }}
+            disabled={loading !== null}
+          >
+            {t("approval.cancelTask", "Cancel Task")}
+          </Button>
+        )}
       </div>
     </Card>
   );

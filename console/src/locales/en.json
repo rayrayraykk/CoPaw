@@ -1659,6 +1659,7 @@
     "approved": "Tool call approved",
     "denied": "Tool call denied",
     "approveFailed": "Failed to approve",
+    "cancelTask": "Cancel Task",
     "denyFailed": "Failed to deny"
   }
 }
