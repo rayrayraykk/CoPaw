@@ -523,6 +523,29 @@ class AgentRunner(Runner):
 
         except asyncio.CancelledError as exc:
             logger.info(f"query_handler: {session_id} cancelled!")
+
+            # Cancel all pending approvals for this root session
+            root_session_id = base_request_context.get(
+                "root_session_id",
+                session_id,
+            )
+            from ..approvals.service import get_approval_service
+
+            approval_svc = get_approval_service()
+            cancelled_count = (
+                await approval_svc.cancel_all_pending_by_root_session(
+                    root_session_id,
+                )
+            )
+            if cancelled_count > 0:
+                logger.info(
+                    "Auto-denied %d pending approval(s) for root session %s",
+                    cancelled_count,
+                    root_session_id[:8]
+                    if len(root_session_id) >= 8
+                    else root_session_id,
+                )
+
             if agent is not None:
                 await agent.interrupt()
             raise AgentException("Task has been cancelled!") from exc

@@ -493,10 +493,11 @@ class ToolGuardMixin:
         timeout_seconds: float,
         heartbeat_interval: float = (TOOL_GUARD_APPROVAL_HEARTBEAT_INTERVAL),
     ) -> "ApprovalDecision":
-        """Wait for approval decision with timeout.
+        """Wait for approval decision with timeout and cancellation support.
 
-        Directly awaits the Future with a single timeout instead of polling
-        loop to avoid triggering cleanup logic prematurely.
+        Waits for approval Future while also listening for task cancellation.
+        If the outer task is cancelled (e.g., user /stop), immediately
+        auto-denies the approval and re-raises CancelledError.
 
         Args:
             request_id: Approval request ID
@@ -517,8 +518,17 @@ class ToolGuardMixin:
             timeout_seconds,
         )
 
+        # Create a wrapper task that can be cancelled
+        async def wait_for_future():
+            return await future
+
+        wait_task = asyncio.create_task(wait_for_future())
+
         try:
-            decision = await asyncio.wait_for(future, timeout=timeout_seconds)
+            decision = await asyncio.wait_for(
+                wait_task,
+                timeout=timeout_seconds,
+            )
             logger.info(
                 "Approval resolved: request_id=%s decision=%s",
                 request_id[:8],
@@ -531,7 +541,24 @@ class ToolGuardMixin:
                 request_id[:8],
                 timeout_seconds,
             )
+            wait_task.cancel()
             return ApprovalDecision.TIMEOUT
+        except asyncio.CancelledError:
+            # Task cancelled (e.g., user /stop or SSE disconnect)
+            # Cancel the wait task and auto-deny the pending approval
+            logger.warning(
+                "Approval cancelled: request_id=%s auto-denying due to "
+                "task cancellation",
+                request_id[:8],
+            )
+            wait_task.cancel()
+            svc = self._tool_guard_approval_service
+            await svc.resolve_request(
+                request_id,
+                ApprovalDecision.DENIED,
+            )
+            # Re-raise to propagate cancellation
+            raise
 
     async def _emit_waiting_for_approval_blocking(
         self,

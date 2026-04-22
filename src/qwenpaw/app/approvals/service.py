@@ -336,6 +336,48 @@ class ApprovalService:
             )
         return cancelled
 
+    async def cancel_all_pending_by_root_session(
+        self,
+        root_session_id: str,
+    ) -> int:
+        """Cancel all pending approvals for root session and its children.
+
+        Called when user stops/cancels a task (e.g., /stop command or
+        SSE disconnect). Auto-denies all pending approvals to unblock
+        waiting tasks.
+
+        Args:
+            root_session_id: Root session ID
+
+        Returns:
+            Number of approvals cancelled
+        """
+        now = time.time()
+        cancelled = 0
+        async with self._lock:
+            to_cancel = [
+                k
+                for k, p in self._pending.items()
+                if p.root_session_id == root_session_id
+                and p.status == "pending"
+            ]
+            for k in to_cancel:
+                pending = self._pending.pop(k)
+                if not pending.future.done():
+                    pending.future.set_result(ApprovalDecision.DENIED)
+                pending.status = "cancelled"
+                pending.resolved_at = now
+                cancelled += 1
+        if cancelled:
+            logger.info(
+                "Cancelled %d pending approval(s) for root session %s",
+                cancelled,
+                root_session_id[:8]
+                if len(root_session_id) >= 8
+                else root_session_id,
+            )
+        return cancelled
+
     # ------------------------------------------------------------------
     # Garbage collection
     # ------------------------------------------------------------------
