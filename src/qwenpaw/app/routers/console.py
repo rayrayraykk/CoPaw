@@ -299,11 +299,12 @@ async def get_push_messages(
     async with approval_svc._lock:
         all_pending = list(approval_svc._pending.values())
 
-    # Serialize approval data with session_id for frontend filtering
+    # Serialize approval data with root_session_id for frontend filtering
     approvals_data = [
         {
             "request_id": p.request_id,
             "session_id": p.session_id,
+            "root_session_id": p.root_session_id,
             "agent_id": p.agent_id,
             "tool_name": p.tool_name,
             "severity": p.severity,

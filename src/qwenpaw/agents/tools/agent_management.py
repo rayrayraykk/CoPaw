@@ -212,8 +212,25 @@ def build_agent_chat_request(
     return final_session_id, request_payload, final_text != text
 
 
-def _request_headers(to_agent: Optional[str]) -> Dict[str, str]:
-    return {"X-Agent-Id": to_agent} if to_agent else {}
+def _request_headers(
+    to_agent: Optional[str],
+    root_session_id: Optional[str] = None,
+) -> Dict[str, str]:
+    """Build HTTP headers for agent chat requests.
+
+    Args:
+        to_agent: Target agent ID
+        root_session_id: Root session ID for cross-session approval routing
+
+    Returns:
+        Dictionary of HTTP headers
+    """
+    headers = {}
+    if to_agent:
+        headers["X-Agent-Id"] = to_agent
+    if root_session_id:
+        headers["X-Root-Session-Id"] = root_session_id
+    return headers
 
 
 def stream_agent_chat(
@@ -247,6 +264,7 @@ def collect_final_agent_chat_response(
     request_payload: Dict[str, Any],
     to_agent: str,
     timeout: int,
+    root_session_id: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """Collect the last SSE payload from inter-agent chat."""
     response_data: Optional[Dict[str, Any]] = None
@@ -255,7 +273,7 @@ def collect_final_agent_chat_response(
             "POST",
             "/agent/process",
             json=request_payload,
-            headers=_request_headers(to_agent),
+            headers=_request_headers(to_agent, root_session_id),
             timeout=timeout,
         ) as response:
             response.raise_for_status()
@@ -272,13 +290,14 @@ def submit_agent_chat_task(
     request_payload: Dict[str, Any],
     to_agent: str,
     timeout: int,
+    root_session_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Submit an inter-agent chat task for background execution."""
     with create_agent_api_client(base_url) as client:
         response = client.post(
             "/agent/process/task",
             json=request_payload,
-            headers=_request_headers(to_agent),
+            headers=_request_headers(to_agent, root_session_id),
             timeout=timeout,
         )
         response.raise_for_status()
@@ -450,12 +469,23 @@ async def chat_with_agent(
         from_agent=None,
     )
 
+    # Get root_session_id from current context for cross-session approval
+    from ...app.agent_context import (
+        get_current_session_id,
+        get_current_root_session_id,
+    )
+
+    caller_session_id = get_current_session_id() or ""
+    caller_root_session = get_current_root_session_id()
+    final_root_session = caller_root_session or caller_session_id
+
     response_data = await asyncio.to_thread(
         collect_final_agent_chat_response,
         None,
         request_payload,
         normalized_to_agent,
         timeout,
+        final_root_session,
     )
     if not response_data:
         return _tool_text_response("(No response received)")
@@ -519,12 +549,24 @@ async def submit_to_agent(
         session_id=normalized_session_id,
         from_agent=None,
     )
+
+    # Get root_session_id from current context for cross-session approval
+    from ...app.agent_context import (
+        get_current_session_id,
+        get_current_root_session_id,
+    )
+
+    caller_session_id = get_current_session_id() or ""
+    caller_root_session = get_current_root_session_id()
+    final_root_session = caller_root_session or caller_session_id
+
     result = await asyncio.to_thread(
         submit_agent_chat_task,
         None,
         request_payload,
         normalized_to_agent,
         int(DEFAULT_AGENT_API_TIMEOUT),
+        final_root_session,
     )
     return _tool_text_response(
         format_background_submission_text(result, final_session_id),

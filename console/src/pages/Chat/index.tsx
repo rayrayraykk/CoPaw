@@ -34,6 +34,7 @@ import { useApprovalContext } from "../../contexts/ApprovalContext";
 interface ApprovalMessageData {
   requestId: string;
   sessionId: string;
+  rootSessionId?: string;
   agentId: string;
   toolName: string;
   severity: string;
@@ -491,9 +492,9 @@ export default function ChatPage() {
     const currentSessionId = window.currentSessionId;
     if (!currentSessionId) return;
 
-    // Filter approvals for current session
+    // Filter approvals by root_session_id (includes children sessions)
     const sessionApprovals = approvals.filter(
-      (approval) => approval.session_id === currentSessionId,
+      (approval) => approval.root_session_id === currentSessionId,
     );
 
     // Convert to map for display
@@ -502,6 +503,7 @@ export default function ChatPage() {
       newMap.set(approval.request_id, {
         requestId: approval.request_id,
         sessionId: approval.session_id,
+        rootSessionId: approval.root_session_id,
         agentId: approval.agent_id,
         toolName: approval.tool_name,
         severity: approval.severity,
@@ -1083,6 +1085,8 @@ export default function ChatPage() {
             findingsSummary={request.findingsSummary}
             toolParams={request.toolParams}
             createdAt={request.createdAt}
+            sessionId={request.sessionId}
+            rootSessionId={request.rootSessionId}
             onApprove={handleApprove}
             onDeny={handleDeny}
           />

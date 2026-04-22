@@ -153,6 +153,7 @@ class ToolGuardMixin:
         true parallelism.
         """
         ctx = getattr(self, "_request_context", None) or {}
+        # TODO: remove this
         if ctx.get("_headless_tool_guard", "true").lower() == "false":
             return await super()._acting(tool_call)  # type: ignore[misc]
 
@@ -408,6 +409,11 @@ class ToolGuardMixin:
         channel = str(self._request_context.get("channel") or "")
         agent_id = str(self._request_context.get("agent_id", "unknown"))
 
+        # Get root_session_id for cross-session approval routing
+        root_session_id = str(
+            self._request_context.get("root_session_id") or session_id,
+        )
+
         svc = self._tool_guard_approval_service
         tool_call_id = tool_call.get("id", "")
 
@@ -422,6 +428,7 @@ class ToolGuardMixin:
         extra: dict[str, Any] = {"tool_call": tool_call}
         pending = await svc.create_pending(
             session_id=session_id,
+            root_session_id=root_session_id,
             user_id=user_id,
             channel=channel,
             agent_id=agent_id,

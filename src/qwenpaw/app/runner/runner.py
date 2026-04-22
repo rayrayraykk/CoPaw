@@ -257,6 +257,7 @@ class AgentRunner(Runner):
         from ..agent_context import (
             set_current_agent_id,
             set_current_session_id,
+            set_current_root_session_id,
         )
 
         set_current_agent_id(self.agent_id)
@@ -317,10 +318,18 @@ class AgentRunner(Runner):
             }
 
             # Merge custom request_context from request
-            # (e.g., _headless_tool_guard)
+            # (e.g., root_session_id from inter-agent calls)
             custom_context = getattr(request, "request_context", None)
             if custom_context and isinstance(custom_context, dict):
                 base_request_context.update(custom_context)
+
+            # Set root_session_id in context for agent tools
+            root_session_id = base_request_context.get("root_session_id")
+            if root_session_id:
+                set_current_root_session_id(root_session_id)
+            else:
+                # Current session is the root
+                set_current_root_session_id(session_id)
 
             # Mission Mode: /mission
             _ws = self.workspace_dir or WORKING_DIR
@@ -348,14 +357,8 @@ class AgentRunner(Runner):
                     session_id=session_id,
                 )
 
-            # Mission Mode: bypass tool guard
-            # (workers can't respond to /approve)
+            # Mission Mode: inject context reminder for active mission
             if mission_info is not None:
-                base_request_context["_headless_tool_guard"] = "false"
-                logger.info(
-                    "Mission Mode: bypassing tool guard for session %s",
-                    session_id,
-                )
                 # Inject context reminder for active mission
                 loop_dir = mission_info.get("loop_dir", "")
                 phase = mission_info.get("mission_phase", 1)

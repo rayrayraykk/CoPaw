@@ -1654,6 +1654,8 @@
       "approve": "Approve",
       "deny": "Deny"
     },
+    "source": "Source",
+    "subSession": "Sub-Agent",
     "approved": "Tool call approved",
     "denied": "Tool call denied",
     "approveFailed": "Failed to approve",

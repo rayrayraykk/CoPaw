@@ -14,6 +14,8 @@ export interface ApprovalCardProps {
   findingsSummary: string;
   toolParams: Record<string, unknown>;
   createdAt: number;
+  sessionId?: string;
+  rootSessionId?: string;
   onApprove: (requestId: string) => Promise<void>;
   onDeny: (requestId: string) => Promise<void>;
 }
@@ -26,12 +28,18 @@ export function ApprovalCard({
   findingsSummary,
   toolParams,
   createdAt,
+  sessionId,
+  rootSessionId,
   onApprove,
   onDeny,
 }: ApprovalCardProps) {
   const { t } = useTranslation();
   const [loading, setLoading] = useState<"approve" | "deny" | null>(null);
   const [remaining, setRemaining] = useState<number>(300);
+
+  // Check if this is a cross-session approval
+  const isCrossSession =
+    sessionId && rootSessionId && sessionId !== rootSessionId;
 
   useEffect(() => {
     const timeout = 300;
@@ -125,6 +133,17 @@ export function ApprovalCard({
           </Text>
           <Text className={styles.value}>{findingsCount}</Text>
         </div>
+
+        {isCrossSession && (
+          <div className={styles.infoRow}>
+            <Text className={styles.label}>
+              {t("approval.source", "Source")}:
+            </Text>
+            <Tag color="blue" className={styles.crossSessionTag}>
+              {t("approval.subSession", "Sub-Agent")} ({sessionId?.slice(0, 8)})
+            </Tag>
+          </div>
+        )}
 
         {findingsSummary && (
           <div className={styles.summaryBox}>
