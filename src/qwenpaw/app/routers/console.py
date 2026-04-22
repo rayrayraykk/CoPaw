@@ -316,16 +316,4 @@ async def get_push_messages(
         for p in all_pending
     ]
 
-    # Debug log for troubleshooting
-    if approvals_data:
-        logger.debug(
-            "Push messages returning %d approval(s): %s",
-            len(approvals_data),
-            [
-                f"{a['tool_name']}(session={a['session_id'][:8]}, "
-                f"root={a['root_session_id'][:8]})"
-                for a in approvals_data
-            ],
-        )
-
     return {"messages": messages, "pending_approvals": approvals_data}

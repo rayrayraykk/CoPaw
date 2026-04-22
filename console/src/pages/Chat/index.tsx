@@ -487,16 +487,19 @@ export default function ChatPage() {
 
   // Consume approvals from Context and filter by current session
   useEffect(() => {
-    if (!chatId) return;
-
-    const currentSessionId = window.currentSessionId;
-    if (!currentSessionId) return;
+    // Get current session ID from multiple sources
+    // During new session creation, chatId may be empty but window.currentSessionId gets set
+    const currentSessionId = window.currentSessionId || chatId || "";
 
     // Filter approvals by root_session_id (includes children sessions)
     console.log(
       "[Approval] Filtering approvals:",
       "currentSessionId=",
       currentSessionId,
+      "chatId=",
+      chatId,
+      "window.currentSessionId=",
+      window.currentSessionId,
       "approvals=",
       approvals.map((a) => ({
         tool: a.tool_name,
@@ -505,9 +508,24 @@ export default function ChatPage() {
       })),
     );
 
-    const sessionApprovals = approvals.filter(
-      (approval) => approval.root_session_id === currentSessionId,
-    );
+    // If no session ID yet, check if we have approvals that could tell us the session
+    // (e.g., first message sent, approval arrives before session ID is set in window)
+    let effectiveSessionId = currentSessionId;
+    if (!effectiveSessionId && approvals.length > 0) {
+      // Use the root_session_id from the first approval as a hint
+      // This handles the race condition where approval arrives before session ID is propagated
+      effectiveSessionId = approvals[0].root_session_id;
+      console.log(
+        "[Approval] No session ID yet, using first approval's root_session_id:",
+        effectiveSessionId,
+      );
+    }
+
+    const sessionApprovals = effectiveSessionId
+      ? approvals.filter(
+          (approval) => approval.root_session_id === effectiveSessionId,
+        )
+      : approvals; // Show all if no session ID (fallback)
 
     console.log(
       "[Approval] After filtering:",
@@ -548,9 +566,12 @@ export default function ChatPage() {
         return;
       }
 
+      // Use currentSessionId (root session) instead of request.sessionId (sub-agent session)
+      const rootSessionId = window.currentSessionId || chatId || "";
       console.log("[Approval] Sending approve command:", {
         requestId,
-        sessionId: request.sessionId,
+        rootSessionId,
+        subAgentSessionId: request.sessionId,
       });
 
       try {
@@ -565,7 +586,7 @@ export default function ChatPage() {
         await commandsApi.sendApprovalCommand(
           "approve",
           requestId,
-          request.sessionId,
+          rootSessionId,
         );
         console.log("[Approval] Approve command sent successfully");
         message.success(t("approval.approved"));
@@ -584,13 +605,16 @@ export default function ChatPage() {
         console.error("[Approval] Failed to approve:", error);
       }
     },
-    [approvalRequests, t, message],
+    [approvalRequests, chatId, t, message],
   );
 
   const handleDeny = useCallback(
     async (requestId: string) => {
       const request = approvalRequests.get(requestId);
       if (!request) return;
+
+      // Use currentSessionId (root session) instead of request.sessionId (sub-agent session)
+      const rootSessionId = window.currentSessionId || chatId || "";
 
       try {
         // Add exit animation class
@@ -601,11 +625,7 @@ export default function ChatPage() {
           cardElement.classList.add("approvalCardExit");
         }
 
-        await commandsApi.sendApprovalCommand(
-          "deny",
-          requestId,
-          request.sessionId,
-        );
+        await commandsApi.sendApprovalCommand("deny", requestId, rootSessionId);
         message.success(t("approval.denied"));
 
         // Delay removal to let animation complete
@@ -622,7 +642,7 @@ export default function ChatPage() {
         console.error("Failed to deny:", error);
       }
     },
-    [approvalRequests, t, message],
+    [approvalRequests, chatId, t, message],
   );
 
   // Use custom hooks for better separation of concerns

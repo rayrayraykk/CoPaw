@@ -317,30 +317,31 @@ class AgentRunner(Runner):
                 "agent_id": self.agent_id,
             }
 
-            # Merge custom request_context from request
-            # (e.g., root_session_id from inter-agent calls)
-            custom_context = getattr(request, "request_context", None)
-            logger.debug(
-                "Runner: custom_context=%s type=%s",
-                custom_context,
-                type(custom_context),
-            )
-            if custom_context and isinstance(custom_context, dict):
-                base_request_context.update(custom_context)
-                logger.debug(
-                    "Runner: merged custom_context, base_request_context=%s",
-                    base_request_context,
+            # Extract root_session_id from request payload (agent chat)
+            payload_root_session = getattr(request, "root_session_id", "")
+            if payload_root_session and isinstance(payload_root_session, str):
+                base_request_context["root_session_id"] = payload_root_session
+                set_current_root_session_id(payload_root_session)
+                root_preview = (
+                    payload_root_session[:12]
+                    if len(payload_root_session) >= 12
+                    else payload_root_session
                 )
-
-            # Set root_session_id in context for agent tools
-            root_session_id = base_request_context.get("root_session_id")
-            if root_session_id:
-                set_current_root_session_id(root_session_id)
+                logger.debug(
+                    "Runner: using root_session_id from payload: %s",
+                    root_preview,
+                )
             else:
                 # Current session is the root
-                root_session_id = session_id
                 base_request_context["root_session_id"] = session_id
                 set_current_root_session_id(session_id)
+                session_preview = (
+                    session_id[:12] if len(session_id) >= 12 else session_id
+                )
+                logger.debug(
+                    "Runner: current session is root: %s",
+                    session_preview,
+                )
 
             # Mission Mode: /mission
             _ws = self.workspace_dir or WORKING_DIR
