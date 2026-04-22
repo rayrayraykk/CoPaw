@@ -29,11 +29,19 @@ import ChatHeaderTitle from "./components/ChatHeaderTitle";
 import ChatSessionInitializer from "./components/ChatSessionInitializer";
 import { ApprovalCard } from "../../components/ApprovalCard";
 import { commandsApi } from "../../api/modules/commands";
-import {
-  processMessagePayload,
-  type ApprovalMessageData,
-  type MessageQueueHandlers,
-} from "../../hooks/useMessageQueue";
+import { useApprovalContext } from "../../contexts/ApprovalContext";
+
+interface ApprovalMessageData {
+  requestId: string;
+  sessionId: string;
+  agentId: string;
+  toolName: string;
+  severity: string;
+  findingsCount: number;
+  findingsSummary: string;
+  toolParams: Record<string, unknown>;
+  createdAt: number;
+}
 import {
   toDisplayUrl,
   copyText,
@@ -465,13 +473,10 @@ export default function ChatPage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const runtimeLoadingBridgeRef = useRef<RuntimeLoadingBridgeApi | null>(null);
   const { message } = useAppMessage();
+  const { approvals } = useApprovalContext();
   const [approvalRequests, setApprovalRequests] = useState<
     Map<string, ApprovalMessageData>
   >(new Map());
-
-  // Track processed approval request IDs to prevent re-adding after approval
-  // Map<requestId, timestamp> to enable cleanup of old entries
-  const processedApprovalIds = useRef<Map<string, number>>(new Map());
 
   const isChatActiveRef = useRef(false);
   isChatActiveRef.current =
@@ -479,37 +484,36 @@ export default function ChatPage() {
 
   const isChatActive = useCallback(() => isChatActiveRef.current, []);
 
-  // Message queue handlers
-  const messageHandlersRef = useRef<MessageQueueHandlers>({
-    onApprovalMessage: (data: ApprovalMessageData) => {
-      console.log("[Approval] Received approval message:", data);
+  // Consume approvals from Context and filter by current session
+  useEffect(() => {
+    if (!chatId) return;
 
-      // Clean up old processed IDs (older than 1 hour)
-      const now = Date.now();
-      const oneHour = 60 * 60 * 1000;
-      for (const [id, timestamp] of processedApprovalIds.current.entries()) {
-        if (now - timestamp > oneHour) {
-          processedApprovalIds.current.delete(id);
-        }
-      }
+    const currentSessionId = window.currentSessionId;
+    if (!currentSessionId) return;
 
-      // Skip if already processed (approved/denied)
-      if (processedApprovalIds.current.has(data.requestId)) {
-        console.log(
-          "[Approval] Skipping already processed request:",
-          data.requestId,
-        );
-        return;
-      }
+    // Filter approvals for current session
+    const sessionApprovals = approvals.filter(
+      (approval) => approval.session_id === currentSessionId,
+    );
 
-      setApprovalRequests((prev) => {
-        const next = new Map(prev);
-        next.set(data.requestId, data);
-        console.log("[Approval] Updated requests map, size:", next.size);
-        return next;
+    // Convert to map for display
+    const newMap = new Map<string, ApprovalMessageData>();
+    for (const approval of sessionApprovals) {
+      newMap.set(approval.request_id, {
+        requestId: approval.request_id,
+        sessionId: approval.session_id,
+        agentId: approval.agent_id,
+        toolName: approval.tool_name,
+        severity: approval.severity,
+        findingsCount: approval.findings_count,
+        findingsSummary: approval.findings_summary,
+        toolParams: approval.tool_params,
+        createdAt: approval.created_at,
       });
-    },
-  });
+    }
+
+    setApprovalRequests(newMap);
+  }, [approvals, chatId]);
 
   const handleApprove = useCallback(
     async (requestId: string) => {
@@ -546,10 +550,8 @@ export default function ChatPage() {
         console.log("[Approval] Approve command sent successfully");
         message.success(t("approval.approved"));
 
-        // Mark as processed with timestamp to prevent re-adding from SSE replay
-        processedApprovalIds.current.set(requestId, Date.now());
-
         // Delay removal to let animation complete
+        // Backend will remove from pending list, next poll will update UI
         setTimeout(() => {
           setApprovalRequests((prev) => {
             const next = new Map(prev);
@@ -586,10 +588,8 @@ export default function ChatPage() {
         );
         message.success(t("approval.denied"));
 
-        // Mark as processed with timestamp to prevent re-adding from SSE replay
-        processedApprovalIds.current.set(requestId, Date.now());
-
         // Delay removal to let animation complete
+        // Backend will remove from pending list, next poll will update UI
         setTimeout(() => {
           setApprovalRequests((prev) => {
             const next = new Map(prev);
@@ -976,24 +976,13 @@ export default function ChatPage() {
         responseParser: (chunk: string) => {
           const payload = JSON.parse(chunk) as Record<string, unknown>;
 
-          // Process message payload (filter heartbeat, extract approval)
-          const processedPayload = processMessagePayload(
-            payload,
-            messageHandlersRef.current,
-          );
-
-          // Skip heartbeat messages completely
-          if (processedPayload === null) {
-            return null as any;
-          }
-
-          if (payloadRequestsHistoryClear(processedPayload)) {
+          if (payloadRequestsHistoryClear(payload)) {
             pendingClearHistoryRef.current = true;
-            if (payloadCompletesResponse(processedPayload)) {
+            if (payloadCompletesResponse(payload)) {
               scheduleHistoryClear();
             }
           }
-          return processedPayload as any;
+          return payload as any;
         },
         replaceMediaURL: (url: string) => {
           return toDisplayUrl(url);
