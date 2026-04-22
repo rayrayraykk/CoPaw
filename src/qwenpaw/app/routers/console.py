@@ -194,10 +194,36 @@ async def post_console_chat_stop(
     """Stop the running chat. Only stops when called."""
     logger.debug("[STOP API] Received stop request for chat_id=%s", chat_id)
     workspace = await get_agent_for_request(request)
+
+    # Try to stop with the provided chat_id first
     logger.debug(
         "[STOP API] Got workspace, calling task_tracker.request_stop...",
     )
     stopped = await workspace.task_tracker.request_stop(chat_id)
+
+    # If not found, the chat_id might be a session_id (timestamp)
+    # Try to resolve it to the actual chat UUID
+    if not stopped:
+        logger.debug(
+            "[STOP API] chat_id not found in tracker, trying to resolve "
+            "from session_id...",
+        )
+        chat_manager = getattr(workspace.runner, "_chat_manager", None)
+        if chat_manager:
+            resolved_chat_id = await chat_manager.get_chat_id_by_session(
+                session_id=chat_id,
+                channel="console",
+            )
+            if resolved_chat_id:
+                logger.debug(
+                    "[STOP API] Resolved session_id=%s to chat_id=%s",
+                    chat_id[:12] if len(chat_id) >= 12 else chat_id,
+                    resolved_chat_id,
+                )
+                stopped = await workspace.task_tracker.request_stop(
+                    resolved_chat_id,
+                )
+
     logger.debug(
         "[STOP API] task_tracker.request_stop returned: stopped=%s",
         stopped,
