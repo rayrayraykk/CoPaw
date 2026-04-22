@@ -1142,25 +1142,24 @@ export default function ChatPage() {
             onDeny={handleDeny}
             onCancel={() => {
               console.log("[Chat] onCancel called for approval card");
-              console.log("[Chat] chatId (from URL):", chatId);
-              console.log(
-                "[Chat] window.currentSessionId:",
-                window.currentSessionId,
-              );
-
-              // Use the same logic as cancel() function:
-              // 1. If chatId exists (from URL), use it directly
-              // 2. Otherwise, resolve from session_id using sessionApi
               const sessionId = window.currentSessionId || "";
-              const resolvedChatId = chatId
-                ? chatId
-                : sessionApi.getRealIdForSession(sessionId) ?? sessionId;
+
+              // Use the same fallback chain as customFetch:
+              // 1. sessionApi.getRealIdForSession (UUID from backend)
+              // 2. chatIdRef.current (URL param)
+              // 3. sessionId (timestamp fallback)
+              const resolvedChatId =
+                sessionApi.getRealIdForSession(sessionId) ??
+                chatIdRef.current ??
+                sessionId;
 
               console.log(
                 "[Chat] Resolved chat_id for stop:",
                 resolvedChatId,
                 "from session_id:",
                 sessionId,
+                "chatIdRef:",
+                chatIdRef.current,
               );
 
               if (resolvedChatId) {
