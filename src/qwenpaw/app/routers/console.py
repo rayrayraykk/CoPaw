@@ -346,6 +346,7 @@ async def get_push_messages(
             "findings_summary": p.result_summary,
             "tool_params": p.extra.get("tool_call", {}).get("input", {}),
             "created_at": p.created_at,
+            "timeout_seconds": p.timeout_seconds,
         }
         for p in all_pending
     ]

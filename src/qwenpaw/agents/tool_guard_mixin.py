@@ -434,6 +434,7 @@ class ToolGuardMixin:
             agent_id=agent_id,
             tool_name=tool_name,
             result=guard_result,
+            timeout_seconds=TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
             extra=extra,
         )
 

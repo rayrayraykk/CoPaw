@@ -225,6 +225,7 @@ async def get_approval_list(
                 "severity": pending.severity,
                 "findings_count": pending.findings_count,
                 "created_at": pending.created_at,
+                "timeout_seconds": pending.timeout_seconds,
                 "result_summary": pending.result_summary,
             },
         )

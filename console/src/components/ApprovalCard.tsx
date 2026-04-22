@@ -14,6 +14,7 @@ export interface ApprovalCardProps {
   findingsSummary: string;
   toolParams: Record<string, unknown>;
   createdAt: number;
+  timeoutSeconds: number;
   sessionId?: string;
   rootSessionId?: string;
   onApprove: (requestId: string) => Promise<void>;
@@ -29,6 +30,7 @@ export function ApprovalCard({
   findingsSummary,
   toolParams,
   createdAt,
+  timeoutSeconds,
   sessionId,
   rootSessionId,
   onApprove,
@@ -37,21 +39,23 @@ export function ApprovalCard({
 }: ApprovalCardProps) {
   const { t } = useTranslation();
   const [loading, setLoading] = useState<"approve" | "deny" | null>(null);
-  const [remaining, setRemaining] = useState<number>(300);
+  const [remaining, setRemaining] = useState<number>(timeoutSeconds);
 
   // Check if this is a cross-session approval
   const isCrossSession =
     sessionId && rootSessionId && sessionId !== rootSessionId;
 
   useEffect(() => {
-    const timeout = 300;
     const elapsed = Date.now() / 1000 - createdAt;
-    const initialRemaining = Math.max(0, Math.floor(timeout - elapsed));
+    const initialRemaining = Math.max(
+      0,
+      Math.floor(timeoutSeconds - elapsed),
+    );
     setRemaining(initialRemaining);
 
     const timer = setInterval(() => {
       const newElapsed = Date.now() / 1000 - createdAt;
-      const newRemaining = Math.max(0, Math.floor(timeout - newElapsed));
+      const newRemaining = Math.max(0, Math.floor(timeoutSeconds - newElapsed));
       setRemaining(newRemaining);
 
       if (newRemaining <= 0) {
@@ -60,7 +64,7 @@ export function ApprovalCard({
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [createdAt]);
+  }, [createdAt, timeoutSeconds]);
 
   const handleApprove = async () => {
     console.log("[ApprovalCard] Approve button clicked:", requestId);

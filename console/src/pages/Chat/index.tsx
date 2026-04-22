@@ -42,6 +42,7 @@ interface ApprovalMessageData {
   findingsSummary: string;
   toolParams: Record<string, unknown>;
   createdAt: number;
+  timeoutSeconds: number;
 }
 import {
   toDisplayUrl,
@@ -547,6 +548,7 @@ export default function ChatPage() {
         findingsSummary: approval.findings_summary,
         toolParams: approval.tool_params,
         createdAt: approval.created_at,
+        timeoutSeconds: approval.timeout_seconds,
       });
     }
 
@@ -1136,6 +1138,7 @@ export default function ChatPage() {
             findingsSummary={request.findingsSummary}
             toolParams={request.toolParams}
             createdAt={request.createdAt}
+            timeoutSeconds={request.timeoutSeconds}
             sessionId={request.sessionId}
             rootSessionId={request.rootSessionId}
             onApprove={handleApprove}

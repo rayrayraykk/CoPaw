@@ -16,6 +16,7 @@ export interface PendingApproval {
   findings_summary: string;
   tool_params: Record<string, unknown>;
   created_at: number;
+  timeout_seconds: number;
 }
 
 export const consoleApi = {

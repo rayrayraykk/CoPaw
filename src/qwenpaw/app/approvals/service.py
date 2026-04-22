@@ -45,6 +45,7 @@ class PendingApproval:
     tool_name: str
     created_at: float
     future: asyncio.Future[ApprovalDecision]
+    timeout_seconds: float = 300.0  # Approval timeout in seconds
     status: str = "pending"
     resolved_at: float | None = None
     result_summary: str = ""
@@ -88,6 +89,7 @@ class ApprovalService:
         agent_id: str,
         tool_name: str,
         result: "ToolGuardResult",
+        timeout_seconds: float = 300.0,
         extra: dict[str, Any] | None = None,
     ) -> PendingApproval:
         """Create a pending approval record and return it."""
@@ -106,6 +108,7 @@ class ApprovalService:
             tool_name=tool_name,
             created_at=time.time(),
             future=loop.create_future(),
+            timeout_seconds=timeout_seconds,
             result_summary=format_findings_summary(result),
             findings_count=result.findings_count,
             severity=result.max_severity.value,
