@@ -1466,6 +1466,15 @@ class SecurityConfig(BaseModel):
     skill_scanner: SkillScannerConfig = Field(
         default_factory=SkillScannerConfig,
     )
+    allow_no_auth_hosts: List[str] = Field(
+        default=["127.0.0.1", "::1"],
+        description=(
+            "List of client IP addresses that can access API endpoints "
+            "without authentication. By default, localhost addresses "
+            "(127.0.0.1 for IPv4, ::1 for IPv6) are allowed. "
+            "WARNING: Only add trusted IP addresses to this list."
+        ),
+    )
 
 
 class Config(BaseModel):

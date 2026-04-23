@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any, List, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..utils import schedule_agent_reload
 from ...config import (
@@ -863,3 +863,50 @@ async def remove_from_whitelist(
         )
     save_config(config)
     return {"removed": True, "skill_name": skill_name}
+
+
+# ── Security / Allow No Auth Hosts ────────────────────────────────────
+
+
+class AllowNoAuthHostsResponse(BaseModel):
+    """Response model for allow_no_auth_hosts configuration."""
+
+    hosts: List[str] = Field(
+        description="List of IP addresses allowed without authentication",
+    )
+
+
+class AllowNoAuthHostsUpdateBody(BaseModel):
+    """Request body for updating allow_no_auth_hosts configuration."""
+
+    hosts: List[str] = Field(
+        description="List of IP addresses allowed without authentication",
+    )
+
+
+@router.get(
+    "/security/allow-no-auth-hosts",
+    response_model=AllowNoAuthHostsResponse,
+    summary="Get allow no auth hosts configuration",
+)
+async def get_allow_no_auth_hosts() -> AllowNoAuthHostsResponse:
+    """Get the list of IP addresses allowed without authentication."""
+    config = load_config()
+    return AllowNoAuthHostsResponse(
+        hosts=config.security.allow_no_auth_hosts,
+    )
+
+
+@router.put(
+    "/security/allow-no-auth-hosts",
+    response_model=AllowNoAuthHostsResponse,
+    summary="Update allow no auth hosts configuration",
+)
+async def put_allow_no_auth_hosts(
+    body: AllowNoAuthHostsUpdateBody = Body(...),
+) -> AllowNoAuthHostsResponse:
+    """Update the list of IP addresses allowed without authentication."""
+    config = load_config()
+    config.security.allow_no_auth_hosts = body.hosts
+    save_config(config)
+    return AllowNoAuthHostsResponse(hosts=body.hosts)
