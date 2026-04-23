@@ -1467,7 +1467,7 @@ class SecurityConfig(BaseModel):
         default_factory=SkillScannerConfig,
     )
     allow_no_auth_hosts: List[str] = Field(
-        default=["127.0.0.1", "::1"],
+        default_factory=lambda: ["127.0.0.1", "::1"],
         description=(
             "List of client IP addresses that can access API endpoints "
             "without authentication. By default, localhost addresses "

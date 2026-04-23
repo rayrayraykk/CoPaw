@@ -905,8 +905,55 @@ async def get_allow_no_auth_hosts() -> AllowNoAuthHostsResponse:
 async def put_allow_no_auth_hosts(
     body: AllowNoAuthHostsUpdateBody = Body(...),
 ) -> AllowNoAuthHostsResponse:
-    """Update the list of IP addresses allowed without authentication."""
+    """Update the list of IP addresses allowed without authentication.
+
+    Validates and normalizes each IP address:
+    - Strips whitespace
+    - Removes empty strings
+    - Deduplicates entries
+    - Validates as literal IPv4/IPv6 using ipaddress module
+    - Returns 400 on invalid IP addresses
+    """
+    import ipaddress
+
+    # Normalize and validate IP addresses
+    normalized_hosts = []
+    seen = set()
+    invalid_ips = []
+
+    for host in body.hosts:
+        # Strip whitespace
+        host = host.strip()
+
+        # Skip empty strings
+        if not host:
+            continue
+
+        # Validate IP address format
+        try:
+            # This validates and normalizes the IP address
+            ip_obj = ipaddress.ip_address(host)
+            # Use the compressed string representation
+            normalized_ip = str(ip_obj)
+
+            # Deduplicate
+            if normalized_ip not in seen:
+                seen.add(normalized_ip)
+                normalized_hosts.append(normalized_ip)
+        except ValueError:
+            invalid_ips.append(host)
+
+    # Return 400 if any invalid IP addresses were provided
+    if invalid_ips:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Invalid IP address(es): {', '.join(invalid_ips)}. "
+                "Only literal IPv4/IPv6 addresses are allowed."
+            ),
+        )
+
     config = load_config()
-    config.security.allow_no_auth_hosts = body.hosts
+    config.security.allow_no_auth_hosts = normalized_hosts
     save_config(config)
-    return AllowNoAuthHostsResponse(hosts=body.hosts)
+    return AllowNoAuthHostsResponse(hosts=normalized_hosts)
