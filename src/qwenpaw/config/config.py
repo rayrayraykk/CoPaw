@@ -1158,7 +1158,6 @@ class MCPConfig(BaseModel):
         default_factory=lambda: {
             "tavily_search": MCPClientConfig(
                 name="tavily_mcp",
-                # Auto-enable if TAVILY_API_KEY exists in environment
                 enabled=False,
                 command="npx",
                 args=["-y", "tavily-mcp@latest"],
