@@ -275,3 +275,60 @@ export const MOCK_HARVEST_CONTENTS: Record<string, HarvestContent> = {
 export const useMockHarvestContent = (harvestId: string) => {
   return MOCK_HARVEST_CONTENTS[harvestId] || null;
 };
+
+export const getHarvestHtmlTemplate = (harvestId: string): string | null => {
+  const templates: Record<string, string> = {
+    "harvest-1": "/harvest-templates/style-kodak-portra.html",        // 柯达Portra 400胶片风
+    "harvest-2": "/harvest-templates/style-luxury-magazine.html",     // 高端杂志排版
+    "harvest-3": "/harvest-templates/style-ghibli.html",              // 吉卜力风格
+    "harvest-4": "/harvest-templates/style-beautiful-handdrawn.html", // 精美手绘风格
+    "harvest-5": "/harvest-templates/style-watercolor-travel.html",   // 水彩旅行风格
+  };
+  return templates[harvestId] || null;
+};
+
+// 生成历史报纸列表（用于 MagazineStackViewer）
+export const generateMockHistory = (harvestId: string) => {
+  const allTemplates = [
+    "/harvest-templates/style-kodak-portra.html",
+    "/harvest-templates/style-luxury-magazine.html",
+    "/harvest-templates/style-ghibli.html",
+    "/harvest-templates/style-beautiful-handdrawn.html",
+    "/harvest-templates/style-watercolor-travel.html",
+    "/harvest-templates/style-1-handdrawn.html",
+    "/harvest-templates/style-2-minimal-magazine.html",
+    "/harvest-templates/style-3-infographic-card.html",
+    "/harvest-templates/style-4-tech-dark.html",
+    "/harvest-templates/style-5-chinese-style.html",
+    "/harvest-templates/style-6-apple-keynote.html",
+  ];
+
+  const titles = [
+    "AI 前沿快讯",
+    "科技创新周报",
+    "开源世界观察",
+    "产品设计精选",
+    "开发者工具推荐",
+    "市场动态分析",
+    "行业趋势洞察",
+    "技术深度解读",
+    "创业公司观察",
+    "全球科技简报",
+    "编程技巧分享",
+    "架构设计案例",
+  ];
+
+  return Array.from({ length: 12 }, (_, i) => {
+    const daysAgo = 11 - i;
+    const date = new Date();
+    date.setDate(date.getDate() - daysAgo);
+
+    return {
+      id: `magazine-${harvestId}-${i}`,
+      title: `${titles[i]} • 第${i + 1}期`,
+      coverImage: allTemplates[i % allTemplates.length],
+      date,
+      isRead: i < 3, // 前3篇标记为已读
+    };
+  });
+};

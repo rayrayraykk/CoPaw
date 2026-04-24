@@ -5,21 +5,18 @@ import { PageHeader } from "@/components/PageHeader";
 import { ApprovalCard } from "./components/ApprovalCard";
 import { PushMessageCard } from "./components/PushMessageCard";
 import { HarvestCard } from "./components/HarvestCard";
-import { FlipbookReader } from "./components/FlipbookReader";
+import { MagazineStackViewer } from "./components/MagazineStackViewer";
 import { CreateHarvestModal } from "./components/CreateHarvestModal";
 import { useInboxData } from "./hooks/useInboxData";
-import { useMockHarvestContent } from "./hooks/useMockHarvestContent";
-import type { HarvestContent } from "./types";
+import type { HarvestInstance } from "./types";
 import styles from "./index.module.less";
 
 type TabKey = "approvals" | "messages" | "harvests";
 
 function InboxPage() {
   const [activeTab, setActiveTab] = useState<TabKey>("harvests");
-  const [readerOpen, setReaderOpen] = useState(false);
-  const [currentContent, setCurrentContent] = useState<HarvestContent | null>(
-    null,
-  );
+  const [magazineViewerOpen, setMagazineViewerOpen] = useState(false);
+  const [currentHarvest, setCurrentHarvest] = useState<HarvestInstance | null>(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
 
   const {
@@ -39,14 +36,15 @@ function InboxPage() {
   };
 
   const handleViewHarvest = (harvestId: string) => {
-    const content = useMockHarvestContent(harvestId);
-    if (content) {
-      setCurrentContent(content);
-      setReaderOpen(true);
+    const harvest = harvests.find((h) => h.id === harvestId);
+    if (harvest) {
+      setCurrentHarvest(harvest);
+      setMagazineViewerOpen(true);
     } else {
-      message.warning("No harvest content available yet");
+      message.warning("Harvest not found");
     }
   };
+
 
   const handleHarvestSettings = (harvestId: string) => {
     console.log("Open harvest settings:", harvestId);
@@ -195,12 +193,12 @@ function InboxPage() {
         />
       </div>
 
-      {/* Flipbook Reader Modal */}
-      {currentContent && (
-        <FlipbookReader
-          open={readerOpen}
-          content={currentContent}
-          onClose={() => setReaderOpen(false)}
+      {/* Magazine Stack Viewer Modal */}
+      {currentHarvest && (
+        <MagazineStackViewer
+          open={magazineViewerOpen}
+          harvest={currentHarvest}
+          onClose={() => setMagazineViewerOpen(false)}
         />
       )}
 
@@ -210,6 +208,7 @@ function InboxPage() {
         onClose={() => setCreateModalOpen(false)}
         onSubmit={handleCreateSubmit}
       />
+
     </div>
   );
 }

@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>今日科技 - 柯达Portra 400胶片风</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Crimson+Text:ital,wght@0,400;0,600;1,400&family=Inter:wght@300;400;600&display=swap');
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      width: 750px;
+      min-height: 1334px;
+      /* 柯达Portra 400特征：温暖、柔和、颗粒感 */
+      background: linear-gradient(180deg, #F5E6D3 0%, #E8D4BF 50%, #DCC5AA 100%);
+      font-family: 'Crimson Text', serif;
+      padding: 50px 40px 70px;
+      position: relative;
+      /* 胶片颗粒纹理 */
+      background-image:
+        repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,.02) 2px, rgba(0,0,0,.02) 4px),
+        repeating-linear-gradient(90deg, transparent, transparent 2px, rgba(0,0,0,.02) 2px, rgba(0,0,0,.02) 4px);
+    }
+
+    /* 胶片边框效果 */
+    .film-frame {
+      position: fixed;
+      pointer-events: none;
+    }
+
+    .film-frame-top,
+    .film-frame-bottom {
+      left: 0;
+      right: 0;
+      height: 30px;
+      background: #1a1a1a;
+    }
+
+    .film-frame-top {
+      top: 0;
+      box-shadow: 0 3px 10px rgba(0,0,0,0.3);
+    }
+
+    .film-frame-bottom {
+      bottom: 0;
+      box-shadow: 0 -3px 10px rgba(0,0,0,0.3);
+    }
+
+    /* 胶片孔洞 */
+    .film-holes {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      display: flex;
+      gap: 8px;
+    }
+
+    .film-holes-left {
+      left: 5px;
+      flex-direction: column;
+    }
+
+    .film-holes-right {
+      right: 5px;
+      flex-direction: column;
+    }
+
+    .film-hole {
+      width: 6px;
+      height: 6px;
+      background: #2a2a2a;
+      border-radius: 2px;
+    }
+
+    /* 主内容区 */
+    .content {
+      position: relative;
+      z-index: 1;
+    }
+
+    /* 胶片信息条 */
+    .film-info {
+      background: rgba(26, 26, 26, 0.85);
+      color: #F5E6D3;
+      padding: 15px 20px;
+      border-radius: 8px;
+      margin-bottom: 40px;
+      font-family: 'Inter', sans-serif;
+      font-size: 12px;
+      letter-spacing: 1px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+    }
+
+    .film-type {
+      font-weight: 600;
+      color: #FFD700;
+    }
+
+    /* 标题区域 */
+    .header {
+      margin-bottom: 50px;
+      text-align: center;
+    }
+
+    .title {
+      font-size: 62px;
+      font-weight: 600;
+      color: #2C1810;
+      margin-bottom: 16px;
+      letter-spacing: -1px;
+      text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .subtitle {
+      font-size: 20px;
+      color: #5D4037;
+      font-weight: 400;
+      font-style: italic;
+    }
+
+    .date {
+      margin-top: 20px;
+      font-size: 16px;
+      color: #8D6E63;
+      letter-spacing: 2px;
+      font-family: 'Inter', sans-serif;
+    }
+
+    /* 照片卡片 */
+    .photo-card {
+      background: white;
+      padding: 20px;
+      margin-bottom: 40px;
+      box-shadow:
+        0 10px 30px rgba(0,0,0,0.15),
+        inset 0 0 0 1px rgba(0,0,0,0.05);
+      position: relative;
+      /* 轻微倾斜模拟实体照片 */
+      transform: rotate(-0.5deg);
+    }
+
+    .photo-card:nth-child(even) {
+      transform: rotate(0.5deg);
+    }
+
+    /* 照片内容区 */
+    .photo-content {
+      background: linear-gradient(135deg, #FFF8F0 0%, #FFF0E0 100%);
+      padding: 35px;
+      border: 1px solid rgba(0,0,0,0.08);
+      position: relative;
+      /* Portra 400特征：柔和的暖色调 */
+      filter:
+        sepia(0.15)
+        saturate(1.1)
+        contrast(0.95)
+        brightness(1.05);
+    }
+
+    /* 照片编号 */
+    .frame-number {
+      position: absolute;
+      top: 25px;
+      right: 25px;
+      font-family: 'Inter', sans-serif;
+      font-size: 14px;
+      font-weight: 600;
+      color: #D84315;
+      background: rgba(255, 255, 255, 0.8);
+      padding: 6px 14px;
+      border-radius: 20px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+
+    /* 图标/emoji */
+    .photo-icon {
+      font-size: 70px;
+      margin-bottom: 25px;
+      display: block;
+      /* 胶片柔焦效果 */
+      filter: drop-shadow(3px 3px 6px rgba(0,0,0,0.2));
+    }
+
+    /* 文章标题 */
+    .article-title {
+      font-size: 36px;
+      font-weight: 600;
+      color: #2C1810;
+      margin-bottom: 16px;
+      line-height: 1.3;
+    }
+
+    /* 元数据 */
+    .article-meta {
+      font-family: 'Inter', sans-serif;
+      font-size: 14px;
+      color: #8D6E63;
+      margin-bottom: 24px;
+      display: flex;
+      gap: 16px;
+      align-items: center;
+    }
+
+    .meta-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* 正文 */
+    .article-body {
+      font-size: 20px;
+      line-height: 1.8;
+      color: #3E2723;
+      margin-bottom: 24px;
+    }
+
+    .article-body p {
+      margin-bottom: 16px;
+    }
+
+    /* 引用框 */
+    .quote {
+      border-left: 4px solid #D84315;
+      padding-left: 24px;
+      margin: 30px 0;
+      font-style: italic;
+      font-size: 22px;
+      color: #5D4037;
+      line-height: 1.6;
+    }
+
+    /* 标签 */
+    .tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 24px;
+      padding-top: 24px;
+      border-top: 1px solid rgba(0,0,0,0.08);
+    }
+
+    .tag {
+      font-family: 'Inter', sans-serif;
+      background: rgba(216, 67, 21, 0.1);
+      color: #D84315;
+      padding: 6px 14px;
+      border-radius: 16px;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+
+    /* 胶片边缘笔记 */
+    .film-note {
+      position: absolute;
+      font-family: 'Crimson Text', serif;
+      font-size: 14px;
+      font-style: italic;
+      color: #8D6E63;
+      transform: rotate(-5deg);
+    }
+
+    .note-1 {
+      top: -15px;
+      left: 30px;
+    }
+
+    .note-2 {
+      bottom: -15px;
+      right: 30px;
+    }
+
+    /* 分隔线 */
+    .divider {
+      height: 2px;
+      background: linear-gradient(90deg,
+        transparent 0%,
+        rgba(93, 64, 55, 0.3) 20%,
+        rgba(93, 64, 55, 0.3) 80%,
+        transparent 100%
+      );
+      margin: 50px 0;
+    }
+
+    /* 底部信息 */
+    .footer {
+      text-align: center;
+      margin-top: 60px;
+      padding-top: 40px;
+      border-top: 2px solid rgba(93, 64, 55, 0.2);
+    }
+
+    .film-brand {
+      font-family: 'Inter', sans-serif;
+      font-size: 14px;
+      font-weight: 600;
+      color: #D84315;
+      letter-spacing: 3px;
+      margin-bottom: 12px;
+    }
+
+    .footer-text {
+      font-size: 18px;
+      color: #5D4037;
+      font-style: italic;
+    }
+
+    .copyright {
+      font-family: 'Inter', sans-serif;
+      font-size: 12px;
+      color: #8D6E63;
+      margin-top: 20px;
+      letter-spacing: 1px;
+    }
+
+    /* 光线漏光效果（胶片特征） */
+    .light-leak {
+      position: fixed;
+      pointer-events: none;
+      opacity: 0.15;
+      z-index: 0;
+    }
+
+    .leak-1 {
+      top: 100px;
+      right: -50px;
+      width: 200px;
+      height: 300px;
+      background: radial-gradient(ellipse, #FFD54F, transparent);
+      filter: blur(60px);
+    }
+
+    .leak-2 {
+      bottom: 200px;
+      left: -50px;
+      width: 250px;
+      height: 250px;
+      background: radial-gradient(circle, #FF9800, transparent);
+      filter: blur(70px);
+    }
+
+    /* 暗角效果（胶片特征） */
+    body::before {
+      content: '';
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.15) 100%);
+      pointer-events: none;
+      z-index: 1;
+    }
+  </style>
+</head>
+<body>
+  <!-- 胶片边框 -->
+  <div class="film-frame film-frame-top">
+    <div class="film-holes film-holes-left">
+      <div class="film-hole"></div>
+      <div class="film-hole"></div>
+      <div class="film-hole"></div>
+    </div>
+    <div class="film-holes film-holes-right">
+      <div class="film-hole"></div>
+      <div class="film-hole"></div>
+      <div class="film-hole"></div>
+    </div>
+  </div>
+  <div class="film-frame film-frame-bottom">
+    <div class="film-holes film-holes-left">
+      <div class="film-hole"></div>
+      <div class="film-hole"></div>
+      <div class="film-hole"></div>
+    </div>
+    <div class="film-holes film-holes-right">
+      <div class="film-hole"></div>
+      <div class="film-hole"></div>
+      <div class="film-hole"></div>
+    </div>
+  </div>
+
+  <!-- 光线漏光 -->
+  <div class="light-leak leak-1"></div>
+  <div class="light-leak leak-2"></div>
+
+  <div class="content">
+    <!-- 胶片信息 -->
+    <div class="film-info">
+      <span class="film-type">KODAK PORTRA 400</span>
+      <span>ISO 400</span>
+      <span>F/2.8</span>
+      <span>1/125s</span>
+      <span>2026.04.24</span>
+    </div>
+
+    <!-- 标题 -->
+    <div class="header">
+      <h1 class="title">Today's Tech</h1>
+      <p class="subtitle">Captured on Film</p>
+      <p class="date">APRIL 24, 2026 • FRIDAY</p>
+    </div>
+
+    <!-- 照片1 -->
+    <div class="photo-card">
+      <div class="film-note note-1">Frame 12A</div>
+      <div class="photo-content">
+        <div class="frame-number">#12A</div>
+        <span class="photo-icon">🚀</span>
+        <h2 class="article-title">OpenAI发布GPT-5预览版</h2>
+        <div class="article-meta">
+          <span class="meta-item">📍 San Francisco</span>
+          <span class="meta-item">⏱️ 上午10:30</span>
+          <span class="meta-item">🌡️ 21°C</span>
+        </div>
+        <div class="article-body">
+          <p>
+            在这个温暖的春日早晨，OpenAI在旧金山总部发布了GPT-5的预览版本。
+            阳光透过会议室的落地窗洒进来，就像这项技术为AI领域带来的曙光。
+          </p>
+          <p>
+            推理能力提升了3倍，准确性大幅提高，成本却降低了50%。
+            这不仅仅是数字的提升，更是整个行业的转折点。
+          </p>
+        </div>
+        <div class="quote">
+          "We're not just building better AI,
+          we're building AI that understands."
+          <br>— Sam Altman
+        </div>
+        <div class="tags">
+          <span class="tag">OpenAI</span>
+          <span class="tag">GPT-5</span>
+          <span class="tag">AI Breakthrough</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- 照片2 -->
+    <div class="photo-card">
+      <div class="film-note note-1">Frame 13A</div>
+      <div class="photo-content">
+        <div class="frame-number">#13A</div>
+        <span class="photo-icon">🔓</span>
+        <h2 class="article-title">Meta开源LlamaAgent 2.0</h2>
+        <div class="article-meta">
+          <span class="meta-item">📍 Menlo Park</span>
+          <span class="meta-item">⏱️ 下午2:15</span>
+          <span class="meta-item">☁️ 多云</span>
+        </div>
+        <div class="article-body">
+          <p>
+            午后的阳光有些慵懒，但Meta的开发者们却异常兴奋。
+            LlamaAgent 2.0的开源，意味着AI技术的民主化又向前迈进了一大步。
+          </p>
+          <p>
+            这不仅仅是代码的公开，更是一种理念的传递——
+            技术应该属于所有人，创新应该是开放的。
+          </p>
+        </div>
+        <div class="tags">
+          <span class="tag">Meta</span>
+          <span class="tag">Open Source</span>
+          <span class="tag">MIT License</span>
+        </div>
+      </div>
+      <div class="film-note note-2">Sunny afternoon</div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- 照片3 -->
+    <div class="photo-card">
+      <div class="film-note note-1">Frame 14A</div>
+      <div class="photo-content">
+        <div class="frame-number">#14A</div>
+        <span class="photo-icon">⚡</span>
+        <h2 class="article-title">GitHub Copilot Workspace</h2>
+        <div class="article-meta">
+          <span class="meta-item">📍 Remote</span>
+          <span class="meta-item">⏱️ 晚上8:00</span>
+          <span class="meta-item">🌙 晴朗</span>
+        </div>
+        <div class="article-body">
+          <p>
+            夜幕降临，但全球的开发者们却刚刚开始他们的工作。
+            GitHub Copilot Workspace的发布，为这些夜晚的代码战士带来了新的武器。
+          </p>
+          <p>
+            从需求分析到代码实现，AI全程陪伴。
+            这不是替代开发者，而是让开发者变得更强大。
+          </p>
+        </div>
+        <div class="quote">
+          "The future of coding is not about writing code,
+          it's about solving problems."
+        </div>
+        <div class="tags">
+          <span class="tag">GitHub</span>
+          <span class="tag">Copilot</span>
+          <span class="tag">Dev Tools</span>
+        </div>
+      </div>
+      <div class="film-note note-2">Golden hour</div>
+    </div>
+
+    <!-- 底部 -->
+    <div class="footer">
+      <div class="film-brand">KODAK PROFESSIONAL PORTRA 400</div>
+      <p class="footer-text">
+        Film photography captures not just images,<br>
+        but moments, emotions, and stories.
+      </p>
+      <p class="copyright">
+        © 2026 Tech Daily • Shot on Film
+      </p>
+    </div>
+  </div>
+</body>
+</html>

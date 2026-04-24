@@ -1,0 +1,394 @@
+/* ========== Modal容器 ========== */
+.stackModal {
+  :global(.ant-modal-content) {
+    background: linear-gradient(135deg, #1a1a2e 0%, #0f0f1e 100%);
+    border-radius: 24px;
+    overflow: hidden;
+    padding: 0;
+  }
+
+  :global(.ant-modal-close) {
+    color: white;
+    top: 16px;
+    right: 16px;
+
+    &:hover {
+      color: #FFB347;
+    }
+  }
+}
+
+/* ========== 主容器 ========== */
+.viewerContainer {
+  display: flex;
+  flex-direction: column;
+  height: 85vh;
+  min-height: 700px;
+}
+
+/* ========== 顶部标题区 ========== */
+.stackHeader {
+  padding: 24px 32px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.stackTitle {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+.titleText {
+  color: white;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+}
+
+.unreadBadge {
+  :global(.ant-badge-count) {
+    background: linear-gradient(135deg, #FF6B6B, #FFB347);
+    font-weight: 600;
+  }
+}
+
+.instructions {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+/* ========== 主阅读区域 ========== */
+.mainArea {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 24px;
+  overflow: hidden;
+}
+
+.readingArea {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: pan-y;
+  user-select: none;
+}
+
+/* ========== 翻页按钮 ========== */
+.navButton {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 179, 71, 0.9);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  z-index: 100;
+  box-shadow: 0 8px 24px rgba(255, 107, 107, 0.4);
+
+  &:hover {
+    background: rgba(255, 107, 107, 0.95);
+    transform: translateY(-50%) scale(1.1);
+    box-shadow: 0 12px 32px rgba(255, 107, 107, 0.6);
+  }
+
+  &:active {
+    transform: translateY(-50%) scale(0.95);
+  }
+
+  svg {
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
+  }
+}
+
+.prevButton {
+  left: 20px;
+}
+
+.nextButton {
+  right: 20px;
+}
+
+/* ========== 报纸展示区 ========== */
+.magazineDisplay {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+.magazineContent {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: white;
+  border-radius: 16px;
+  box-shadow:
+    0 30px 90px rgba(0, 0, 0, 0.6),
+    0 0 0 1px rgba(0, 0, 0, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  overflow: hidden;
+  will-change: transform, opacity;
+}
+
+/* ========== 报纸头部 ========== */
+.magazineHeader {
+  padding: 24px 32px;
+  background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+  border-bottom: 2px solid #e9ecef;
+}
+
+.headerTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 12px;
+
+  h2 {
+    color: #2c3e50;
+    font-size: 28px;
+    font-weight: 700;
+    margin: 0;
+    flex: 1;
+    letter-spacing: -0.5px;
+  }
+}
+
+.dateInfo {
+  color: #6c757d;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* ========== 便签贴纸 ========== */
+.stickyNote {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 8px 8px 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  transform: rotate(3deg);
+  flex-shrink: 0;
+
+  &.unread {
+    background: linear-gradient(135deg, #FFD93D, #FFB627);
+    color: #8B4513;
+
+    svg {
+      filter: drop-shadow(0 1px 2px rgba(139, 69, 19, 0.3));
+    }
+  }
+
+  &.read {
+    background: linear-gradient(135deg, #B8F3FF, #7ED4E6);
+    color: #0D5C75;
+
+    svg {
+      filter: drop-shadow(0 1px 2px rgba(13, 92, 117, 0.3));
+    }
+  }
+}
+
+/* ========== 报纸内容区 ========== */
+.magazineFrame {
+  flex: 1;
+  background: white;
+  overflow: hidden;
+  position: relative;
+}
+
+.contentIframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  display: block;
+}
+
+/* ========== 操作栏 ========== */
+.actionBar {
+  display: flex;
+  justify-content: center;
+  padding: 20px 0;
+  gap: 16px;
+
+  :global(.ant-btn-primary) {
+    background: linear-gradient(135deg, #FF6B6B, #FFB347);
+    border: none;
+    height: 44px;
+    padding: 0 32px;
+    font-size: 16px;
+    font-weight: 600;
+    box-shadow: 0 4px 16px rgba(255, 107, 107, 0.3);
+
+    &:hover {
+      background: linear-gradient(135deg, #FF5555, #FF9933);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(255, 107, 107, 0.4);
+    }
+  }
+}
+
+/* ========== 底部时间轴（缩略图导航）========== */
+.timeline {
+  padding: 20px 24px;
+  background: rgba(0, 0, 0, 0.3);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.timelineTrack {
+  display: flex;
+  gap: 16px;
+  min-width: min-content;
+  padding: 4px;
+}
+
+.timelineItem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  padding: 8px;
+  border-radius: 12px;
+  min-width: 100px;
+
+  &:hover {
+    background: rgba(255, 179, 71, 0.15);
+    transform: translateY(-4px);
+  }
+
+  &.active {
+    background: rgba(255, 107, 107, 0.2);
+
+    .thumbnailWrapper {
+      box-shadow:
+        0 0 0 3px rgba(255, 107, 107, 0.6),
+        0 8px 20px rgba(255, 107, 107, 0.4);
+      transform: scale(1.1);
+    }
+
+    .timelineLabel {
+      color: #FFB347;
+      font-weight: 700;
+    }
+  }
+}
+
+.thumbnailWrapper {
+  position: relative;
+  width: 80px;
+  height: 100px;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  transition: all 0.3s ease;
+}
+
+.thumbnail {
+  width: 100%;
+  height: 100%;
+  background: white;
+  overflow: hidden;
+}
+
+.thumbnailIframe {
+  width: 400%;
+  height: 400%;
+  border: none;
+  transform: scale(0.25);
+  transform-origin: top left;
+  pointer-events: none;
+}
+
+.readMark {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #2ED573, #26C563);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  box-shadow: 0 2px 8px rgba(46, 213, 115, 0.4);
+}
+
+.timelineLabel {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: all 0.3s ease;
+}
+
+/* ========== 响应式 ========== */
+@media (max-width: 1200px) {
+  .magazineDisplay {
+    max-width: 800px;
+  }
+
+  .navButton {
+    width: 50px;
+    height: 50px;
+
+    svg {
+      width: 24px;
+      height: 24px;
+    }
+  }
+}
+
+@media (max-width: 768px) {
+  .magazineDisplay {
+    max-width: 100%;
+  }
+
+  .navButton {
+    width: 44px;
+    height: 44px;
+  }
+
+  .magazineHeader {
+    padding: 16px 20px;
+
+    h2 {
+      font-size: 22px;
+    }
+  }
+
+  .timelineItem {
+    min-width: 80px;
+  }
+
+  .thumbnailWrapper {
+    width: 60px;
+    height: 80px;
+  }
+}

@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>科技见闻录 - 国风版</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@300;400;600;900&family=ZCOOL+XiaoWei&display=swap');
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      width: 1080px;
+      height: 1920px;
+      background: linear-gradient(180deg, #2C1810 0%, #1A0F0A 100%);
+      font-family: 'Noto Serif SC', serif;
+      color: #F5E6D3;
+      padding: 0;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* 纸张纹理 */
+    .paper-texture {
+      position: absolute;
+      top: 80px;
+      left: 60px;
+      width: calc(100% - 120px);
+      height: calc(100% - 160px);
+      background: linear-gradient(180deg, #F5E6D3 0%, #E8D4BF 100%);
+      box-shadow:
+        0 20px 60px rgba(0,0,0,0.6),
+        inset 0 0 100px rgba(0,0,0,0.05);
+      border-radius: 8px;
+    }
+
+    /* 主容器 */
+    .container {
+      position: relative;
+      z-index: 1;
+      padding: 120px 100px;
+      color: #2C1810;
+    }
+
+    /* 印章装饰 */
+    .seal {
+      position: absolute;
+      width: 100px;
+      height: 100px;
+      border: 4px solid #B71C1C;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 36px;
+      color: #B71C1C;
+      font-weight: 900;
+      transform: rotate(15deg);
+      opacity: 0.7;
+    }
+
+    .seal-1 {
+      top: 140px;
+      right: 140px;
+    }
+
+    .seal-2 {
+      bottom: 200px;
+      left: 140px;
+      transform: rotate(-12deg);
+    }
+
+    /* 竖排标题 */
+    .vertical-title {
+      position: absolute;
+      right: 150px;
+      top: 200px;
+      writing-mode: vertical-rl;
+      font-family: 'ZCOOL XiaoWei', serif;
+      font-size: 72px;
+      font-weight: 900;
+      color: #B71C1C;
+      letter-spacing: 8px;
+      line-height: 1.2;
+      text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+    }
+
+    /* 主标题 */
+    .main-title {
+      font-family: 'ZCOOL XiaoWei', serif;
+      font-size: 64px;
+      font-weight: 900;
+      color: #2C1810;
+      margin-bottom: 16px;
+      text-align: center;
+      letter-spacing: 8px;
+    }
+
+    .subtitle {
+      text-align: center;
+      font-size: 20px;
+      color: #5D4037;
+      margin-bottom: 60px;
+      letter-spacing: 4px;
+    }
+
+    /* 日期横条 */
+    .date-banner {
+      background: linear-gradient(90deg, transparent, #B71C1C, transparent);
+      height: 2px;
+      margin: 40px 0;
+      position: relative;
+    }
+
+    .date-text {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      background: #F5E6D3;
+      padding: 8px 32px;
+      font-size: 16px;
+      color: #B71C1C;
+      letter-spacing: 3px;
+      font-weight: 600;
+    }
+
+    /* 文章区块 */
+    .article {
+      margin: 60px 0;
+      padding: 40px;
+      background: rgba(255, 255, 255, 0.5);
+      border-radius: 12px;
+      border: 2px solid #D7CCC8;
+      position: relative;
+    }
+
+    .article-header {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      margin-bottom: 24px;
+      padding-bottom: 20px;
+      border-bottom: 1px dashed #BCAAA4;
+    }
+
+    .article-icon {
+      font-size: 64px;
+      filter: drop-shadow(0 4px 8px rgba(0,0,0,0.1));
+    }
+
+    .article-title-group {
+      flex: 1;
+    }
+
+    .article-number {
+      font-size: 14px;
+      color: #B71C1C;
+      font-weight: 600;
+      letter-spacing: 2px;
+      margin-bottom: 8px;
+    }
+
+    .article-title {
+      font-family: 'ZCOOL XiaoWei', serif;
+      font-size: 36px;
+      font-weight: 700;
+      color: #2C1810;
+      line-height: 1.3;
+    }
+
+    .article-content {
+      font-size: 20px;
+      line-height: 1.9;
+      color: #4E342E;
+      text-indent: 2em;
+    }
+
+    .article-content p {
+      margin-bottom: 16px;
+    }
+
+    /* 诗句引用 */
+    .poem-quote {
+      text-align: center;
+      font-family: 'ZCOOL XiaoWei', serif;
+      font-size: 32px;
+      line-height: 1.8;
+      color: #B71C1C;
+      margin: 60px 0;
+      padding: 40px;
+      background: rgba(183, 28, 28, 0.05);
+      border-left: 6px solid #B71C1C;
+      border-right: 6px solid #B71C1C;
+      font-style: italic;
+    }
+
+    /* 要点列表 */
+    .key-points {
+      background: rgba(255, 193, 7, 0.1);
+      border: 2px solid #FFA000;
+      border-radius: 12px;
+      padding: 32px;
+      margin: 40px 0;
+    }
+
+    .key-points-title {
+      font-family: 'ZCOOL XiaoWei', serif;
+      font-size: 28px;
+      color: #E65100;
+      margin-bottom: 20px;
+      text-align: center;
+    }
+
+    .key-points ul {
+      list-style: none;
+    }
+
+    .key-points li {
+      font-size: 20px;
+      line-height: 1.8;
+      color: #4E342E;
+      margin: 12px 0;
+      padding-left: 40px;
+      position: relative;
+    }
+
+    .key-points li::before {
+      content: '◆';
+      position: absolute;
+      left: 0;
+      color: #FFA000;
+      font-size: 24px;
+    }
+
+    /* 页脚 */
+    .footer {
+      text-align: center;
+      margin-top: 80px;
+      padding-top: 40px;
+      border-top: 2px solid #BCAAA4;
+    }
+
+    .footer-text {
+      font-family: 'ZCOOL XiaoWei', serif;
+      font-size: 24px;
+      color: #5D4037;
+      letter-spacing: 4px;
+    }
+
+    .footer-date {
+      font-size: 16px;
+      color: #8D6E63;
+      margin-top: 12px;
+      letter-spacing: 2px;
+    }
+  </style>
+</head>
+<body>
+  <!-- 纸张纹理 -->
+  <div class="paper-texture"></div>
+
+  <!-- 印章 -->
+  <div class="seal seal-1">科技</div>
+  <div class="seal seal-2">见闻</div>
+
+  <!-- 竖排标题 -->
+  <div class="vertical-title">科技见闻录</div>
+
+  <!-- 主容器 -->
+  <div class="container">
+    <!-- 标题 -->
+    <h1 class="main-title">今日科技见闻</h1>
+    <p class="subtitle">人工智能 · 开源创新 · 技术前沿</p>
+
+    <!-- 日期横条 -->
+    <div class="date-banner">
+      <span class="date-text">丙午年 四月 廿四</span>
+    </div>
+
+    <!-- 文章1 -->
+    <div class="article">
+      <div class="article-header">
+        <span class="article-icon">🚀</span>
+        <div class="article-title-group">
+          <div class="article-number">第一篇</div>
+          <h2 class="article-title">OpenAI发布GPT-5预览版</h2>
+        </div>
+      </div>
+      <div class="article-content">
+        <p>
+          昨日，OpenAI于旧金山总部宣布推出GPT-5预览版本。
+          此次发布堪称AI领域之重大突破，推理能力较前代提升三倍有余，
+          准确率亦大幅提高，成本反降五成。
+        </p>
+        <p>
+          业界人士评价，此举或将改变整个人工智能产业格局。
+          微软已宣布将于第三季度全面整合至Azure云服务。
+        </p>
+      </div>
+    </div>
+
+    <!-- 诗句引用 -->
+    <div class="poem-quote">
+      苟日新，日日新，又日新。<br>
+      —— 《礼记·大学》
+    </div>
+
+    <!-- 文章2 -->
+    <div class="article">
+      <div class="article-header">
+        <span class="article-icon">🔓</span>
+        <div class="article-title-group">
+          <div class="article-number">第二篇</div>
+          <h2 class="article-title">Meta开源AI Agent框架</h2>
+        </div>
+      </div>
+      <div class="article-content">
+        <p>
+          Meta公司发布LlamaAgent 2.0框架，采用MIT许可证开放源代码。
+          此框架集成安全防护机制，支持多智能体协同作业，
+          可部署于云端或边缘设备。
+        </p>
+      </div>
+    </div>
+
+    <!-- 核心要点 -->
+    <div class="key-points">
+      <div class="key-points-title">◆ 本日要点 ◆</div>
+      <ul>
+        <li>GPT-5推理能力大幅提升，成本降低五成</li>
+        <li>Meta开源LlamaAgent 2.0，MIT许可证</li>
+        <li>GitHub发布AI原生开发环境</li>
+        <li>本周AI创业公司融资总额达21亿美元</li>
+      </ul>
+    </div>
+
+    <!-- 页脚 -->
+    <div class="footer">
+      <div class="footer-text">科技见闻录 · 每日更新</div>
+      <div class="footer-date">QwenPaw AI Harvest • 2026</div>
+    </div>
+  </div>
+</body>
+</html>

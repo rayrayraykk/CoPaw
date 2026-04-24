@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Apple Style - Tech Today</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@300;400;600;700;900&display=swap');
+    @import url('https://fonts.cdnfonts.com/css/sf-pro-display');
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      width: 1080px;
+      height: 1920px;
+      background: white;
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display',
+                   'Helvetica Neue', sans-serif;
+      color: #1D1D1F;
+      padding: 0;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* 容器 */
+    .container {
+      padding: 120px 80px;
+    }
+
+    /* 顶部标签 */
+    .top-label {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 2px;
+      color: #86868B;
+      text-transform: uppercase;
+      margin-bottom: 40px;
+    }
+
+    /* 超大标题 */
+    .hero-title {
+      font-size: 120px;
+      font-weight: 900;
+      line-height: 0.95;
+      letter-spacing: -4px;
+      margin-bottom: 60px;
+      background: linear-gradient(135deg, #000 0%, #333 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero-subtitle {
+      font-size: 32px;
+      font-weight: 300;
+      color: #1D1D1F;
+      line-height: 1.4;
+      margin-bottom: 100px;
+      max-width: 800px;
+    }
+
+    /* 特色卡片 */
+    .feature-card {
+      background: #F5F5F7;
+      border-radius: 24px;
+      padding: 60px;
+      margin: 60px 0;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .feature-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 8px;
+      height: 100%;
+      background: linear-gradient(180deg, #007AFF, #5856D6);
+    }
+
+    .feature-icon {
+      font-size: 80px;
+      margin-bottom: 32px;
+      display: block;
+    }
+
+    .feature-title {
+      font-size: 48px;
+      font-weight: 700;
+      margin-bottom: 24px;
+      color: #1D1D1F;
+      line-height: 1.2;
+    }
+
+    .feature-description {
+      font-size: 22px;
+      line-height: 1.6;
+      color: #515154;
+      font-weight: 400;
+      margin-bottom: 32px;
+    }
+
+    .feature-stats {
+      display: flex;
+      gap: 40px;
+      margin-top: 40px;
+      padding-top: 32px;
+      border-top: 1px solid #D2D2D7;
+    }
+
+    .stat {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .stat-value {
+      font-size: 56px;
+      font-weight: 700;
+      color: #007AFF;
+    }
+
+    .stat-label {
+      font-size: 15px;
+      color: #86868B;
+      font-weight: 500;
+    }
+
+    /* 引用块 */
+    .quote-block {
+      background: #000;
+      color: white;
+      padding: 80px 60px;
+      border-radius: 24px;
+      margin: 80px 0;
+      text-align: center;
+    }
+
+    .quote-text {
+      font-size: 40px;
+      font-weight: 600;
+      line-height: 1.5;
+      margin-bottom: 32px;
+    }
+
+    .quote-author {
+      font-size: 18px;
+      color: #86868B;
+      font-weight: 500;
+    }
+
+    /* 特性列表 */
+    .feature-list {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 32px;
+      margin: 80px 0;
+    }
+
+    .feature-item {
+      background: white;
+      border: 1px solid #D2D2D7;
+      border-radius: 16px;
+      padding: 32px;
+    }
+
+    .feature-item-icon {
+      font-size: 40px;
+      margin-bottom: 16px;
+      display: block;
+    }
+
+    .feature-item-title {
+      font-size: 24px;
+      font-weight: 600;
+      color: #1D1D1F;
+      margin-bottom: 12px;
+    }
+
+    .feature-item-text {
+      font-size: 17px;
+      line-height: 1.6;
+      color: #515154;
+    }
+
+    /* 大留白分隔 */
+    .spacer {
+      height: 120px;
+    }
+
+    /* 底部 */
+    .footer {
+      text-align: center;
+      margin-top: 140px;
+      padding-top: 60px;
+      border-top: 1px solid #D2D2D7;
+    }
+
+    .footer-logo {
+      font-size: 32px;
+      font-weight: 700;
+      color: #1D1D1F;
+      margin-bottom: 16px;
+    }
+
+    .footer-tagline {
+      font-size: 17px;
+      color: #86868B;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- 顶部标签 -->
+    <div class="top-label">Daily Harvest • Issue 023</div>
+
+    <!-- 超大标题 -->
+    <h1 class="hero-title">
+      The Future.<br>
+      Designed by AI.
+    </h1>
+
+    <p class="hero-subtitle">
+      Breakthrough innovations in artificial intelligence,
+      transforming how we think, create, and build.
+    </p>
+
+    <!-- 特色卡片1 -->
+    <div class="feature-card">
+      <span class="feature-icon">🚀</span>
+      <h2 class="feature-title">GPT-5 Preview</h2>
+      <p class="feature-description">
+        OpenAI's latest model demonstrates unprecedented reasoning capabilities.
+        A quantum leap in AI intelligence that redefines what's possible.
+      </p>
+      <div class="feature-stats">
+        <div class="stat">
+          <div class="stat-value">3x</div>
+          <div class="stat-label">Better Reasoning</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value">70%</div>
+          <div class="stat-label">More Accurate</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value">50%</div>
+          <div class="stat-label">Lower Cost</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="spacer"></div>
+
+    <!-- 引用块 -->
+    <div class="quote-block">
+      <div class="quote-text">
+        "This is the moment when AI truly becomes<br>
+        a thought partner, not just a tool."
+      </div>
+      <div class="quote-author">— Sam Altman, CEO of OpenAI</div>
+    </div>
+
+    <div class="spacer"></div>
+
+    <!-- 特性列表 -->
+    <div class="feature-list">
+      <div class="feature-item">
+        <span class="feature-item-icon">🔓</span>
+        <h3 class="feature-item-title">Open Source</h3>
+        <p class="feature-item-text">
+          Meta releases LlamaAgent 2.0 framework,
+          democratizing AI development.
+        </p>
+      </div>
+      <div class="feature-item">
+        <span class="feature-item-icon">⚡</span>
+        <h3 class="feature-item-title">Developer Tools</h3>
+        <p class="feature-item-text">
+          GitHub Copilot Workspace launches,
+          AI-native development environment.
+        </p>
+      </div>
+      <div class="feature-item">
+        <span class="feature-item-icon">🧠</span>
+        <h3 class="feature-item-title">Reasoning</h3>
+        <p class="feature-item-text">
+          Advanced problem-solving with
+          human-like logical thinking.
+        </p>
+      </div>
+      <div class="feature-item">
+        <span class="feature-item-icon">🌐</span>
+        <h3 class="feature-item-title">Multimodal</h3>
+        <p class="feature-item-text">
+          Native support for images, audio,
+          and video understanding.
+        </p>
+      </div>
+    </div>
+
+    <!-- 页脚 -->
+    <div class="footer">
+      <div class="footer-logo">QwenPaw</div>
+      <div class="footer-tagline">
+        Think different. Build better.
+      </div>
+    </div>
+  </div>
+</body>
+</html>

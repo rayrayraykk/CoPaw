@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>今日科技收获 - 手绘风格</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Long+Cang&family=Noto+Sans+SC:wght@400;500;700&display=swap');
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      width: 1080px;
+      height: 1920px;
+      background: linear-gradient(135deg, #FFF8E7 0%, #FFEDD5 100%);
+      font-family: 'Noto Sans SC', sans-serif;
+      padding: 60px 40px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* 手绘装饰元素 */
+    .doodle {
+      position: absolute;
+      opacity: 0.6;
+    }
+
+    .star {
+      position: absolute;
+      font-size: 32px;
+      animation: twinkle 2s infinite;
+    }
+
+    @keyframes twinkle {
+      0%, 100% { opacity: 0.3; }
+      50% { opacity: 1; }
+    }
+
+    /* 标题区域 */
+    .header {
+      text-align: center;
+      margin-bottom: 40px;
+      position: relative;
+    }
+
+    .title {
+      font-family: 'Long Cang', cursive;
+      font-size: 72px;
+      color: #D4691A;
+      margin-bottom: 12px;
+      text-shadow: 3px 3px 0px rgba(0,0,0,0.1);
+      position: relative;
+      display: inline-block;
+    }
+
+    .title::before,
+    .title::after {
+      content: '★';
+      position: absolute;
+      font-size: 48px;
+      color: #FF6F3C;
+      animation: twinkle 1.5s infinite;
+    }
+
+    .title::before {
+      left: -60px;
+      top: -10px;
+    }
+
+    .title::after {
+      right: -60px;
+      top: -10px;
+    }
+
+    .subtitle {
+      font-size: 24px;
+      color: #8B4513;
+      font-weight: 500;
+    }
+
+    .date-badge {
+      display: inline-block;
+      background: #FF6F3C;
+      color: white;
+      padding: 8px 24px;
+      border-radius: 30px;
+      font-size: 18px;
+      margin-top: 16px;
+      box-shadow: 0 4px 12px rgba(255, 111, 60, 0.3);
+    }
+
+    /* 旅程路线容器 */
+    .journey-container {
+      position: relative;
+      margin: 40px 0;
+    }
+
+    /* 路径线 */
+    .journey-path {
+      position: absolute;
+      left: 50%;
+      top: 0;
+      transform: translateX(-50%);
+      width: 8px;
+      height: 100%;
+      background: repeating-linear-gradient(
+        to bottom,
+        #D4691A 0px,
+        #D4691A 20px,
+        transparent 20px,
+        transparent 40px
+      );
+      border-radius: 4px;
+    }
+
+    /* 站点卡片 */
+    .station {
+      position: relative;
+      margin: 40px 0;
+      padding: 24px;
+      background: white;
+      border-radius: 20px;
+      box-shadow:
+        0 8px 24px rgba(0, 0, 0, 0.08),
+        inset 0 0 0 3px #FFE4CC;
+      transform: rotate(-1deg);
+      transition: transform 0.3s;
+    }
+
+    .station:nth-child(even) {
+      transform: rotate(1deg);
+      margin-left: auto;
+      margin-right: 0;
+      width: 90%;
+    }
+
+    .station:nth-child(odd) {
+      width: 90%;
+      margin-left: 0;
+      margin-right: auto;
+    }
+
+    .station-number {
+      position: absolute;
+      top: -20px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 50px;
+      height: 50px;
+      background: linear-gradient(135deg, #FF6F3C, #D4691A);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      font-weight: bold;
+      color: white;
+      box-shadow: 0 4px 12px rgba(255, 111, 60, 0.4);
+      border: 4px solid #FFF8E7;
+    }
+
+    .station-emoji {
+      font-size: 48px;
+      margin-bottom: 12px;
+      display: block;
+    }
+
+    .station-title {
+      font-family: 'Long Cang', cursive;
+      font-size: 32px;
+      color: #D4691A;
+      margin-bottom: 12px;
+    }
+
+    .station-content {
+      font-size: 18px;
+      line-height: 1.8;
+      color: #3E2723;
+      margin-bottom: 16px;
+    }
+
+    .station-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .tag {
+      background: #FFE4CC;
+      color: #8B4513;
+      padding: 6px 16px;
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    /* 小贴士气泡 */
+    .tip-bubble {
+      position: relative;
+      background: #FFF8E7;
+      border: 3px dashed #FF6F3C;
+      border-radius: 20px;
+      padding: 20px;
+      margin: 30px 0;
+      text-align: center;
+      transform: rotate(-0.5deg);
+    }
+
+    .tip-bubble::before {
+      content: '💡';
+      position: absolute;
+      top: -30px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 40px;
+    }
+
+    .tip-title {
+      font-family: 'Long Cang', cursive;
+      font-size: 24px;
+      color: #D4691A;
+      margin-bottom: 8px;
+    }
+
+    .tip-content {
+      font-size: 16px;
+      color: #3E2723;
+      line-height: 1.6;
+    }
+
+    /* 页脚 */
+    .footer {
+      text-align: center;
+      margin-top: 50px;
+      padding-top: 30px;
+      border-top: 3px dashed #D4691A;
+    }
+
+    .footer-text {
+      font-family: 'Long Cang', cursive;
+      font-size: 28px;
+      color: #8B4513;
+    }
+
+    .footer-emojis {
+      font-size: 32px;
+      margin-top: 12px;
+    }
+
+    /* 装饰性星星 */
+    .decorative-stars {
+      position: absolute;
+      top: 20px;
+      right: 40px;
+      font-size: 24px;
+    }
+  </style>
+</head>
+<body>
+  <!-- 装饰性星星 -->
+  <div class="star" style="top: 50px; left: 100px;">⭐</div>
+  <div class="star" style="top: 180px; right: 120px; animation-delay: 0.5s;">✨</div>
+  <div class="star" style="top: 400px; left: 80px; animation-delay: 1s;">🌟</div>
+  <div class="star" style="bottom: 300px; right: 100px; animation-delay: 0.3s;">💫</div>
+  <div class="star" style="bottom: 150px; left: 90px; animation-delay: 0.8s;">⭐</div>
+
+  <!-- 标题 -->
+  <div class="header">
+    <h1 class="title">今日科技收获</h1>
+    <div class="subtitle">AI · 开源 · 技术前沿</div>
+    <div class="date-badge">2026年4月24日 星期五</div>
+  </div>
+
+  <!-- 旅程容器 -->
+  <div class="journey-container">
+    <div class="journey-path"></div>
+
+    <!-- 第1站 -->
+    <div class="station">
+      <div class="station-number">1</div>
+      <span class="station-emoji">🚀</span>
+      <h2 class="station-title">OpenAI发布GPT-5预览版</h2>
+      <p class="station-content">
+        OpenAI昨天发布了GPT-5的预览版本！推理能力提升3倍，
+        准确性大幅提高，成本还降低了50%。这标志着AI技术迈入了新纪元！
+      </p>
+      <div class="station-tags">
+        <span class="tag">#OpenAI</span>
+        <span class="tag">#GPT-5</span>
+        <span class="tag">#AI突破</span>
+      </div>
+    </div>
+
+    <!-- 第2站 -->
+    <div class="station">
+      <div class="station-number">2</div>
+      <span class="station-emoji">🔓</span>
+      <h2 class="station-title">Meta开源AI Agent框架</h2>
+      <p class="station-content">
+        Meta发布了LlamaAgent 2.0框架，完全开源！
+        开发者现在可以轻松构建自己的AI Agent了。
+        据说Shopify已经用它处理了85%的客服咨询。
+      </p>
+      <div class="station-tags">
+        <span class="tag">#Meta</span>
+        <span class="tag">#开源</span>
+        <span class="tag">#LlamaAgent</span>
+      </div>
+    </div>
+
+    <!-- 第3站 -->
+    <div class="station">
+      <div class="station-number">3</div>
+      <span class="station-emoji">⚡</span>
+      <h2 class="station-title">GitHub Copilot Workspace上线</h2>
+      <p class="station-content">
+        GitHub推出了全新的AI原生开发环境！
+        从需求分析到代码实现，全程AI辅助。
+        体验了一下，效率提升至少50%！
+      </p>
+      <div class="station-tags">
+        <span class="tag">#GitHub</span>
+        <span class="tag">#Copilot</span>
+        <span class="tag">#编程工具</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 小贴士 -->
+  <div class="tip-bubble">
+    <div class="tip-title">小心迷路！</div>
+    <div class="tip-content">
+      今天的内容信息量很大哦！建议先收藏，
+      晚上再慢慢研究～记得关注后续更新！
+    </div>
+  </div>
+
+  <!-- 页脚 -->
+  <div class="footer">
+    <div class="footer-text">明天见啦！记得回来查收新收获～</div>
+    <div class="footer-emojis">🌟 📚 ✨ 🎉</div>
+  </div>
+</body>
+</html>

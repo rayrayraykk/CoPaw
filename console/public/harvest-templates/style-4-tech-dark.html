@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tech Insights - Dark Mode</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      width: 1080px;
+      height: 1920px;
+      background: #0A0E27;
+      font-family: 'Space Grotesk', sans-serif;
+      color: #E8F0F2;
+      padding: 0;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* 渐变背景 */
+    .bg-gradient {
+      position: absolute;
+      width: 600px;
+      height: 600px;
+      border-radius: 50%;
+      filter: blur(120px);
+      opacity: 0.15;
+    }
+
+    .bg-gradient-1 {
+      top: -200px;
+      right: -200px;
+      background: radial-gradient(circle, #00D9FF, transparent);
+    }
+
+    .bg-gradient-2 {
+      bottom: -100px;
+      left: -200px;
+      background: radial-gradient(circle, #7C4DFF, transparent);
+    }
+
+    .bg-gradient-3 {
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: radial-gradient(circle, #088395, transparent);
+    }
+
+    /* 网格线 */
+    .grid {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-image:
+        linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+      background-size: 60px 60px;
+      pointer-events: none;
+    }
+
+    /* 主容器 */
+    .container {
+      position: relative;
+      z-index: 1;
+      padding: 100px 80px;
+    }
+
+    /* 头部 */
+    .header {
+      margin-bottom: 80px;
+    }
+
+    .label {
+      display: inline-block;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 4px;
+      color: #00D9FF;
+      text-transform: uppercase;
+      padding: 8px 20px;
+      border: 2px solid #00D9FF;
+      border-radius: 4px;
+      margin-bottom: 32px;
+      box-shadow: 0 0 20px rgba(0, 217, 255, 0.3);
+    }
+
+    .main-heading {
+      font-size: 88px;
+      font-weight: 700;
+      line-height: 1.1;
+      margin-bottom: 24px;
+      background: linear-gradient(135deg, #00D9FF 0%, #7C4DFF 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .subheading {
+      font-size: 24px;
+      color: #8B9AA8;
+      font-weight: 300;
+      letter-spacing: 1px;
+    }
+
+    /* 统计卡片组 */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+      margin: 60px 0;
+    }
+
+    .stat-card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 16px;
+      padding: 32px 24px;
+      backdrop-filter: blur(10px);
+      transition: all 0.3s;
+    }
+
+    .stat-card:hover {
+      background: rgba(255, 255, 255, 0.05);
+      border-color: #00D9FF;
+      transform: translateY(-4px);
+    }
+
+    .stat-value {
+      font-size: 56px;
+      font-weight: 700;
+      color: #00D9FF;
+      margin-bottom: 8px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .stat-label {
+      font-size: 16px;
+      color: #8B9AA8;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    /* 内容区块 */
+    .content-block {
+      background: rgba(255, 255, 255, 0.03);
+      border-left: 4px solid #00D9FF;
+      padding: 40px;
+      margin: 40px 0;
+      border-radius: 0 12px 12px 0;
+      backdrop-filter: blur(10px);
+    }
+
+    .block-title {
+      font-size: 40px;
+      font-weight: 600;
+      margin-bottom: 20px;
+      color: #E8F0F2;
+    }
+
+    .block-icon {
+      font-size: 48px;
+      margin-bottom: 16px;
+      display: block;
+    }
+
+    .block-text {
+      font-size: 22px;
+      line-height: 1.7;
+      color: #B8C5D0;
+      font-weight: 300;
+    }
+
+    .block-text strong {
+      color: #00D9FF;
+      font-weight: 600;
+    }
+
+    /* 代码块 */
+    .code-block {
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid rgba(0, 217, 255, 0.2);
+      border-radius: 12px;
+      padding: 32px;
+      margin: 40px 0;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 20px;
+      color: #00D9FF;
+      line-height: 1.6;
+      box-shadow:
+        0 0 40px rgba(0, 217, 255, 0.1),
+        inset 0 0 40px rgba(0, 217, 255, 0.05);
+    }
+
+    .code-comment {
+      color: #7C4DFF;
+    }
+
+    /* 分隔线 */
+    .divider {
+      height: 2px;
+      background: linear-gradient(90deg,
+        transparent 0%,
+        #00D9FF 50%,
+        transparent 100%
+      );
+      margin: 80px 0;
+    }
+
+    /* 底部 */
+    .footer {
+      text-align: center;
+      margin-top: 100px;
+      padding-top: 60px;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .footer-text {
+      font-size: 20px;
+      color: #8B9AA8;
+      letter-spacing: 2px;
+    }
+
+    .footer-logo {
+      font-size: 32px;
+      font-weight: 700;
+      color: #00D9FF;
+      margin-top: 16px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+  </style>
+</head>
+<body>
+  <!-- 背景渐变 -->
+  <div class="bg-gradient bg-gradient-1"></div>
+  <div class="bg-gradient bg-gradient-2"></div>
+  <div class="bg-gradient bg-gradient-3"></div>
+  <div class="grid"></div>
+
+  <!-- 主容器 -->
+  <div class="container">
+    <!-- 头部 -->
+    <div class="header">
+      <span class="label">AI Intelligence Report</span>
+      <h1 class="main-heading">
+        The Future<br>
+        of AI Agents
+      </h1>
+      <p class="subheading">Issue #023 • April 24, 2026</p>
+    </div>
+
+    <!-- 统计卡片 -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-value">$2.1B</div>
+        <div class="stat-label">VC Funding</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">47%</div>
+        <div class="stat-label">YoY Growth</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">230K</div>
+        <div class="stat-label">New Devs</div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- 内容块1 -->
+    <div class="content-block">
+      <span class="block-icon">🚀</span>
+      <h2 class="block-title">OpenAI GPT-5 Preview Released</h2>
+      <p class="block-text">
+        OpenAI has unveiled GPT-5, demonstrating <strong>3x improvement</strong>
+        in reasoning capabilities. The model shows unprecedented accuracy in
+        complex problem-solving tasks, with <strong>70% fewer hallucinations</strong>
+        compared to GPT-4.
+      </p>
+    </div>
+
+    <!-- 代码示例 -->
+    <div class="code-block">
+      <div class="code-comment">// Key Improvements</div>
+      <div>const gpt5 = {</div>
+      <div>  reasoning: "3x better",</div>
+      <div>  accuracy: "+70%",</div>
+      <div>  cost: "-50%",</div>
+      <div>  multimodal: true</div>
+      <div>}</div>
+    </div>
+
+    <!-- 内容块2 -->
+    <div class="content-block" style="border-left-color: #7C4DFF;">
+      <span class="block-icon">🔓</span>
+      <h2 class="block-title">Meta Open Sources LlamaAgent</h2>
+      <p class="block-text">
+        Meta released <strong>LlamaAgent 2.0</strong>, a production-ready
+        framework for building autonomous AI agents. The framework has already
+        been adopted by <strong>Shopify, Figma, and Notion</strong>.
+      </p>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- 内容块3 -->
+    <div class="content-block" style="border-left-color: #FF6D00;">
+      <span class="block-icon">⚡</span>
+      <h2 class="block-title">GitHub Copilot Workspace</h2>
+      <p class="block-text">
+        An <strong>AI-native development environment</strong> that assists
+        developers from requirement analysis to code implementation.
+        Productivity boost: <strong>+50%</strong> reported by early users.
+      </p>
+    </div>
+
+    <!-- 页脚 -->
+    <div class="footer">
+      <div class="footer-text">Powered by AI • Generated with Intelligence</div>
+      <div class="footer-logo">QwenPaw.AI</div>
+    </div>
+  </div>
+</body>
+</html>

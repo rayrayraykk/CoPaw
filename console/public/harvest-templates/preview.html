@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Harvest Templates Preview</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #1a1a1a;
+      color: white;
+      padding: 40px;
+    }
+
+    .header {
+      text-align: center;
+      margin-bottom: 60px;
+    }
+
+    h1 {
+      font-size: 48px;
+      margin-bottom: 16px;
+      background: linear-gradient(135deg, #FF7F16, #FFD700);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .subtitle {
+      font-size: 20px;
+      color: #999;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+      gap: 40px;
+      max-width: 1800px;
+      margin: 0 auto;
+    }
+
+    .card {
+      background: #2a2a2a;
+      border-radius: 16px;
+      overflow: hidden;
+      transition: transform 0.3s, box-shadow 0.3s;
+      cursor: pointer;
+      border: 2px solid transparent;
+    }
+
+    .card:hover {
+      transform: translateY(-8px);
+      box-shadow: 0 20px 60px rgba(255, 127, 22, 0.3);
+      border-color: #FF7F16;
+    }
+
+    .card-preview {
+      width: 100%;
+      height: 600px;
+      background: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 80px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card-preview iframe {
+      width: 540px;
+      height: 960px;
+      transform: scale(0.6);
+      transform-origin: center;
+      border: none;
+      pointer-events: none;
+    }
+
+    .card-info {
+      padding: 24px;
+    }
+
+    .card-title {
+      font-size: 24px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .card-description {
+      font-size: 14px;
+      color: #999;
+      line-height: 1.6;
+    }
+
+    .card-tags {
+      display: flex;
+      gap: 8px;
+      margin-top: 16px;
+      flex-wrap: wrap;
+    }
+
+    .tag {
+      font-size: 12px;
+      padding: 4px 12px;
+      background: rgba(255, 127, 22, 0.1);
+      border: 1px solid rgba(255, 127, 22, 0.3);
+      border-radius: 12px;
+      color: #FF7F16;
+    }
+
+    .open-btn {
+      display: block;
+      width: 100%;
+      padding: 16px;
+      background: #FF7F16;
+      color: white;
+      border: none;
+      border-radius: 0 0 14px 14px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+
+    .open-btn:hover {
+      background: #FF9A3C;
+    }
+
+    .instructions {
+      max-width: 900px;
+      margin: 60px auto 40px;
+      padding: 32px;
+      background: #2a2a2a;
+      border-radius: 16px;
+      border-left: 4px solid #FF7F16;
+    }
+
+    .instructions h2 {
+      font-size: 24px;
+      margin-bottom: 16px;
+      color: #FF7F16;
+    }
+
+    .instructions p {
+      font-size: 16px;
+      line-height: 1.8;
+      color: #ccc;
+      margin-bottom: 12px;
+    }
+
+    .instructions code {
+      background: #1a1a1a;
+      padding: 2px 8px;
+      border-radius: 4px;
+      color: #00D9FF;
+      font-family: 'JetBrains Mono', monospace;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>🎨 Harvest Templates Gallery</h1>
+    <p class="subtitle">精美日报模板预览 - 全新升级！参考顶级设计案例</p>
+  </div>
+
+  <div class="instructions">
+    <h2>📖 使用说明</h2>
+    <p>✅ <strong>新增5个专业级模板</strong>，包含柯达Portra 400、高端杂志、吉卜力风格</p>
+    <p>✅ 顶级视觉设计：胶片质感、奢侈品排版、动画美学</p>
+    <p>✅ 尺寸: <code>750x1334+</code> (iPhone标准尺寸，支持滚动)</p>
+    <p>✅ 完全响应式设计，移动端和桌面端都适配</p>
+    <p>✅ 后端可使用 Playwright 将HTML渲染为高清PNG</p>
+    <p></p>
+    <p><strong>访问方式:</strong></p>
+    <p>• 开发环境: <code>http://localhost:5173/harvest-templates/style-1-handdrawn.html</code></p>
+    <p>• 替换数字 1-6 查看不同风格</p>
+  </div>
+
+  <div class="grid">
+    <!-- 新模板1: 精美手绘风格 -->
+    <div class="card" onclick="window.open('style-beautiful-handdrawn.html', '_blank')">
+      <div class="card-preview">
+        <iframe src="style-beautiful-handdrawn.html"></iframe>
+      </div>
+      <div class="card-info">
+        <div class="card-title">✨ 精美手绘风格（升级版）</div>
+        <div class="card-description">
+          全新设计！参考ChatGPT Images教程图片风格，添加了精美插画、可爱emoji、
+          温暖配色、云朵装饰、动画效果。真正的杂志级别设计！
+        </div>
+        <div class="card-tags">
+          <span class="tag">NEW</span>
+          <span class="tag">精美插画</span>
+          <span class="tag">动画效果</span>
+          <span class="tag">温馨可爱</span>
+        </div>
+      </div>
+      <button class="open-btn">查看完整效果</button>
+    </div>
+
+    <!-- 新模板2: 柯达Portra 400胶片风 -->
+    <div class="card" onclick="window.open('style-kodak-portra.html', '_blank')">
+      <div class="card-preview">
+        <iframe src="style-kodak-portra.html"></iframe>
+      </div>
+      <div class="card-info">
+        <div class="card-title">📷 柯达Portra 400胶片风</div>
+        <div class="card-description">
+          专业胶片摄影美学！温暖柔和的色调、胶片颗粒纹理、
+          胶片边框和孔洞、光线漏光效果、暗角处理。真实的胶片质感！
+        </div>
+        <div class="card-tags">
+          <span class="tag">NEW</span>
+          <span class="tag">胶片摄影</span>
+          <span class="tag">Portra 400</span>
+          <span class="tag">专业级</span>
+        </div>
+      </div>
+      <button class="open-btn">查看完整效果</button>
+    </div>
+
+    <!-- 新模板3: 高端杂志排版 -->
+    <div class="card" onclick="window.open('style-luxury-magazine.html', '_blank')">
+      <div class="card-preview">
+        <iframe src="style-luxury-magazine.html"></iframe>
+      </div>
+      <div class="card-info">
+        <div class="card-title">📰 高端杂志排版风格</div>
+        <div class="card-description">
+          Vogue/Kinfolk级别排版！超大衬线字体、首字母放大、
+          引用块艺术排版、极简配色、数据可视化。真正的奢侈品美学！
+        </div>
+        <div class="card-tags">
+          <span class="tag">NEW</span>
+          <span class="tag">奢侈品</span>
+          <span class="tag">高端杂志</span>
+          <span class="tag">Playfair</span>
+        </div>
+      </div>
+      <button class="open-btn">查看完整效果</button>
+    </div>
+
+    <!-- 新模板4: 吉卜力风格 -->
+    <div class="card" onclick="window.open('style-ghibli.html', '_blank')">
+      <div class="card-preview">
+        <iframe src="style-ghibli.html"></iframe>
+      </div>
+      <div class="card-info">
+        <div class="card-title">🌈 吉卜力动画风格</div>
+        <div class="card-description">
+          宫崎骏动画美学！天空蓝和草地绿、浮动云朵、飞行纸飞机、
+          魔法标签、故事化叙事。温暖治愈的吉卜力世界！
+        </div>
+        <div class="card-tags">
+          <span class="tag">NEW</span>
+          <span class="tag">吉卜力</span>
+          <span class="tag">宫崎骏</span>
+          <span class="tag">治愈系</span>
+        </div>
+      </div>
+      <button class="open-btn">查看完整效果</button>
+    </div>
+
+    <!-- 旧模板2: 水彩旅行风格 -->
+    <div class="card" onclick="window.open('style-watercolor-travel.html', '_blank')">
+      <div class="card-preview">
+        <iframe src="style-watercolor-travel.html"></iframe>
+      </div>
+      <div class="card-info">
+        <div class="card-title">🎨 水彩旅行风格</div>
+        <div class="card-description">
+          参考"北京7日游"图片风格！手绘水彩质感、旅行路线布局、
+          气泡提示、精美站点卡片。
+        </div>
+        <div class="card-tags">
+          <span class="tag">水彩风</span>
+          <span class="tag">旅行地图</span>
+          <span class="tag">精美</span>
+        </div>
+      </div>
+      <button class="open-btn">查看完整效果</button>
+    </div>
+
+    <!-- 模板1: 手绘风格（旧版） -->
+    <div class="card" onclick="window.open('style-1-handdrawn.html', '_blank')">
+      <div class="card-preview">
+        <iframe src="style-1-handdrawn.html"></iframe>
+      </div>
+      <div class="card-info">
+        <div class="card-title">🎨 手绘旅行手账风格</div>
+        <div class="card-description">
+          温馨童趣的手绘风格，蜡笔质感，旅行路线式布局，
+          适合轻松愉快的内容。灵感来自旅行手账和儿童插画。
+        </div>
+        <div class="card-tags">
+          <span class="tag">温馨</span>
+          <span class="tag">童趣</span>
+          <span class="tag">手绘</span>
+          <span class="tag">适合科普</span>
+        </div>
+      </div>
+      <button class="open-btn">点击查看完整效果</button>
+    </div>
+
+    <!-- 模板2: 现代极简 -->
+    <div class="card" onclick="window.open('style-2-minimal-magazine.html', '_blank')">
+      <div class="card-preview">
+        <iframe src="style-2-minimal-magazine.html"></iframe>
+      </div>
+      <div class="card-info">
+        <div class="card-title">📰 现代极简杂志风格</div>
+        <div class="card-description">
+          高端室内设计美学，大留白，Playfair Display衬线字体，
+          黑白灰配色，极致简约。适合深度分析和专业内容。
+        </div>
+        <div class="card-tags">
+          <span class="tag">极简</span>
+          <span class="tag">高端</span>
+          <span class="tag">大留白</span>
+          <span class="tag">适合深度</span>
+        </div>
+      </div>
+      <button class="open-btn">点击查看完整效果</button>
+    </div>
+
+    <!-- 模板3: 信息图卡片 -->
+    <div class="card" onclick="window.open('style-3-infographic-card.html', '_blank')">
+      <div class="card-preview">
+        <iframe src="style-3-infographic-card.html"></iframe>
+      </div>
+      <div class="card-info">
+        <div class="card-title">🔥 信息图卡片风格</div>
+        <div class="card-description">
+          红黑对比强烈，毛笔草书字体，手绘插画，
+          有力量感和感染力。适合鸡汤、励志、核心观点类内容。
+        </div>
+        <div class="card-tags">
+          <span class="tag">红黑配色</span>
+          <span class="tag">草书</span>
+          <span class="tag">有力量</span>
+          <span class="tag">适合观点</span>
+        </div>
+      </div>
+      <button class="open-btn">点击查看完整效果</button>
+    </div>
+
+    <!-- 模板4: 科技深色 -->
+    <div class="card" onclick="window.open('style-4-tech-dark.html', '_blank')">
+      <div class="card-preview">
+        <iframe src="style-4-tech-dark.html"></iframe>
+      </div>
+      <div class="card-info">
+        <div class="card-title">🌌 科技感深色风格</div>
+        <div class="card-description">
+          深色调，未来感，克制的配色（深蓝+青绿），
+          网格背景，代码块元素。适合技术报告和AI相关内容。
+        </div>
+        <div class="card-tags">
+          <span class="tag">深色</span>
+          <span class="tag">科技感</span>
+          <span class="tag">未来感</span>
+          <span class="tag">适合技术</span>
+        </div>
+      </div>
+      <button class="open-btn">点击查看完整效果</button>
+    </div>
+
+    <!-- 模板5: 国风 -->
+    <div class="card" onclick="window.open('style-5-chinese-style.html', '_blank')">
+      <div class="card-preview">
+        <iframe src="style-5-chinese-style.html"></iframe>
+      </div>
+      <div class="card-info">
+        <div class="card-title">🏮 国风海报风格</div>
+        <div class="card-description">
+          中国风配色（米黄底+红色强调），印章装饰，竖排标题，
+          诗句引用。适合中文内容，有文化底蕴。
+        </div>
+        <div class="card-tags">
+          <span class="tag">国风</span>
+          <span class="tag">诗句</span>
+          <span class="tag">印章</span>
+          <span class="tag">适合中文</span>
+        </div>
+      </div>
+      <button class="open-btn">点击查看完整效果</button>
+    </div>
+
+    <!-- 模板6: Apple风格 -->
+    <div class="card" onclick="window.open('style-6-apple-keynote.html', '_blank')">
+      <div class="card-preview">
+        <iframe src="style-6-apple-keynote.html"></iframe>
+      </div>
+      <div class="card-info">
+        <div class="card-title">🍎 Apple Keynote风格</div>
+        <div class="card-description">
+          纯正的Apple设计语言，超大字体，极简配色，
+          SF Pro字体，产品发布会美学。适合产品介绍和重大发布。
+        </div>
+        <div class="card-tags">
+          <span class="tag">Apple风</span>
+          <span class="tag">超大字</span>
+          <span class="tag">极简</span>
+          <span class="tag">适合发布</span>
+        </div>
+      </div>
+      <button class="open-btn">点击查看完整效果</button>
+    </div>
+  </div>
+</body>
+</html>
