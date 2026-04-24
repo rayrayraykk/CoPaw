@@ -176,7 +176,7 @@ spec:
 
 ```plaintext
 请构建一个简单的 todo-list（待办事项）REST API 应用。dev worker 先设计 API 端点，然后实现它们。QA worker 在 API 设计完成后编写测试用例。请协调你的团队，完成后向我汇报。
-````
+```
 
 Team Leader 收到任务后会：
 

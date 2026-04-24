@@ -176,7 +176,7 @@ Assign tasks directly in the Leader DM room. Here's an example task (building a 
 
 ```plaintext
 Please build a simple todo-list REST API application. The dev worker should first design the API endpoints, then implement them. The QA worker should write test cases after the API design is complete. Please coordinate your team and report to me when finished.
-````
+```
 
 Upon receiving the task, Team Leader will:
 
