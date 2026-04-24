@@ -1,17 +1,27 @@
 import { useState } from "react";
-import { Tabs, Empty, Button, Badge } from "antd";
+import { Tabs, Empty, Button, Badge, message } from "antd";
 import { PackageOpen, Bell, Sparkles, Plus } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { ApprovalCard } from "./components/ApprovalCard";
 import { PushMessageCard } from "./components/PushMessageCard";
 import { HarvestCard } from "./components/HarvestCard";
+import { FlipbookReader } from "./components/FlipbookReader";
+import { CreateHarvestModal } from "./components/CreateHarvestModal";
 import { useInboxData } from "./hooks/useInboxData";
+import { useMockHarvestContent } from "./hooks/useMockHarvestContent";
+import type { HarvestContent } from "./types";
 import styles from "./index.module.less";
 
 type TabKey = "approvals" | "messages" | "harvests";
 
 function InboxPage() {
   const [activeTab, setActiveTab] = useState<TabKey>("harvests");
+  const [readerOpen, setReaderOpen] = useState(false);
+  const [currentContent, setCurrentContent] = useState<HarvestContent | null>(
+    null,
+  );
+  const [createModalOpen, setCreateModalOpen] = useState(false);
+
   const {
     summary,
     approvals,
@@ -25,22 +35,33 @@ function InboxPage() {
 
   const handleViewMessage = (messageId: string) => {
     console.log("View message:", messageId);
-    // TODO: Open message detail modal
+    message.info("Message detail view - Coming soon!");
   };
 
   const handleViewHarvest = (harvestId: string) => {
-    console.log("View harvest history:", harvestId);
-    // TODO: Open harvest history modal
+    const content = useMockHarvestContent(harvestId);
+    if (content) {
+      setCurrentContent(content);
+      setReaderOpen(true);
+    } else {
+      message.warning("No harvest content available yet");
+    }
   };
 
   const handleHarvestSettings = (harvestId: string) => {
     console.log("Open harvest settings:", harvestId);
-    // TODO: Open harvest settings modal
+    message.info("Harvest settings - Coming soon!");
   };
 
   const handleCreateHarvest = () => {
-    console.log("Create new harvest");
-    // TODO: Open create harvest modal
+    setCreateModalOpen(true);
+  };
+
+  const handleCreateSubmit = (values: any) => {
+    console.log("Creating harvest with values:", values);
+    message.success(
+      `Harvest "${values.name}" created successfully! 🎉`,
+    );
   };
 
   const tabItems = [
@@ -173,6 +194,22 @@ function InboxPage() {
           className={styles.inboxTabs}
         />
       </div>
+
+      {/* Flipbook Reader Modal */}
+      {currentContent && (
+        <FlipbookReader
+          open={readerOpen}
+          content={currentContent}
+          onClose={() => setReaderOpen(false)}
+        />
+      )}
+
+      {/* Create Harvest Modal */}
+      <CreateHarvestModal
+        open={createModalOpen}
+        onClose={() => setCreateModalOpen(false)}
+        onSubmit={handleCreateSubmit}
+      />
     </div>
   );
 }
