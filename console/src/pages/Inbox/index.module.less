@@ -1,0 +1,111 @@
+.inboxPage {
+  min-height: 100vh;
+  background: #fafafa;
+}
+
+.pageContent {
+  padding: 24px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.inboxTabs {
+  background: white;
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+
+  :global(.ant-tabs-nav) {
+    margin-bottom: 24px;
+  }
+
+  :global(.ant-tabs-tab) {
+    padding: 12px 24px;
+    font-weight: 500;
+  }
+
+  :global(.ant-tabs-tab-active) {
+    .tabLabel {
+      color: #ff7f16;
+
+      svg {
+        color: #ff7f16;
+      }
+    }
+  }
+}
+
+.tabLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+
+  svg {
+    flex-shrink: 0;
+  }
+
+  :global(.ant-badge) {
+    margin-left: 4px;
+  }
+}
+
+.tabContent {
+  min-height: 400px;
+}
+
+.cardList {
+  display: flex;
+  flex-direction: column;
+}
+
+.harvestGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  gap: 24px;
+}
+
+@media (max-width: 1200px) {
+  .harvestGrid {
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .pageContent {
+    padding: 16px;
+  }
+
+  .inboxTabs {
+    padding: 16px;
+    border-radius: 12px;
+
+    :global(.ant-tabs-nav) {
+      margin-bottom: 16px;
+    }
+
+    :global(.ant-tabs-tab) {
+      padding: 8px 12px;
+      font-size: 14px;
+    }
+  }
+
+  .tabLabel {
+    font-size: 13px;
+    gap: 6px;
+
+    svg {
+      width: 14px;
+      height: 14px;
+    }
+  }
+
+  .harvestGrid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .tabContent {
+    min-height: 300px;
+  }
+}

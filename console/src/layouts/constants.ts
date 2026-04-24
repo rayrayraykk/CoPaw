@@ -19,6 +19,7 @@ export const DEFAULT_OPEN_KEYS = [
 
 export const KEY_TO_PATH: Record<string, string> = {
   chat: "/chat",
+  inbox: "/inbox",
   channels: "/channels",
   sessions: "/sessions",
   "cron-jobs": "/cron-jobs",

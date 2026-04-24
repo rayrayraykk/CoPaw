@@ -1,0 +1,212 @@
+.harvestCard {
+  border-radius: 16px;
+  border: 1px solid #e8e8e8;
+  transition: all 0.3s ease;
+  overflow: hidden;
+  background: linear-gradient(135deg, #ffffff 0%, #fafafa 100%);
+
+  &:global(.ant-card-hoverable):hover {
+    border-color: #ff7f16;
+  }
+
+  &.harvestCardReady {
+    background: linear-gradient(
+      135deg,
+      #fffbf0 0%,
+      #fff8e1 100%
+    );
+    border-color: #ffd700;
+    box-shadow: 0 0 20px rgba(255, 215, 0, 0.3);
+  }
+
+  :global(.ant-card-body) {
+    padding: 24px;
+  }
+}
+
+.cardHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.emoji {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.title {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+  color: #1a1a1a;
+}
+
+.statusIconActive {
+  color: #52c41a;
+}
+
+.statusIconPaused {
+  color: #faad14;
+}
+
+.statusIconError {
+  color: #ff4d4f;
+}
+
+.cardBody {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.countdownSection {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 16px;
+  background: #fafafa;
+  border-radius: 12px;
+}
+
+.progressCircle {
+  width: 100px;
+  height: 100px;
+  flex-shrink: 0;
+
+  :global(.CircularProgressbar-text) {
+    font-weight: 600;
+    font-size: 13px !important;
+  }
+}
+
+.countdownInfo {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.statusBadge {
+  :global(.ant-badge-status-text) {
+    font-size: 14px;
+    font-weight: 500;
+  }
+}
+
+.statsSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 0;
+  border-top: 1px solid #e8e8e8;
+  border-bottom: 1px solid #e8e8e8;
+}
+
+.statItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #666;
+
+  svg {
+    flex-shrink: 0;
+  }
+}
+
+.lastHarvest {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #999;
+
+  svg {
+    flex-shrink: 0;
+  }
+}
+
+.previewSection {
+  padding: 12px;
+  background: #f5f5f5;
+  border-radius: 8px;
+  border-left: 3px solid #ff7f16;
+}
+
+.previewTitle {
+  font-size: 12px;
+  color: #999;
+  margin-bottom: 4px;
+}
+
+.previewContent {
+  font-size: 14px;
+  font-weight: 500;
+  color: #1a1a1a;
+}
+
+.cardActions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+
+  button {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 40px;
+    border-radius: 8px;
+    font-weight: 500;
+
+    &:last-child {
+      flex: 0 0 48px;
+    }
+  }
+}
+
+.triggerButton {
+  background: linear-gradient(135deg, #ff7f16 0%, #ffa500 100%);
+  border: none;
+
+  &:hover {
+    background: linear-gradient(135deg, #ff9a3c 0%, #ffb733 100%);
+  }
+}
+
+@media (max-width: 768px) {
+  .harvestCard {
+    :global(.ant-card-body) {
+      padding: 16px;
+    }
+  }
+
+  .countdownSection {
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .progressCircle {
+    width: 80px;
+    height: 80px;
+  }
+
+  .cardActions {
+    flex-wrap: wrap;
+
+    button {
+      &:last-child {
+        flex: 1;
+      }
+    }
+  }
+}

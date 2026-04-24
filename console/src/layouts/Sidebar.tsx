@@ -145,6 +145,12 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       label: t("nav.chat"),
     },
     {
+      key: "inbox",
+      icon: <SparkDataLine size={18} />,
+      path: "/inbox",
+      label: "Inbox",
+    },
+    {
       key: "channels",
       icon: <SparkWifiLine size={18} />,
       path: "/channels",
@@ -280,6 +286,11 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       key: "chat",
       label: collapsed ? null : t("nav.chat"),
       icon: <SparkChatTabFill size={16} />,
+    },
+    {
+      key: "inbox",
+      label: collapsed ? null : "Inbox",
+      icon: <SparkDataLine size={16} />,
     },
     {
       key: "control-group",

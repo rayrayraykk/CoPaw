@@ -1,0 +1,180 @@
+import { useState } from "react";
+import { Tabs, Empty, Button, Badge } from "antd";
+import { PackageOpen, Bell, Sparkles, Plus } from "lucide-react";
+import { PageHeader } from "@/components/PageHeader";
+import { ApprovalCard } from "./components/ApprovalCard";
+import { PushMessageCard } from "./components/PushMessageCard";
+import { HarvestCard } from "./components/HarvestCard";
+import { useInboxData } from "./hooks/useInboxData";
+import styles from "./index.module.less";
+
+type TabKey = "approvals" | "messages" | "harvests";
+
+function InboxPage() {
+  const [activeTab, setActiveTab] = useState<TabKey>("harvests");
+  const {
+    summary,
+    approvals,
+    pushMessages,
+    harvests,
+    markMessageAsRead,
+    approveRequest,
+    rejectRequest,
+    triggerHarvest,
+  } = useInboxData();
+
+  const handleViewMessage = (messageId: string) => {
+    console.log("View message:", messageId);
+    // TODO: Open message detail modal
+  };
+
+  const handleViewHarvest = (harvestId: string) => {
+    console.log("View harvest history:", harvestId);
+    // TODO: Open harvest history modal
+  };
+
+  const handleHarvestSettings = (harvestId: string) => {
+    console.log("Open harvest settings:", harvestId);
+    // TODO: Open harvest settings modal
+  };
+
+  const handleCreateHarvest = () => {
+    console.log("Create new harvest");
+    // TODO: Open create harvest modal
+  };
+
+  const tabItems = [
+    {
+      key: "approvals",
+      label: (
+        <span className={styles.tabLabel}>
+          <PackageOpen size={16} />
+          Approvals
+          {summary.approvals.urgent > 0 && (
+            <Badge count={summary.approvals.urgent} />
+          )}
+        </span>
+      ),
+      children: (
+        <div className={styles.tabContent}>
+          {approvals.length > 0 ? (
+            <div className={styles.cardList}>
+              {approvals.map((approval) => (
+                <ApprovalCard
+                  key={approval.id}
+                  approval={approval}
+                  onApprove={approveRequest}
+                  onReject={rejectRequest}
+                />
+              ))}
+            </div>
+          ) : (
+            <Empty description="No pending approvals" />
+          )}
+        </div>
+      ),
+    },
+    {
+      key: "messages",
+      label: (
+        <span className={styles.tabLabel}>
+          <Bell size={16} />
+          Push Messages
+          {summary.pushMessages.unread > 0 && (
+            <Badge count={summary.pushMessages.unread} />
+          )}
+        </span>
+      ),
+      children: (
+        <div className={styles.tabContent}>
+          {pushMessages.length > 0 ? (
+            <div className={styles.cardList}>
+              {pushMessages.map((message) => (
+                <PushMessageCard
+                  key={message.id}
+                  message={message}
+                  onMarkAsRead={markMessageAsRead}
+                  onView={handleViewMessage}
+                />
+              ))}
+            </div>
+          ) : (
+            <Empty description="No push messages" />
+          )}
+        </div>
+      ),
+    },
+    {
+      key: "harvests",
+      label: (
+        <span className={styles.tabLabel}>
+          <Sparkles size={16} />
+          AI Harvest
+          {summary.harvests.active > 0 && (
+            <Badge count={summary.harvests.active} status="processing" />
+          )}
+        </span>
+      ),
+      children: (
+        <div className={styles.tabContent}>
+          {harvests.length > 0 ? (
+            <div className={styles.harvestGrid}>
+              {harvests.map((harvest) => (
+                <HarvestCard
+                  key={harvest.id}
+                  harvest={harvest}
+                  onTrigger={triggerHarvest}
+                  onViewAll={handleViewHarvest}
+                  onSettings={handleHarvestSettings}
+                />
+              ))}
+            </div>
+          ) : (
+            <Empty
+              description="No harvests yet"
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+            >
+              <Button
+                type="primary"
+                icon={<Plus size={16} />}
+                onClick={handleCreateHarvest}
+              >
+                Create Your First Harvest
+              </Button>
+            </Empty>
+          )}
+        </div>
+      ),
+    },
+  ];
+
+  return (
+    <div className={styles.inboxPage}>
+      <PageHeader
+        items={[{ title: "AI Daily Harvest" }]}
+        extra={
+          activeTab === "harvests" && (
+            <Button
+              type="primary"
+              icon={<Plus size={16} />}
+              onClick={handleCreateHarvest}
+            >
+              Create Harvest
+            </Button>
+          )
+        }
+      />
+
+      <div className={styles.pageContent}>
+        <Tabs
+          activeKey={activeTab}
+          onChange={(key) => setActiveTab(key as TabKey)}
+          items={tabItems}
+          className={styles.inboxTabs}
+        />
+      </div>
+    </div>
+  );
+}
+
+export default InboxPage;
