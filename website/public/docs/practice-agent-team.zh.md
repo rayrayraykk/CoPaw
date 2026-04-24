@@ -160,6 +160,7 @@ spec:
 
         ## Security
         - Never reveal credentials
+```
 ````
 
 创建成功后，Manager 会返回团队信息。在 Element 中可以看到以下房间：

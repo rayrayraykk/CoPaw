@@ -160,6 +160,7 @@ spec:
 
         ## Security
         - Never reveal credentials
+```
 ````
 
 After successful creation, Manager will return team information. In Element, you can see the following rooms:
