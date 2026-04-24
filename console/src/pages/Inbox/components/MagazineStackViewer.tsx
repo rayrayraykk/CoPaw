@@ -20,6 +20,7 @@ export const MagazineStackViewer: React.FC<MagazineStackViewerProps> = ({
 }) => {
   const [magazines, setMagazines] = useState(() => generateMockHistory(harvest.id));
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   // 标记为已读
   const markAsRead = useCallback((index: number) => {
@@ -52,6 +53,17 @@ export const MagazineStackViewer: React.FC<MagazineStackViewerProps> = ({
   // 导出PNG
   const handleExport = useCallback(() => {
     message.info("导出PNG功能将在生产版本中实现（使用Playwright）");
+  }, []);
+
+  // 进入全屏预览
+  const enterFullscreen = useCallback(() => {
+    setIsFullscreen(true);
+    markAsRead(currentIndex);
+  }, [currentIndex, markAsRead]);
+
+  // 退出全屏预览
+  const exitFullscreen = useCallback(() => {
+    setIsFullscreen(false);
   }, []);
 
   // 拖拽手势 - 左右滑动翻页
@@ -162,12 +174,22 @@ export const MagazineStackViewer: React.FC<MagazineStackViewerProps> = ({
                   </div>
 
                   {/* 报纸内容iframe */}
-                  <div className={styles.magazineFrame}>
+                  <div
+                    className={styles.magazineFrame}
+                    onClick={enterFullscreen}
+                    title="点击查看完整内容"
+                  >
                     <iframe
                       src={magazines[index].coverImage}
                       className={styles.contentIframe}
                       title={magazines[index].title}
                     />
+                    {/* 点击提示遮罩 */}
+                    <div className={styles.clickOverlay}>
+                      <div className={styles.clickHint}>
+                        🔍 点击查看完整内容
+                      </div>
+                    </div>
                   </div>
                 </animated.div>
               ))}
@@ -236,6 +258,48 @@ export const MagazineStackViewer: React.FC<MagazineStackViewerProps> = ({
           </div>
         </div>
       </div>
+
+      {/* 全屏预览模态框 */}
+      {isFullscreen && (
+        <div className={styles.fullscreenModal}>
+          <div className={styles.fullscreenHeader}>
+            <div className={styles.fullscreenTitle}>
+              <h3>{magazines[currentIndex].title}</h3>
+              <span className={styles.fullscreenDate}>
+                {magazines[currentIndex].date.toLocaleDateString('zh-CN', {
+                  year: 'numeric',
+                  month: 'long',
+                  day: 'numeric'
+                })}
+              </span>
+            </div>
+            <div className={styles.fullscreenActions}>
+              <Button
+                icon={<Download size={18} />}
+                onClick={handleExport}
+                size="large"
+              >
+                下载PNG
+              </Button>
+              <Button
+                icon={<X size={20} />}
+                onClick={exitFullscreen}
+                size="large"
+                type="text"
+              >
+                关闭
+              </Button>
+            </div>
+          </div>
+          <div className={styles.fullscreenContent}>
+            <iframe
+              src={magazines[currentIndex].coverImage}
+              className={styles.fullscreenIframe}
+              title={`全屏-${magazines[currentIndex].title}`}
+            />
+          </div>
+        </div>
+      )}
     </Modal>
   );
 };

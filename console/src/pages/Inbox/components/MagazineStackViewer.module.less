@@ -217,6 +217,14 @@
   background: white;
   overflow: hidden;
   position: relative;
+  cursor: pointer;
+  transition: all 0.3s ease;
+
+  &:hover {
+    .clickOverlay {
+      opacity: 1;
+    }
+  }
 }
 
 .contentIframe {
@@ -224,6 +232,42 @@
   height: 100%;
   border: none;
   display: block;
+  pointer-events: none;
+}
+
+.clickOverlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+
+.clickHint {
+  background: rgba(255, 255, 255, 0.95);
+  color: #2c3e50;
+  padding: 16px 32px;
+  border-radius: 50px;
+  font-size: 16px;
+  font-weight: 600;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  animation: hint-bounce 2s infinite;
+}
+
+@keyframes hint-bounce {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
 }
 
 /* ========== 操作栏 ========== */
@@ -348,6 +392,95 @@
   transition: all 0.3s ease;
 }
 
+/* ========== 全屏预览模态框 ========== */
+.fullscreenModal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.95);
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  animation: fullscreen-fade-in 0.3s ease;
+}
+
+@keyframes fullscreen-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.fullscreenHeader {
+  padding: 20px 32px;
+  background: rgba(0, 0, 0, 0.8);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.fullscreenTitle {
+  flex: 1;
+
+  h3 {
+    color: white;
+    font-size: 24px;
+    font-weight: 700;
+    margin: 0 0 4px 0;
+  }
+}
+
+.fullscreenDate {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 14px;
+}
+
+.fullscreenActions {
+  display: flex;
+  gap: 12px;
+
+  :global(.ant-btn) {
+    color: white;
+    border-color: rgba(255, 255, 255, 0.3);
+
+    &:hover {
+      border-color: #FFB347;
+      color: #FFB347;
+    }
+  }
+
+  :global(.ant-btn-text) {
+    &:hover {
+      background: rgba(255, 255, 255, 0.1);
+    }
+  }
+}
+
+.fullscreenContent {
+  flex: 1;
+  padding: 24px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fullscreenIframe {
+  width: 100%;
+  height: 100%;
+  max-width: 1400px;
+  border: none;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
 /* ========== 响应式 ========== */
 @media (max-width: 1200px) {
   .magazineDisplay {
@@ -390,5 +523,17 @@
   .thumbnailWrapper {
     width: 60px;
     height: 80px;
+  }
+
+  .fullscreenHeader {
+    padding: 16px 20px;
+
+    h3 {
+      font-size: 18px;
+    }
+  }
+
+  .fullscreenContent {
+    padding: 16px;
   }
 }
