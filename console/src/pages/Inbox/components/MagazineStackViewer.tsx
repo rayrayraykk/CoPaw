@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { Modal, Badge, Button, message } from "antd";
 import { X, Download, BookmarkCheck, BookmarkX, ChevronLeft, ChevronRight } from "lucide-react";
 import { useSpring, animated, config, useTransition } from "@react-spring/web";
@@ -265,9 +266,12 @@ export const MagazineStackViewer: React.FC<MagazineStackViewerProps> = ({
         </div>
       </div>
 
-      {/* 全屏预览模态框 */}
-      {isFullscreen && (
-        <div className={styles.fullscreenModal}>
+      {/* 全屏预览模态框 - 使用 Portal 渲染到 body */}
+      {isFullscreen && createPortal(
+        <div
+          className={styles.fullscreenModal}
+          onClick={exitFullscreen}
+        >
           <div className={styles.fullscreenHeader}>
             <div className={styles.fullscreenTitle}>
               <h3>{magazines[currentIndex].title}</h3>
@@ -282,14 +286,20 @@ export const MagazineStackViewer: React.FC<MagazineStackViewerProps> = ({
             <div className={styles.fullscreenActions}>
               <Button
                 icon={<Download size={18} />}
-                onClick={handleExport}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleExport();
+                }}
                 size="large"
               >
                 下载PNG
               </Button>
               <Button
                 icon={<X size={20} />}
-                onClick={exitFullscreen}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  exitFullscreen();
+                }}
                 size="large"
                 type="text"
               >
@@ -297,14 +307,18 @@ export const MagazineStackViewer: React.FC<MagazineStackViewerProps> = ({
               </Button>
             </div>
           </div>
-          <div className={styles.fullscreenContent}>
+          <div
+            className={styles.fullscreenContent}
+            onClick={(e) => e.stopPropagation()}
+          >
             <iframe
               src={magazines[currentIndex].coverImage}
               className={styles.fullscreenIframe}
               title={`全屏-${magazines[currentIndex].title}`}
             />
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </Modal>
   );
