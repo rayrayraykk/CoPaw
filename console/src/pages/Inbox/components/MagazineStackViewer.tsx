@@ -22,6 +22,12 @@ export const MagazineStackViewer: React.FC<MagazineStackViewerProps> = ({
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
+  // 关闭Modal时重置状态
+  const handleClose = useCallback(() => {
+    setIsFullscreen(false); // 重置全屏状态
+    onClose();
+  }, [onClose]);
+
   // 标记为已读
   const markAsRead = useCallback((index: number) => {
     setMagazines((prev: any[]) =>
@@ -102,7 +108,7 @@ export const MagazineStackViewer: React.FC<MagazineStackViewerProps> = ({
   return (
     <Modal
       open={open}
-      onCancel={onClose}
+      onCancel={handleClose}
       footer={null}
       width="95vw"
       style={{ maxWidth: 1600, top: 20 }}
