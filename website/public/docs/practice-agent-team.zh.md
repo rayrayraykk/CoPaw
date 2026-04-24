@@ -71,7 +71,7 @@ Workers:
 
 ### 系统要求
 
-**Embed 模式（本地 Docker）**
+**Embedded 模式（本地 Docker）**
 
 - 适用场景：个人开发、快速体验、小规模团队（1-5 个 Worker）
 - Docker Desktop（Windows/macOS）或 Docker Engine（Linux）

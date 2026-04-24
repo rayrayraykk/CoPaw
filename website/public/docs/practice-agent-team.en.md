@@ -71,7 +71,7 @@ Before getting started, ensure the following conditions are met:
 
 ### System Requirements
 
-**Embed Mode (Local Docker)**
+**Embedded Mode (Local Docker)**
 
 - Use Cases: Personal development, quick experience, small-scale teams (1-5 Workers)
 - Docker Desktop (Windows/macOS) or Docker Engine (Linux)
