@@ -119,8 +119,7 @@ class Workspace:
     @property
     def config(self):
         """Get agent configuration."""
-        if self._config is None:
-            self._config = load_agent_config(self.agent_id)
+        self._config = load_agent_config(self.agent_id)
         return self._config
 
     def set_manager(self, manager) -> None:
