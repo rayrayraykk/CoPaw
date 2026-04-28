@@ -79,6 +79,12 @@ def _sync_tool_plugin_to_agents(manifest: dict):
         click.echo("   No agents found, skipping sync")
         return
 
+    from ..config.config import (
+        BuiltinToolConfig,
+        load_agent_config,
+        save_agent_config,
+    )
+
     synced_count = 0
     for agent_dir in agent_dirs:
         agent_json_path = agent_dir / "agent.json"
@@ -86,31 +92,22 @@ def _sync_tool_plugin_to_agents(manifest: dict):
             continue
 
         try:
-            # Read agent config
-            with open(agent_json_path, encoding="utf-8") as f:
-                config = json.load(f)
+            # Load agent config using Pydantic model
+            config = load_agent_config(str(agent_dir))
 
             # Check if tool already exists
-            builtin_tools = config.get("tools", {}).get("builtin_tools", {})
-
-            if tool_name in builtin_tools:
+            if tool_name in config.tools.builtin_tools:
                 continue
 
-            # Add tool with default disabled state
-            if "tools" not in config:
-                config["tools"] = {}
-            if "builtin_tools" not in config["tools"]:
-                config["tools"]["builtin_tools"] = {}
+            # Add tool config using Pydantic model
+            config.tools.builtin_tools[tool_name] = BuiltinToolConfig(
+                name=tool_name,
+                enabled=False,
+                config={},
+            )
 
-            config["tools"]["builtin_tools"][tool_name] = {
-                "name": tool_name,
-                "enabled": False,
-                "config": {},
-            }
-
-            # Save updated config
-            with open(agent_json_path, "w", encoding="utf-8") as f:
-                json.dump(config, f, indent=2, ensure_ascii=False)
+            # Save using config system
+            save_agent_config(str(agent_dir), config)
 
             synced_count += 1
 
@@ -147,6 +144,8 @@ def _remove_tool_plugin_from_agents(manifest: dict):
         click.echo("   No agents found, skipping cleanup")
         return
 
+    from ..config.config import load_agent_config, save_agent_config
+
     removed_count = 0
     for agent_dir in agent_dirs:
         agent_json_path = agent_dir / "agent.json"
@@ -154,22 +153,18 @@ def _remove_tool_plugin_from_agents(manifest: dict):
             continue
 
         try:
-            # Read agent config
-            with open(agent_json_path, encoding="utf-8") as f:
-                config = json.load(f)
+            # Load agent config using Pydantic model
+            config = load_agent_config(str(agent_dir))
 
             # Check if tool exists
-            builtin_tools = config.get("tools", {}).get("builtin_tools", {})
-
-            if tool_name not in builtin_tools:
+            if tool_name not in config.tools.builtin_tools:
                 continue
 
             # Remove tool
-            del config["tools"]["builtin_tools"][tool_name]
+            del config.tools.builtin_tools[tool_name]
 
-            # Save updated config
-            with open(agent_json_path, "w", encoding="utf-8") as f:
-                json.dump(config, f, indent=2, ensure_ascii=False)
+            # Save using config system
+            save_agent_config(str(agent_dir), config)
 
             removed_count += 1
 
@@ -305,6 +300,48 @@ def install(source: str, force: bool):
         )
         return
 
+    # Validate plugin structure before installation
+    click.echo("🔍 Validating plugin structure...")
+    try:
+        # Check if backend entry point exists in source
+        backend_entry = manifest.get("entry", {}).get("backend")
+        if backend_entry:
+            backend_path = source_path / backend_entry
+            if not backend_path.exists():
+                raise FileNotFoundError(
+                    f"Backend entry point not found: {backend_entry}",
+                )
+
+            # Try to import the module to check for syntax errors
+            import importlib.util
+
+            spec = importlib.util.spec_from_file_location(
+                f"_plugin_validation_{plugin_id}",
+                backend_path,
+            )
+            if spec and spec.loader:
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+
+                # Check for required plugin export (class or instance)
+                has_plugin_class = hasattr(module, "Plugin")
+                has_plugin_instance = hasattr(module, "plugin")
+
+                if not (has_plugin_class or has_plugin_instance):
+                    raise AttributeError(
+                        "Plugin module must export a 'Plugin' class or "
+                        "'plugin' instance",
+                    )
+
+        click.echo("✓ Plugin validation successful")
+    except Exception as e:
+        click.echo(f"❌ Plugin validation failed: {e}", err=True)
+        click.echo(
+            "⚠️  Plugin not installed. Fix the issues and try again.",
+            err=True,
+        )
+        return
+
     # Remove old version
     if target_dir.exists():
         click.echo("🗑️  Removing old version...")
@@ -361,51 +398,7 @@ def install(source: str, force: bool):
     click.echo(f"\n✅ Plugin '{plugin_name}' installed successfully!")
     click.echo(f"📍 Location: {target_dir}")
 
-    # Validate plugin structure before syncing to agents
-    click.echo("🔍 Validating plugin structure...")
-    try:
-        # Check if backend entry point exists
-        backend_entry = manifest.get("entry", {}).get("backend")
-        if backend_entry:
-            backend_path = target_dir / backend_entry
-            if not backend_path.exists():
-                raise FileNotFoundError(
-                    f"Backend entry point not found: {backend_entry}",
-                )
-
-            # Try to import the module to check for syntax errors
-            import importlib.util
-
-            spec = importlib.util.spec_from_file_location(
-                f"_plugin_validation_{plugin_id}",
-                backend_path,
-            )
-            if spec and spec.loader:
-                module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(module)
-
-                # Check for required plugin export (class or instance)
-                has_plugin_class = hasattr(module, "Plugin")
-                has_plugin_instance = hasattr(module, "plugin")
-
-                if not (has_plugin_class or has_plugin_instance):
-                    raise AttributeError(
-                        "Plugin module must export a 'Plugin' class or "
-                        "'plugin' instance",
-                    )
-
-        click.echo("✓ Plugin validation successful")
-    except Exception as e:
-        click.echo(f"❌ Plugin validation failed: {e}", err=True)
-        click.echo(
-            "⚠️  Plugin installed but not synced to agents. "
-            "Fix the plugin and reinstall.",
-            err=True,
-        )
-        # Don't rollback installation - let user inspect the issue
-        return
-
-    # Sync tool plugins to all agents (only after validation passes)
+    # Sync tool plugins to all agents
     _sync_tool_plugin_to_agents(manifest)
 
     # Clean up temporary directory if source was downloaded

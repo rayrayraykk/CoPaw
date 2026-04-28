@@ -126,6 +126,10 @@ async def list_tools(
         if tool_name:
             tool_to_manifest[tool_name] = manifest
 
+    # Optimize: Load agent_config once instead of per-tool
+    # (reuse the already-loaded agent_config from above)
+    # No need to reload it since we have builtin_tools from it
+
     tools_list = []
     for tool_config in builtin_tools.values():
         tool_info = ToolInfo(
@@ -151,13 +155,10 @@ async def list_tools(
                     ToolConfigField(**field) for field in config_fields_data
                 ]
 
-            # Get current config values (masked) from agent config
-            config = registry.get_tool_config(
-                tool_config.name,
-                workspace.agent_id,
-            )
-            if config:
-                masked_config = dict(config)
+            # Get current config values directly from tool_config
+            # (no need to reload agent_config)
+            if tool_config.config:
+                masked_config = dict(tool_config.config)
                 # Mask password fields
                 for field in config_fields_data:
                     if (

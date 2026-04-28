@@ -6,8 +6,7 @@ A QwenPaw tool plugin that enables image generation using OpenAI's GPT Image 2 m
 
 - Generate high-quality images from text prompts
 - Support for multiple image sizes (1024x1024, 1024x1792, 1792x1024)
-- Quality options: standard, hd
-- Style options: natural, vivid
+- Quality options: low, medium, high, auto
 - Pure backend implementation - no frontend code required
 
 ## Installation
@@ -50,12 +49,11 @@ Generate an image using OpenAI GPT Image 2 model.
 
 - `prompt` (str, required): Text description of the image to generate
 - `size` (str, optional): Image size, one of "1024x1024", "1024x1792", "1792x1024" (default: "1024x1024")
-- `quality` (str, optional): Quality level, one of "standard", "hd" (default: "standard")
-- `style` (str, optional): Image style, one of "natural", "vivid" (default: "natural")
+- `quality` (str, optional): Quality level, one of "low", "medium", "high", "auto" (default: "auto")
 
 **Returns:**
 
-- ImageBlock with the generated image URL
+- ImageBlock with the generated image (base64-encoded as data URI)
 - TextBlock with generation metadata
 
 ## Requirements

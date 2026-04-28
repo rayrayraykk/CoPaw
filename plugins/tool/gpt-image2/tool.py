@@ -136,17 +136,21 @@ async def generate_image_gpt(
             )
 
         # Parse response
+        # GPT Image 2 returns b64_json, not url
         data = response.json()
-        image_url = data["data"][0]["url"]
+        b64_json = data["data"][0]["b64_json"]
 
-        logger.info(f"Image generated successfully: {image_url}")
+        logger.info("Image generated successfully (base64)")
+
+        # Convert base64 to data URI for display
+        data_uri = f"data:image/png;base64,{b64_json}"
 
         # Return image with metadata
         return ToolResponse(
             content=[
                 ImageBlock(
                     type="image",
-                    source={"type": "url", "url": image_url},
+                    source={"type": "url", "url": data_uri},
                 ),
                 TextBlock(
                     type="text",
