@@ -361,14 +361,35 @@ def install(source: str, force: bool):
     click.echo(f"\n✅ Plugin '{plugin_name}' installed successfully!")
     click.echo(f"📍 Location: {target_dir}")
 
-    # Validate plugin can be loaded before syncing to agents
-    click.echo("🔍 Validating plugin registration...")
+    # Validate plugin structure before syncing to agents
+    click.echo("🔍 Validating plugin structure...")
     try:
-        from ..plugins.loader import PluginLoader
+        # Check if backend entry point exists
+        backend_entry = manifest.get("entry", {}).get("backend")
+        if backend_entry:
+            backend_path = target_dir / backend_entry
+            if not backend_path.exists():
+                raise FileNotFoundError(
+                    f"Backend entry point not found: {backend_entry}",
+                )
 
-        loader = PluginLoader([target_dir.parent])
-        # Dry-run: try to load the plugin
-        loader.load_plugin(target_dir, manifest)
+            # Try to import the module to check for syntax errors
+            import importlib.util
+
+            spec = importlib.util.spec_from_file_location(
+                f"_plugin_validation_{plugin_id}",
+                backend_path,
+            )
+            if spec and spec.loader:
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+
+                # Check for required Plugin class
+                if not hasattr(module, "Plugin"):
+                    raise AttributeError(
+                        "Plugin module must export a 'Plugin' class",
+                    )
+
         click.echo("✓ Plugin validation successful")
     except Exception as e:
         click.echo(f"❌ Plugin validation failed: {e}", err=True)
