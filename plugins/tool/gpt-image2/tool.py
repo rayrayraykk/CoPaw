@@ -16,7 +16,6 @@ async def generate_image_gpt(
     prompt: str,
     size: str = "1024x1024",
     quality: str = "standard",
-    style: str = "natural",
 ) -> ToolResponse:
     """Generate an image using OpenAI GPT Image 2 model.
 
@@ -33,9 +32,6 @@ async def generate_image_gpt(
         quality (str, optional):
             Image quality level. Options: "standard", "hd".
             Defaults to "standard".
-        style (str, optional):
-            Image style. Options: "natural", "vivid".
-            Defaults to "natural".
 
     Returns:
         ToolResponse:
@@ -93,24 +89,10 @@ async def generate_image_gpt(
                 ],
             )
 
-        valid_style = {"natural", "vivid"}
-        if style not in valid_style:
-            return ToolResponse(
-                content=[
-                    TextBlock(
-                        type="text",
-                        text=(
-                            f"Error: Invalid style '{style}'. "
-                            f"Must be one of: {', '.join(valid_style)}"
-                        ),
-                    ),
-                ],
-            )
-
         # Call OpenAI API
         logger.info(
             f"Generating image with GPT Image 2: "
-            f"size={size}, quality={quality}, style={style}",
+            f"size={size}, quality={quality}",
         )
 
         async with httpx.AsyncClient(timeout=60.0) as client:
@@ -125,7 +107,6 @@ async def generate_image_gpt(
                     "prompt": prompt,
                     "size": size,
                     "quality": quality,
-                    "style": style,
                     "n": 1,
                 },
             )
@@ -166,8 +147,7 @@ async def generate_image_gpt(
                     text=(
                         f"Generated image using GPT Image 2\n"
                         f"Prompt: {prompt}\n"
-                        f"Size: {size}, Quality: {quality}, "
-                        f"Style: {style}"
+                        f"Size: {size}, Quality: {quality}"
                     ),
                 ),
             ],
