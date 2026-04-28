@@ -1135,6 +1135,7 @@ A: 如果多个插件注册相同的 provider_id 或 command_name，后注册的
 一个为 QwenPaw agents 添加 OpenAI GPT Image 2 图片生成能力的工具插件。
 
 **系统要求：**
+
 - QwenPaw 最低版本：`1.1.5`
 
 **安装方法：**
@@ -1167,6 +1168,7 @@ Agent: [调用 generate_image_gpt 工具]
 ```
 
 **功能特性：**
+
 - 支持多种图片尺寸：1024x1024, 1024x1792, 1792x1024
 - 质量选项：low, medium, high, auto
 - 自动验证 API Key

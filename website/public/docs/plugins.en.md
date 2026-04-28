@@ -1151,6 +1151,7 @@ A: If multiple plugins register the same provider_id or command_name, the later 
 A tool plugin that adds OpenAI's GPT Image 2 image generation capability to QwenPaw agents.
 
 **Requirements:**
+
 - Minimum QwenPaw version: `1.1.5`
 
 **Installation:**
@@ -1183,6 +1184,7 @@ Agent: [Calls generate_image_gpt tool]
 ```
 
 **Features:**
+
 - Supports multiple image sizes: 1024x1024, 1024x1792, 1792x1024
 - Quality options: low, medium, high, auto
 - Automatic API key validation
