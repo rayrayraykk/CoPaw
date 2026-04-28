@@ -9,7 +9,6 @@ import {
   Input,
   InputNumber,
   Select,
-  message as antdMessage,
 } from "@agentscope-ai/design";
 import {
   EyeOutlined,
