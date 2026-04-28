@@ -361,7 +361,26 @@ def install(source: str, force: bool):
     click.echo(f"\n✅ Plugin '{plugin_name}' installed successfully!")
     click.echo(f"📍 Location: {target_dir}")
 
-    # Sync tool plugins to all agents
+    # Validate plugin can be loaded before syncing to agents
+    click.echo("🔍 Validating plugin registration...")
+    try:
+        from ..plugins.loader import PluginLoader
+
+        loader = PluginLoader([target_dir.parent])
+        # Dry-run: try to load the plugin
+        loader.load_plugin(target_dir, manifest)
+        click.echo("✓ Plugin validation successful")
+    except Exception as e:
+        click.echo(f"❌ Plugin validation failed: {e}", err=True)
+        click.echo(
+            "⚠️  Plugin installed but not synced to agents. "
+            "Fix the plugin and reinstall.",
+            err=True,
+        )
+        # Don't rollback installation - let user inspect the issue
+        return
+
+    # Sync tool plugins to all agents (only after validation passes)
     _sync_tool_plugin_to_agents(manifest)
 
     # Clean up temporary directory if source was downloaded

@@ -7,6 +7,8 @@ import {
   Modal,
   Form,
   Input,
+  InputNumber,
+  Select,
   message as antdMessage,
 } from "@agentscope-ai/design";
 import {
@@ -102,29 +104,75 @@ function ToolConfigModal({
         layout="vertical"
         initialValues={tool.config_values || {}}
       >
-        {tool.config_fields?.map((field) => (
-          <Form.Item
-            key={field.name}
-            name={field.name}
-            label={field.label}
-            rules={[
-              {
-                required: field.required,
-                message: `${field.label} is required`,
-              },
-            ]}
-            help={field.help}
-          >
-            {field.type === "password" ? (
-              <Input.Password
-                placeholder={field.placeholder}
-                autoComplete="off"
-              />
-            ) : (
-              <Input type={field.type} placeholder={field.placeholder} />
-            )}
-          </Form.Item>
-        ))}
+        {tool.config_fields?.map((field) => {
+          // Render different input types based on field type
+          const renderInput = () => {
+            switch (field.type) {
+              case "password":
+                return (
+                  <Input.Password
+                    placeholder={field.placeholder}
+                    autoComplete="off"
+                  />
+                );
+
+              case "number":
+                return (
+                  <InputNumber
+                    placeholder={field.placeholder}
+                    min={field.min}
+                    max={field.max}
+                    style={{ width: "100%" }}
+                  />
+                );
+
+              case "boolean":
+                return <Switch />;
+
+              case "select":
+                return (
+                  <Select placeholder={field.placeholder}>
+                    {field.options?.map((option) => (
+                      <Select.Option key={option} value={option}>
+                        {option}
+                      </Select.Option>
+                    ))}
+                  </Select>
+                );
+
+              case "textarea":
+                return (
+                  <Input.TextArea
+                    placeholder={field.placeholder}
+                    rows={4}
+                    autoSize={{ minRows: 2, maxRows: 8 }}
+                  />
+                );
+
+              case "text":
+              default:
+                return <Input placeholder={field.placeholder} />;
+            }
+          };
+
+          return (
+            <Form.Item
+              key={field.name}
+              name={field.name}
+              label={field.label}
+              rules={[
+                {
+                  required: field.required,
+                  message: `${field.label} is required`,
+                },
+              ]}
+              help={field.help}
+              valuePropName={field.type === "boolean" ? "checked" : "value"}
+            >
+              {renderInput()}
+            </Form.Item>
+          );
+        })}
       </Form>
     </Modal>
   );

@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from enum import Enum
 from typing import Any, List, Optional
 
 from fastapi import APIRouter, Body, HTTPException, Path, Request
@@ -15,18 +16,39 @@ from ..utils import schedule_agent_reload
 router = APIRouter(prefix="/tools", tags=["tools"])
 
 
+class ToolConfigFieldType(str, Enum):
+    """Tool configuration field types."""
+
+    TEXT = "text"
+    PASSWORD = "password"
+    NUMBER = "number"
+    BOOLEAN = "boolean"
+    SELECT = "select"
+    TEXTAREA = "textarea"
+
+
 class ToolConfigField(BaseModel):
     """Tool configuration field definition."""
 
     name: str = Field(..., description="Field name")
     label: str = Field(..., description="Display label")
-    type: str = Field(..., description="Field type: text, password, etc")
+    type: ToolConfigFieldType = Field(
+        ...,
+        description="Field type",
+    )
     required: bool = Field(
         default=False,
         description="Whether field is required",
     )
     placeholder: Optional[str] = Field(None, description="Placeholder text")
     help: Optional[str] = Field(None, description="Help text")
+    options: Optional[List[str]] = Field(
+        None,
+        description="Options for select type",
+    )
+    default: Optional[Any] = Field(None, description="Default value")
+    min: Optional[float] = Field(None, description="Minimum value for number")
+    max: Optional[float] = Field(None, description="Maximum value for number")
 
 
 class ToolInfo(BaseModel):
@@ -93,6 +115,17 @@ async def list_tools(
     # Get plugin registry for config metadata
     registry = PluginRegistry()
 
+    # Optimize: Preload all manifests to avoid N+1 queries
+    all_manifests = registry.get_all_plugin_manifests()
+
+    # Build tool_name -> manifest mapping
+    tool_to_manifest = {}
+    for manifest in all_manifests.values():
+        meta = manifest.get("meta", {})
+        tool_name = meta.get("tool_name")
+        if tool_name:
+            tool_to_manifest[tool_name] = manifest
+
     tools_list = []
     for tool_config in builtin_tools.values():
         tool_info = ToolInfo(
@@ -103,40 +136,37 @@ async def list_tools(
             icon=tool_config.icon or "",
         )
 
-        # Add config metadata from plugin manifest
-        plugin_id = registry.get_plugin_id_for_tool(tool_config.name)
-        if plugin_id:
-            manifest = registry.get_plugin_manifest(plugin_id)
-            if manifest and "meta" in manifest:
-                meta = manifest["meta"]
-                tool_info.requires_config = meta.get(
-                    "requires_config",
-                    False,
-                )
-                # Convert config_fields to Pydantic models
-                config_fields_data = meta.get("config_fields", [])
-                if config_fields_data:
-                    tool_info.config_fields = [
-                        ToolConfigField(**field)
-                        for field in config_fields_data
-                    ]
+        # Add config metadata from plugin manifest (using cached mapping)
+        manifest = tool_to_manifest.get(tool_config.name)
+        if manifest and "meta" in manifest:
+            meta = manifest["meta"]
+            tool_info.requires_config = meta.get(
+                "requires_config",
+                False,
+            )
+            # Convert config_fields to Pydantic models
+            config_fields_data = meta.get("config_fields", [])
+            if config_fields_data:
+                tool_info.config_fields = [
+                    ToolConfigField(**field) for field in config_fields_data
+                ]
 
-                # Get current config values (masked) from agent config
-                config = registry.get_tool_config(
-                    tool_config.name,
-                    workspace.agent_id,
-                )
-                if config:
-                    masked_config = dict(config)
-                    # Mask password fields
-                    for field in config_fields_data:
-                        if (
-                            field.get("type") == "password"
-                            and field["name"] in masked_config
-                        ):
-                            if masked_config[field["name"]]:
-                                masked_config[field["name"]] = "***"
-                    tool_info.config_values = masked_config
+            # Get current config values (masked) from agent config
+            config = registry.get_tool_config(
+                tool_config.name,
+                workspace.agent_id,
+            )
+            if config:
+                masked_config = dict(config)
+                # Mask password fields
+                for field in config_fields_data:
+                    if (
+                        field.get("type") == "password"
+                        and field["name"] in masked_config
+                    ):
+                        if masked_config[field["name"]]:
+                            masked_config[field["name"]] = "***"
+                tool_info.config_values = masked_config
 
         tools_list.append(tool_info)
 
@@ -319,6 +349,10 @@ async def update_tool_config(
     # Save tool config for this agent
     try:
         registry.set_tool_config(tool_name, workspace.agent_id, body.config)
+
+        # Hot reload config to apply changes without full restart
+        schedule_agent_reload(request, workspace.agent_id)
+
         return {"status": "success", "message": "Configuration updated"}
     except Exception as e:
         raise HTTPException(

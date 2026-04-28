@@ -3,11 +3,14 @@ import { request } from "../request";
 export interface ToolConfigField {
   name: string;
   label: string;
-  type: "text" | "password" | "number" | "select";
+  type: "text" | "password" | "number" | "boolean" | "select" | "textarea";
   required: boolean;
   placeholder?: string;
   help?: string;
-  options?: Array<{ label: string; value: string }>;
+  options?: string[];
+  default?: any;
+  min?: number;
+  max?: number;
 }
 
 export interface ToolInfo {
