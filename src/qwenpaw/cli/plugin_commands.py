@@ -384,10 +384,14 @@ def install(source: str, force: bool):
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
 
-                # Check for required Plugin class
-                if not hasattr(module, "Plugin"):
+                # Check for required plugin export (class or instance)
+                has_plugin_class = hasattr(module, "Plugin")
+                has_plugin_instance = hasattr(module, "plugin")
+
+                if not (has_plugin_class or has_plugin_instance):
                     raise AttributeError(
-                        "Plugin module must export a 'Plugin' class",
+                        "Plugin module must export a 'Plugin' class or "
+                        "'plugin' instance",
                     )
 
         click.echo("✓ Plugin validation successful")
