@@ -1285,7 +1285,9 @@ class BuiltinToolConfig(BaseModel):
     )
 
 
-def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
+def _default_builtin_tools() -> (
+    Dict[str, BuiltinToolConfig]
+):  # pylint: disable=too-many-nested-blocks
     """Return a fresh copy of the canonical built-in tool definitions.
 
     This includes both hardcoded tools and dynamically registered tools
@@ -1422,6 +1424,7 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
         all_manifests = registry.get_all_plugin_manifests()
         for plugin_id, manifest in all_manifests.items():
             meta = manifest.get("meta", {})
+            # Support old format: meta.tool_name
             if meta.get("tool_name"):
                 tool_name = meta["tool_name"]
                 if tool_name not in tools:
@@ -1436,6 +1439,24 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
                         async_execution=False,
                         icon=meta.get("tool_icon", "🔧"),
                     )
+            # Support new format: meta.tools array
+            tools_list = meta.get("tools", [])
+            if isinstance(tools_list, list):
+                for tool_info in tools_list:
+                    if isinstance(tool_info, dict) and "name" in tool_info:
+                        tool_name = tool_info["name"]
+                        if tool_name not in tools:
+                            tools[tool_name] = BuiltinToolConfig(
+                                name=tool_name,
+                                enabled=False,
+                                description=tool_info.get(
+                                    "description",
+                                    f"Tool from plugin {plugin_id}",
+                                ),
+                                display_to_user=True,
+                                async_execution=False,
+                                icon=tool_info.get("icon", "🔧"),
+                            )
     except Exception:
         # Plugins not loaded yet, return hardcoded tools only
         pass

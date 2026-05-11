@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=too-many-nested-blocks
+# pylint: disable=too-many-nested-blocks,too-many-branches
 """API routes for built-in tools management."""
 
 from __future__ import annotations
@@ -122,9 +122,16 @@ async def list_tools(
     tool_to_manifest = {}
     for manifest in all_manifests.values():
         meta = manifest.get("meta", {})
+        # Support old format: meta.tool_name
         tool_name = meta.get("tool_name")
         if tool_name:
             tool_to_manifest[tool_name] = manifest
+        # Support new format: meta.tools array
+        tools = meta.get("tools", [])
+        if isinstance(tools, list):
+            for tool in tools:
+                if isinstance(tool, dict) and "name" in tool:
+                    tool_to_manifest[tool["name"]] = manifest
 
     # Optimize: Load agent_config once instead of per-tool
     # (reuse the already-loaded agent_config from above)
