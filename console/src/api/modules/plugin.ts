@@ -76,9 +76,7 @@ export async function installPlugin(
 /**
  * Install a plugin from a local ZIP file via hot-reload.
  */
-export async function uploadPlugin(
-  file: File,
-): Promise<InstallPluginResult> {
+export async function uploadPlugin(file: File): Promise<InstallPluginResult> {
   const form = new FormData();
   form.append("file", file);
 
@@ -123,9 +121,7 @@ export async function fetchPluginStatus(
 
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new Error(
-      body.detail ?? `Status fetch failed (${response.status})`,
-    );
+    throw new Error(body.detail ?? `Status fetch failed (${response.status})`);
   }
 
   return response.json();

@@ -67,9 +67,7 @@ export default function PluginManagerPage() {
     setInstalling(true);
     try {
       const result = await installPlugin(source);
-      message.success(
-        `${t("pluginManager.installSuccess")}: ${result.name}`,
-      );
+      message.success(`${t("pluginManager.installSuccess")}: ${result.name}`);
       setInstallOpen(false);
       form.resetFields();
       refresh();
@@ -91,9 +89,7 @@ export default function PluginManagerPage() {
     setInstalling(true);
     try {
       const result = await uploadPlugin(file);
-      message.success(
-        `${t("pluginManager.installSuccess")}: ${result.name}`,
-      );
+      message.success(`${t("pluginManager.installSuccess")}: ${result.name}`);
       setInstallOpen(false);
       setFileList([]);
       refresh();
