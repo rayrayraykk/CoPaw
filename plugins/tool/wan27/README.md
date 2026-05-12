@@ -1,6 +1,6 @@
 # 万相2.7 Video Generation Plugin
 
-Generate high-quality videos using Alibaba Cloud's Wan-xiang 2.7 models via DashScope SDK.
+Generate high-quality videos using Alibaba Cloud's Wan 2.7 models via DashScope SDK.
 
 ## Tools
 

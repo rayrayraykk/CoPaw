@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=too-many-return-statements,too-many-branches
 # pylint: disable=too-many-statements,too-many-locals
-"""Wan-xiang 2.7 video generation tools."""
+"""Wan 2.7 video generation tools."""
 
 import base64
 import logging
@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import List
 
 import httpx
-from agentscope.message import TextBlock
+from agentscope.message import TextBlock, VideoBlock
 from agentscope.tool import ToolResponse
 from qwenpaw.constant import DEFAULT_MEDIA_DIR
 from qwenpaw.plugins import get_tool_config
@@ -180,7 +180,7 @@ async def text_to_video_wan(
     audio_url: str = "",
     prompt_extend: bool = True,
 ) -> ToolResponse:
-    """Generate a video from a text prompt using Wan-xiang 2.7.
+    """Generate a video from a text prompt using Wan 2.7.
 
     Uses Alibaba Cloud's wan2.7-t2v model to create videos from
     natural language descriptions. Supports multi-shot narratives,
@@ -335,10 +335,14 @@ async def text_to_video_wan(
 
         return ToolResponse(
             content=[
+                VideoBlock(
+                    type="video",
+                    source={"type": "url", "url": str(video_path)},
+                ),
                 TextBlock(
                     type="text",
                     text=(
-                        f"Video generated successfully using Wan-xiang 2.7\n"
+                        f"Video generated successfully using Wan 2.7\n"
                         f"Model: wan2.7-t2v-2026-04-25\n"
                         f"Prompt: {prompt}\n"
                         f"Resolution: {resolution}, Ratio: {ratio}, "
@@ -375,7 +379,7 @@ async def image_to_video_wan(
     duration: int = 5,
     prompt_extend: bool = True,
 ) -> ToolResponse:
-    """Generate a video from images using Wan-xiang 2.7.
+    """Generate a video from images using Wan 2.7.
 
     Supports four modes based on the combination of optional inputs:
     - First-frame: provide only first_frame_url (+ optional audio)
@@ -617,10 +621,14 @@ async def image_to_video_wan(
 
         return ToolResponse(
             content=[
+                VideoBlock(
+                    type="video",
+                    source={"type": "url", "url": str(video_path)},
+                ),
                 TextBlock(
                     type="text",
                     text=(
-                        f"Video generated successfully using Wan-xiang 2.7\n"
+                        f"Video generated successfully using Wan 2.7\n"
                         f"Model: wan2.7-i2v-2026-04-25\n"
                         f"Mode: {mode_desc}\n"
                         f"Prompt: {prompt}\n"
@@ -659,7 +667,7 @@ async def reference_to_video_wan(
     duration: int = 5,
     prompt_extend: bool = True,
 ) -> ToolResponse:
-    """Generate a video with character/object references using Wan-xiang 2.7.
+    """Generate a video with character/object references using Wan 2.7.
 
     Uses reference images and/or videos to maintain character
     consistency in the generated video. In the prompt, reference
@@ -890,10 +898,14 @@ async def reference_to_video_wan(
 
         return ToolResponse(
             content=[
+                VideoBlock(
+                    type="video",
+                    source={"type": "url", "url": str(video_path)},
+                ),
                 TextBlock(
                     type="text",
                     text=(
-                        f"Video generated successfully using Wan-xiang 2.7\n"
+                        f"Video generated successfully using Wan 2.7\n"
                         f"Model: wan2.7-r2v\n"
                         f"Reference images: {len(reference_images)}, "
                         f"Reference videos: {len(reference_videos)}\n"
