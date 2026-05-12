@@ -103,14 +103,16 @@ def _resolve_image_url(path_or_url: str) -> str:
 
 def _extract_config(
     tool_config: dict,
-) -> tuple[str, str, float]:
-    """Extract api_key, endpoint and timeout from tool config.
+    default_model: str,
+) -> tuple[str, str, float, str]:
+    """Extract api_key, endpoint, timeout and model from tool config.
 
     Args:
         tool_config: Tool configuration dict.
+        default_model: Fallback model name when not set in config.
 
     Returns:
-        Tuple of (api_key, endpoint, timeout).
+        Tuple of (api_key, endpoint, timeout, model).
     """
     api_key = tool_config.get("api_key", "")
     endpoint = tool_config.get("endpoint", "")
@@ -123,7 +125,9 @@ def _extract_config(
     else:
         timeout = float(timeout_raw)
 
-    return api_key, endpoint, timeout
+    model = tool_config.get("model", "") or default_model
+
+    return api_key, endpoint, timeout, model
 
 
 async def _download_image(
@@ -232,7 +236,6 @@ def _parse_image_urls(response) -> List[str]:
 
 async def generate_image_qwen(
     prompt: str,
-    model: str = "qwen-image-2.0-pro",
     size: str = "2048*2048",
     n: int = 1,
     negative_prompt: str = "",
@@ -244,18 +247,15 @@ async def generate_image_qwen(
     generation. Supports complex text rendering, multi-style artwork,
     and precise semantic adherence.
 
+    The model is selected via the tool's configuration settings.
+    Available models: qwen-image-2.0-pro (default), qwen-image-2.0,
+    qwen-image-max, qwen-image-plus, and dated snapshot versions.
+
     Args:
         prompt (str):
             Text description of the image to generate.
             Supports Chinese and English, up to 800 characters
             (qwen-image-plus/max series) or longer (2.0 series).
-        model (str, optional):
-            Model to use. Options:
-            - "qwen-image-2.0-pro" (recommended, best text rendering)
-            - "qwen-image-2.0" (balanced speed and quality)
-            - "qwen-image-max" (highest realism)
-            - "qwen-image-plus" (diverse art styles)
-            Default: "qwen-image-2.0-pro".
         size (str, optional):
             Output image size in "width*height" format.
             For qwen-image-2.0 series: total pixels between
@@ -291,7 +291,10 @@ async def generate_image_qwen(
                 ],
             )
 
-        api_key, endpoint, timeout = _extract_config(tool_config)
+        api_key, endpoint, timeout, model = _extract_config(
+            tool_config,
+            default_model="qwen-image-2.0-pro",
+        )
         if not api_key:
             return ToolResponse(
                 content=[
@@ -464,7 +467,6 @@ async def generate_image_qwen(
 async def edit_image_qwen(
     prompt: str,
     reference_images: List[str],
-    model: str = "qwen-image-2.0-pro",
     size: str = "",
     n: int = 1,
     negative_prompt: str = "",
@@ -475,6 +477,11 @@ async def edit_image_qwen(
     Supports single-image editing (modify content, style transfer,
     text rendering) and multi-image fusion (combine elements from
     multiple images).
+
+    The model is selected via the tool's configuration settings.
+    Available models: qwen-image-2.0-pro (default), qwen-image-2.0,
+    qwen-image-edit-max, qwen-image-edit-plus, qwen-image-edit,
+    and dated snapshot versions.
 
     Args:
         prompt (str):
@@ -487,14 +494,6 @@ async def edit_image_qwen(
             Each item can be:
             - HTTP/HTTPS URL
             - Local file path (auto-converted to base64)
-        model (str, optional):
-            Model to use. Options:
-            - "qwen-image-2.0-pro" (recommended)
-            - "qwen-image-2.0" (balanced)
-            - "qwen-image-edit-max" (geometry/industrial design)
-            - "qwen-image-edit-plus" (multi-output support)
-            - "qwen-image-edit" (basic editing)
-            Default: "qwen-image-2.0-pro".
         size (str, optional):
             Output image size in "width*height" format.
             Leave empty to auto-detect based on input image.
@@ -539,7 +538,10 @@ async def edit_image_qwen(
                 ],
             )
 
-        api_key, endpoint, timeout = _extract_config(tool_config)
+        api_key, endpoint, timeout, model = _extract_config(
+            tool_config,
+            default_model="qwen-image-2.0-pro",
+        )
         if not api_key:
             return ToolResponse(
                 content=[

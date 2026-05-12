@@ -1,6 +1,6 @@
 {
   "id": "wan27-tool",
-  "name": "万相2.7 Video Generation Tool",
+  "name": "Wan 2.7 Video Generation Tool",
   "version": "1.0.0",
   "description": "Generate videos using Alibaba Wan-xiang 2.7 models (text-to-video, image-to-video, reference-to-video)",
   "author": "QwenPaw Team",
