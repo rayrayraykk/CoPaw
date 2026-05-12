@@ -1,12 +1,10 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Button,
   Modal,
   Input,
   Form,
-  Tabs,
-  Upload,
   Tag,
   Tooltip,
   Empty,
@@ -14,16 +12,18 @@ import {
   Typography,
   Space,
   Table,
+  Divider,
 } from "antd";
-import type { UploadFile } from "antd";
 import {
   Package,
   Plus,
   Trash2,
   CheckCircle,
   XCircle,
-  Upload as UploadIcon,
   Link,
+  FolderOpen,
+  FileArchive,
+  X,
 } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { useAppMessage } from "@/hooks/useAppMessage";
@@ -39,70 +39,209 @@ import styles from "./index.module.less";
 
 const { Text } = Typography;
 
+// ── Drag-and-drop folder reading ────────────────────────────────────────────
+
+/** Recursively read a directory entry into flat {path, file} pairs. */
+async function readDirEntry(
+  entry: FileSystemDirectoryEntry,
+): Promise<Array<{ path: string; file: File }>> {
+  const result: Array<{ path: string; file: File }> = [];
+  const reader = entry.createReader();
+
+  const readBatch = (): Promise<FileSystemEntry[]> =>
+    new Promise((resolve, reject) => reader.readEntries(resolve, reject));
+
+  let batch: FileSystemEntry[];
+  do {
+    batch = await readBatch();
+    for (const e of batch) {
+      if (e.isFile) {
+        const file = await new Promise<File>((resolve, reject) =>
+          (e as FileSystemFileEntry).file(resolve, reject),
+        );
+        result.push({ path: e.fullPath.replace(/^\//, ""), file });
+      } else if (e.isDirectory) {
+        const sub = await readDirEntry(e as FileSystemDirectoryEntry);
+        result.push(...sub);
+      }
+    }
+  } while (batch.length > 0);
+
+  return result;
+}
+
+// ── Types ───────────────────────────────────────────────────────────────────
+
+type LocalSelection =
+  | { kind: "zip"; name: string; file: File }
+  | {
+      kind: "folder";
+      name: string;
+      entries: Array<{ path: string; file: File }>;
+    };
+
+// ── Component ───────────────────────────────────────────────────────────────
+
 export default function PluginManagerPage() {
   const { t } = useTranslation();
   const { message } = useAppMessage();
 
   const [installOpen, setInstallOpen] = useState(false);
-  const [installing, setInstalling] = useState(false);
+  const [localInstalling, setLocalInstalling] = useState(false);
+  const [urlInstalling, setUrlInstalling] = useState(false);
   const [uninstallingId, setUninstallingId] = useState<string | null>(null);
-  const [fileList, setFileList] = useState<UploadFile[]>([]);
+  const [localSel, setLocalSel] = useState<LocalSelection | null>(null);
+  const [dragOver, setDragOver] = useState(false);
   const [form] = Form.useForm<{ source: string }>();
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Reset drag state if the user cancels the drag outside the window.
+  useEffect(() => {
+    const cancel = () => setDragOver(false);
+    window.addEventListener("dragend", cancel);
+    window.addEventListener("drop", cancel);
+    return () => {
+      window.removeEventListener("dragend", cancel);
+      window.removeEventListener("drop", cancel);
+    };
+  }, []);
 
   const {
     data: plugins,
     loading,
     refresh,
   } = useRequest(fetchPlugins, {
-    onError: () => {
-      message.error(t("pluginManager.loadFailed"));
-    },
+    onError: () => message.error(t("pluginManager.loadFailed")),
   });
 
-  // ── Install handlers ───────────────────────────────────────────────
+  const closeModal = useCallback(() => {
+    if (localInstalling || urlInstalling) return;
+    setInstallOpen(false);
+    setLocalSel(null);
+    setDragOver(false);
+    form.resetFields();
+  }, [localInstalling, urlInstalling, form]);
+
+  // ── Click-to-browse (ZIP only via native input) ─────────────────────────
+
+  const handleZipPicked = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) setLocalSel({ kind: "zip", name: file.name, file });
+      e.target.value = "";
+    },
+    [],
+  );
+
+  // ── Drag-and-drop (folder or ZIP) ───────────────────────────────────────
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+  }, []);
+
+  const handleDrop = useCallback(
+    async (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setDragOver(false);
+
+      const items = Array.from(e.dataTransfer.items);
+      if (items.length === 0) return;
+
+      const entry = items[0].webkitGetAsEntry();
+      if (!entry) return;
+
+      if (entry.isDirectory) {
+        try {
+          const entries = await readDirEntry(entry as FileSystemDirectoryEntry);
+          setLocalSel({ kind: "folder", name: entry.name, entries });
+        } catch {
+          message.error(t("pluginManager.dropFailed"));
+        }
+      } else if (entry.isFile) {
+        const file = e.dataTransfer.files[0];
+        if (!file.name.endsWith(".zip")) {
+          message.warning(t("pluginManager.zipOnly"));
+          return;
+        }
+        setLocalSel({ kind: "zip", name: file.name, file });
+      }
+    },
+    [message, t],
+  );
+
+  // ── Install: local ──────────────────────────────────────────────────────
+
+  const handleInstallLocal = useCallback(async () => {
+    if (!localSel) return;
+    setLocalInstalling(true);
+    try {
+      let uploadFile: File;
+
+      if (localSel.kind === "zip") {
+        uploadFile = localSel.file;
+      } else {
+        const { default: JSZip } = await import("jszip");
+        const zip = new JSZip();
+        for (const { path, file } of localSel.entries) {
+          zip.file(path, file);
+        }
+        const blob = await zip.generateAsync({ type: "blob" });
+        uploadFile = new File([blob], `${localSel.name}.zip`, {
+          type: "application/zip",
+        });
+      }
+
+      const result = await uploadPlugin(uploadFile);
+      message.success(`${t("pluginManager.installSuccess")}: ${result.name}`);
+      setInstallOpen(false);
+      setLocalSel(null);
+      refresh();
+    } catch (err) {
+      const msg =
+        err instanceof Error ? err.message : t("pluginManager.installFailed");
+      message.error(msg);
+    } finally {
+      setLocalInstalling(false);
+    }
+  }, [localSel, message, t, refresh]);
+
+  // ── Install: URL ────────────────────────────────────────────────────────
 
   const handleInstallUrl = useCallback(async () => {
-    const values = await form.validateFields();
+    let values: { source: string };
+    try {
+      values = await form.validateFields();
+    } catch {
+      return;
+    }
     const source = values.source.trim();
-    setInstalling(true);
+    setUrlInstalling(true);
     try {
       const result = await installPlugin(source);
       message.success(`${t("pluginManager.installSuccess")}: ${result.name}`);
       setInstallOpen(false);
       form.resetFields();
       refresh();
-    } catch (err: unknown) {
+    } catch (err) {
       const msg =
         err instanceof Error ? err.message : t("pluginManager.installFailed");
       message.error(msg);
     } finally {
-      setInstalling(false);
+      setUrlInstalling(false);
     }
   }, [form, message, t, refresh]);
 
-  const handleInstallZip = useCallback(async () => {
-    if (fileList.length === 0) {
-      message.warning(t("pluginManager.uploadLabel"));
-      return;
-    }
-    const file = fileList[0].originFileObj as File;
-    setInstalling(true);
-    try {
-      const result = await uploadPlugin(file);
-      message.success(`${t("pluginManager.installSuccess")}: ${result.name}`);
-      setInstallOpen(false);
-      setFileList([]);
-      refresh();
-    } catch (err: unknown) {
-      const msg =
-        err instanceof Error ? err.message : t("pluginManager.installFailed");
-      message.error(msg);
-    } finally {
-      setInstalling(false);
-    }
-  }, [fileList, message, t, refresh]);
-
-  // ── Uninstall handler ──────────────────────────────────────────────
+  // ── Uninstall ───────────────────────────────────────────────────────────
 
   const handleUninstall = useCallback(
     (plugin: PluginInfo) => {
@@ -118,7 +257,7 @@ export default function PluginManagerPage() {
             await uninstallPlugin(plugin.id);
             message.success(t("pluginManager.uninstallSuccess"));
             refresh();
-          } catch (err: unknown) {
+          } catch (err) {
             const msg =
               err instanceof Error
                 ? err.message
@@ -133,7 +272,7 @@ export default function PluginManagerPage() {
     [message, t, refresh],
   );
 
-  // ── Table columns ──────────────────────────────────────────────────
+  // ── Table columns ───────────────────────────────────────────────────────
 
   const columns = [
     {
@@ -219,7 +358,7 @@ export default function PluginManagerPage() {
     },
   ];
 
-  // ── Render ─────────────────────────────────────────────────────────
+  // ── Render ──────────────────────────────────────────────────────────────
 
   return (
     <div className={styles.page}>
@@ -257,6 +396,15 @@ export default function PluginManagerPage() {
         </Spin>
       </div>
 
+      {/* Hidden ZIP file input — click-to-browse shortcut */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".zip"
+        style={{ display: "none" }}
+        onChange={handleZipPicked}
+      />
+
       {/* Install modal */}
       <Modal
         open={installOpen}
@@ -266,101 +414,97 @@ export default function PluginManagerPage() {
             {t("pluginManager.installTitle")}
           </Space>
         }
-        onCancel={() => {
-          if (!installing) {
-            setInstallOpen(false);
-            form.resetFields();
-            setFileList([]);
-          }
-        }}
+        onCancel={closeModal}
         footer={null}
         destroyOnHidden
         centered
-        width={520}
+        width={480}
       >
-        <Tabs
-          defaultActiveKey="url"
-          items={[
-            {
-              key: "url",
-              label: (
-                <Space size={6}>
-                  <Link size={14} />
-                  {t("pluginManager.tabUrl")}
-                </Space>
-              ),
-              children: (
-                <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-                  <Form.Item
-                    name="source"
-                    label={t("pluginManager.urlLabel")}
-                    extra={t("pluginManager.urlHint")}
-                    rules={[{ required: true, message: " " }]}
-                  >
-                    <Input
-                      placeholder={t("pluginManager.urlPlaceholder")}
-                      allowClear
-                    />
-                  </Form.Item>
-                  <Form.Item style={{ marginBottom: 0 }}>
-                    <Button
-                      type="primary"
-                      block
-                      loading={installing}
-                      onClick={handleInstallUrl}
-                    >
-                      {installing
-                        ? t("pluginManager.installing")
-                        : t("pluginManager.installBtn")}
-                    </Button>
-                  </Form.Item>
-                </Form>
-              ),
-            },
-            {
-              key: "upload",
-              label: (
-                <Space size={6}>
-                  <UploadIcon size={14} />
-                  {t("pluginManager.tabUpload")}
-                </Space>
-              ),
-              children: (
-                <div style={{ marginTop: 16 }}>
-                  <Upload.Dragger
-                    accept=".zip"
-                    maxCount={1}
-                    fileList={fileList}
-                    beforeUpload={() => false}
-                    onChange={({ fileList: fl }) => setFileList(fl)}
-                  >
-                    <div className={styles.uploadArea}>
-                      <UploadIcon size={32} strokeWidth={1.5} />
-                      <Text style={{ marginTop: 8 }}>
-                        {t("pluginManager.uploadLabel")}
-                      </Text>
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        {t("pluginManager.uploadHint")}
-                      </Text>
-                    </div>
-                  </Upload.Dragger>
-                  <Button
-                    type="primary"
-                    block
-                    style={{ marginTop: 16 }}
-                    loading={installing}
-                    disabled={fileList.length === 0}
-                    onClick={handleInstallZip}
-                  >
-                    {installing
-                      ? t("pluginManager.installing")
-                      : t("pluginManager.installBtn")}
-                  </Button>
-                </div>
-              ),
-            },
-          ]}
-        />
+        <div style={{ paddingTop: 16 }}>
+          {/* Drop zone / selection display */}
+          {localSel ? (
+            <div className={styles.selectionCard}>
+              {localSel.kind === "folder" ? (
+                <FolderOpen size={18} />
+              ) : (
+                <FileArchive size={18} />
+              )}
+              <Text className={styles.selectionName}>{localSel.name}</Text>
+              <Button
+                type="text"
+                size="small"
+                icon={<X size={14} />}
+                onClick={() => setLocalSel(null)}
+              />
+            </div>
+          ) : (
+            <div
+              className={`${styles.dropZone} ${
+                dragOver ? styles.dropZoneActive : ""
+              }`}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Package
+                size={36}
+                strokeWidth={1.2}
+                className={styles.dropIcon}
+              />
+              <Text className={styles.dropPrimary}>
+                {t("pluginManager.dropPrimary")}
+              </Text>
+              <Text type="secondary" className={styles.dropSecondary}>
+                {t("pluginManager.dropSecondary")}
+              </Text>
+            </div>
+          )}
+
+          <Button
+            type="primary"
+            block
+            style={{ marginTop: 12 }}
+            disabled={!localSel}
+            loading={localInstalling}
+            onClick={handleInstallLocal}
+          >
+            {localInstalling
+              ? t("pluginManager.installing")
+              : t("pluginManager.installBtn")}
+          </Button>
+
+          <Divider style={{ margin: "20px 0 16px" }}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {t("pluginManager.orFromUrl")}
+            </Text>
+          </Divider>
+
+          <Form form={form} layout="vertical">
+            <Form.Item
+              name="source"
+              style={{ marginBottom: 8 }}
+              rules={[{ required: true, message: " " }]}
+            >
+              <Input
+                prefix={
+                  <Link
+                    size={14}
+                    style={{ color: "var(--ant-color-text-quaternary)" }}
+                  />
+                }
+                placeholder={t("pluginManager.urlPlaceholder")}
+                allowClear
+                onPressEnter={handleInstallUrl}
+              />
+            </Form.Item>
+            <Button block loading={urlInstalling} onClick={handleInstallUrl}>
+              {urlInstalling
+                ? t("pluginManager.installing")
+                : t("pluginManager.installFromUrl")}
+            </Button>
+          </Form>
+        </div>
       </Modal>
     </div>
   );
