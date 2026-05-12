@@ -17,7 +17,9 @@ import {
   EyeInvisibleOutlined,
   ToolOutlined,
 } from "@ant-design/icons";
+import { ShieldCheck, ShieldAlert, ShieldX, KeyRound } from "lucide-react";
 import api from "../../../../api";
+import { MCPOAuthSection, OAuthToggleRow } from "./MCPOAuthSection";
 import styles from "../index.module.less";
 
 interface MCPClientUpdate {
@@ -57,11 +59,26 @@ export const MCPClientCard = React.memo(function MCPClientCard({
   const [toolsError, setToolsError] = useState<string | null>(null);
   const [editedJson, setEditedJson] = useState("");
   const [isEditing, setIsEditing] = useState(false);
+  const [oauthToggle, setOauthToggle] = useState(false);
+  const [oauthClientId, setOauthClientId] = useState("");
+  const [oauthScope, setOauthScope] = useState(
+    client.oauth_status?.scope || "",
+  );
+  const [oauthAuthEndpoint, setOauthAuthEndpoint] = useState("");
+  const [oauthTokenEndpoint, setOauthTokenEndpoint] = useState("");
 
   // Determine if MCP client is remote or local based on command
   const isRemote =
     client.transport === "streamable_http" || client.transport === "sse";
   const clientType = isRemote ? "Remote" : "Local";
+
+  const oauthStatus = client.oauth_status;
+  const now = Date.now() / 1000;
+  const isOauthAuthorized =
+    !!oauthStatus?.authorized && oauthStatus.expires_at > now;
+  const isOauthExpired =
+    !!oauthStatus?.authorized && oauthStatus.expires_at <= now;
+  const hasOauth = !!oauthStatus;
 
   const handleToggleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -139,18 +156,49 @@ export const MCPClientCard = React.memo(function MCPClientCard({
         } ${isHovered ? styles.hover : styles.normal}`}
       >
         <div className={styles.cardHeader}>
-          <Tooltip title={client.name}>
-            <h3 className={styles.mcpTitle}>
-              <span>{client.name}</span>
-              <span
-                className={`${styles.typeBadge} ${
-                  isRemote ? styles.remote : styles.local
-                }`}
-              >
-                {clientType}
-              </span>
-            </h3>
-          </Tooltip>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              minWidth: 0,
+            }}
+          >
+            <Tooltip title={client.name}>
+              <h3 className={styles.mcpTitle}>{client.name}</h3>
+            </Tooltip>
+            <span
+              className={`${styles.typeBadge} ${
+                isRemote ? styles.remote : styles.local
+              }`}
+            >
+              {clientType}
+            </span>
+            {hasOauth && isOauthExpired && (
+              <Tooltip title={t("mcp.oauth.expired")}>
+                <ShieldAlert
+                  size={13}
+                  style={{ color: "#e67e22", flexShrink: 0 }}
+                />
+              </Tooltip>
+            )}
+            {hasOauth && isOauthAuthorized && (
+              <Tooltip title={t("mcp.oauth.authorized")}>
+                <ShieldCheck
+                  size={13}
+                  style={{ color: "#27ae60", flexShrink: 0 }}
+                />
+              </Tooltip>
+            )}
+            {hasOauth && !isOauthAuthorized && !isOauthExpired && (
+              <Tooltip title={t("mcp.oauth.notAuthorized")}>
+                <ShieldX
+                  size={13}
+                  style={{ color: "#7f8c8d", flexShrink: 0 }}
+                />
+              </Tooltip>
+            )}
+          </div>
           <div className={styles.statusContainer}>
             <span className={styles.statusDot} />
             <span className={styles.statusText}>
@@ -171,6 +219,24 @@ export const MCPClientCard = React.memo(function MCPClientCard({
           >
             {t("mcp.tools")}
           </Button>
+          {isRemote && (
+            <Button
+              className={styles.toggleButton}
+              onClick={(e) => {
+                e.stopPropagation();
+                setJsonModalOpen(true);
+              }}
+            >
+              <span
+                style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+              >
+                <KeyRound size={13} />
+                {isOauthAuthorized
+                  ? t("mcp.oauth.authorized")
+                  : t("mcp.oauth.authorize")}
+              </span>
+            </Button>
+          )}
           <Button
             className={styles.toggleButton}
             onClick={(e) => {
@@ -295,12 +361,46 @@ export const MCPClientCard = React.memo(function MCPClientCard({
               color: isDark ? "rgba(255,255,255,0.85)" : "rgba(0,0,0,0.88)",
               padding: 16,
               borderRadius: 8,
-              maxHeight: 500,
+              maxHeight: 400,
               overflow: "auto",
             }}
           >
             {clientJson}
           </pre>
+        )}
+
+        {/* OAuth section inside config modal for remote clients */}
+        {isRemote && (
+          <div
+            style={{
+              marginTop: 16,
+              borderTop: "1px solid #f0f0f0",
+              paddingTop: 14,
+            }}
+          >
+            <OAuthToggleRow
+              enabled={oauthToggle || hasOauth}
+              onChange={setOauthToggle}
+              label={t("mcp.oauth.manage")}
+            />
+            {(oauthToggle || hasOauth) && (
+              <MCPOAuthSection
+                url={client.url}
+                clientKey={client.key}
+                oauthEnabled
+                currentOAuthStatus={oauthStatus}
+                clientId={oauthClientId}
+                scope={oauthScope}
+                authEndpoint={oauthAuthEndpoint}
+                tokenEndpoint={oauthTokenEndpoint}
+                onClientIdChange={setOauthClientId}
+                onScopeChange={setOauthScope}
+                onAuthEndpointChange={setOauthAuthEndpoint}
+                onTokenEndpointChange={setOauthTokenEndpoint}
+                onTokenChange={() => undefined}
+              />
+            )}
+          </div>
         )}
       </Modal>
     </>

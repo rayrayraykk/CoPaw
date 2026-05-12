@@ -17,6 +17,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/mcp", tags=["mcp"])
 
 
+class MCPClientOAuthStatus(BaseModel):
+    """Summarised OAuth status returned in client info."""
+
+    authorized: bool = False
+    expires_at: float = 0.0
+    scope: str = ""
+    client_id: str = ""
+
+
 class MCPClientInfo(BaseModel):
     """MCP client information for API responses."""
 
@@ -51,6 +60,10 @@ class MCPClientInfo(BaseModel):
     cwd: str = Field(
         default="",
         description="Working directory for stdio MCP command",
+    )
+    oauth_status: Optional[MCPClientOAuthStatus] = Field(
+        default=None,
+        description="OAuth token status (None if OAuth not configured)",
     )
 
 
@@ -177,9 +190,23 @@ def _mask_env_value(value: str) -> str:
     return f"{prefix}{'*' * masked_len}{suffix}"
 
 
+def _build_oauth_status(
+    client: MCPClientConfig,
+) -> Optional[MCPClientOAuthStatus]:
+    """Return OAuth status if the client has an OAuth config."""
+    oauth = client.oauth
+    if oauth is None:
+        return None
+    return MCPClientOAuthStatus(
+        authorized=bool(oauth.access_token),
+        expires_at=oauth.expires_at,
+        scope=oauth.scope,
+        client_id=oauth.client_id,
+    )
+
+
 def _build_client_info(key: str, client: MCPClientConfig) -> MCPClientInfo:
-    """Build MCPClientInfo from config with masked env values."""
-    # Mask environment variable values for security
+    """Build MCPClientInfo from config with masked sensitive values."""
     masked_env = (
         {k: _mask_env_value(v) for k, v in client.env.items()}
         if client.env
@@ -203,6 +230,7 @@ def _build_client_info(key: str, client: MCPClientConfig) -> MCPClientInfo:
         args=client.args,
         env=masked_env,
         cwd=client.cwd,
+        oauth_status=_build_oauth_status(client),
     )
 
 

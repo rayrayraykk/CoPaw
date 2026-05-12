@@ -113,6 +113,17 @@ def _is_transport_error(exc: BaseException) -> bool:
     return isinstance(exc, _TRANSPORT_ERRORS)
 
 
+def _is_401_error(exc: BaseException) -> bool:
+    """Return True if exc (or any sub-exception) is HTTP 401."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code == 401
+    # ExceptionGroup wraps one or more sub-exceptions (Python 3.11+)
+    sub_excs = getattr(exc, "exceptions", None)
+    if sub_excs:
+        return any(_is_401_error(e) for e in sub_excs)
+    return False
+
+
 class _MCPClientMixin:
     """Mixin providing shared tool-call and lifecycle logic for both clients.
 
@@ -166,7 +177,7 @@ class _MCPClientMixin:
     # Lifecycle
     # ------------------------------------------------------------------
 
-    async def _run_lifecycle(self) -> None:
+    async def _run_lifecycle(self) -> None:  # noqa: C901
         """Run MCP client lifecycle in a dedicated task.
 
         This ensures ``__aenter__`` and ``__aexit__`` are called in the
@@ -213,6 +224,15 @@ class _MCPClientMixin:
                 # AsyncExitStack exits here in THIS task — no cross-task issue.
 
             except Exception as e:
+                # 401 means the server requires OAuth; fail fast
+                if _is_401_error(e):
+                    logger.info(
+                        f"MCP client '{self.name}': server requires OAuth "
+                        "(HTTP 401). Authorize via the UI to connect.",
+                    )
+                    self._stop_event.set()
+                    self._ready_event.set()
+                    return
                 logger.error(
                     f"Error in MCP client lifecycle for {self.name}: {e}",
                     exc_info=True,
