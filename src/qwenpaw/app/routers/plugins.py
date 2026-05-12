@@ -337,6 +337,99 @@ def _schedule_all_agents_reload(request: Request) -> None:
         logger.warning(f"Could not schedule agent reloads: {exc}")
 
 
+def _post_unload_cleanup(
+    request: Request,
+    plugin_id: str,
+    provider_ids: list,
+    command_names: list,
+) -> None:
+    """Clean up runtime registrations after a plugin has been unloaded.
+
+    Removes the plugin's providers from ``provider_manager`` and its
+    control commands from both the handler registry and the priority
+    registry.  Called after ``loader.unload_plugin()`` so that UI lists
+    and command routing reflect the removal immediately.
+
+    Args:
+        request: FastAPI request (for ``app.state`` access).
+        plugin_id: ID of the unloaded plugin (for logging).
+        provider_ids: Provider IDs that were registered by this plugin.
+        command_names: Command names that were registered by this plugin.
+    """
+    # ── Providers ────────────────────────────────────────────────────────
+    provider_manager = getattr(
+        request.app.state,
+        "provider_manager",
+        None,
+    )
+    if provider_manager is not None:
+        for pid in provider_ids:
+            try:
+                provider_manager.unregister_plugin_provider(pid)
+            except Exception as exc:
+                logger.warning(
+                    f"Could not unregister provider '{pid}' "
+                    f"for plugin '{plugin_id}': {exc}",
+                )
+
+    # ── Control commands ─────────────────────────────────────────────────
+    if command_names:
+        try:
+            from ...app.runner.control_commands import (
+                unregister_command as unregister_handler,
+            )
+            from ...app.channels.command_registry import CommandRegistry
+
+            command_registry = CommandRegistry()
+            for cmd_name in command_names:
+                try:
+                    unregister_handler(cmd_name)
+                except Exception as exc:
+                    logger.warning(
+                        f"Could not unregister handler '{cmd_name}': {exc}",
+                    )
+                try:
+                    command_registry.unregister_command(f"/{cmd_name}")
+                except Exception as exc:
+                    logger.warning(
+                        f"Could not unregister priority for"
+                        f" '/{cmd_name}': {exc}",
+                    )
+        except Exception as exc:
+            logger.warning(
+                f"Command cleanup skipped for plugin '{plugin_id}': {exc}",
+            )
+
+
+def _collect_plugin_runtime_ids(
+    registry,
+    plugin_id: str,
+) -> tuple:
+    """Collect provider IDs and command names registered by a plugin.
+
+    Must be called *before* ``loader.unload_plugin()`` clears the
+    registry entries.
+
+    Args:
+        registry: ``PluginRegistry`` instance.
+        plugin_id: Plugin whose registrations should be collected.
+
+    Returns:
+        ``(provider_ids, command_names)`` tuple of lists.
+    """
+    provider_ids = [
+        pid
+        for pid, reg in registry.get_all_providers().items()
+        if reg.plugin_id == plugin_id
+    ]
+    command_names = [
+        cmd_reg.handler.command_name
+        for cmd_reg in registry.get_control_commands()
+        if cmd_reg.plugin_id == plugin_id
+    ]
+    return provider_ids, command_names
+
+
 # ── Routes ───────────────────────────────────────────────────────────────
 
 
@@ -455,9 +548,19 @@ async def install_plugin(
                         f"Force-reinstall: unloading '{existing_id}'"
                         " before re-installing",
                     )
+                    _f_pids, _f_cmds = _collect_plugin_runtime_ids(
+                        loader.registry,
+                        existing_id,
+                    )
                     await loader.unload_plugin(
                         existing_id,
                         delete_files=False,
+                    )
+                    _post_unload_cleanup(
+                        request,
+                        existing_id,
+                        _f_pids,
+                        _f_cmds,
                     )
 
         record = await loader.load_plugin_from_path(
@@ -554,9 +657,19 @@ async def upload_plugin(
                         f"Force-reinstall: unloading '{existing_id}'"
                         " before re-installing",
                     )
+                    _u_pids, _u_cmds = _collect_plugin_runtime_ids(
+                        loader.registry,
+                        existing_id,
+                    )
                     await loader.unload_plugin(
                         existing_id,
                         delete_files=False,
+                    )
+                    _post_unload_cleanup(
+                        request,
+                        existing_id,
+                        _u_pids,
+                        _u_cmds,
                     )
 
         record = await loader.load_plugin_from_path(
@@ -621,6 +734,12 @@ async def uninstall_plugin(plugin_id: str, request: Request):
 
     meta: dict = record.manifest.meta or {}
 
+    # Collect provider / command IDs *before* unload clears the registry
+    provider_ids, command_names = _collect_plugin_runtime_ids(
+        loader.registry,
+        plugin_id,
+    )
+
     try:
         await loader.unload_plugin(plugin_id, delete_files=True)
     except KeyError as exc:
@@ -634,6 +753,9 @@ async def uninstall_plugin(plugin_id: str, request: Request):
             status_code=500,
             detail=f"Plugin uninstallation failed: {exc}",
         ) from exc
+
+    # Clean up providers and commands from runtime registries
+    _post_unload_cleanup(request, plugin_id, provider_ids, command_names)
 
     # Remove tool entries from all agents
     _remove_plugin_tools_from_agents(plugin_id, meta)
