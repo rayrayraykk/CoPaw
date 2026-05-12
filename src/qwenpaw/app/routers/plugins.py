@@ -89,7 +89,7 @@ def _safe_extract_zip(
     extract_resolved = extract_path.resolve()
     for member in zip_ref.namelist():
         member_path = (extract_path / member).resolve()
-        if not str(member_path).startswith(str(extract_resolved)):
+        if not member_path.is_relative_to(extract_resolved):
             raise ValueError(
                 f"Zip Slip detected: {member} would extract "
                 "outside the target directory",
@@ -865,16 +865,43 @@ async def serve_plugin_ui_file(
 # ── Internal async helpers ────────────────────────────────────────────────
 
 
+_DOWNLOAD_TIMEOUT = 60  # seconds per read chunk; total limit is implicit
+
+_MAX_DOWNLOAD_BYTES = 500 * 1024 * 1024  # 500 MB safety cap
+
+
 async def _async_download(url: str, dest: Path) -> None:
     """Download a URL to a file using a thread pool.
+
+    Streams the response in chunks with a per-operation socket timeout
+    so a stalled server cannot hang the request indefinitely.
 
     Args:
         url: HTTP(S) URL to download
         dest: Destination file path
+
+    Raises:
+        RuntimeError: If the download exceeds the size cap or times out.
     """
     import asyncio
 
-    def _download():
-        urllib.request.urlretrieve(url, dest)  # noqa: S310
+    def _download() -> None:
+        with urllib.request.urlopen(  # noqa: S310
+            url,
+            timeout=_DOWNLOAD_TIMEOUT,
+        ) as resp:
+            total = 0
+            with open(dest, "wb") as fh:
+                while True:
+                    chunk = resp.read(65536)
+                    if not chunk:
+                        break
+                    total += len(chunk)
+                    if total > _MAX_DOWNLOAD_BYTES:
+                        raise RuntimeError(
+                            f"Download aborted: response exceeds "
+                            f"{_MAX_DOWNLOAD_BYTES // (1024 * 1024)} MB",
+                        )
+                    fh.write(chunk)
 
     await asyncio.to_thread(_download)

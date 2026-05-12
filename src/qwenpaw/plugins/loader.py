@@ -280,18 +280,27 @@ class PluginLoader:
         logger.info(
             f"Installing dependencies for plugin '{plugin_id}'...",
         )
-        result = subprocess.run(  # pylint: disable=subprocess-run-check
-            [
-                sys.executable,
-                "-m",
-                "pip",
-                "install",
-                "-r",
-                str(requirements_file),
-            ],
-            capture_output=True,
-            text=True,
-        )
+        try:
+            result = subprocess.run(  # pylint: disable=subprocess-run-check
+                [
+                    sys.executable,
+                    "-m",
+                    "pip",
+                    "install",
+                    "--disable-pip-version-check",
+                    "--no-input",
+                    "-r",
+                    str(requirements_file),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(
+                f"Dependency installation timed out for '{plugin_id}' "
+                f"(300 s limit exceeded)",
+            ) from exc
         if result.returncode != 0:
             raise RuntimeError(
                 f"Dependency installation failed for '{plugin_id}': "
@@ -349,8 +358,15 @@ class PluginLoader:
             if not self.plugin_dirs:
                 raise RuntimeError("No plugin directories configured")
             install_dir = self.plugin_dirs[0]
-        install_dir = Path(install_dir)
+        install_dir = Path(install_dir).resolve()
         target_dir = (install_dir / plugin_id).resolve()
+
+        # Guard against path-traversal in plugin_id (e.g. "../../etc")
+        if not target_dir.is_relative_to(install_dir):
+            raise ValueError(
+                f"Plugin id '{plugin_id}' resolves outside the plugin "
+                f"directory ({install_dir}). Refusing to install.",
+            )
 
         # Copy files when source is not already the target
         if source_path != target_dir:
@@ -419,9 +435,15 @@ class PluginLoader:
                     f"for plugin '{plugin_id}': {exc}",
                 )
 
-        # Remove Python module so the next import gets a fresh copy
+        # Remove Python module and all sub-modules so the next import
+        # gets a fresh copy (e.g. plugin_foo.utils must not be reused).
         module_name = f"plugin_{plugin_id.replace('-', '_')}"
-        sys.modules.pop(module_name, None)
+        prefix = module_name + "."
+        stale = [
+            k for k in sys.modules if k == module_name or k.startswith(prefix)
+        ]
+        for k in stale:
+            sys.modules.pop(k, None)
 
         # Clear all in-memory registry entries for this plugin
         self.registry.unregister_plugin(plugin_id)

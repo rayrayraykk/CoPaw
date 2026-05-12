@@ -201,16 +201,14 @@ def _safe_extract_zip(zip_ref: zipfile.ZipFile, extract_path: Path):
     Raises:
         ValueError: If any zip member attempts path traversal
     """
+    extract_resolved = extract_path.resolve()
     for member in zip_ref.namelist():
-        # Resolve the full path and ensure it's within extract_path
         member_path = (extract_path / member).resolve()
-        if not str(member_path).startswith(str(extract_path.resolve())):
+        if not member_path.is_relative_to(extract_resolved):
             raise ValueError(
                 f"Zip Slip detected: {member} attempts to extract "
                 f"outside target directory",
             )
-
-    # Safe to extract
     zip_ref.extractall(extract_path)
 
 
