@@ -63,7 +63,8 @@
     "voiceTranscription": "Transcricao de Voz",
     "debug": "Depuracao",
     "plugins": "Plugins",
-    "backups": "Backups"
+    "backups": "Backups",
+    "pluginManager": "Gerenciador de Plugins"
   },
   "debug": {
     "title": "Depuracao",
@@ -1860,6 +1861,38 @@
     "approveFailed": "Falhou to approve",
     "cancelTask": "Cancelar Task",
     "denyFailed": "Falhou to deny"
+  },
+  "pluginManager": {
+    "title": "Gerenciador de Plugins",
+    "description": "Instalar, gerenciar e remover plugins sem reiniciar o serviço.",
+    "installed": "Plugins Instalados",
+    "noPlugins": "Nenhum plugin instalado ainda",
+    "installBtn": "Instalar Plugin",
+    "installTitle": "Instalar Plugin",
+    "dropPrimary": "Solte a pasta ou arquivo ZIP aqui",
+    "dropSecondary": "ou clique para selecionar um arquivo ZIP",
+    "orFromUrl": "ou a partir de URL",
+    "installFromUrl": "Instalar a partir de URL",
+    "urlPlaceholder": "https://example.com/plugin.zip",
+    "zipOnly": "Apenas arquivos ZIP podem ser soltos como arquivos — arraste uma pasta para instalação de diretório",
+    "dropFailed": "Falha ao ler a pasta solta",
+    "restartHint": "Alguns plugins (por exemplo, hooks, monkey-patches) podem exigir uma reinicialização do aplicativo para entrar em vigor ou serem completamente removidos.",
+    "installing": "Instalando...",
+    "installSuccess": "Plugin instalado com sucesso",
+    "installFailed": "Falha na instalação do plugin",
+    "uninstall": "Desinstalar",
+    "uninstallConfirm": "Desinstalar plugin \"{{name}}\"? Esta ação não pode ser desfeita. Alguns plugins podem exigir uma reinicialização do aplicativo para serem completamente removidos.",
+    "uninstalling": "Desinstalando...",
+    "uninstallSuccess": "Plugin desinstalado com sucesso",
+    "uninstallFailed": "Falha na desinstalação do plugin",
+    "statusLoaded": "Em execução",
+    "statusUnloaded": "Não carregado",
+    "type": "Tipo",
+    "version": "Versão",
+    "author": "Autor",
+    "unknown": "Desconhecido",
+    "loadFailed": "Falha ao carregar lista de plugins",
+    "confirmTitle": "Confirmar Desinstalação"
   },
   "plan": {
     "title": "Plan",

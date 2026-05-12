@@ -61,7 +61,8 @@
     "debug": "デバッグ",
     "plugins": "プラグイン",
     "acp": "ACP",
-    "backups": "バックアップ"
+    "backups": "バックアップ",
+    "pluginManager": "プラグインマネージャー"
   },
   "debug": {
     "title": "デバッグ",
@@ -1802,6 +1803,38 @@
     "approveFailed": "承認に失敗しました",
     "cancelTask": "タスクをキャンセル",
     "denyFailed": "拒否に失敗しました"
+  },
+  "pluginManager": {
+    "title": "プラグインマネージャー",
+    "description": "サービスを再起動せずにプラグインのインストール、管理、削除を行います。",
+    "installed": "インストール済みプラグイン",
+    "noPlugins": "プラグインがまだインストールされていません",
+    "installBtn": "プラグインをインストール",
+    "installTitle": "プラグインのインストール",
+    "dropPrimary": "フォルダまたはZIPファイルをドロップ",
+    "dropSecondary": "またはクリックしてZIPファイルを選択",
+    "orFromUrl": "またはURLから",
+    "installFromUrl": "URLからインストール",
+    "urlPlaceholder": "https://example.com/plugin.zip",
+    "zipOnly": "ファイルとしてドロップできるのはZIPファイルのみです — ディレクトリからインストールする場合はフォルダをドラッグしてください",
+    "dropFailed": "ドロップされたフォルダの読み取りに失敗しました",
+    "restartHint": "一部のプラグイン（例：フック、monkey-patch）は、完全に有効化または削除するためにアプリの再起動が必要な場合があります。",
+    "installing": "インストール中...",
+    "installSuccess": "プラグインのインストールに成功しました",
+    "installFailed": "プラグインのインストールに失敗しました",
+    "uninstall": "アンインストール",
+    "uninstallConfirm": "プラグイン \"{{name}}\" をアンインストールしますか？この操作は取り消せません。一部のプラグインは、完全に削除するためにアプリの再起動が必要な場合があります。",
+    "uninstalling": "アンインストール中...",
+    "uninstallSuccess": "プラグインのアンインストールに成功しました",
+    "uninstallFailed": "プラグインのアンインストールに失敗しました",
+    "statusLoaded": "実行中",
+    "statusUnloaded": "未ロード",
+    "type": "タイプ",
+    "version": "バージョン",
+    "author": "作成者",
+    "unknown": "不明",
+    "loadFailed": "プラグイン一覧の読み込みに失敗しました",
+    "confirmTitle": "アンインストールの確認"
   },
   "plan": {
     "title": "プラン",
