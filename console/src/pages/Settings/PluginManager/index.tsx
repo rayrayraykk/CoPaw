@@ -355,9 +355,7 @@ export default function PluginManagerPage() {
       dataIndex: "plugin_type",
       key: "plugin_type",
       width: 110,
-      render: (type: PluginType) => (
-        <PluginTypeTag type={type ?? "general"} />
-      ),
+      render: (type: PluginType) => <PluginTypeTag type={type ?? "general"} />,
     },
     {
       title: t("pluginManager.version"),
