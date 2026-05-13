@@ -14,7 +14,6 @@ from legacy plaintext and transparently migrate on first access.
 from __future__ import annotations
 
 import base64
-import concurrent.futures
 import logging
 import os
 import secrets
@@ -72,11 +71,43 @@ def _should_skip_keyring() -> bool:
 _KEYRING_TIMEOUT = 10
 
 
+def _call_with_timeout(fn, timeout):
+    """Run *fn* in a daemon thread and wait at most *timeout* seconds.
+
+    Returns ``(result, timed_out)``.  When the call times out the
+    daemon thread is abandoned and ``(None, True)`` is returned
+    immediately — the main thread is never blocked beyond *timeout*.
+
+    Using a daemon thread avoids the ``ThreadPoolExecutor`` trap where
+    ``shutdown(wait=True)`` on context-manager exit blocks until the
+    hung thread finishes, negating the intended timeout.
+    """
+    result_holder = [None]
+    exc_holder = [None]
+    done = threading.Event()
+
+    def _worker():
+        try:
+            result_holder[0] = fn()
+        except Exception as _exc:  # pylint: disable=broad-except
+            exc_holder[0] = _exc
+        finally:
+            done.set()
+
+    threading.Thread(target=_worker, daemon=True).start()
+    if not done.wait(timeout=timeout):
+        return None, True
+    exc = exc_holder[0]
+    if exc is not None:
+        raise exc
+    return result_holder[0], False
+
+
 def _try_keyring_get() -> Optional[str]:
     """Read master key from OS keychain. Returns ``None`` on any failure.
 
     Skipped inside containers, headless Linux, and CI environments.
-    Uses a thread-based timeout to avoid hanging on systems that have
+    Uses a daemon-thread timeout to avoid hanging on systems that have
     DISPLAY set but no keyring daemon running (e.g. Linux servers with
     SSH X11 forwarding).
     """
@@ -85,7 +116,7 @@ def _try_keyring_get() -> Optional[str]:
     try:
         import keyring
 
-        def _get() -> Optional[str]:
+        def _get():
             value = keyring.get_password(
                 _KEYRING_SERVICE,
                 _KEYRING_ACCOUNT,
@@ -98,17 +129,15 @@ def _try_keyring_get() -> Optional[str]:
                 _KEYRING_ACCOUNT,
             )
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-            future = ex.submit(_get)
-            try:
-                return future.result(timeout=_KEYRING_TIMEOUT)
-            except concurrent.futures.TimeoutError:
-                logger.debug(
-                    "keyring get timed out after %ds, "
-                    "falling back to file storage",
-                    _KEYRING_TIMEOUT,
-                )
-                return None
+        result, timed_out = _call_with_timeout(_get, _KEYRING_TIMEOUT)
+        if timed_out:
+            logger.debug(
+                "keyring get timed out after %ds, "
+                "falling back to file storage",
+                _KEYRING_TIMEOUT,
+            )
+            return None
+        return result
     except Exception:
         return None
 
@@ -117,33 +146,30 @@ def _try_keyring_set(key_hex: str) -> bool:
     """Store master key in OS keychain. Returns success flag.
 
     Skipped inside containers where no desktop keyring service exists.
-    Uses a thread-based timeout to avoid hanging when the keyring daemon
-    is unavailable.
+    Uses a daemon-thread timeout to avoid hanging when the keyring
+    daemon is unavailable.
     """
     if _should_skip_keyring():
         return False
     try:
         import keyring
 
-        def _set() -> None:
+        def _set():
             keyring.set_password(
                 _KEYRING_SERVICE,
                 _KEYRING_ACCOUNT,
                 key_hex,
             )
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-            future = ex.submit(_set)
-            try:
-                future.result(timeout=_KEYRING_TIMEOUT)
-                return True
-            except concurrent.futures.TimeoutError:
-                logger.debug(
-                    "keyring set timed out after %ds, "
-                    "falling back to file storage",
-                    _KEYRING_TIMEOUT,
-                )
-                return False
+        _, timed_out = _call_with_timeout(_set, _KEYRING_TIMEOUT)
+        if timed_out:
+            logger.debug(
+                "keyring set timed out after %ds, "
+                "falling back to file storage",
+                _KEYRING_TIMEOUT,
+            )
+            return False
+        return True
     except Exception:
         logger.debug("keyring unavailable, falling back to file storage")
         return False
