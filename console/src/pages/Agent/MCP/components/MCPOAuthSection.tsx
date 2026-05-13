@@ -19,8 +19,8 @@ interface MCPOAuthSectionProps {
   url: string;
   /** Client key (must already exist for re-auth; leave blank for new client) */
   clientKey?: string;
-  /** Called when OAuth completes; passes the new access_token (or null on revoke) */
-  onTokenChange?: (accessToken: string | null) => void;
+  /** Called when OAuth auth state changes (authorized or revoked) */
+  onAuthChanged?: () => void;
   /** Whether this section is inside the "create" modal (no clientKey yet) */
   isNewClient?: boolean;
   /** Current OAuth status from the server (for existing clients) */
@@ -51,7 +51,7 @@ const OAUTH_MESSAGE_TYPE = "mcp-oauth";
 export const MCPOAuthSection: React.FC<MCPOAuthSectionProps> = ({
   url,
   clientKey,
-  onTokenChange,
+  onAuthChanged,
   isNewClient = false,
   currentOAuthStatus,
   oauthEnabled = false,
@@ -78,14 +78,14 @@ export const MCPOAuthSection: React.FC<MCPOAuthSectionProps> = ({
         const st = await api.getOAuthStatus(clientKey);
         if (st.authorized) {
           setPhase("success");
-          onTokenChange?.("__oauth_done__");
+          onAuthChanged?.();
         }
       } catch {
         // ignore
       }
     }, 2000);
     return () => clearInterval(timer);
-  }, [phase, clientKey, onTokenChange]);
+  }, [phase, clientKey, onAuthChanged]);
 
   // Determine combined authorized state
   const isAuthorized =
@@ -165,7 +165,7 @@ export const MCPOAuthSection: React.FC<MCPOAuthSectionProps> = ({
         localStorage.removeItem(STORAGE_KEY);
         if (status === "success") {
           setPhase("success");
-          onTokenChange?.("__oauth_done__");
+          onAuthChanged?.();
         } else {
           setPhase("error");
           setErrorMsg(errText || t("mcp.oauth.authFailed"));
@@ -173,7 +173,9 @@ export const MCPOAuthSection: React.FC<MCPOAuthSectionProps> = ({
       };
 
       // Primary: postMessage (works when window.opener is available)
+      // Restrict to same origin to prevent malicious pages from faking success.
       const handleMessage = (event: MessageEvent) => {
+        if (event.origin !== window.location.origin) return;
         if (event.data?.type !== OAUTH_MESSAGE_TYPE) return;
         onResult(event.data.status, event.data.error);
       };
@@ -205,7 +207,7 @@ export const MCPOAuthSection: React.FC<MCPOAuthSectionProps> = ({
             if (st.authorized) {
               didFinish = true;
               setPhase("success");
-              onTokenChange?.("__oauth_done__");
+              onAuthChanged?.();
               return;
             }
           } catch {
@@ -247,7 +249,7 @@ export const MCPOAuthSection: React.FC<MCPOAuthSectionProps> = ({
     clientId,
     authEndpoint,
     tokenEndpoint,
-    onTokenChange,
+    onAuthChanged,
     t,
   ]);
 
@@ -257,11 +259,11 @@ export const MCPOAuthSection: React.FC<MCPOAuthSectionProps> = ({
     try {
       await api.revokeOAuth(clientKey);
       setPhase("idle");
-      onTokenChange?.(null);
+      onAuthChanged?.();
     } catch {
       setPhase("idle");
     }
-  }, [clientKey, onTokenChange]);
+  }, [clientKey, onAuthChanged]);
 
   if (!oauthEnabled) {
     return null;

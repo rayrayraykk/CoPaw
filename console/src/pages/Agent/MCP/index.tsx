@@ -222,9 +222,9 @@ function MCPPage() {
       return;
     }
 
-    // Parse args (one per line or space-separated)
+    // Parse args: split on newlines, commas, or spaces
     const args = form.args
-      .split(/[\n,]/)
+      .split(/[\n, ]+/)
       .map((s) => s.trim())
       .filter(Boolean);
 

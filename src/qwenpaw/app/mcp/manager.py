@@ -227,14 +227,16 @@ class MCPClientManager:
         if not oauth or not oauth.access_token:
             return headers
 
-        # Skip if token is expired with no refresh_token
-        if oauth.expires_at and oauth.expires_at < _time.time():
-            if not oauth.refresh_token:
-                logger.warning(
-                    f"OAuth token for MCP client '{client_config.name}' "
-                    "has expired; no refresh_token available",
-                )
-                return headers
+        # Skip injection when token is expired. Token refresh is not yet
+        # implemented, so injecting an expired token would only cause 401s.
+        # expires_at=0 means no expiry was provided; treat as non-expiring.
+        if oauth.expires_at > 0 and oauth.expires_at < _time.time():
+            logger.warning(
+                f"OAuth token for MCP client '{client_config.name}' "
+                "has expired; skipping Authorization header injection. "
+                "Please re-authorize via the UI.",
+            )
+            return headers
 
         result = dict(headers)
         result["Authorization"] = f"Bearer {oauth.access_token}"

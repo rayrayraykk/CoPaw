@@ -194,11 +194,18 @@ def _build_oauth_status(
     client: MCPClientConfig,
 ) -> Optional[MCPClientOAuthStatus]:
     """Return OAuth status if the client has an OAuth config."""
+    import time as _time
+
     oauth = client.oauth
     if oauth is None:
         return None
+    # Token is valid only when present and not past its expiry time.
+    # expires_at=0 means no expiry was provided by the authorization server.
+    not_expired = bool(oauth.access_token) and (
+        oauth.expires_at <= 0 or oauth.expires_at > _time.time()
+    )
     return MCPClientOAuthStatus(
-        authorized=bool(oauth.access_token),
+        authorized=not_expired,
         expires_at=oauth.expires_at,
         scope=oauth.scope,
         client_id=oauth.client_id,

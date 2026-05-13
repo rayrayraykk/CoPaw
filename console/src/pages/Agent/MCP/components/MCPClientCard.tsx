@@ -433,7 +433,7 @@ export const MCPClientCard = React.memo(function MCPClientCard({
           onScopeChange={setOauthScope}
           onAuthEndpointChange={setOauthAuthEndpoint}
           onTokenEndpointChange={setOauthTokenEndpoint}
-          onTokenChange={() => {
+          onAuthChanged={() => {
             onRefresh?.();
           }}
         />

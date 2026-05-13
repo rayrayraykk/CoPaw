@@ -46,6 +46,7 @@ class OAuthSession:
         client_key: str,
         code_verifier: str,
         client_id: str,
+        auth_endpoint: str,
         token_endpoint: str,
         redirect_uri: str,
         scope: str,
@@ -55,6 +56,7 @@ class OAuthSession:
         self.client_key = client_key
         self.code_verifier = code_verifier
         self.client_id = client_id
+        self.auth_endpoint = auth_endpoint
         self.token_endpoint = token_endpoint
         self.redirect_uri = redirect_uri
         self.scope = scope
@@ -201,10 +203,7 @@ async def _discover_oauth_metadata(
     Raises:
         HTTPException(400) on discovery failure.
     """
-    async with httpx.AsyncClient(
-        follow_redirects=True,
-        verify=False,
-    ) as client:
+    async with httpx.AsyncClient(follow_redirects=True) as client:
         auth_server_url = await _resolve_auth_server_url(client, mcp_url)
         if not auth_server_url:
             raise HTTPException(
@@ -224,6 +223,16 @@ async def _discover_oauth_metadata(
                 detail=(
                     f"Could not retrieve authorization server metadata from "
                     f"{auth_server_url}. "
+                    "Please enter auth_endpoint and token_endpoint manually."
+                ),
+            )
+
+        if "token_endpoint" not in as_meta:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Authorization server metadata from {auth_server_url} "
+                    "is missing 'token_endpoint'. "
                     "Please enter auth_endpoint and token_endpoint manually."
                 ),
             )
@@ -248,7 +257,7 @@ async def _dynamic_register(
         "token_endpoint_auth_method": "none",
     }
     try:
-        async with httpx.AsyncClient(verify=False) as client:
+        async with httpx.AsyncClient() as client:
             resp = await client.post(
                 registration_endpoint,
                 json=payload,
@@ -374,7 +383,7 @@ def _popup_html(
   <div class="card">
     {body_html}
     <button class="close-btn" onclick="window.close()">
-      关闭窗口
+      Close
     </button>
   </div>
   <script>
@@ -411,7 +420,13 @@ async def oauth_start(
     performs Dynamic Client Registration, and returns the authorization
     URL for the frontend to open in a browser popup.
     """
+    from ..agent_context import get_agent_for_request
+
     _purge_expired()
+
+    # -- Validate agent exists and is enabled -----------------------------
+    agent = await get_agent_for_request(request)
+    agent_id = agent.agent_id
 
     redirect_uri = _redirect_uri(request)
 
@@ -439,18 +454,13 @@ async def oauth_start(
     challenge = _code_challenge(verifier)
     state = secrets.token_hex(16)
 
-    # -- Determine agent from request -------------------------------------
-    agent_id = getattr(request.state, "agent_id", None) or request.headers.get(
-        "X-Agent-Id",
-        "",
-    )
-
     # -- Store session -----------------------------------------------------
     _state_store[state] = OAuthSession(
         agent_id=agent_id,
         client_key=client_key,
         code_verifier=verifier,
         client_id=client_id,
+        auth_endpoint=auth_endpoint,
         token_endpoint=token_endpoint,
         redirect_uri=redirect_uri,
         scope=body.scope,
@@ -504,7 +514,7 @@ async def _exchange_code_for_tokens(
         token_data["client_id"] = session.client_id
 
     try:
-        async with httpx.AsyncClient(verify=False) as client:
+        async with httpx.AsyncClient() as client:
             resp = await client.post(
                 session.token_endpoint,
                 data=token_data,
@@ -568,7 +578,7 @@ async def _persist_tokens(
         refresh_token=refresh_token,
         expires_at=expires_at,
         token_endpoint=session.token_endpoint,
-        auth_endpoint=existing_oauth.auth_endpoint,
+        auth_endpoint=session.auth_endpoint or existing_oauth.auth_endpoint,
     )
     save_agent_config(agent_id, workspace.config)
     schedule_agent_reload(request, agent_id)
@@ -662,8 +672,10 @@ async def oauth_status(
             scope="",
         )
 
+    # Token is valid only when not expired (expires_at=0 means no expiry set)
+    not_expired = oauth.expires_at <= 0 or oauth.expires_at > time.time()
     return OAuthStatusResponse(
-        authorized=True,
+        authorized=not_expired,
         expires_at=oauth.expires_at,
         scope=oauth.scope,
     )
