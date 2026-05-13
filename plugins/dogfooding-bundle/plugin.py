@@ -11,11 +11,19 @@ Internal org bundle that registers three capabilities in one shot:
      and overrides agentscope run_id for correct conversation.id
 3. /feedback command
    - Query-rewrite hook that turns /feedback into an agent prompt
+4. Dogfooding account API
+   - Saves dogfooding user_account.json under the QwenPaw working directory
 """
 
+import json
 import logging
 from contextvars import ContextVar
+from pathlib import Path
 
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
+
+from qwenpaw.constant import WORKING_DIR
 from qwenpaw.plugins.api import PluginApi
 from qwenpaw.providers.openai_provider import OpenAIProvider
 from qwenpaw.providers.provider import ModelInfo
@@ -59,6 +67,63 @@ class AgentScopeDogfoodingProvider(OpenAIProvider):
         return _DEFAULT_MODELS
 
 
+# ── Dogfooding account API ────────────────────────────────────────────────
+
+
+class DogfoodingAccountPayload(BaseModel):
+    """Request body for saving the dogfooding user account."""
+
+    user_account: str = Field(..., min_length=1)
+
+
+class DogfoodingAccountResponse(BaseModel):
+    """Response body after saving the dogfooding user account."""
+
+    ok: bool
+    path: str
+
+
+def _dogfooding_dir() -> Path:
+    return WORKING_DIR / "dogfooding"
+
+
+def _user_account_path() -> Path:
+    return _dogfooding_dir() / "user_account.json"
+
+
+def _build_dogfooding_account_router() -> APIRouter:
+    """Build routes mounted under /api/dogfooding-account."""
+    router = APIRouter()
+
+    @router.post("/", response_model=DogfoodingAccountResponse)
+    def save_user_account(
+        payload: DogfoodingAccountPayload,
+    ) -> DogfoodingAccountResponse:
+        """Save user_account.json under the QwenPaw working directory."""
+        target = _user_account_path()
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(
+                json.dumps(
+                    {"user_account": payload.user_account},
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+        except OSError as exc:
+            logger.exception("Failed to save dogfooding user account")
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to save user account",
+            ) from exc
+
+        return DogfoodingAccountResponse(ok=True, path=str(target))
+
+    return router
+
+
 # ── Bundle plugin ────────────────────────────────────────────────────────
 
 
@@ -78,6 +143,7 @@ class DogfoodingBundlePlugin:
         self._register_provider(api)
         self._register_agenttrack_hook(api)
         self._register_feedback_hook(api)
+        self._register_account_router(api)
         logger.info("Dogfooding Bundle fully registered")
 
     # ── provider ──────────────────────────────────────────────────────────
@@ -156,6 +222,20 @@ class DogfoodingBundlePlugin:
             priority=50,
         )
         logger.info("/feedback query-rewrite hook registered")
+
+    # ── dogfooding account API ────────────────────────────────────────────
+
+    def _register_account_router(self, api: PluginApi):
+        """Register the dogfooding account API router."""
+        api.register_http_router(
+            _build_dogfooding_account_router(),
+            prefix="/dogfooding-account",
+            tags=["dogfooding-account"],
+        )
+        logger.info(
+            "Dogfooding account API registered at "
+            "POST /api/dogfooding-account/",
+        )
 
     def _patch_query_handler(self):
         """Monkey-patch AgentRunner: inject trace attrs, rewrite /feedback."""

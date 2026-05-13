@@ -1,6 +1,6 @@
 # Dogfooding Bundle Plugin
 
-Internal org bundle — install once, get all three capabilities.
+Internal org bundle — install once, get all bundled capabilities.
 
 > 中文文档见 [README_zh.md](README_zh.md)
 
@@ -13,6 +13,7 @@ Internal org bundle — install once, get all three capabilities.
 | **AgentScope Dogfooding Provider** | Registers the `agentscope-dogfooding` LLM Provider, routing requests through the AgentScope proxy |
 | **AgentTrack Startup Hook** | Initialises AgentTrack SDK (`app_name="qwenpaw"`) at application startup |
 | **/feedback Command** | Rewrites `/feedback` queries into agent prompts that guide the user through a feedback form |
+| **Dogfooding Account API** | Exposes `POST /api/dogfooding-account/` to save the dogfooding user account |
 
 ## Installation
 
@@ -84,12 +85,24 @@ User:  /feedback the result was wrong
 Agent: Based on your description, I understand your rating is: Poor ...
 ```
 
+### Dogfooding Account API
+
+Save the current dogfooding user account under QwenPaw's working directory:
+
+```bash
+curl -X POST http://127.0.0.1:8088/api/dogfooding-account/ \
+  -H 'Content-Type: application/json' \
+  -d '{"user_account":"12345567"}'
+```
+
+The API writes `dogfooding/user_account.json` in the QwenPaw working directory.
+
 ## File Structure
 
 ```
 dogfooding-bundle/
 ├── plugin.json          # Plugin manifest (type: bundle)
-├── plugin.py            # Entry point — single register() for all three capabilities
+├── plugin.py            # Entry point — single register() for all capabilities
 ├── query_rewriter.py    # Prompt rewriting logic for /feedback command
 ├── requirements.txt     # Python dependencies
 ├── README.md            # This file (English)
@@ -102,6 +115,7 @@ dogfooding-bundle/
 INFO | Dogfooding Bundle: AgentScope Dogfooding provider registered
 INFO | Dogfooding Bundle: AgentTrack startup hook registered
 INFO | Dogfooding Bundle: /feedback query-rewrite hook registered
+INFO | Dogfooding account API registered at POST /api/dogfooding-account/
 INFO | Dogfooding Bundle fully registered
 INFO | AgentTrack initialized (app_name=qwenpaw)
 INFO | Patched AgentRunner.query_handler for /feedback command

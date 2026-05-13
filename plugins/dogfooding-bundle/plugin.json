@@ -3,7 +3,7 @@
   "name": "Dogfooding Bundle",
   "version": "1.0.0",
   "type": "bundle",
-  "description": "Internal org bundle: AgentScope provider, AgentTrack hook, and /feedback command",
+  "description": "Internal org bundle: AgentScope provider, AgentTrack hook, /feedback command, and dogfooding account API",
   "author": "QwenPaw Team",
   "entry": {
     "backend": "plugin.py"

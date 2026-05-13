@@ -1,6 +1,6 @@
 # Dogfooding Bundle 插件
 
-内部组织专属捆绑包，一次安装/卸载，三个能力全到位。
+内部组织专属捆绑包，一次安装/卸载，相关能力全到位。
 
 > English documentation: [README.md](README.md)
 
@@ -13,6 +13,7 @@
 | **AgentScope Dogfooding Provider** | 注册 `agentscope-dogfooding` LLM Provider，通过 AgentScope 代理路由请求 |
 | **AgentTrack 启动 Hook** | 应用启动时自动初始化 AgentTrack SDK（`app_name="qwenpaw"`） |
 | **/feedback 命令** | 将 `/feedback` 查询重写为 Agent Prompt，引导用户完成反馈表单 |
+| **Dogfooding Account API** | 暴露 `POST /api/dogfooding-account/`，保存 dogfooding 用户账号 |
 
 ## 安装
 
@@ -82,12 +83,24 @@ Agent: 感谢您的反馈！请对本次对话进行评价：...
 Agent: 根据您的描述，我理解您的评价是：糟糕...
 ```
 
+### Dogfooding Account API
+
+保存当前 dogfooding 用户账号到 QwenPaw 工作目录：
+
+```bash
+curl -X POST http://127.0.0.1:8088/api/dogfooding-account/ \
+  -H 'Content-Type: application/json' \
+  -d '{"user_account":"example"}'
+```
+
+接口会写入 QwenPaw 工作目录下的 `dogfooding/user_account.json`。
+
 ## 目录结构
 
 ```
 dogfooding-bundle/
 ├── plugin.json          # 插件清单（type: bundle）
-├── plugin.py            # 入口，单个 register() 注册三个能力
+├── plugin.py            # 入口，单个 register() 注册全部能力
 ├── query_rewriter.py    # /feedback 命令的 Prompt 重写逻辑
 ├── requirements.txt     # Python 依赖
 ├── README.md            # 英文文档
@@ -100,6 +113,7 @@ dogfooding-bundle/
 INFO | Dogfooding Bundle: AgentScope Dogfooding provider registered
 INFO | Dogfooding Bundle: AgentTrack startup hook registered
 INFO | Dogfooding Bundle: /feedback query-rewrite hook registered
+INFO | Dogfooding account API registered at POST /api/dogfooding-account/
 INFO | Dogfooding Bundle fully registered
 INFO | AgentTrack initialized (app_name=qwenpaw)
 INFO | Patched AgentRunner.query_handler for /feedback command
