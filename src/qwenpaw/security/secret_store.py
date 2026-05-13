@@ -51,6 +51,19 @@ def _should_skip_keyring() -> bool:
 
     Covers Docker containers, headless Linux servers, and CI
     environments where attempting keyring access could hang on D-Bus.
+
+    Note:
+        This function cannot catch every edge case.  A common false
+        negative is SSH X11 forwarding (``ssh -X``): the SSH client
+        automatically sets ``DISPLAY=localhost:10.0`` even though no
+        desktop keyring daemon is running on the remote server.  Other
+        similar situations include systemd user services, ``tmux``/
+        ``screen`` sessions inherited from a desktop login, and Docker
+        containers started with ``-e DISPLAY``.  For these cases a
+        daemon-thread timeout in ``_call_with_timeout`` acts as the
+        safety net so the caller is never blocked for more than
+        ``_KEYRING_TIMEOUT`` seconds regardless of what this function
+        returns.
     """
     if EnvVarLoader.get_bool("QWENPAW_RUNNING_IN_CONTAINER"):
         return True
