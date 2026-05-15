@@ -100,7 +100,8 @@ export interface AgentsRunningConfig {
   llm_rate_limit_pause: number;
   llm_rate_limit_jitter: number;
   llm_acquire_timeout: number;
-  max_input_length: number;
+  /** @deprecated Migrated to ModelInfo.max_input_length */
+  max_input_length?: number | null;
   history_max_length: number;
   context_manager_backend: string;
   light_context_config: LightContextConfig;

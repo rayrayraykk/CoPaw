@@ -6,6 +6,8 @@ export interface ModelInfo {
   supports_video: boolean | null;
   probe_source?: string | null;
   is_free?: boolean;
+  max_tokens: number;
+  max_input_length: number;
   generate_kwargs: Record<string, unknown>;
 }
 
@@ -93,6 +95,8 @@ export interface AddModelRequest {
 }
 
 export interface ModelConfigRequest {
+  max_tokens?: number;
+  max_input_length?: number;
   generate_kwargs?: Record<string, unknown>;
 }
 
