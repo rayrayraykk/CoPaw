@@ -874,7 +874,7 @@ PROVIDER_ANTHROPIC = AnthropicProvider(
     api_key_prefix="sk-ant-",
     models=ANTHROPIC_MODELS,
     chat_model="AnthropicChatModel",
-    freeze_url=True,
+    freeze_url=False,
 )
 
 PROVIDER_GEMINI = GeminiProvider(

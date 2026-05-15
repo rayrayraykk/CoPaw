@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import logging
-from typing import List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 from copy import deepcopy
 
 from fastapi import (
@@ -70,6 +70,17 @@ class ProviderConfigRequest(BaseModel):
             "Configuration in json format, will be expanded "
             "and passed to generation calls "
             "(e.g., openai.chat.completions, anthropic.messages)."
+        ),
+    )
+    custom_headers: Optional[Dict[str, str]] = Field(
+        default=None,
+        description="Custom HTTP headers to include in every API request.",
+    )
+    auth_mode: Optional[str] = Field(
+        default=None,
+        description=(
+            "Authentication mode: 'api_key' or 'auth_token'. "
+            "Only applies to Anthropic-compatible providers."
         ),
     )
 
@@ -190,6 +201,8 @@ async def configure_provider(
             "base_url": body.base_url,
             "chat_model": body.chat_model,
             "generate_kwargs": body.generate_kwargs,
+            "custom_headers": body.custom_headers,
+            "auth_mode": body.auth_mode,
         },
     )
     if not ok:
@@ -252,6 +265,14 @@ class TestProviderRequest(BaseModel):
         default=None,
         description="Optional chat model class to test protocol behavior",
     )
+    custom_headers: Optional[Dict[str, str]] = Field(
+        default=None,
+        description="Custom headers to use for this test request",
+    )
+    auth_mode: Optional[str] = Field(
+        default=None,
+        description="Authentication mode to use for this test request",
+    )
 
 
 class TestModelRequest(BaseModel):
@@ -310,6 +331,10 @@ async def test_provider(
             tmp_provider.api_key = body.api_key
         if body and body.base_url:
             tmp_provider.base_url = body.base_url
+        if body and body.custom_headers is not None:
+            tmp_provider.custom_headers = body.custom_headers
+        if body and body.auth_mode in ("api_key", "auth_token"):
+            tmp_provider.auth_mode = body.auth_mode
         ok, msg = await tmp_provider.check_connection()
         return TestConnectionResponse(
             success=ok,
