@@ -5,13 +5,10 @@ if (!qwenpaw?.host?.React || !qwenpaw?.host?.antd) {
 
 const { React, antd, antdIcons } = qwenpaw.host;
 const { Card, Button, Alert, Typography, Descriptions } = antd;
-const { LoginOutlined, CopyOutlined, CheckCircleOutlined } = antdIcons;
+const { LoginOutlined } = antdIcons;
 const { Text: AntText } = Typography;
 
-const DOGFOODING_INSTALL_COMMAND =
-  "curl -fsSL https://qwenpaw.agentscope.io/dogfooding/install.sh | bash";
-
-const INTEGRATION_B_BASE = "http://118.178.173.134:8081";
+const INTEGRATION_B_BASE = "https://proxy.agentscope.design";
 const INTEGRATION_CLIENT_SECRET = "qwenpaw-proxy-v1.0";
 
 const QWENPAW_AUTH_TOKEN_KEY = "qwenpaw_auth_token";
@@ -62,7 +59,10 @@ function formatFastApiErrorBody(parsed: unknown, fallback: string): string {
   return fallback;
 }
 async function initIntegrationSsoLogin(redirectUri: string): Promise<string> {
-  const url = `${INTEGRATION_B_BASE.replace(/\/$/, "")}/v1/integration/sso/init`;
+  const url = `${INTEGRATION_B_BASE.replace(
+    /\/$/,
+    "",
+  )}/v1/integration/sso/init`;
   const response = await fetch(url, {
     method: "POST",
     headers: {
@@ -84,9 +84,9 @@ async function initIntegrationSsoLogin(redirectUri: string): Promise<string> {
     const fallback = text || `HTTP ${response.status}`;
     throw new Error(formatFastApiErrorBody(parsed, fallback));
   }
-  const body = (parsed && typeof parsed === "object"
-    ? parsed
-    : {}) as SsoInitResponse;
+  const body = (
+    parsed && typeof parsed === "object" ? parsed : {}
+  ) as SsoInitResponse;
   const loginUrl = body.loginUrl?.trim();
   if (!loginUrl) {
     throw new Error("SSO init 未返回 loginUrl");
@@ -98,7 +98,10 @@ async function exchangeIntegrationSsoToken(
   code: string,
   state: string,
 ): Promise<SsoTokenResponse> {
-  const url = `${INTEGRATION_B_BASE.replace(/\/$/, "")}/v1/integration/sso/token`;
+  const url = `${INTEGRATION_B_BASE.replace(
+    /\/$/,
+    "",
+  )}/v1/integration/sso/token`;
   const response = await fetch(url, {
     method: "POST",
     headers: {
@@ -120,9 +123,9 @@ async function exchangeIntegrationSsoToken(
     const fallback = text || `HTTP ${response.status}`;
     throw new Error(formatFastApiErrorBody(parsed, fallback));
   }
-  return (parsed && typeof parsed === "object"
-    ? parsed
-    : {}) as SsoTokenResponse;
+  return (
+    parsed && typeof parsed === "object" ? parsed : {}
+  ) as SsoTokenResponse;
 }
 
 /** 发起 SSO 时传给后端的 redirectUri，去掉可能残留的 code/state */
@@ -275,22 +278,6 @@ function DogfoodingJoinPage() {
   const [persistNotice, setPersistNotice] = React.useState(
     null as PersistNotice,
   );
-  const [proxyApiKeyCopied, setProxyApiKeyCopied] = React.useState(false);
-
-  React.useEffect(() => {
-    setProxyApiKeyCopied(false);
-  }, [lookupResult?.proxyApiKey]);
-
-  const handleCopyProxyApiKey = async () => {
-    const key = lookupResult?.proxyApiKey?.trim();
-    if (!key) return;
-    try {
-      await navigator.clipboard.writeText(key);
-      setProxyApiKeyCopied(true);
-    } catch {
-      setProxyApiKeyCopied(false);
-    }
-  };
 
   /** 登录回调：URL 带 code、state 时换 token 并展示密钥 / 花名 / 工号 */
   React.useEffect(() => {
@@ -338,9 +325,7 @@ function DogfoodingJoinPage() {
             setPersistNotice({
               kind: "error",
               message:
-                err instanceof Error
-                  ? err.message
-                  : "调用本机保存工号接口失败",
+                err instanceof Error ? err.message : "调用本机保存工号接口失败",
             });
           }
         } else {
@@ -362,9 +347,7 @@ function DogfoodingJoinPage() {
         }
         if (!cancelled) {
           setSsoCallbackError(
-            error instanceof Error
-              ? error.message
-              : "SSO token 交换失败",
+            error instanceof Error ? error.message : "SSO token 交换失败",
           );
         }
       } finally {
@@ -441,33 +424,9 @@ function DogfoodingJoinPage() {
             <Descriptions bordered size="small" column={1}>
               <Descriptions.Item label="API 密钥">
                 {lookupResult?.proxyApiKey ? (
-                  <span
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 8,
-                      flexWrap: "wrap",
-                    }}
-                  >
-                    <AntText code title="完整密钥请使用右侧复制">
-                      {maskProxyApiKey(lookupResult.proxyApiKey)}
-                    </AntText>
-                    <Button
-                      type="text"
-                      size="small"
-                      aria-label={
-                        proxyApiKeyCopied ? "已复制 API 密钥" : "复制 API 密钥"
-                      }
-                      icon={
-                        proxyApiKeyCopied ? (
-                          <CheckCircleOutlined style={{ color: "#52c41a" }} />
-                        ) : (
-                          <CopyOutlined />
-                        )
-                      }
-                      onClick={handleCopyProxyApiKey}
-                    />
-                  </span>
+                  <AntText code copyable={{ text: lookupResult.proxyApiKey }}>
+                    {maskProxyApiKey(lookupResult.proxyApiKey)}
+                  </AntText>
                 ) : (
                   formatCell(lookupResult?.proxyApiKey)
                 )}
