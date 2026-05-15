@@ -5,8 +5,6 @@ from __future__ import annotations
 
 import logging
 from typing import Dict, List, Literal, Optional
-from copy import deepcopy
-
 from fastapi import (
     APIRouter,
     Body,
@@ -325,16 +323,18 @@ async def test_provider(
         provider = manager.get_provider(provider_id)
         if provider is None:
             raise ValueError(f"Provider '{provider_id}' not found")
-        # Ensure we don't accidentally modify provider config during test
-        tmp_provider = deepcopy(provider)
+        # Build a lightweight Pydantic copy with only the overridden fields;
+        # avoids deepcopy which fails when _strip_http_client is cached.
+        overrides: dict = {}
         if body and body.api_key:
-            tmp_provider.api_key = body.api_key
+            overrides["api_key"] = body.api_key
         if body and body.base_url:
-            tmp_provider.base_url = body.base_url
+            overrides["base_url"] = body.base_url
         if body and body.custom_headers is not None:
-            tmp_provider.custom_headers = body.custom_headers
+            overrides["custom_headers"] = body.custom_headers
         if body and body.auth_mode in ("api_key", "auth_token"):
-            tmp_provider.auth_mode = body.auth_mode
+            overrides["auth_mode"] = body.auth_mode
+        tmp_provider = provider.model_copy(update=overrides)
         ok, msg = await tmp_provider.check_connection()
         return TestConnectionResponse(
             success=ok,
