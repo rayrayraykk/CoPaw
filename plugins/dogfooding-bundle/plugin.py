@@ -91,6 +91,34 @@ def _user_account_path() -> Path:
     return _dogfooding_dir() / "user_account.json"
 
 
+# mtime-based cache: (cached_mtime, cached_user_id)
+_user_id_cache: tuple[float, str] = (0.0, "")
+
+
+def _read_user_id_cached() -> str:
+    """Read user_id from user_account.json with mtime-based cache.
+
+    Returns empty string when the file is absent or malformed.
+    """
+    global _user_id_cache
+    path = _user_account_path()
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return ""
+    cached_mtime, cached_value = _user_id_cache
+    if mtime == cached_mtime:
+        return cached_value
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        value = str(data.get("user_account", ""))
+    except Exception as exc:
+        logger.warning(f"Failed to read user_account.json: {exc}")
+        value = ""
+    _user_id_cache = (mtime, value)
+    return value
+
+
 def _build_dogfooding_account_router() -> APIRouter:
     """Build routes mounted under /api/dogfooding-account."""
     router = APIRouter()
@@ -249,8 +277,9 @@ class DogfoodingBundlePlugin:
         async def patched_query_handler(self, msgs, request=None, **kwargs):
             """Query handler: stamps trace context, rewrites /feedback."""
             session_id = getattr(request, "session_id", "") or ""
-            user_id = getattr(request, "user_id", "") or ""
-
+            user_id = _read_user_id_cached() or (
+                getattr(request, "user_id", "") or ""
+            )
             # Store user_id in ContextVar for the SpanProcessor.
             _trace_user_id.set(user_id)
 
