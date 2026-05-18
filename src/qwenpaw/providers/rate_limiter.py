@@ -40,6 +40,12 @@ class LLMRateLimiter:
         jitter_range: Random jitter (seconds) added on top of the pause.
     """
 
+    # Maximum accepted Retry-After value (seconds).  API responses that ask
+    # for a longer wait are capped here; callers that receive a Retry-After
+    # above this threshold are raised to immediately (no retry).
+    # Can be adjusted via env var LLM_MAX_PAUSE_SECONDS (see constant.py).
+    MAX_PAUSE_SECONDS: float = 60.0
+
     def __init__(
         self,
         max_concurrent: int = 3,
@@ -67,7 +73,7 @@ class LLMRateLimiter:
         self._total_qpm_waited: int = 0
         self._total_rate_limited: int = 0
 
-    async def acquire(self) -> None:
+    async def acquire(self) -> float:
         """Acquire an execution permit.
 
         Execution order:
@@ -81,7 +87,19 @@ class LLMRateLimiter:
 
         The hard upper-bound timeout is enforced by asyncio.wait_for() at
         every call site in RetryChatModel.
+
+        Returns:
+            The ``time.monotonic()`` value captured immediately before the
+            429-cooldown phase.  Pass this to ``on_success()`` so it can
+            distinguish stale pauses (set before this call) from fresh ones
+            (installed by a concurrent 429 after this call already acquired).
         """
+        # Capture acquire start time *before* the cooldown wait so that
+        # on_success() can compare it against _pause_until to determine whether
+        # the currently-set pause predates this call (stale) or was installed
+        # by a concurrent 429 after we passed through the cooldown (fresh).
+        acquired_at = time.monotonic()
+
         # Step 1 — 429 cooldown.
         while True:
             now = time.monotonic()
@@ -108,6 +126,7 @@ class LLMRateLimiter:
         await self._semaphore.acquire()
         self._in_flight += 1
         self._total_acquired += 1
+        return acquired_at
 
     async def _acquire_qpm_slot(self) -> None:
         """Wait until the 60-second sliding window has room, then record the
@@ -149,27 +168,24 @@ class LLMRateLimiter:
         self._in_flight -= 1
         self._semaphore.release()
 
-    async def on_success(self) -> None:
-        """Clear the global pause after a successful LLM call.
+    async def on_success(self, acquired_at: float) -> None:
+        """Clear a stale pause after a successful LLM call.
 
-        A completed call proves the API's rate-limit window has ended.
-        Resetting _pause_until lets subsequent callers proceed immediately
-        instead of waiting out the remainder of a stale pause set by a
-        previous 429 (e.g. from a background dream/cron task).
+        Args:
+            acquired_at: The ``time.monotonic()`` timestamp recorded just
+                before ``acquire()`` was called.  Only pauses that were
+                set *at or before* that timestamp are cleared: a pause
+                installed by a concurrent 429 *after* this call acquired
+                its slot is presumed to be fresh and is left intact.
         """
         async with self._lock:
-            if self._pause_until > 0:
+            if 0 < self._pause_until <= acquired_at:
                 self._pause_until = 0.0
                 logger.debug(
-                    "LLM rate limiter: pause cleared after successful call",
+                    "LLM rate limiter: stale pause cleared after "
+                    "successful call (acquired_at=%.3f)",
+                    acquired_at,
                 )
-
-    # Maximum pause duration (seconds) honoured from any Retry-After header.
-    # Prevents a single API 429 (e.g. retry_after=300 from DashScope) from
-    # stalling all LLM calls — including interactive user chats — for minutes.
-    # Background tasks (dream, heartbeat) share the global limiter, so without
-    # this cap a single dream 429 can cascade into a 5-minute hang.
-    MAX_PAUSE_SECONDS: float = 60.0
 
     async def report_rate_limit(
         self,
@@ -323,14 +339,19 @@ async def get_rate_limiter(
     return limiter
 
 
-def reset_rate_limiter(limiter_key: str | None = None) -> None:
-    """Reset rate limiter(s) (for testing or service restart).
+async def reset_rate_limiter(limiter_key: str | None = None) -> None:
+    """Reset rate limiter(s) under the shared initialisation lock.
+
+    Must be awaited from within the asyncio event loop (same loop that
+    runs ``get_rate_limiter``).  Do **not** call from a sync context while
+    other coroutines may be calling ``get_rate_limiter`` concurrently.
 
     Args:
         limiter_key: If given, reset only that key's limiter.
                      If ``None``, reset all limiters.
     """
-    if limiter_key is not None:
-        _limiters.pop(limiter_key, None)
-    else:
-        _limiters.clear()
+    async with _get_limiters_lock():
+        if limiter_key is not None:
+            _limiters.pop(limiter_key, None)
+        else:
+            _limiters.clear()

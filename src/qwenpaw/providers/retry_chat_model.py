@@ -58,6 +58,15 @@ _anthropic_retryable: tuple[type[Exception], ...] | None = None
 _httpx_retryable: tuple[type[Exception], ...] | None = None
 
 
+class _AcquireTimeoutError(RateLimitExceededException):
+    """Raised when ``limiter.acquire()`` times out internally.
+
+    Distinct from a real API 429 so the retry loop can identify it via
+    ``isinstance`` and raise immediately without calling
+    ``report_rate_limit()`` or attempting another retry.
+    """
+
+
 @dataclass(frozen=True, slots=True)
 class RetryConfig:
     """Retry policy for transient LLM API failures."""
@@ -312,14 +321,14 @@ class RetryChatModel(ChatModelBase):
     ) -> None:
         """Inspect *exc* and update the rate limiter accordingly.
 
-        - Internal acquire timeout (``_is_acquire_timeout``): re-raise as-is;
+        - Internal acquire timeout (``_AcquireTimeoutError``): re-raise as-is;
           no report, no retry.
         - Retryable API 429 with Retry-After > ``MAX_PAUSE_SECONDS``: re-raise
           immediately — retrying after the capped pause would just get another
           429 (e.g. Anthropic FreeUsageLimitError with Retry-After: 51496 s).
         - Normal 429: call ``report_rate_limit()`` to set the per-model pause.
         """
-        if getattr(exc, "_is_acquire_timeout", False):
+        if isinstance(exc, _AcquireTimeoutError):
             raise exc
         if _is_retryable(exc) and _is_rate_limit(exc):
             retry_after = _extract_retry_after(exc)
@@ -334,6 +343,7 @@ class RetryChatModel(ChatModelBase):
         self,
         stream: AsyncGenerator[ChatResponse, None],
         limiter: LLMRateLimiter,
+        acquired_at: float,
     ) -> AsyncGenerator[ChatResponse, None]:
         """Yield all chunks from *stream*, managing the semaphore slot
         lifecycle.
@@ -348,6 +358,10 @@ class RetryChatModel(ChatModelBase):
         (i.e. _wrap_stream), which handles retry decisions.  The exception
         does not propagate to the final consumer unless all retries are
         exhausted.
+
+        Args:
+            acquired_at: Timestamp from ``limiter.acquire()``, forwarded to
+                ``on_success()`` so only stale pauses are cleared.
         """
         first_chunk = True
         try:
@@ -359,7 +373,7 @@ class RetryChatModel(ChatModelBase):
                     # streaming success: clear any stale 429 pause so
                     # subsequent callers (including user chats) are not
                     # held back by a pause set by a background task.
-                    await limiter.on_success()
+                    await limiter.on_success(acquired_at)
                 yield chunk
         finally:
             await stream.aclose()
@@ -403,20 +417,19 @@ class RetryChatModel(ChatModelBase):
             # CancelledError (slot was never acquired).
             acquired = False
             owns_semaphore = True
+            acquired_at: float = 0.0
             try:
                 try:
-                    await asyncio.wait_for(
+                    acquired_at = await asyncio.wait_for(
                         limiter.acquire(),
                         timeout=self._rate_limit_config.acquire_timeout,
                     )
                     acquired = True
                 except asyncio.TimeoutError as exc:
                     # Internal acquire timeout — NOT an API 429.
-                    # Do not call report_rate_limit() (that would incorrectly
-                    # extend the global pause) and do not retry (it would just
-                    # time out again).  Use a sentinel attribute so the outer
-                    # exception handler can distinguish this from a real 429.
-                    _exc = RateLimitExceededException(
+                    # _AcquireTimeoutError is a typed subclass so the outer
+                    # handler can use isinstance() instead of a sentinel attr.
+                    raise _AcquireTimeoutError(
                         operation="LLM execution",
                         retry_after=int(
                             self._rate_limit_config.acquire_timeout,
@@ -424,11 +437,7 @@ class RetryChatModel(ChatModelBase):
                         details={
                             "reason": "Timed out waiting for execution slot",
                         },
-                    )
-                    _exc._is_acquire_timeout = (  # type: ignore[attr-defined]
-                        True
-                    )
-                    raise _exc from exc
+                    ) from exc
 
                 try:
                     result = await self._inner(*args, **kwargs)
@@ -458,12 +467,13 @@ class RetryChatModel(ChatModelBase):
                         attempt,
                         attempts,
                         limiter,
+                        acquired_at,
                     )
 
                 # Non-streaming success: clear any stale rate-limit pause so
                 # subsequent callers are not held back by a pause set by an
                 # unrelated background task (e.g. dream/cron 429).
-                await limiter.on_success()
+                await limiter.on_success(acquired_at)
                 return result
 
             except Exception as exc:
@@ -500,11 +510,22 @@ class RetryChatModel(ChatModelBase):
         current_attempt: int,
         max_attempts: int,
         limiter: LLMRateLimiter,
+        acquired_at: float = 0.0,
     ) -> AsyncGenerator[ChatResponse, None]:
         """Yield chunks from *stream*; on transient failure, retry the full
-        request and yield from the new stream instead."""
+        request and yield from the new stream instead.
+
+        Args:
+            acquired_at: Timestamp from ``limiter.acquire()``, forwarded to
+                ``on_success()`` so stale pauses are cleared but fresh ones
+                (set by a concurrent 429 after this call acquired) are kept.
+        """
         try:
-            async for chunk in self._consume_stream_with_slot(stream, limiter):
+            async for chunk in self._consume_stream_with_slot(
+                stream,
+                limiter,
+                acquired_at,
+            ):
                 yield chunk
             return  # stream completed without error
         except Exception as failed_exc:
@@ -533,15 +554,16 @@ class RetryChatModel(ChatModelBase):
         for attempt in range(current_attempt + 1, max_attempts + 1):
             acquired = False
             owns_semaphore = True
+            retry_acquired_at: float = 0.0
             try:
                 try:
-                    await asyncio.wait_for(
+                    retry_acquired_at = await asyncio.wait_for(
                         limiter.acquire(),
                         timeout=self._rate_limit_config.acquire_timeout,
                     )
                     acquired = True
                 except asyncio.TimeoutError as exc:
-                    raise RateLimitExceededException(
+                    raise _AcquireTimeoutError(
                         operation="LLM execution (stream retry)",
                         retry_after=int(
                             self._rate_limit_config.acquire_timeout,
@@ -559,6 +581,7 @@ class RetryChatModel(ChatModelBase):
                         async for chunk in self._consume_stream_with_slot(
                             result,
                             limiter,
+                            retry_acquired_at,
                         ):
                             yield chunk
                         return  # stream completed without error
