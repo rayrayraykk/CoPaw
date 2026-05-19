@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
-import { Download, Monitor, Laptop } from "lucide-react";
+import { Check, Copy, Download, Laptop, Monitor, Puzzle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { useSiteConfig } from "@/config-context";
 import "../styles/downloads.css";
+
+const CDN_BASE = "https://download.qwenpaw.agentscope.io";
 
 interface FileMetadata {
   id: string;
@@ -19,6 +21,7 @@ interface FileMetadata {
   sha256: string;
   updated_at: string;
   type: string;
+  author?: string;
 }
 
 interface PlatformData {
@@ -91,7 +94,7 @@ function PlatformCard({
   const updatedDate = new Date(
     selectedFileMetadata.updated_at,
   ).toLocaleDateString(isZh ? "zh-CN" : "en-US");
-  const downloadUrl = `https://download.qwenpaw.agentscope.io${selectedFileMetadata.url}`;
+  const downloadUrl = `${CDN_BASE}${selectedFileMetadata.url}`;
   const stableVersions = versions.filter(
     (item) => !/[ab]\d*$/i.test(item.version) && !/preview/i.test(item.version),
   );
@@ -180,6 +183,153 @@ function PlatformCard({
   );
 }
 
+interface PluginCardProps {
+  file: FileMetadata;
+  kindLabel: string;
+}
+
+function PluginCard({ file, kindLabel }: PluginCardProps) {
+  const { t, i18n } = useTranslation();
+  const isZh = i18n.resolvedLanguage === "zh";
+  const [copied, setCopied] = useState(false);
+
+  const downloadUrl = `${CDN_BASE}${file.url}`;
+  const installCommand = `qwenpaw plugin install ${downloadUrl}`;
+  const name = isZh ? file.name["zh-CN"] : file.name["en-US"];
+  const description = isZh
+    ? file.description["zh-CN"]
+    : file.description["en-US"];
+  const updatedDate = new Date(file.updated_at).toLocaleDateString(
+    isZh ? "zh-CN" : "en-US",
+  );
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(installCommand);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1800);
+    } catch (err) {
+      console.warn("Clipboard write failed:", err);
+    }
+  }
+
+  return (
+    <div className="platform-card">
+      <div className="platform-header">
+        <div className="platform-icon">
+          <Puzzle size={28} strokeWidth={2} />
+        </div>
+        <div className="platform-info">
+          <h4>
+            {name}
+            <span className="plugin-kind-badge">{kindLabel}</span>
+          </h4>
+          <div className="platform-version">
+            v{file.version}
+            {file.author ? ` · ${file.author}` : ""}
+          </div>
+        </div>
+      </div>
+      {description && <p className="platform-description">{description}</p>}
+
+      <div className="plugin-install">
+        <div className="plugin-install-label">{t("downloads.installHint")}</div>
+        <div className="plugin-install-row">
+          <code className="plugin-install-cmd">{installCommand}</code>
+          <button
+            type="button"
+            className="plugin-copy-btn"
+            onClick={handleCopy}
+            aria-label={t("downloads.copyCommand")}
+          >
+            {copied ? <Check size={16} /> : <Copy size={16} />}
+            <span>
+              {copied ? t("downloads.copied") : t("downloads.copyCommand")}
+            </span>
+          </button>
+        </div>
+        <div className="plugin-install-hint">
+          {t("downloads.installForceHint")}
+        </div>
+      </div>
+
+      <a href={downloadUrl} className="download-btn" download>
+        <Download size={18} strokeWidth={2.5} />
+        {t("downloads.downloadZip")}
+      </a>
+
+      <div className="file-details">
+        <div className="detail-row">
+          <span className="detail-label">{t("downloads.version")}:</span>
+          <span>{file.version}</span>
+        </div>
+        <div className="detail-row">
+          <span className="detail-label">{t("downloads.size")}:</span>
+          <span>{file.size}</span>
+        </div>
+        <div className="detail-row">
+          <span className="detail-label">{t("downloads.updated")}:</span>
+          <span>{updatedDate}</span>
+        </div>
+        <div className="sha256-row">
+          <span className="detail-label">SHA256:</span>
+          <div className="sha256">{file.sha256}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface PluginsSectionProps {
+  pluginsIndex: DesktopIndex;
+}
+
+const PLUGIN_KIND_ORDER = ["bundle", "tool"];
+
+function PluginsSection({ pluginsIndex }: PluginsSectionProps) {
+  const { t } = useTranslation();
+  const kinds = Object.keys(pluginsIndex.platforms ?? {}).sort((a, b) => {
+    const ai = PLUGIN_KIND_ORDER.indexOf(a);
+    const bi = PLUGIN_KIND_ORDER.indexOf(b);
+    return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+  });
+
+  function labelForKind(kind: string): string {
+    if (kind === "bundle") return t("downloads.kindBundle");
+    if (kind === "tool") return t("downloads.kindTool");
+    return kind;
+  }
+
+  return (
+    <div className="product-section">
+      <div className="product-header">
+        <h3 className="product-title">{t("downloads.pluginsTitle")}</h3>
+        <p className="product-description">{t("downloads.pluginsDesc")}</p>
+      </div>
+      {kinds.map((kind) => {
+        const ids = pluginsIndex.platforms[kind]?.versions ?? [];
+        const files = ids
+          .map((id) => pluginsIndex.files[id])
+          .filter((f): f is FileMetadata => Boolean(f));
+        if (files.length === 0) return null;
+        return (
+          <div key={kind} className="plugin-kind-block">
+            <div className="platform-grid">
+              {files.map((file) => (
+                <PluginCard
+                  key={file.id}
+                  file={file}
+                  kindLabel={labelForKind(kind)}
+                />
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function isPreviewVersion(version: string): boolean {
   return /[ab]\d*$/i.test(version) || /preview/i.test(version);
 }
@@ -225,23 +375,16 @@ export default function Downloads() {
   const [loading, setLoading] = useState(true);
   const [isEmpty, setIsEmpty] = useState(false);
   const [desktopIndex, setDesktopIndex] = useState<DesktopIndex | null>(null);
+  const [pluginsIndex, setPluginsIndex] = useState<DesktopIndex | null>(null);
   const userOS = detectOS();
   const docsBase = docsPath.replace(/\/$/, "") || "/docs";
 
   useEffect(() => {
     async function loadDownloads() {
       try {
-        const CDN_BASE = "https://download.qwenpaw.agentscope.io";
-
-        console.log(
-          "Fetching main index from:",
-          `${CDN_BASE}/metadata/index.json`,
-        );
         const mainIndexResponse = await fetch(
           `${CDN_BASE}/metadata/index.json`,
         );
-
-        console.log("Main index response status:", mainIndexResponse.status);
 
         if (!mainIndexResponse.ok) {
           if (mainIndexResponse.status === 404) {
@@ -254,23 +397,17 @@ export default function Downloads() {
         }
 
         const mainIndex: MainIndex = await mainIndexResponse.json();
-        console.log("Main index data:", mainIndex);
 
         let hasDesktopData = false;
+        let hasPluginsData = false;
 
         if (mainIndex.products?.desktop) {
           const desktopIndexUrl = `${CDN_BASE}${mainIndex.products.desktop.index_url}`;
-          console.log("Fetching desktop index from:", desktopIndexUrl);
 
           const desktopIndexResponse = await fetch(desktopIndexUrl);
-          console.log(
-            "Desktop index response status:",
-            desktopIndexResponse.status,
-          );
 
           if (desktopIndexResponse.ok) {
             const desktopData: DesktopIndex = await desktopIndexResponse.json();
-            console.log("Desktop index data:", desktopData);
             setDesktopIndex(desktopData);
             hasDesktopData = true;
           } else {
@@ -283,8 +420,25 @@ export default function Downloads() {
           console.warn("No desktop product found in main index");
         }
 
-        if (!hasDesktopData) {
-          console.warn("No desktop data available, showing empty state");
+        if (mainIndex.products?.plugins) {
+          const pluginsIndexUrl = `${CDN_BASE}${mainIndex.products.plugins.index_url}`;
+
+          const pluginsIndexResponse = await fetch(pluginsIndexUrl);
+
+          if (pluginsIndexResponse.ok) {
+            const pluginsData: DesktopIndex = await pluginsIndexResponse.json();
+            setPluginsIndex(pluginsData);
+            hasPluginsData = Object.keys(pluginsData.files ?? {}).length > 0;
+          } else {
+            console.warn(
+              "Plugins index fetch failed with status:",
+              pluginsIndexResponse.status,
+            );
+          }
+        }
+
+        if (!hasDesktopData && !hasPluginsData) {
+          console.warn("No downloadable data available, showing empty state");
           setIsEmpty(true);
         }
 
@@ -374,6 +528,11 @@ export default function Downloads() {
                 </div>
               </div>
             )}
+
+            {pluginsIndex &&
+              Object.keys(pluginsIndex.files ?? {}).length > 0 && (
+                <PluginsSection pluginsIndex={pluginsIndex} />
+              )}
 
             <div className="product-section">
               <div className="product-header">
