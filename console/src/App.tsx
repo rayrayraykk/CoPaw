@@ -24,7 +24,7 @@ import "dayjs/locale/id";
 dayjs.extend(relativeTime);
 import MainLayout from "./layouts/MainLayout";
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
-import { PluginProvider } from "./plugins/PluginContext";
+import { PluginProvider, usePlugins } from "./plugins/PluginContext";
 import { ApprovalProvider } from "./contexts/ApprovalContext";
 import { Suspense } from "react";
 import { lazyImportWithRetry } from "./utils/lazyWithRetry";
@@ -124,6 +124,7 @@ function AppInner() {
   const basename = getRouterBasename(window.location.pathname);
   const { i18n } = useTranslation();
   const { isDark } = useTheme();
+  const { loading: pluginsLoading } = usePlugins();
   const selectedTheme = isDark ? bailianDarkTheme : bailianTheme;
   const lang = i18n.resolvedLanguage || i18n.language || "en";
   const [antdLocale, setAntdLocale] = useState<Locale>(
@@ -162,6 +163,11 @@ function AppInner() {
     };
   }, [i18n]);
 
+  // Wait for plugins to load before rendering routes that might be patched
+  if (pluginsLoading) {
+    return null;
+  }
+
   return (
     <BrowserRouter basename={basename}>
       <GlobalStyle />
@@ -195,9 +201,7 @@ function AppInner() {
                 path="/*"
                 element={
                   <AuthGuard>
-                    <PluginProvider>
-                      <MainLayout />
-                    </PluginProvider>
+                    <MainLayout />
                   </AuthGuard>
                 }
               />
@@ -212,7 +216,9 @@ function AppInner() {
 function App() {
   return (
     <ThemeProvider>
-      <AppInner />
+      <PluginProvider>
+        <AppInner />
+      </PluginProvider>
     </ThemeProvider>
   );
 }
