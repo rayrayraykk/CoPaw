@@ -485,8 +485,14 @@ export default function ProjectSelectModal({
 
   const handleConfirm = async (path: string | null) => {
     if (path !== undefined) {
-      // path was set via API call already (Local / Create),
-      // or explicitly null (workspace default).
+      // For workspace default (path === null), explicitly reset on backend too
+      if (path === null) {
+        try {
+          await codingProjectApi.set(null);
+        } catch {
+          // ignore – best effort
+        }
+      }
       setProjectDir(path);
       onConfirm(path);
     }

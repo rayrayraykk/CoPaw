@@ -284,9 +284,10 @@ export default function FileTree({ onFileSelect }: FileTreeProps) {
     }
   }, [loadGitStatus]);
 
+  // Reload file tree when project switches (projectDir from store)
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, projectDir]);
 
   // Re-fetch on any file change (structural) or file modification (git status may change)
   useWorkspaceWatch((events) => {
