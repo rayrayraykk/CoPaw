@@ -315,6 +315,8 @@ async def git_status(request: Request) -> GitStatus:
         path = line[3:].strip()
         if " -> " in path:
             path = path.split(" -> ")[-1]
+        # Strip trailing slash (git uses "dirname/" for untracked directories)
+        path = path.rstrip("/")
         staged_char, unstaged_char = xy[0], xy[1]
         if staged_char not in (" ", "?"):
             changes.append(
