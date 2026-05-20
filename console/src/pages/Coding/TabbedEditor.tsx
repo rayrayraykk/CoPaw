@@ -5,15 +5,17 @@
  *   • Inline Diff view when Agent modifies the open file:
  *       - Switches to DiffEditor (renderSideBySide: false → VS Code inline style)
  *       - "Keep" accepts the new content; "Undo" reverts to original
+ *   • Preview mode for images, Markdown, PDF, CSV (toggle per tab)
  *   • Ctrl/Cmd+C copies code with @file:Lx-y context for Chat injection
  *   • Cmd/Ctrl+S to save
  */
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Editor, { DiffEditor, type Monaco, type DiffOnMount } from "@monaco-editor/react";
 import type { editor as MonacoEditor } from "monaco-editor";
-import { Check, FileCode, GitCompareArrows, MessageSquarePlus, RotateCcw, Save, X } from "lucide-react";
+import { Check, Code2, Eye, FileCode, GitCompareArrows, MessageSquarePlus, RotateCcw, Save, X } from "lucide-react";
 import { Tooltip } from "antd";
+import FilePreview, { isPreviewable } from "./FilePreview";
 import { workspaceApi } from "../../api/modules/workspace";
 import { useWorkspaceWatch } from "../../hooks/useWorkspaceWatch";
 import { useTheme } from "../../contexts/ThemeContext";
@@ -123,6 +125,36 @@ export default function TabbedEditor({
 
   const [saving, setSaving] = useState(false);
   const [hasSelection, setHasSelection] = useState(false);
+
+  /**
+   * Paths whose tabs are currently in "Preview" mode instead of code editor.
+   * Only applies to previewable files (images, md, pdf, csv).
+   */
+  const [previewPaths, setPreviewPaths] = useState<Set<string>>(new Set());
+
+  const togglePreview = useCallback((path: string) => {
+    setPreviewPaths((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) {
+        next.delete(path);
+      } else {
+        next.add(path);
+      }
+      return next;
+    });
+  }, []);
+
+  // Auto-enter preview mode when a previewable file is first opened.
+  useEffect(() => {
+    if (activeTabPath && isPreviewable(activeTabPath)) {
+      setPreviewPaths((prev) => {
+        if (prev.has(activeTabPath)) return prev;
+        const next = new Set(prev);
+        next.add(activeTabPath);
+        return next;
+      });
+    }
+  }, [activeTabPath]);
 
   /**
    * Paths currently being reverted via Undo — suppress watcher-triggered diffs
@@ -385,6 +417,9 @@ export default function TabbedEditor({
 
   const shortPath = (p: string) => p.split("/").slice(-2).join("/");
 
+  const activeIsPreviewable = activeTabPath ? isPreviewable(activeTabPath) : false;
+  const activeInPreview = activeTabPath ? previewPaths.has(activeTabPath) : false;
+
   return (
     <div className={styles.wrap} onKeyDown={handleKeyDown}>
       {/* ── Tab bar ────────────────────────────────────────────────────── */}
@@ -457,35 +492,53 @@ export default function TabbedEditor({
             </Tooltip>
           </div>
         ) : (
-          /* Normal mode: Copy-to-Chat + Save */
+          /* Normal mode: Preview toggle + Copy-to-Chat + Save */
           <div className={styles.toolbarRight}>
-            <Tooltip title={hasSelection ? "Copy selection to Chat" : "Copy file to Chat"}>
-              <button
-                type="button"
-                className={styles.iconBtn}
-                onClick={handleCopyToChat}
-                disabled={!activeTabPath}
-              >
-                <MessageSquarePlus size={13} />
-              </button>
-            </Tooltip>
-            <Tooltip title="Save (Cmd+S)">
-              <button
-                type="button"
-                className={styles.iconBtn}
-                onClick={handleSave}
-                disabled={saving || !activeTab?.dirty}
-              >
-                <Save size={13} />
-              </button>
-            </Tooltip>
+            {activeIsPreviewable && (
+              <Tooltip title={activeInPreview ? "Switch to Code" : "Open Preview"}>
+                <button
+                  type="button"
+                  className={`${styles.iconBtn} ${activeInPreview ? styles.previewActiveBtn : ""}`}
+                  onClick={() => togglePreview(activeTabPath)}
+                >
+                  {activeInPreview ? <Code2 size={13} /> : <Eye size={13} />}
+                </button>
+              </Tooltip>
+            )}
+            {!activeInPreview && (
+              <>
+                <Tooltip title={hasSelection ? "Copy selection to Chat" : "Copy file to Chat"}>
+                  <button
+                    type="button"
+                    className={styles.iconBtn}
+                    onClick={handleCopyToChat}
+                    disabled={!activeTabPath}
+                  >
+                    <MessageSquarePlus size={13} />
+                  </button>
+                </Tooltip>
+                <Tooltip title="Save (Cmd+S)">
+                  <button
+                    type="button"
+                    className={styles.iconBtn}
+                    onClick={handleSave}
+                    disabled={saving || !activeTab?.dirty}
+                  >
+                    <Save size={13} />
+                  </button>
+                </Tooltip>
+              </>
+            )}
           </div>
         )}
       </div>
 
       {/* ── Editor area ────────────────────────────────────────────────── */}
       <div className={styles.editor}>
-        {activeTab && (
+        {activeTab && activeInPreview ? (
+          /* ── Preview mode (image / markdown / pdf / csv) ─────────────── */
+          <FilePreview filePath={activeTab.path} content={activeTab.content} />
+        ) : activeTab && (
           activeDiff ? (
             /* ── Inline diff view (VS Code "Copilot Edits" style) ─────── */
             <DiffEditor
@@ -544,3 +597,4 @@ export default function TabbedEditor({
     </div>
   );
 }
+

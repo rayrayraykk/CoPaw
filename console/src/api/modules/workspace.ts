@@ -181,4 +181,16 @@ export const workspaceApi = {
 
   /** Returns the URL for the SSE file-watch stream (Coding Mode). */
   getWatchUrl: () => getApiUrl("/workspace/watch"),
+
+  /**
+   * Returns the URL for a binary file (image, PDF, CSV) preview.
+   * The browser can use this URL directly in <img>, <embed>, or fetch().
+   */
+  getBinaryFileUrl: (filePath: string) =>
+    getApiUrl(
+      `/workspace/binary-files/${filePath
+        .split("/")
+        .map(encodeURIComponent)
+        .join("/")}`,
+    ),
 };

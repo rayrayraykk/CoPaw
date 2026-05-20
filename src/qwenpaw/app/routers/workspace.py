@@ -227,6 +227,78 @@ async def list_code_files(request: Request) -> list[dict]:
 
 
 _CODE_FILE_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
+_BINARY_FILE_MAX_BYTES = 50 * 1024 * 1024  # 50 MB
+
+_MIME_MAP: dict[str, str] = {
+    # Images
+    "png": "image/png",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "gif": "image/gif",
+    "webp": "image/webp",
+    "svg": "image/svg+xml",
+    "ico": "image/x-icon",
+    "bmp": "image/bmp",
+    # Documents
+    "pdf": "application/pdf",
+    # Data
+    "csv": "text/csv",
+}
+
+
+@router.get(
+    "/binary-files/{file_path:path}",
+    summary="Serve a binary workspace file (images, PDFs) for preview",
+)
+async def read_binary_file(
+    file_path: str,
+    request: Request,
+) -> StreamingResponse:
+    """Return the raw bytes of *file_path* with the appropriate Content-Type.
+
+    Intended for the IDE preview panel (images, PDFs, CSV).
+    Rejects files that are not in ``_MIME_MAP`` or exceed 50 MB.
+    """
+    workspace = await get_agent_for_request(request)
+    root = workspace.workspace_dir.resolve()
+    target = (root / file_path).resolve()
+    if not str(target).startswith(str(root)):
+        raise HTTPException(
+            status_code=400,
+            detail="Path traversal not allowed",
+        )
+
+    ext = target.suffix.lstrip(".").lower()
+    mime = _MIME_MAP.get(ext)
+    if mime is None:
+        raise HTTPException(
+            status_code=415,
+            detail=f"Preview not supported for .{ext} files",
+        )
+
+    def _read_bytes() -> bytes:
+        size = target.stat().st_size
+        if size > _BINARY_FILE_MAX_BYTES:
+            raise ValueError(
+                f"File too large for preview ({size // 1024 // 1024} MB"
+                f" > {_BINARY_FILE_MAX_BYTES // 1024 // 1024} MB limit)",
+            )
+        return target.read_bytes()
+
+    try:
+        data = await asyncio.to_thread(_read_bytes)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="File not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return StreamingResponse(
+        iter([data]),
+        media_type=mime,
+        headers={"Content-Length": str(len(data))},
+    )
 
 
 @router.get(
