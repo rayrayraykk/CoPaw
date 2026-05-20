@@ -214,23 +214,40 @@ function LocalPathTab({ onSelect }: { onSelect: (path: string) => void }) {
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(false);
-    // Accept text/plain drops (path strings dragged from terminal etc.)
-    const text = e.dataTransfer.getData("text/plain") ||
-      e.dataTransfer.getData("text");
+
+    // 1. macOS Finder drag: text/uri-list = "file:///path/to/folder\r\n"
+    const uriList = e.dataTransfer.getData("text/uri-list");
+    if (uriList?.trim()) {
+      const firstUri = uriList.split(/\r?\n/).find((l) => l.startsWith("file://"));
+      if (firstUri) {
+        try {
+          // Decode percent-encoding (%20 → space, etc.)
+          const decoded = decodeURIComponent(firstUri.replace(/^file:\/\//, ""));
+          setSelectedPath(decoded);
+          return;
+        } catch {
+          // fall through
+        }
+      }
+    }
+
+    // 2. Text/plain drops (path strings dragged from terminal etc.)
+    const text =
+      e.dataTransfer.getData("text/plain") || e.dataTransfer.getData("text");
     if (text?.trim()) {
       setSelectedPath(text.trim());
       return;
     }
-    // Accept file entries (some environments expose path via File.path in Electron-like shells)
+
+    // 3. Electron / desktop wrapper may expose File.path
     const file = e.dataTransfer.files[0];
     if (file) {
-      // Electron / desktop wrapper may expose a `path` property
       const filePath = (file as File & { path?: string }).path;
       if (filePath) {
         setSelectedPath(filePath);
         return;
       }
-      // Fallback: use file name as hint and focus the text input
+      // Last fallback: put the folder name in the text input as a hint
       if (pathInputRef.current?.input) {
         pathInputRef.current.input.value = file.name;
         pathInputRef.current.focus();
