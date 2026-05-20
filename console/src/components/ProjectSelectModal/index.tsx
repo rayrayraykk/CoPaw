@@ -284,10 +284,11 @@ function LocalPathTab({ onSelect }: { onSelect: (path: string) => void }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await codingProjectApi.set(trimmed);
+      // Copy source folder into coding_projects/ (same as clone workflow)
+      const res = await codingProjectApi.importLocal(trimmed);
       onSelect(res.path);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to open path");
+      setError(err instanceof Error ? err.message : "Failed to import path");
       setLoading(false);
     }
   };
@@ -516,7 +517,7 @@ export default function ProjectSelectModal({
       ),
       children: (
         <WorkspaceTab
-          currentProjectDir={projectDir}
+          currentProjectDir={projectDir ?? null}
           onSelect={() => void handleConfirm(null)}
         />
       ),

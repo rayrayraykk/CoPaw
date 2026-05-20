@@ -76,10 +76,11 @@ export default function CodingModeToggle() {
     const confirmed = localStorage.getItem(CONFIRMED_KEY);
     if (!confirmed) {
       setShowConfirm(true);
-    } else if (!projectDir) {
-      // Already confirmed but no project selected yet → show project picker
+    } else if (projectDir === undefined) {
+      // Never selected a project yet → show project picker
       setShowProjectSelect(true);
     } else {
+      // null = workspace default, string = specific path → go directly
       await activate();
     }
   }, [codingMode, activate, deactivate, projectDir]);

@@ -40,6 +40,16 @@ export const codingProjectApi = {
   /** List all coding projects under the agent's coding_projects/ directory. */
   list: () => request<ProjectListItem[]>("/workspace/coding-project/list"),
 
+  /**
+   * Copy a local directory into coding_projects/ (excludes node_modules etc.)
+   * and set it as the active project.
+   */
+  importLocal: (path: string, name?: string) =>
+    request<{ path: string; name: string }>("/workspace/coding-project/import-local", {
+      method: "POST",
+      body: JSON.stringify({ path, name: name || undefined }),
+    }),
+
   /** Low-level: POST to clone endpoint and return a ReadableStream of SSE. */
   cloneStream: (url: string, name?: string): Promise<Response> =>
     fetch(getApiUrl("/workspace/coding-project/clone"), {

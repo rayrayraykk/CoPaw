@@ -15,7 +15,9 @@ interface CodingModeState {
   todosByAgent: Record<string, TodoItem[]>;
   /**
    * Active coding project directory path, keyed by agentId.
-   * undefined/null → use server default (workspace_dir).
+   * Key absent / undefined → never selected (show picker on next toggle).
+   * null → user explicitly chose the default workspace (skip picker).
+   * string → specific project directory.
    */
   projectDirByAgent: Record<string, string | null>;
 
@@ -72,15 +74,21 @@ export function useCurrentTodos(): TodoItem[] {
   return todosByAgent[selectedAgent] ?? [];
 }
 
-/** Convenience hook: coding project directory for the currently selected agent */
+/** Convenience hook: coding project directory for the currently selected agent.
+ *
+ * Returns `undefined` when the user has never chosen a project (show picker),
+ * `null` when they explicitly chose the default workspace (skip picker),
+ * or a `string` path when a specific project is active.
+ */
 export function useProjectDir(): {
-  projectDir: string | null;
+  projectDir: string | null | undefined;
   setProjectDir: (path: string | null) => void;
 } {
   const { selectedAgent } = useAgentStore();
   const { projectDirByAgent, setProjectDir } = useCodingModeStore();
   return {
-    projectDir: projectDirByAgent[selectedAgent] ?? null,
+    // Do NOT fall back to null here – undefined means "never selected"
+    projectDir: projectDirByAgent[selectedAgent],
     setProjectDir: (path: string | null) => setProjectDir(selectedAgent, path),
   };
 }

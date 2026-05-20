@@ -249,7 +249,7 @@ export default function FileTree({ onFileSelect }: FileTreeProps) {
   useEffect(() => {
     codingProjectApi.get().then((info) => {
       setProjectName(info.name);
-      if (!projectDir && !info.is_workspace_default) {
+      if (projectDir === undefined && !info.is_workspace_default) {
         setProjectDir(info.path);
       }
     }).catch(() => undefined);

@@ -268,6 +268,84 @@ async def clone_project(
     )
 
 
+class ImportLocalRequest(BaseModel):
+    path: str
+    name: str | None = None  # override destination folder name
+
+
+@router.post(
+    "/import-local",
+    summary="Copy a local directory into coding projects",
+)
+async def import_local(body: ImportLocalRequest, request: Request) -> dict:
+    """Copy *path* into the agent's ``coding_projects/`` directory.
+
+    Common build artifacts (``node_modules``, ``dist``, etc.) are excluded
+    to avoid copying large generated directories.  ``.git`` is preserved so
+    the existing history is available in the copy.
+    """
+    workspace = await get_agent_for_request(request)
+    source = await asyncio.to_thread(
+        lambda: Path(body.path).expanduser().resolve(),
+    )
+
+    if not source.exists():
+        raise HTTPException(
+            status_code=400,
+            detail=f"Path does not exist: {source}",
+        )
+    if not source.is_dir():
+        raise HTTPException(
+            status_code=400,
+            detail=f"Not a directory: {source}",
+        )
+
+    dest_name = body.name.strip() if body.name else source.name
+    base = _projects_base(workspace.workspace_dir)
+    dest = base / dest_name
+
+    def _copy() -> Path:
+        import shutil
+
+        base.mkdir(parents=True, exist_ok=True)
+        ignore = shutil.ignore_patterns(
+            "node_modules",
+            ".next",
+            "dist",
+            "build",
+            "__pycache__",
+            ".cache",
+            ".venv",
+            "venv",
+            "*.egg-info",
+            ".mypy_cache",
+            ".tox",
+        )
+        shutil.copytree(
+            str(source),
+            str(dest),
+            ignore=ignore,
+            dirs_exist_ok=True,
+        )
+        return dest
+
+    try:
+        project_path = await asyncio.to_thread(_copy)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    await asyncio.to_thread(
+        _save_project_dir,
+        workspace.agent_id,
+        str(project_path),
+    )
+
+    return {
+        "path": str(project_path),
+        "name": project_path.name,
+    }
+
+
 @router.get("/list", summary="List all coding projects for this agent")
 async def list_projects(request: Request) -> list[dict]:
     """Return all subdirectories in the agent's coding_projects folder."""
