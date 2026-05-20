@@ -110,36 +110,50 @@ def _raise_if_not_repo(rc: int, stderr: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _write_gitignore(cwd: Path) -> None:
+async def _write_gitignore(cwd: Path) -> None:
     """Write a default .gitignore if one does not already exist."""
     gitignore_path = cwd / ".gitignore"
-    if not gitignore_path.exists():
-        try:
-            gitignore_path.write_text(_DEFAULT_GITIGNORE, encoding="utf-8")
-        except Exception:  # noqa: BLE001
-            pass
-
-
-def _exclude_nested_repos(cwd: Path) -> None:
-    """Write nested git repos into .git/info/exclude so they are not staged."""
-    try:
-        nested = [
-            str(p.parent.relative_to(cwd)) + "/"
-            for p in cwd.rglob(".git")
-            if p.is_dir() and p != cwd / ".git"
-        ]
-    except Exception:  # noqa: BLE001
+    if await asyncio.to_thread(gitignore_path.exists):
         return
+    try:
+        await asyncio.to_thread(
+            gitignore_path.write_text,
+            _DEFAULT_GITIGNORE,
+            encoding="utf-8",
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+
+async def _exclude_nested_repos(cwd: Path) -> None:
+    """Write nested git repos into .git/info/exclude so they are not staged."""
+
+    def _scan() -> list[str]:
+        try:
+            return [
+                str(p.parent.relative_to(cwd)) + "/"
+                for p in cwd.rglob(".git")
+                if p.is_dir() and p != cwd / ".git"
+            ]
+        except Exception:  # noqa: BLE001
+            return []
+
+    nested = await asyncio.to_thread(_scan)
     if not nested:
         return
+
     exclude_path = cwd / ".git" / "info" / "exclude"
-    try:
+
+    def _write_exclude() -> None:
         exclude_path.parent.mkdir(parents=True, exist_ok=True)
         existing = exclude_path.read_text() if exclude_path.exists() else ""
         with exclude_path.open("a") as fh:
             for rel in nested:
                 if rel not in existing:
                     fh.write(rel + "\n")
+
+    try:
+        await asyncio.to_thread(_write_exclude)
     except Exception:  # noqa: BLE001
         pass
 
@@ -154,8 +168,8 @@ async def _auto_init_repo(cwd: Path) -> str:
         logger.warning("git init failed in %s: %s", cwd, err)
         return ""
 
-    _write_gitignore(cwd)
-    _exclude_nested_repos(cwd)
+    await _write_gitignore(cwd)
+    await _exclude_nested_repos(cwd)
 
     await _git(cwd, "add", "-A", "--ignore-errors")
 

@@ -240,10 +240,14 @@ async def read_code_file(file_path: str, request: Request) -> dict:
             status_code=400,
             detail="Path traversal not allowed",
         )
-    if not target.is_file():
+    if not await asyncio.to_thread(target.is_file):
         raise HTTPException(status_code=404, detail="File not found")
     try:
-        content = target.read_text(encoding="utf-8", errors="replace")
+        content = await asyncio.to_thread(
+            target.read_text,
+            encoding="utf-8",
+            errors="replace",
+        )
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return {"path": file_path, "content": content}
@@ -275,12 +279,17 @@ async def write_code_file(
     content = body.get("content", "")
     if not isinstance(content, str):
         raise HTTPException(status_code=422, detail="content must be a string")
-    try:
+
+    def _write() -> int:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")
+        return target.stat().st_size
+
+    try:
+        size = await asyncio.to_thread(_write)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-    return {"path": file_path, "size": target.stat().st_size}
+    return {"path": file_path, "size": size}
 
 
 @router.get(
