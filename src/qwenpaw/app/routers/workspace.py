@@ -323,7 +323,14 @@ async def watch_workspace_files(request: Request) -> StreamingResponse:
                 except asyncio.TimeoutError:
                     yield ": heartbeat\n\n"
                     continue
-                except StopAsyncIteration:
+                except (
+                    StopAsyncIteration,
+                    asyncio.CancelledError,
+                    GeneratorExit,
+                ):
+                    # StopAsyncIteration  – watcher stopped naturally
+                    # CancelledError      – app shutdown cancelled the task
+                    # GeneratorExit       – streaming response closed
                     break
 
                 events = []
@@ -349,8 +356,13 @@ async def watch_workspace_files(request: Request) -> StreamingResponse:
                         ensure_ascii=False,
                     )
                     yield f"data: {payload}\n\n"
+        except (asyncio.CancelledError, GeneratorExit):
+            pass  # normal during app shutdown
         finally:
-            await watcher.aclose()
+            try:
+                await watcher.aclose()
+            except Exception:  # noqa: BLE001
+                pass
 
     return StreamingResponse(
         event_generator(),
