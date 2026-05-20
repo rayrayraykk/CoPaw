@@ -10,7 +10,7 @@
  *   • Cmd/Ctrl+S to save
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import Editor, { DiffEditor, type Monaco, type DiffOnMount } from "@monaco-editor/react";
 import type { editor as MonacoEditor } from "monaco-editor";
 import { Check, Code2, Eye, FileCode, GitCompareArrows, MessageSquarePlus, RotateCcw, Save, X } from "lucide-react";
@@ -144,17 +144,7 @@ export default function TabbedEditor({
     });
   }, []);
 
-  // Auto-enter preview mode when a previewable file is first opened.
-  useEffect(() => {
-    if (activeTabPath && isPreviewable(activeTabPath)) {
-      setPreviewPaths((prev) => {
-        if (prev.has(activeTabPath)) return prev;
-        const next = new Set(prev);
-        next.add(activeTabPath);
-        return next;
-      });
-    }
-  }, [activeTabPath]);
+  // Default is Code mode; user manually toggles to Preview via the Eye button.
 
   /**
    * Paths currently being reverted via Undo — suppress watcher-triggered diffs
