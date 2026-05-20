@@ -226,12 +226,19 @@ async def list_code_files(request: Request) -> list[dict]:
     )
 
 
+_CODE_FILE_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
+
+
 @router.get(
     "/code-files/{file_path:path}",
     summary="Read any workspace file (Coding Mode)",
 )
 async def read_code_file(file_path: str, request: Request) -> dict:
-    """Return the text content of *file_path* inside the workspace."""
+    """Return the text content of *file_path* inside the workspace.
+
+    Returns HTTP 413 if the file exceeds ``_CODE_FILE_MAX_BYTES`` (5 MB) to
+    avoid flooding the browser with huge binary or log files.
+    """
     workspace = await get_agent_for_request(request)
     root = workspace.workspace_dir.resolve()
     target = (root / file_path).resolve()
@@ -242,12 +249,20 @@ async def read_code_file(file_path: str, request: Request) -> dict:
         )
     if not await asyncio.to_thread(target.is_file):
         raise HTTPException(status_code=404, detail="File not found")
+
+    def _read() -> str:
+        size = target.stat().st_size
+        if size > _CODE_FILE_MAX_BYTES:
+            raise ValueError(
+                f"File too large to open in editor ({size // 1024 // 1024} MB"
+                f" > {_CODE_FILE_MAX_BYTES // 1024 // 1024} MB limit)",
+            )
+        return target.read_text(encoding="utf-8", errors="replace")
+
     try:
-        content = await asyncio.to_thread(
-            target.read_text,
-            encoding="utf-8",
-            errors="replace",
-        )
+        content = await asyncio.to_thread(_read)
+    except ValueError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return {"path": file_path, "content": content}

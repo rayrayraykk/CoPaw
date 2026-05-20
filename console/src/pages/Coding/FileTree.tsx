@@ -290,8 +290,17 @@ export default function FileTree({ onFileSelect }: FileTreeProps) {
       try {
         const result = await workspaceApi.loadCodeFile(path);
         onFileSelect(path, result.content ?? "");
-      } catch {
-        onFileSelect(path, "");
+      } catch (err: unknown) {
+        const status =
+          err instanceof Error && "status" in err
+            ? (err as { status?: number }).status
+            : undefined;
+        // HTTP 413 = file too large; show a placeholder instead of blank tab
+        const placeholder =
+          status === 413
+            ? "// File too large to open in the editor (> 5 MB)"
+            : "";
+        onFileSelect(path, placeholder);
       }
     },
     [onFileSelect],
