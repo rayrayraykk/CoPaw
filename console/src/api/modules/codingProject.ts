@@ -52,15 +52,26 @@ export const codingProjectApi = {
 
   /**
    * Upload a zip of a project folder; backend extracts it to coding_projects/.
-   * Same pattern as the plugin install modal.
+   * Must use fetch directly (not request()) so the browser can set the
+   * multipart/form-data Content-Type boundary automatically.
    */
-  uploadZip: (zipFile: File, name: string): Promise<{ path: string; name: string }> => {
+  uploadZip: async (zipFile: File, name: string): Promise<{ path: string; name: string }> => {
     const formData = new FormData();
     formData.append("file", zipFile);
-    return request<{ path: string; name: string }>(
-      `/workspace/coding-project/upload-zip?name=${encodeURIComponent(name)}`,
-      { method: "POST", body: formData },
+    const res = await fetch(
+      getApiUrl(`/workspace/coding-project/upload-zip?name=${encodeURIComponent(name)}`),
+      {
+        method: "POST",
+        // No Content-Type header — browser sets multipart/form-data with boundary
+        headers: buildAuthHeaders(),
+        body: formData,
+      },
     );
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(text || `Upload failed: ${res.status}`);
+    }
+    return res.json() as Promise<{ path: string; name: string }>;
   },
 
   /** Low-level: POST to clone endpoint and return a ReadableStream of SSE. */
