@@ -10,10 +10,8 @@
  */
 
 import { useState, useRef, useEffect } from "react";
-import { Modal, Tabs, Input, Button, Alert, Progress, List, Typography } from "antd";
+import { Modal, Tabs, Input, Button, Alert, Progress, List } from "antd";
 import { FolderOpen, GitBranch, HardDrive, PlusCircle, X } from "lucide-react";
-
-const { Text } = Typography;
 import { useTranslation } from "react-i18next";
 import { codingProjectApi, type ProjectListItem } from "../../api/modules/codingProject";
 import { useProjectDir } from "../../stores/codingModeStore";
@@ -178,15 +176,63 @@ function CloneTab({ onDone }: { onDone: (path: string) => void }) {
 }
 
 // ---------------------------------------------------------------------------
+// Helpers for LocalPathTab: read a dropped directory recursively, skipping
+// common large / generated directories so we don't upload gigabytes.
+// ---------------------------------------------------------------------------
+
+const SKIP_SEGMENTS = new Set([
+  "node_modules",
+  ".git",
+  ".next",
+  "dist",
+  "build",
+  "__pycache__",
+  ".cache",
+  ".venv",
+  "venv",
+  ".mypy_cache",
+  ".tox",
+]);
+
+function shouldSkipPath(path: string): boolean {
+  return path.split("/").some((seg) => SKIP_SEGMENTS.has(seg));
+}
+
+async function readDirFiltered(
+  entry: FileSystemDirectoryEntry,
+): Promise<Array<{ path: string; file: File }>> {
+  const result: Array<{ path: string; file: File }> = [];
+  const reader = entry.createReader();
+  const readBatch = (): Promise<FileSystemEntry[]> =>
+    new Promise((resolve, reject) => reader.readEntries(resolve, reject));
+  let batch: FileSystemEntry[];
+  do {
+    batch = await readBatch();
+    for (const item of batch) {
+      if (shouldSkipPath(item.fullPath)) continue;
+      if (item.isFile) {
+        const file = await new Promise<File>((resolve, reject) =>
+          (item as FileSystemFileEntry).file(resolve, reject),
+        );
+        result.push({ path: item.fullPath.replace(/^\//, ""), file });
+      } else if (item.isDirectory) {
+        const sub = await readDirFiltered(item as FileSystemDirectoryEntry);
+        result.push(...sub);
+      }
+    }
+  } while (batch.length > 0);
+  return result;
+}
+
+type FolderSelection = { name: string; entries: Array<{ path: string; file: File }> };
+
+// ---------------------------------------------------------------------------
 // Tab: Open Local Path
 // ---------------------------------------------------------------------------
 
 function LocalPathTab({ onSelect }: { onSelect: (path: string) => void }) {
   const { t } = useTranslation();
-  // null = no selection; string = either absolute path or just a folder name hint
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  // When browser can only give us a folder name (not absolute path), let user edit it
-  const [editPath, setEditPath] = useState("");
+  const [localSel, setLocalSel] = useState<FolderSelection | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -207,29 +253,17 @@ function LocalPathTab({ onSelect }: { onSelect: (path: string) => void }) {
     };
   }, []);
 
-  const applyPath = (p: string) => {
-    setSelectedPath(p);
-    setEditPath(p);
-    setError(null);
-  };
-
+  // System folder picker — same hidden input pattern as plugin install modal
   const handleDirPicked = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    // Electron / PyWebView exposes the absolute path via file.path
-    const absPath = (file as File & { path?: string }).path;
-    if (absPath) {
-      const rel = file.webkitRelativePath;
-      const folder = rel
-        ? absPath.slice(0, absPath.length - rel.length).replace(/\/$/, "")
-        : absPath;
-      applyPath(folder || absPath);
-    } else {
-      // Standard browser: only the folder name is available.
-      // Pre-fill the edit input so the user can type/paste the full path.
-      const name = file.webkitRelativePath.split("/")[0] || file.name;
-      applyPath(name);
-    }
+    const files = Array.from(e.target.files ?? []).filter(
+      (f) => !shouldSkipPath(f.webkitRelativePath),
+    );
+    if (files.length === 0) return;
+    const folderName = files[0].webkitRelativePath.split("/")[0];
+    setLocalSel({
+      name: folderName,
+      entries: files.map((f) => ({ path: f.webkitRelativePath, file: f })),
+    });
     e.target.value = "";
   };
 
@@ -245,59 +279,47 @@ function LocalPathTab({ onSelect }: { onSelect: (path: string) => void }) {
     setDragOver(false);
   };
 
-  const handleDrop = (e: React.DragEvent) => {
+  const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setDragOver(false);
-
     const items = Array.from(e.dataTransfer.items);
-    if (items.length > 0) {
-      const entry = items[0].webkitGetAsEntry();
-      if (entry?.isDirectory) {
-        // macOS Finder: extract file:// URI from text/uri-list
-        const uriList = e.dataTransfer.getData("text/uri-list");
-        const fileUri = uriList?.split(/\r?\n/).find((l) => l.startsWith("file://"));
-        if (fileUri) {
-          try {
-            applyPath(decodeURIComponent(fileUri.replace(/^file:\/\//, "")));
-            return;
-          } catch { /* fall through */ }
-        }
-        applyPath(entry.name);
-        return;
-      }
+    if (items.length === 0) return;
+    const entry = items[0].webkitGetAsEntry();
+    if (!entry?.isDirectory) return;
+    try {
+      const entries = await readDirFiltered(entry as FileSystemDirectoryEntry);
+      setLocalSel({ name: entry.name, entries });
+    } catch {
+      setError(t("codingMode.dropFailed"));
     }
-
-    // Terminal drag (text/plain absolute path)
-    const text = e.dataTransfer.getData("text/plain") || e.dataTransfer.getData("text");
-    if (text?.trim()) { applyPath(text.trim()); return; }
-
-    // Electron: File.path
-    const file = e.dataTransfer.files[0];
-    const filePath = file && (file as File & { path?: string }).path;
-    if (filePath) applyPath(filePath);
   };
 
-  const handleConfirm = async () => {
-    const trimmed = editPath.trim();
-    if (!trimmed) return;
+  const handleImport = async () => {
+    if (!localSel) return;
     setLoading(true);
     setError(null);
     try {
-      // Copy source folder into coding_projects/ (same as clone workflow)
-      const res = await codingProjectApi.importLocal(trimmed);
+      const { default: JSZip } = await import("jszip");
+      const zip = new JSZip();
+      for (const { path, file } of localSel.entries) {
+        zip.file(path, file);
+      }
+      const blob = await zip.generateAsync({ type: "blob" });
+      const zipFile = new File([blob], `${localSel.name}.zip`, {
+        type: "application/zip",
+      });
+      const res = await codingProjectApi.uploadZip(zipFile, localSel.name);
       onSelect(res.path);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to import path");
+      setError(err instanceof Error ? err.message : "Import failed");
+    } finally {
       setLoading(false);
     }
   };
 
-  const isAbsolute = editPath.startsWith("/") || editPath.startsWith("~");
-
   return (
     <div className={styles.tabContent}>
-      {/* Hidden system folder picker — same pattern as plugin install modal */}
       <input
         ref={dirInputRef}
         type="file"
@@ -308,43 +330,26 @@ function LocalPathTab({ onSelect }: { onSelect: (path: string) => void }) {
         onChange={handleDirPicked}
       />
 
-      {selectedPath !== null ? (
+      {localSel ? (
         <>
           <div className={styles.selectionCard}>
             <FolderOpen size={18} />
-            <span className={styles.selectionName}>
-              {(editPath || selectedPath).split("/").pop() || editPath}
-            </span>
+            <span className={styles.selectionName}>{localSel.name}</span>
             <Button
               type="text"
               size="small"
               icon={<X size={14} />}
-              onClick={() => { setSelectedPath(null); setEditPath(""); setError(null); }}
+              onClick={() => { setLocalSel(null); setError(null); }}
             />
           </div>
-          {/* Editable path input — always shown so user can correct if needed */}
-          <Input
-            value={editPath}
-            onChange={(e) => setEditPath(e.target.value)}
-            placeholder={t("codingMode.localPathPlaceholder")}
-            prefix={<FolderOpen size={13} style={{ color: "var(--ant-color-text-quaternary)" }} />}
-            allowClear
-            onPressEnter={() => void handleConfirm()}
-          />
-          {!isAbsolute && editPath && (
-            <Text type="secondary" style={{ fontSize: 11 }}>
-              {t("codingMode.pathHint")}
-            </Text>
-          )}
           {error && <Alert type="error" message={error} showIcon className={styles.alert} />}
           <Button
             type="primary"
             block
             loading={loading}
-            disabled={!editPath.trim()}
-            onClick={() => void handleConfirm()}
+            onClick={() => void handleImport()}
           >
-            {t("codingMode.openBtn")}
+            {loading ? t("codingMode.importing") : t("codingMode.openBtn")}
           </Button>
         </>
       ) : (
@@ -352,7 +357,7 @@ function LocalPathTab({ onSelect }: { onSelect: (path: string) => void }) {
           className={`${styles.dropZone} ${dragOver ? styles.dropZoneActive : ""}`}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
+          onDrop={(e) => void handleDrop(e)}
           onClick={() => dirInputRef.current?.click()}
           role="button"
           tabIndex={0}

@@ -2280,6 +2280,8 @@
     "resetToWorkspace": "Reset to Default Workspace",
     "dropPrimary": "Drag a folder here, or click to browse",
     "dropSecondary": "Drag from Finder or paste a path below",
-    "pathHint": "Please enter the full absolute path (starting with / or ~)"
+    "pathHint": "Please enter the full absolute path (starting with / or ~)",
+    "importing": "Importing...",
+    "dropFailed": "Failed to read folder"
   }
 }

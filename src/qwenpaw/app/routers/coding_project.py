@@ -9,11 +9,13 @@ All endpoints are mounted under ``/workspace/coding-project/``.
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import logging
+import zipfile
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -344,6 +346,58 @@ async def import_local(body: ImportLocalRequest, request: Request) -> dict:
         "path": str(project_path),
         "name": project_path.name,
     }
+
+
+@router.post(
+    "/upload-zip",
+    summary="Upload a zip of a project folder to coding_projects/",
+)
+async def upload_zip(
+    request: Request,
+    name: str = Query(
+        ...,
+        description="Destination folder name inside coding_projects/",
+    ),
+    file: UploadFile = File(
+        ...,
+        description="Zip archive of the project folder",
+    ),
+) -> dict:
+    """Extract *file* (zip) into ``coding_projects/<name>/`` and activate it.
+
+    The endpoint guards against zip-slip by validating each member path before
+    extraction.
+    """
+    workspace = await get_agent_for_request(request)
+    base = _projects_base(workspace.workspace_dir)
+    dest = base / name
+
+    content = await file.read()
+
+    def _extract() -> Path:
+        base.mkdir(parents=True, exist_ok=True)
+        dest.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(io.BytesIO(content)) as zf:
+            for member in zf.namelist():
+                member_path = (dest / member).resolve()
+                if not str(member_path).startswith(str(dest.resolve())):
+                    raise ValueError(f"Zip slip detected for member: {member}")
+            zf.extractall(str(dest))
+        return dest
+
+    try:
+        project_path = await asyncio.to_thread(_extract)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    await asyncio.to_thread(
+        _save_project_dir,
+        workspace.agent_id,
+        str(project_path),
+    )
+    return {"path": str(project_path), "name": project_path.name}
 
 
 @router.get("/list", summary="List all coding projects for this agent")

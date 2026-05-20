@@ -50,6 +50,19 @@ export const codingProjectApi = {
       body: JSON.stringify({ path, name: name || undefined }),
     }),
 
+  /**
+   * Upload a zip of a project folder; backend extracts it to coding_projects/.
+   * Same pattern as the plugin install modal.
+   */
+  uploadZip: (zipFile: File, name: string): Promise<{ path: string; name: string }> => {
+    const formData = new FormData();
+    formData.append("file", zipFile);
+    return request<{ path: string; name: string }>(
+      `/workspace/coding-project/upload-zip?name=${encodeURIComponent(name)}`,
+      { method: "POST", body: formData },
+    );
+  },
+
   /** Low-level: POST to clone endpoint and return a ReadableStream of SSE. */
   cloneStream: (url: string, name?: string): Promise<Response> =>
     fetch(getApiUrl("/workspace/coding-project/clone"), {
