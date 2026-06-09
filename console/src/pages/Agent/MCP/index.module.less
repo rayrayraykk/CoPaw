@@ -332,7 +332,33 @@
 .accessModalBody {
   display: flex;
   flex-direction: column;
+  gap: 14px;
+}
+
+.accessClientPanel,
+.accessToolsPanel {
+  display: flex;
+  flex-direction: column;
   gap: 12px;
+}
+
+.accessClientPanel {
+  padding-bottom: 14px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.accessSectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.accessSectionTitle {
+  color: rgba(20, 20, 19, 0.88);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 22px;
 }
 
 .accessDefaultRow {
@@ -340,11 +366,40 @@
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
-  padding-bottom: 12px;
-  border-bottom: 1px solid #f0f0f0;
+}
+
+.accessClientControlRow,
+.accessToolGroupHeader {
+  display: grid;
+  grid-template-columns: minmax(360px, 1fr) 280px 112px;
+  align-items: center;
+  column-gap: 34px;
+}
+
+.accessClientControlRow {
+  box-sizing: border-box;
+  padding: 0 28px;
+}
+
+.accessClientTitle {
+  margin-left: -28px;
+}
+
+.accessClientControlRow .accessDefaultRow {
+  grid-column: 2;
+}
+
+.accessClientAddButton {
+  min-width: 112px;
+  height: 36px;
+  justify-content: center;
+  justify-self: end;
 }
 
 .accessDefaultLabel {
+  display: inline-flex;
+  align-items: center;
+  min-width: 56px;
   font-size: 13px;
   font-weight: 500;
   color: rgba(20, 20, 19, 0.72);
@@ -425,7 +480,7 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-height: 430px;
+  max-height: 420px;
   overflow: auto;
 }
 
@@ -436,16 +491,8 @@
   background: rgba(250, 250, 250, 0.55);
 }
 
-.accessToolGroupHeader {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
 .accessToolInfo {
   min-width: 0;
-  flex: 1;
 }
 
 .accessToolTitle {
@@ -455,16 +502,21 @@
   min-width: 0;
 }
 
-.accessToolDescription {
-  margin-top: 5px;
-  color: rgba(20, 20, 19, 0.55);
-  font-size: 12px;
-  line-height: 1.5;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+.accessToolDefault {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  min-height: 36px;
+  padding: 1px 0;
+  white-space: nowrap;
+}
+
+.accessToolAddButton {
+  min-width: 112px;
+  height: 36px;
+  justify-content: center;
+  justify-self: end;
 }
 
 .accessRuleList {
@@ -525,8 +577,28 @@
 
 @media (max-width: 760px) {
   .accessToolGroupHeader,
+  .accessDefaultRow,
+  .accessClientControlRow,
   .accessRuleRow {
     align-items: stretch;
+  }
+
+  .accessClientControlRow,
+  .accessToolGroupHeader {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .accessClientControlRow {
+    padding: 0;
+  }
+
+  .accessClientTitle {
+    margin-left: 0;
+  }
+
+  .accessDefaultRow {
+    flex-direction: column;
   }
 
   .accessRuleRow {
@@ -540,7 +612,11 @@
   .accessRuleSubjectType,
   .accessRuleSubjectValue,
   .accessRuleEffect,
-  .accessRuleDeleteButton {
+  .accessRuleDeleteButton,
+  .accessClientAddButton,
+  .accessToolAddButton,
+  .accessToolDefault,
+  .accessPolicySegmented {
     width: 100%;
   }
 }
@@ -567,7 +643,7 @@
 }
 
 .toolSchema {
-  margin-top: 8px;
+  margin-top: 10px;
   font-size: 12px;
 
   summary {
@@ -579,6 +655,16 @@
       color: rgba(0, 0, 0, 0.65);
     }
   }
+}
+
+.toolSchemaDescription {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.025);
+  color: rgba(20, 20, 19, 0.6);
+  font-size: 12px;
+  line-height: 1.55;
 }
 
 .toolSchemaContent {
@@ -675,6 +761,14 @@
     border-bottom-color: rgba(255, 255, 255, 0.08);
   }
 
+  .accessClientPanel {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .accessSectionTitle {
+    color: rgba(255, 255, 255, 0.88);
+  }
+
   .accessDefaultLabel {
     color: rgba(255, 255, 255, 0.72);
   }
@@ -701,10 +795,6 @@
     background: rgba(255, 255, 255, 0.04);
   }
 
-  .accessToolDescription {
-    color: rgba(255, 255, 255, 0.55);
-  }
-
   .accessNoRules {
     background: rgba(255, 255, 255, 0.05);
     color: rgba(255, 255, 255, 0.45);
@@ -717,6 +807,11 @@
 
   .toolDescription {
     color: rgba(255, 255, 255, 0.55);
+  }
+
+  .toolSchemaDescription {
+    background: rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.62);
   }
 
   .toolSchema summary {

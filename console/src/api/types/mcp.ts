@@ -115,9 +115,7 @@ export interface MCPToolInfo {
 export type MCPAccessSourceType = "channel" | "app";
 export type MCPAccessSubjectType = "all" | "user";
 
-export interface MCPToolAccessOverride {
-  /** MCP tool name */
-  tool_name: string;
+export interface MCPAccessRule {
   /** Where the tool call comes from */
   source_type: MCPAccessSourceType;
   /** Concrete source, e.g. console, dingtalk, Creator */
@@ -130,9 +128,25 @@ export interface MCPToolAccessOverride {
   effect: MCPAccessEffect;
 }
 
+export interface MCPToolDefaultPolicy {
+  /** MCP tool name */
+  tool_name: string;
+  /** Default effect for this tool */
+  effect: MCPAccessEffect;
+}
+
+export interface MCPToolAccessOverride extends MCPAccessRule {
+  /** MCP tool name */
+  tool_name: string;
+}
+
 export interface MCPAccessPolicy {
-  /** Default effect when no tool override matches */
+  /** Default effect when no MCP rule matches */
   default_effect: MCPAccessEffect;
+  /** Console-managed MCP-wide source/object overrides */
+  client_overrides: MCPAccessRule[];
+  /** Console-managed default effects for individual tools */
+  tool_defaults: MCPToolDefaultPolicy[];
   /** Console-managed per-source/per-object/per-tool overrides */
   tool_overrides: MCPToolAccessOverride[];
   /** Preserved rules not editable from the MCP console */

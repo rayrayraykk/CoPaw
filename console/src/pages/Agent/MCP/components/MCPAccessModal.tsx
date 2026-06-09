@@ -14,6 +14,7 @@ import api from "../../../../api";
 import type {
   MCPAccessEffect,
   MCPAccessPolicy,
+  MCPAccessRule,
   MCPAccessSourceType,
   MCPAccessSubjectType,
   MCPClientInfo,
@@ -23,10 +24,16 @@ import type {
 import {
   MCP_APP_SOURCE_VALUES,
   MCP_CHANNEL_SOURCE_VALUES,
+  accessRuleIdentityKey,
+  addClientRule,
   addToolRule,
   buildMCPAccessToolGroups,
+  normalizeMCPAccessPolicy,
+  removeClientRule,
   removeToolRule,
-  ruleIdentityKey,
+  toolRuleIdentityKey,
+  upsertClientRule,
+  upsertToolDefault,
   upsertToolRule,
 } from "../accessPolicy";
 import styles from "../index.module.less";
@@ -164,7 +171,7 @@ export const MCPAccessModal: React.FC<MCPAccessModalProps> = ({
       try {
         const savedPolicy = await api.getMCPPolicy(client.key);
         if (!cancelled) {
-          setPolicy(savedPolicy);
+          setPolicy(normalizeMCPAccessPolicy(savedPolicy));
         }
 
         if (!client.enabled) {
@@ -209,6 +216,23 @@ export const MCPAccessModal: React.FC<MCPAccessModalProps> = ({
   const effectLabel = (effect: MCPAccessEffect) =>
     t(`mcp.access.effect.${effect}`);
 
+  const renderPolicySegmented = (
+    value: MCPAccessEffect,
+    onChange: (effect: MCPAccessEffect) => void,
+  ) => (
+    <Segmented
+      className={styles.accessPolicySegmented}
+      style={policySegmentStyle(value)}
+      value={value}
+      onChange={(nextValue) => onChange(nextValue as MCPAccessEffect)}
+      options={[
+        { label: effectLabel("ask"), value: "ask" },
+        { label: effectLabel("allow"), value: "allow" },
+        { label: effectLabel("deny"), value: "deny" },
+      ]}
+    />
+  );
+
   const setDefaultEffect = (effect: MCPAccessEffect) => {
     setPolicy((prev) =>
       prev
@@ -220,13 +244,59 @@ export const MCPAccessModal: React.FC<MCPAccessModalProps> = ({
     );
   };
 
+  const addClientAccessRule = () => {
+    setPolicy((prev) => (prev ? addClientRule(prev) : prev));
+  };
+
+  const updateClientRule = (
+    rule: MCPAccessRule,
+    patch: Partial<MCPAccessRule>,
+  ) => {
+    const nextRule = { ...rule, ...patch };
+    if (patch.source_type) {
+      nextRule.source_value = defaultSourceValue(patch.source_type);
+    }
+    if (patch.subject_type) {
+      nextRule.subject_value = defaultSubjectValue(patch.subject_type);
+    }
+    setPolicy((prev) =>
+      prev
+        ? upsertClientRule(prev, nextRule, {
+            source_type: rule.source_type,
+            source_value: rule.source_value,
+            subject_type: rule.subject_type,
+            subject_value: rule.subject_value,
+          })
+        : prev,
+    );
+  };
+
+  const setClientRuleEffect = (
+    rule: MCPAccessRule,
+    effect: MCPAccessEffect,
+  ) => {
+    setPolicy((prev) =>
+      prev ? upsertClientRule(prev, { ...rule, effect }) : prev,
+    );
+  };
+
+  const deleteClientRule = (rule: MCPAccessRule) => {
+    setPolicy((prev) => (prev ? removeClientRule(prev, rule) : prev));
+  };
+
+  const setToolDefaultEffect = (toolName: string, effect: MCPAccessEffect) => {
+    setPolicy((prev) =>
+      prev ? upsertToolDefault(prev, toolName, effect) : prev,
+    );
+  };
+
   const addRule = (toolName: string) => {
     setPolicy((prev) => (prev ? addToolRule(prev, toolName) : prev));
   };
 
   const updateRule = (
     rule: MCPToolAccessOverride,
-    patch: Partial<MCPToolAccessOverride>,
+    patch: Partial<MCPAccessRule>,
   ) => {
     const nextRule = { ...rule, ...patch };
     if (patch.source_type) {
@@ -261,6 +331,114 @@ export const MCPAccessModal: React.FC<MCPAccessModalProps> = ({
     setPolicy((prev) => (prev ? removeToolRule(prev, rule) : prev));
   };
 
+  const renderRuleRows = <Rule extends MCPAccessRule>(
+    rules: Rule[],
+    getKey: (rule: Rule) => string,
+    update: (rule: Rule, patch: Partial<MCPAccessRule>) => void,
+    setEffect: (rule: Rule, effect: MCPAccessEffect) => void,
+    remove: (rule: Rule) => void,
+    emptyText: string,
+  ) =>
+    rules.length === 0 ? (
+      <div className={styles.accessNoRules}>{emptyText}</div>
+    ) : (
+      <div className={styles.accessRuleList}>
+        {rules.map((rule) => (
+          <div key={getKey(rule)} className={styles.accessRuleRow}>
+            <div className={styles.accessRuleField}>
+              <span className={styles.accessRuleFieldLabel}>
+                {t("mcp.access.sourceType")}
+              </span>
+              <Select
+                className={styles.accessRuleSourceType}
+                value={rule.source_type}
+                onChange={(value) =>
+                  update(rule, {
+                    source_type: value as MCPAccessSourceType,
+                  })
+                }
+                options={sourceTypeOptions}
+              />
+            </div>
+            <div className={styles.accessRuleField}>
+              <span className={styles.accessRuleFieldLabel}>
+                {t("mcp.access.sourceValue")}
+              </span>
+              <Select
+                className={styles.accessRuleSourceValue}
+                value={rule.source_value}
+                onChange={(sourceValue) =>
+                  update(rule, {
+                    source_value: String(sourceValue),
+                  })
+                }
+                options={getSourceValueOptions(rule.source_type)}
+              />
+            </div>
+            <div className={styles.accessRuleField}>
+              <span className={styles.accessRuleFieldLabel}>
+                {t("mcp.access.subjectType")}
+              </span>
+              <Select
+                className={styles.accessRuleSubjectType}
+                value={rule.subject_type}
+                onChange={(value) =>
+                  update(rule, {
+                    subject_type: value as MCPAccessSubjectType,
+                  })
+                }
+                options={subjectTypeOptions}
+              />
+            </div>
+            <div className={styles.accessRuleField}>
+              <span className={styles.accessRuleFieldLabel}>
+                {t("mcp.access.subjectValue")}
+              </span>
+              {rule.subject_type === "user" ? (
+                <RuleTextInput
+                  value={rule.subject_value}
+                  placeholder={t("mcp.access.subjectValuePlaceholder")}
+                  className={styles.accessRuleSubjectValue}
+                  onCommit={(subjectValue) =>
+                    update(rule, {
+                      subject_value: subjectValue,
+                    })
+                  }
+                />
+              ) : (
+                <Input
+                  className={styles.accessRuleSubjectValue}
+                  value={t("mcp.access.subjectValueAll")}
+                  disabled
+                />
+              )}
+            </div>
+            <div className={styles.accessRuleField}>
+              <span className={styles.accessRuleFieldLabel}>
+                {t("mcp.access.effectLabel")}
+              </span>
+              <Select
+                className={styles.accessRuleEffect}
+                value={rule.effect}
+                onChange={(value) => setEffect(rule, value as MCPAccessEffect)}
+                options={[
+                  { label: effectLabel("allow"), value: "allow" },
+                  { label: effectLabel("ask"), value: "ask" },
+                  { label: effectLabel("deny"), value: "deny" },
+                ]}
+              />
+            </div>
+            <Button
+              className={styles.accessRuleDeleteButton}
+              icon={<DeleteOutlined />}
+              onClick={() => remove(rule)}
+              title={t("mcp.access.deleteRule")}
+            />
+          </div>
+        ))}
+      </div>
+    );
+
   const sourceTypeOptions = [
     { label: t("mcp.access.source.channel"), value: "channel" },
     { label: t("mcp.access.source.app"), value: "app" },
@@ -288,7 +466,7 @@ export const MCPAccessModal: React.FC<MCPAccessModalProps> = ({
       title={`${client.name} - ${t("mcp.tools")}`}
       open={open}
       onCancel={onClose}
-      width={920}
+      width={1040}
       footer={
         <div style={{ textAlign: "right" }}>
           <Button onClick={onClose} style={{ marginRight: 8 }}>
@@ -311,21 +489,35 @@ export const MCPAccessModal: React.FC<MCPAccessModalProps> = ({
         </div>
       ) : policy ? (
         <div className={styles.accessModalBody}>
-          <div className={styles.accessDefaultRow}>
-            <span className={styles.accessDefaultLabel}>
-              {t("mcp.access.default")}
-            </span>
-            <Segmented
-              className={styles.accessPolicySegmented}
-              style={policySegmentStyle(policy.default_effect)}
-              value={policy.default_effect}
-              onChange={(value) => setDefaultEffect(value as MCPAccessEffect)}
-              options={[
-                { label: effectLabel("ask"), value: "ask" },
-                { label: effectLabel("allow"), value: "allow" },
-                { label: effectLabel("deny"), value: "deny" },
-              ]}
-            />
+          <div className={styles.accessClientPanel}>
+            <div className={styles.accessClientControlRow}>
+              <div
+                className={`${styles.accessSectionTitle} ${styles.accessClientTitle}`}
+              >
+                {t("mcp.access.clientSection")}
+              </div>
+              <div className={styles.accessDefaultRow}>
+                <span className={styles.accessDefaultLabel}>
+                  {t("mcp.access.default")}
+                </span>
+                {renderPolicySegmented(policy.default_effect, setDefaultEffect)}
+              </div>
+              <Button
+                className={styles.accessClientAddButton}
+                icon={<PlusOutlined />}
+                onClick={addClientAccessRule}
+              >
+                {t("mcp.access.addRule")}
+              </Button>
+            </div>
+            {renderRuleRows(
+              policy.client_overrides,
+              accessRuleIdentityKey,
+              updateClientRule,
+              setClientRuleEffect,
+              deleteClientRule,
+              t("mcp.access.noClientRules"),
+            )}
           </div>
 
           {toolsError && <div className={styles.toolsError}>{toolsError}</div>}
@@ -333,152 +525,73 @@ export const MCPAccessModal: React.FC<MCPAccessModalProps> = ({
           {groups.length === 0 ? (
             <Empty description={t("mcp.noTools")} />
           ) : (
-            <div className={styles.accessToolGroups}>
-              {groups.map((group) => (
-                <div key={group.toolName} className={styles.accessToolGroup}>
-                  <div className={styles.accessToolGroupHeader}>
-                    <div className={styles.accessToolInfo}>
-                      <div className={styles.accessToolTitle}>
-                        <Tag color={group.stale ? "default" : "blue"}>
-                          {group.toolName}
-                        </Tag>
-                        {group.stale && (
-                          <Tag color="orange">{t("mcp.access.stale")}</Tag>
+            <div className={styles.accessToolsPanel}>
+              <div className={styles.accessSectionHeader}>
+                <div className={styles.accessSectionTitle}>
+                  {t("mcp.access.toolSection")}
+                </div>
+              </div>
+              <div className={styles.accessToolGroups}>
+                {groups.map((group) => (
+                  <div key={group.toolName} className={styles.accessToolGroup}>
+                    <div className={styles.accessToolGroupHeader}>
+                      <div className={styles.accessToolInfo}>
+                        <div className={styles.accessToolTitle}>
+                          <Tag color={group.stale ? "default" : "blue"}>
+                            {group.toolName}
+                          </Tag>
+                          {group.stale && (
+                            <Tag color="orange">{t("mcp.access.stale")}</Tag>
+                          )}
+                        </div>
+                      </div>
+                      <div className={styles.accessToolDefault}>
+                        <span className={styles.accessDefaultLabel}>
+                          {t("mcp.access.default")}
+                        </span>
+                        {renderPolicySegmented(group.defaultEffect, (effect) =>
+                          setToolDefaultEffect(group.toolName, effect),
                         )}
                       </div>
-                      {group.description && (
-                        <div className={styles.accessToolDescription}>
-                          {group.description}
-                        </div>
-                      )}
-                      {group.inputSchema &&
-                        Object.keys(group.inputSchema).length > 0 && (
-                          <details className={styles.toolSchema}>
-                            <summary>{t("mcp.toolSchema")}</summary>
+                      <Button
+                        className={styles.accessToolAddButton}
+                        icon={<PlusOutlined />}
+                        onClick={() => addRule(group.toolName)}
+                      >
+                        {t("mcp.access.addRule")}
+                      </Button>
+                    </div>
+
+                    {(group.description ||
+                      (group.inputSchema &&
+                        Object.keys(group.inputSchema).length > 0)) && (
+                      <details className={styles.toolSchema}>
+                        <summary>{t("mcp.toolSchema")}</summary>
+                        {group.description && (
+                          <div className={styles.toolSchemaDescription}>
+                            {group.description}
+                          </div>
+                        )}
+                        {group.inputSchema &&
+                          Object.keys(group.inputSchema).length > 0 && (
                             <pre className={styles.toolSchemaContent}>
                               {JSON.stringify(group.inputSchema, null, 2)}
                             </pre>
-                          </details>
-                        )}
-                    </div>
-                    <Button
-                      icon={<PlusOutlined />}
-                      onClick={() => addRule(group.toolName)}
-                    >
-                      {t("mcp.access.addRule")}
-                    </Button>
-                  </div>
+                          )}
+                      </details>
+                    )}
 
-                  {group.rules.length === 0 ? (
-                    <div className={styles.accessNoRules}>
-                      {t("mcp.access.noRules")}
-                    </div>
-                  ) : (
-                    <div className={styles.accessRuleList}>
-                      {group.rules.map((rule) => (
-                        <div
-                          key={ruleIdentityKey(rule)}
-                          className={styles.accessRuleRow}
-                        >
-                          <div className={styles.accessRuleField}>
-                            <span className={styles.accessRuleFieldLabel}>
-                              {t("mcp.access.sourceType")}
-                            </span>
-                            <Select
-                              className={styles.accessRuleSourceType}
-                              value={rule.source_type}
-                              onChange={(value) =>
-                                updateRule(rule, {
-                                  source_type: value as MCPAccessSourceType,
-                                })
-                              }
-                              options={sourceTypeOptions}
-                            />
-                          </div>
-                          <div className={styles.accessRuleField}>
-                            <span className={styles.accessRuleFieldLabel}>
-                              {t("mcp.access.sourceValue")}
-                            </span>
-                            <Select
-                              className={styles.accessRuleSourceValue}
-                              value={rule.source_value}
-                              onChange={(sourceValue) =>
-                                updateRule(rule, {
-                                  source_value: String(sourceValue),
-                                })
-                              }
-                              options={getSourceValueOptions(rule.source_type)}
-                            />
-                          </div>
-                          <div className={styles.accessRuleField}>
-                            <span className={styles.accessRuleFieldLabel}>
-                              {t("mcp.access.subjectType")}
-                            </span>
-                            <Select
-                              className={styles.accessRuleSubjectType}
-                              value={rule.subject_type}
-                              onChange={(value) =>
-                                updateRule(rule, {
-                                  subject_type: value as MCPAccessSubjectType,
-                                })
-                              }
-                              options={subjectTypeOptions}
-                            />
-                          </div>
-                          <div className={styles.accessRuleField}>
-                            <span className={styles.accessRuleFieldLabel}>
-                              {t("mcp.access.subjectValue")}
-                            </span>
-                            {rule.subject_type === "user" ? (
-                              <RuleTextInput
-                                value={rule.subject_value}
-                                placeholder={t(
-                                  "mcp.access.subjectValuePlaceholder",
-                                )}
-                                className={styles.accessRuleSubjectValue}
-                                onCommit={(subjectValue) =>
-                                  updateRule(rule, {
-                                    subject_value: subjectValue,
-                                  })
-                                }
-                              />
-                            ) : (
-                              <Input
-                                className={styles.accessRuleSubjectValue}
-                                value={t("mcp.access.subjectValueAll")}
-                                disabled
-                              />
-                            )}
-                          </div>
-                          <div className={styles.accessRuleField}>
-                            <span className={styles.accessRuleFieldLabel}>
-                              {t("mcp.access.effectLabel")}
-                            </span>
-                            <Select
-                              className={styles.accessRuleEffect}
-                              value={rule.effect}
-                              onChange={(value) =>
-                                setRuleEffect(rule, value as MCPAccessEffect)
-                              }
-                              options={[
-                                { label: effectLabel("allow"), value: "allow" },
-                                { label: effectLabel("ask"), value: "ask" },
-                                { label: effectLabel("deny"), value: "deny" },
-                              ]}
-                            />
-                          </div>
-                          <Button
-                            className={styles.accessRuleDeleteButton}
-                            icon={<DeleteOutlined />}
-                            onClick={() => deleteRule(rule)}
-                            title={t("mcp.access.deleteRule")}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
+                    {renderRuleRows(
+                      group.rules,
+                      toolRuleIdentityKey,
+                      updateRule,
+                      setRuleEffect,
+                      deleteRule,
+                      t("mcp.access.noRules"),
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>

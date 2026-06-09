@@ -179,10 +179,9 @@ class MCPClientUpdateRequest(BaseModel):
     )
 
 
-class MCPToolAccessOverride(BaseModel):
-    """Console-managed access override for one MCP source/object/tool tuple."""
+class MCPAccessRule(BaseModel):
+    """Console-managed access rule for one MCP source/object tuple."""
 
-    tool_name: str = Field(..., description="MCP tool name")
     source_type: Literal["channel", "app"] = Field(
         default="channel",
         description="Where the tool call comes from",
@@ -201,8 +200,24 @@ class MCPToolAccessOverride(BaseModel):
     )
     effect: Literal["allow", "ask", "deny"] = Field(
         ...,
-        description="Access effect for this tool",
+        description="Access effect for this source/object tuple",
     )
+
+
+class MCPToolDefaultPolicy(BaseModel):
+    """Console-managed default policy for one MCP tool."""
+
+    tool_name: str = Field(..., description="MCP tool name")
+    effect: Literal["allow", "ask", "deny"] = Field(
+        ...,
+        description="Default effect for this tool",
+    )
+
+
+class MCPToolAccessOverride(MCPAccessRule):
+    """Console-managed access override for one MCP source/object/tool tuple."""
+
+    tool_name: str = Field(..., description="MCP tool name")
 
 
 class MCPAccessPolicy(BaseModel):
@@ -210,11 +225,19 @@ class MCPAccessPolicy(BaseModel):
 
     default_effect: Literal["allow", "ask", "deny"] = Field(
         default="deny",
-        description="Default effect when no tool override matches",
+        description="Default effect when no MCP rule matches",
+    )
+    client_overrides: List[MCPAccessRule] = Field(
+        default_factory=list,
+        description="Console-managed MCP-wide source/object overrides",
+    )
+    tool_defaults: List[MCPToolDefaultPolicy] = Field(
+        default_factory=list,
+        description="Console-managed default effects for individual tools",
     )
     tool_overrides: List[MCPToolAccessOverride] = Field(
         default_factory=list,
-        description="Console-managed per-tool overrides",
+        description="Console-managed per-source/per-object/per-tool overrides",
     )
     unmanaged_rules_count: int = Field(
         default=0,
@@ -480,9 +503,9 @@ def _merge_update_with_existing(
     return MCPClientCreateRequest.model_validate(data)
 
 
-def _mcp_tool_override_from_rule(
+def _mcp_access_rule_from_rule(
     rule: PolicyRule,
-) -> MCPToolAccessOverride | None:
+) -> MCPAccessRule | None:
     if (
         rule.condition is not None
         or rule.target.kind != "tool"
@@ -501,8 +524,7 @@ def _mcp_tool_override_from_rule(
         and source_value
         and subject_type in {"all", "user"}
     ):
-        return MCPToolAccessOverride(
-            tool_name=rule.target.name,
+        return MCPAccessRule(
             source_type=source_type,  # type: ignore[arg-type]
             source_value=source_value,
             subject_type=subject_type,  # type: ignore[arg-type]
@@ -510,18 +532,17 @@ def _mcp_tool_override_from_rule(
             effect=rule.effect,  # type: ignore[arg-type]
         )
 
-    return _legacy_subject_tool_override(rule)
+    return _legacy_subject_access_rule(rule)
 
 
-def _legacy_subject_tool_override(
+def _legacy_subject_access_rule(
     rule: PolicyRule,
-) -> MCPToolAccessOverride | None:
+) -> MCPAccessRule | None:
     subject = rule.subject.strip()
     if not subject:
         return None
     if subject == "*":
-        return MCPToolAccessOverride(
-            tool_name=rule.target.name,
+        return MCPAccessRule(
             source_type="channel",
             source_value="console",
             subject_type="all",
@@ -529,8 +550,7 @@ def _legacy_subject_tool_override(
             effect=rule.effect,  # type: ignore[arg-type]
         )
     if subject.startswith("channel:"):
-        return MCPToolAccessOverride(
-            tool_name=rule.target.name,
+        return MCPAccessRule(
             source_type="channel",
             source_value=subject.removeprefix("channel:") or "*",
             subject_type="all",
@@ -538,8 +558,7 @@ def _legacy_subject_tool_override(
             effect=rule.effect,  # type: ignore[arg-type]
         )
     if subject.startswith("app:"):
-        return MCPToolAccessOverride(
-            tool_name=rule.target.name,
+        return MCPAccessRule(
             source_type="app",
             source_value=subject.removeprefix("app:") or "*",
             subject_type="all",
@@ -548,8 +567,7 @@ def _legacy_subject_tool_override(
         )
     if subject.startswith("user:"):
         user = subject.removeprefix("user:")
-        return MCPToolAccessOverride(
-            tool_name=rule.target.name,
+        return MCPAccessRule(
             source_type="channel",
             source_value="console",
             subject_type="all" if user == "*" else "user",
@@ -559,21 +577,90 @@ def _legacy_subject_tool_override(
     return None
 
 
-def _is_console_managed_tool_rule(rule: PolicyRule) -> bool:
-    return _mcp_tool_override_from_rule(rule) is not None
+def _is_mcp_tool_default_rule(rule: PolicyRule) -> bool:
+    if (
+        rule.condition is not None
+        or rule.target.kind != "tool"
+        or rule.target.name in {"", "*"}
+        or rule.effect not in {"allow", "ask", "deny"}
+        or rule.subject != "*"
+    ):
+        return False
+    principal = rule.principal
+    return (
+        principal.source_type in {"", "*"}
+        and principal.source_value in {"", "*"}
+        and principal.subject_type in {"", "*"}
+        and principal.subject_value in {"", "*"}
+    )
+
+
+def _mcp_client_override_from_rule(rule: PolicyRule) -> MCPAccessRule | None:
+    if rule.target.kind != "tool" or rule.target.name != "*":
+        return None
+    return _mcp_access_rule_from_rule(rule)
+
+
+def _mcp_tool_default_from_rule(
+    rule: PolicyRule,
+) -> MCPToolDefaultPolicy | None:
+    if not _is_mcp_tool_default_rule(rule):
+        return None
+    return MCPToolDefaultPolicy(
+        tool_name=rule.target.name,
+        effect=rule.effect,  # type: ignore[arg-type]
+    )
+
+
+def _mcp_tool_override_from_rule(
+    rule: PolicyRule,
+) -> MCPToolAccessOverride | None:
+    if (
+        rule.target.kind != "tool"
+        or rule.target.name in {"", "*"}
+        or _is_mcp_tool_default_rule(rule)
+    ):
+        return None
+    access_rule = _mcp_access_rule_from_rule(rule)
+    if access_rule is None:
+        return None
+    return MCPToolAccessOverride(
+        tool_name=rule.target.name,
+        **access_rule.model_dump(mode="json"),
+    )
+
+
+def _is_console_managed_mcp_policy_rule(rule: PolicyRule) -> bool:
+    return (
+        _mcp_client_override_from_rule(rule) is not None
+        or _mcp_tool_default_from_rule(rule) is not None
+        or _mcp_tool_override_from_rule(rule) is not None
+    )
 
 
 def _mcp_access_policy_from_card(card: Any) -> MCPAccessPolicy:
+    client_overrides = [
+        override
+        for rule in card.policy.rules
+        if (override := _mcp_client_override_from_rule(rule)) is not None
+    ]
+    tool_defaults = [
+        default
+        for rule in card.policy.rules
+        if (default := _mcp_tool_default_from_rule(rule)) is not None
+    ]
     tool_overrides = [
         override
         for rule in card.policy.rules
         if (override := _mcp_tool_override_from_rule(rule)) is not None
     ]
     unmanaged_rules_count = sum(
-        1 for rule in card.policy.rules if not _is_console_managed_tool_rule(rule)
+        1 for rule in card.policy.rules if not _is_console_managed_mcp_policy_rule(rule)
     )
     return MCPAccessPolicy(
         default_effect=card.policy.default_effect,
+        client_overrides=client_overrides,
+        tool_defaults=tool_defaults,
         tool_overrides=tool_overrides,
         unmanaged_rules_count=unmanaged_rules_count,
     )
@@ -584,13 +671,30 @@ def _driver_policy_from_mcp_access_update(
     access: MCPAccessPolicy,
 ) -> DriverPolicy:
     unmanaged_rules = [
-        rule for rule in existing.rules if not _is_console_managed_tool_rule(rule)
+        rule for rule in existing.rules if not _is_console_managed_mcp_policy_rule(rule)
     ]
-    seen: set[tuple[str, str, str, str, str]] = set()
+    seen_rules: set[tuple[str, str, str, str, str]] = set()
+    seen_defaults: set[str] = set()
     managed_rules: list[PolicyRule] = []
-    for override in access.tool_overrides:
-        tool_name = override.tool_name.strip()
-        if not tool_name:
+    for default in access.tool_defaults:
+        tool_name = default.tool_name.strip()
+        if not tool_name or tool_name == "*":
+            raise HTTPException(400, detail="MCP tool default name is empty")
+        if tool_name in seen_defaults:
+            continue
+        seen_defaults.add(tool_name)
+        managed_rules.append(
+            PolicyRule(
+                subject="*",
+                effect=default.effect,
+                target=PolicyTarget(kind="tool", name=tool_name),
+                principal=PolicyPrincipal(),
+            )
+        )
+    for target_name, override in [
+        ("*", override) for override in access.client_overrides
+    ] + [(override.tool_name.strip(), override) for override in access.tool_overrides]:
+        if not target_name:
             raise HTTPException(400, detail="MCP tool override name is empty")
         source_value = override.source_value.strip()
         subject_value = override.subject_value.strip()
@@ -601,20 +705,20 @@ def _driver_policy_from_mcp_access_update(
         if override.subject_type == "all":
             subject_value = ""
         key = (
-            tool_name,
+            target_name,
             override.source_type,
             source_value,
             override.subject_type,
             subject_value,
         )
-        if key in seen:
+        if key in seen_rules:
             continue
-        seen.add(key)
+        seen_rules.add(key)
         managed_rules.append(
             PolicyRule(
                 subject="*",
                 effect=override.effect,
-                target=PolicyTarget(kind="tool", name=tool_name),
+                target=PolicyTarget(kind="tool", name=target_name),
                 principal=PolicyPrincipal(
                     source_type=override.source_type,
                     source_value=source_value,

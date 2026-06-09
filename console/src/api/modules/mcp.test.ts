@@ -10,6 +10,8 @@ describe("mcpApi policy endpoints", () => {
   it("gets MCP policy from the policy endpoint", async () => {
     vi.mocked(request).mockResolvedValue({
       default_effect: "ask",
+      client_overrides: [],
+      tool_defaults: [],
       tool_overrides: [],
       unmanaged_rules_count: 0,
     });
@@ -22,12 +24,24 @@ describe("mcpApi policy endpoints", () => {
   it("updates MCP policy through the policy endpoint", async () => {
     vi.mocked(request).mockResolvedValue({
       default_effect: "ask",
+      client_overrides: [],
+      tool_defaults: [],
       tool_overrides: [],
       unmanaged_rules_count: 0,
     });
 
     await mcpApi.updateMCPPolicy("local_stdio_echo", {
       default_effect: "ask",
+      client_overrides: [
+        {
+          source_type: "channel",
+          source_value: "console",
+          subject_type: "all",
+          subject_value: "",
+          effect: "allow",
+        },
+      ],
+      tool_defaults: [{ tool_name: "echo", effect: "ask" }],
       tool_overrides: [
         {
           tool_name: "echo",
@@ -45,6 +59,16 @@ describe("mcpApi policy endpoints", () => {
       method: "PUT",
       body: JSON.stringify({
         default_effect: "ask",
+        client_overrides: [
+          {
+            source_type: "channel",
+            source_value: "console",
+            subject_type: "all",
+            subject_value: "",
+            effect: "allow",
+          },
+        ],
+        tool_defaults: [{ tool_name: "echo", effect: "ask" }],
         tool_overrides: [
           {
             tool_name: "echo",

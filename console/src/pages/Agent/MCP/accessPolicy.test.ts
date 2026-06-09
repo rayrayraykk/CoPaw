@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { MCPAccessPolicy, MCPToolInfo } from "../../../api/types";
 import {
+  addClientRule,
   addToolRule,
   buildMCPAccessToolGroups,
+  removeClientRule,
   removeToolRule,
+  upsertClientRule,
+  upsertToolDefault,
   upsertToolRule,
 } from "./accessPolicy";
 
@@ -40,6 +44,16 @@ const appSearchRule = {
 
 const policy: MCPAccessPolicy = {
   default_effect: "ask",
+  client_overrides: [
+    {
+      source_type: "channel",
+      source_value: "console",
+      subject_type: "all",
+      subject_value: "",
+      effect: "allow",
+    },
+  ],
+  tool_defaults: [{ tool_name: "search", effect: "deny" }],
   tool_overrides: [
     consoleEchoRule,
     {
@@ -61,16 +75,22 @@ describe("MCP access policy helpers", () => {
         toolName: "echo",
         description: "Echo text",
         stale: false,
+        defaultEffect: "ask",
+        hasExplicitDefault: false,
         rules: [consoleEchoRule],
       }),
       expect.objectContaining({
         toolName: "search",
         stale: false,
+        defaultEffect: "deny",
+        hasExplicitDefault: true,
         rules: [appSearchRule],
       }),
       expect.objectContaining({
         toolName: "old_tool",
         stale: true,
+        defaultEffect: "ask",
+        hasExplicitDefault: false,
         rules: [
           {
             ...consoleEchoRule,
@@ -80,6 +100,56 @@ describe("MCP access policy helpers", () => {
         ],
       }),
     ]);
+  });
+
+  it("adds and updates MCP-wide client rules independently from tool rules", () => {
+    const added = addClientRule({
+      ...policy,
+      client_overrides: [],
+    });
+
+    expect(added.client_overrides).toContainEqual({
+      source_type: "channel",
+      source_value: "console",
+      subject_type: "all",
+      subject_value: "",
+      effect: "ask",
+    });
+
+    const updated = upsertClientRule(
+      added,
+      {
+        source_type: "app",
+        source_value: "Creator",
+        subject_type: "user",
+        subject_value: "alice",
+        effect: "deny",
+      },
+      added.client_overrides[0],
+    );
+
+    expect(updated.client_overrides).toEqual([
+      {
+        source_type: "app",
+        source_value: "Creator",
+        subject_type: "user",
+        subject_value: "alice",
+        effect: "deny",
+      },
+    ]);
+    expect(
+      removeClientRule(updated, updated.client_overrides[0]).client_overrides,
+    ).toEqual([]);
+  });
+
+  it("sets a per-tool default policy without adding a source rule", () => {
+    const next = upsertToolDefault(policy, "echo", "deny");
+
+    expect(next.tool_defaults).toContainEqual({
+      tool_name: "echo",
+      effect: "deny",
+    });
+    expect(next.tool_overrides).toContainEqual(consoleEchoRule);
   });
 
   it("adds a default console source rule under the selected tool", () => {

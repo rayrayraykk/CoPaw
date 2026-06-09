@@ -6,7 +6,9 @@ from fastapi import HTTPException
 import pytest
 
 from qwenpaw.app.routers.mcp import (
+    MCPAccessRule,
     MCPAccessPolicy,
+    MCPToolDefaultPolicy,
     MCPToolAccessOverride,
     _ensure_mcp_driver_active,
     _ensure_mcp_display_name_unique,
@@ -135,6 +137,23 @@ async def test_get_mcp_policy_reads_saved_policy_without_driver_manager(
                     PolicyRule(
                         subject="*",
                         effect="allow",
+                        target=PolicyTarget(kind="tool", name="*"),
+                        principal=PolicyPrincipal(
+                            source_type="channel",
+                            source_value="console",
+                            subject_type="all",
+                            subject_value="",
+                        ),
+                    ),
+                    PolicyRule(
+                        subject="*",
+                        effect="deny",
+                        target=PolicyTarget(kind="tool", name="search"),
+                        principal=PolicyPrincipal(),
+                    ),
+                    PolicyRule(
+                        subject="*",
+                        effect="allow",
                         target=PolicyTarget(kind="tool", name="echo"),
                         principal=PolicyPrincipal(
                             source_type="channel",
@@ -167,6 +186,18 @@ async def test_get_mcp_policy_reads_saved_policy_without_driver_manager(
     policy = await get_mcp_policy(agent, "demo")
 
     assert policy.default_effect == "ask"
+    assert policy.client_overrides == [
+        MCPAccessRule(
+            source_type="channel",
+            source_value="console",
+            subject_type="all",
+            subject_value="",
+            effect="allow",
+        )
+    ]
+    assert policy.tool_defaults == [
+        MCPToolDefaultPolicy(tool_name="search", effect="deny")
+    ]
     assert policy.tool_overrides == [
         MCPToolAccessOverride(
             tool_name="echo",
@@ -234,6 +265,18 @@ async def test_update_mcp_policy_replaces_console_rules_and_preserves_unmanaged(
         "demo",
         MCPAccessPolicy(
             default_effect="allow",
+            client_overrides=[
+                MCPAccessRule(
+                    source_type="channel",
+                    source_value="console",
+                    subject_type="all",
+                    subject_value="",
+                    effect="allow",
+                ),
+            ],
+            tool_defaults=[
+                MCPToolDefaultPolicy(tool_name="search", effect="deny"),
+            ],
             tool_overrides=[
                 MCPToolAccessOverride(
                     tool_name="echo",
@@ -250,6 +293,18 @@ async def test_update_mcp_policy_replaces_console_rules_and_preserves_unmanaged(
 
     assert updated.default_effect == "allow"
     assert not (tmp_path / "drivers" / "demo.yaml").exists()
+    assert updated.client_overrides == [
+        MCPAccessRule(
+            source_type="channel",
+            source_value="console",
+            subject_type="all",
+            subject_value="",
+            effect="allow",
+        )
+    ]
+    assert updated.tool_defaults == [
+        MCPToolDefaultPolicy(tool_name="search", effect="deny")
+    ]
     assert updated.tool_overrides == [
         MCPToolAccessOverride(
             tool_name="echo",
@@ -274,5 +329,7 @@ async def test_update_mcp_policy_replaces_console_rules_and_preserves_unmanaged(
         for rule in saved.policy.rules
     ] == [
         ("user:*", "resource", "danger", "*", "*", "*", "*"),
+        ("*", "tool", "search", "*", "*", "*", "*"),
+        ("*", "tool", "*", "channel", "console", "all", ""),
         ("*", "tool", "echo", "app", "Creator", "all", ""),
     ]
