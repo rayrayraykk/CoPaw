@@ -24,6 +24,7 @@ from .middlewares import (
 )
 from .model_factory import create_model_and_formatter
 from ..runtime import GuardedFunctionTool
+from .tools.driver_capability_tool import DriverCapabilityTool, DriverInvoker
 from .prompt import (
     build_multimodal_hint,
     build_system_prompt_from_working_dir,
@@ -87,7 +88,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
         self,
         agent_config: "AgentProfileConfig",
         env_context: Optional[str] = None,
-        mcp_clients: Optional[List[Any]] = None,
+        driver_capabilities: Optional[List[Any]] = None,
+        driver_invoker: DriverInvoker | None = None,
         memory_manager: BaseMemoryManager | None = None,
         context_manager: BaseContextManager | None = None,
         request_context: Optional[dict[str, str]] = None,
@@ -102,8 +104,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 memory_compact_threshold, etc.) and language setting.
             env_context: Optional environment context to prepend to
                 system prompt
-            mcp_clients: Optional list of MCP clients for tool
-                integration
             memory_manager: Optional memory manager instance. Pass ``None``
                 to disable the memory manager entirely.
             context_manager: Optional context manager instance
@@ -115,7 +115,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
         self._agent_config = agent_config
         self._env_context = env_context
         self._request_context = dict(request_context or {})
-        self._mcp_clients = mcp_clients or []
+        self._driver_capabilities = driver_capabilities or []
+        self._driver_invoker = driver_invoker
         self._workspace_dir = workspace_dir
         self._task_tracker = task_tracker
 
@@ -281,6 +282,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 "state_dict has neither 'state' nor 'memory' key",
             )
 
+    # pylint: disable-next=too-many-branches
     def _create_toolkit(
         self,
         effective_skills: list[str] | None = None,
@@ -393,7 +395,25 @@ class QwenPawAgent(CodingModeMixin, Agent):
         except Exception as e:  # pylint: disable=broad-except
             logger.warning(f"Failed to register Coding Mode tools: {e}")
 
-        return Toolkit(tools=tool_instances, mcps=self._mcp_clients or None)
+        if self._driver_invoker is not None:
+            for capability in self._driver_capabilities:
+                if not getattr(capability.exposure, "as_tool", False):
+                    continue
+                # Only explicitly tool-exposed capabilities enter Toolkit;
+                # protocol-specific capabilities stay behind DriverManager.
+                tool_instances.append(
+                    DriverCapabilityTool(
+                        capability,
+                        self._driver_invoker,
+                        self._request_context,
+                    ),
+                )
+                logger.debug(
+                    "Registered Driver capability tool: %s",
+                    capability.capability_id,
+                )
+
+        return Toolkit(tools=tool_instances)
 
     def _register_skills(
         self,

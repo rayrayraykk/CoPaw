@@ -38,7 +38,7 @@ async def test_workspace_components_none_before_start():
         assert workspace.runner is None
         assert workspace.channel_manager is None
         assert workspace.memory_manager is None
-        assert workspace.mcp_manager is None
+        assert not hasattr(workspace, "mcp_manager")
         assert workspace.cron_manager is None
         assert workspace.chat_manager is None
 

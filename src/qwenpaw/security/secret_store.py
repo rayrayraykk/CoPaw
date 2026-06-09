@@ -11,6 +11,7 @@ tokens, etc.) stored on disk.  Secrets are encrypted with Fernet (AES-128-CBC
 Encrypted values carry an ``ENC:`` prefix so readers can distinguish them
 from legacy plaintext and transparently migrate on first access.
 """
+
 from __future__ import annotations
 
 import base64
@@ -65,6 +66,9 @@ def _should_skip_keyring() -> bool:
         ``_KEYRING_TIMEOUT`` seconds regardless of what this function
         returns.
     """
+    if EnvVarLoader.get_bool("QWENPAW_DISABLE_KEYRING"):
+        return True
+
     if EnvVarLoader.get_bool("QWENPAW_RUNNING_IN_CONTAINER"):
         return True
 

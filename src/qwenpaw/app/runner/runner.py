@@ -35,7 +35,7 @@ class AgentRunner(Runner):
             workspace_dir  # Store workspace_dir for prompt building
         )
         self._chat_manager = None  # Store chat_manager reference
-        self._mcp_manager = None  # MCP client manager for hot-reload
+        self._driver_manager = None  # DriverManager for runtime integrations
         self._workspace: Any = None  # Workspace instance for control commands
         self.memory_manager: BaseMemoryManager | None = None
         self.context_manager: BaseContextManager | None = None
@@ -65,13 +65,9 @@ class AgentRunner(Runner):
         """
         self._chat_manager = chat_manager
 
-    def set_mcp_manager(self, mcp_manager):
-        """Set MCP client manager for hot-reload support.
-
-        Args:
-            mcp_manager: MCPClientManager instance
-        """
-        self._mcp_manager = mcp_manager
+    def set_driver_manager(self, driver_manager):
+        """Set DriverManager for runtime integrations."""
+        self._driver_manager = driver_manager
 
     def set_workspace(self, workspace):
         """Set workspace for control command handlers.

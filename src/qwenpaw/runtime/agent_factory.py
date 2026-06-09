@@ -7,7 +7,14 @@ session load/save in stream_query, not by caching agent instances.
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Any
+
+from qwenpaw.drivers.capabilities import (
+    DriverCapability,
+    DriverInvocation,
+    DriverInvocationResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +23,12 @@ def build_agent(
     session_id: str,
     agent_id: str | None = None,
     workspace_dir: Any = None,
-    mcp_clients: list | None = None,
+    driver_capabilities: list[DriverCapability] | None = None,
+    driver_invoker: Callable[
+        [DriverInvocation],
+        Awaitable[DriverInvocationResult],
+    ]
+    | None = None,
     request_context: dict[str, str] | None = None,
     memory_manager: Any = None,
     context_manager: Any = None,
@@ -98,7 +110,8 @@ def build_agent(
         request_context=ctx,
         memory_manager=memory_manager,
         context_manager=context_manager,
-        mcp_clients=mcp_clients,
+        driver_capabilities=driver_capabilities,
+        driver_invoker=driver_invoker,
     )
     logger.info(
         "agent_factory: built agent for session=%s agent=%s "

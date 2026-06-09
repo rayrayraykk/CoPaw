@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Console APIs: push messages, chat, and file upload for chat."""
+
 from __future__ import annotations
 
 import asyncio
@@ -8,7 +9,7 @@ import logging
 import re
 import uuid
 from pathlib import Path
-from typing import AsyncGenerator, Union
+from typing import Any, AsyncGenerator, Union
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel
@@ -22,7 +23,6 @@ from ...utils.logging import LOG_FILE_PATH
 from ..agent_context import get_agent_for_request
 from ..runner.title_generator import generate_and_update_title
 
-
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/console", tags=["console"])
@@ -35,6 +35,16 @@ class MarkInboxReadRequest(BaseModel):
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 MAX_DEBUG_LOG_LINES = 1000
+
+
+def _approval_display_fields(pending: Any) -> dict[str, str]:
+    display = pending.extra.get("display", {})
+    if not isinstance(display, dict):
+        display = {}
+    return {
+        "tool_display_name": str(display.get("tool_name") or pending.tool_name),
+        "tool_source": str(display.get("tool_source") or "builtin"),
+    }
 
 
 def _safe_filename(name: str) -> str:
@@ -97,8 +107,7 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
                 # Coerce raw dicts to typed Content models so downstream
                 # getattr checks (e.g. _content_has_text) see real attrs.
                 content_parts.extend(
-                    _coerce_content_item(c)
-                    for c in (content_part["content"] or [])
+                    _coerce_content_item(c) for c in (content_part["content"] or [])
                 )
 
     native_payload = {
@@ -301,8 +310,7 @@ async def post_console_upload(
     if len(data) > MAX_UPLOAD_BYTES:
         raise HTTPException(
             status_code=400,
-            detail="File too large (max "
-            f"{MAX_UPLOAD_BYTES // (1024 * 1024)} MB)",
+            detail="File too large (max " f"{MAX_UPLOAD_BYTES // (1024 * 1024)} MB)",
         )
     safe_name = _safe_filename(file.filename or "file")
     stored_name = f"{uuid.uuid4().hex}_{safe_name}"
@@ -392,10 +400,13 @@ async def get_push_messages(
             "owner_agent_id": p.owner_agent_id,
             "agent_id": p.agent_id,
             "tool_name": p.tool_name,
+            **_approval_display_fields(p),
             "severity": p.severity,
             "findings_count": p.findings_count,
             "findings_summary": p.result_summary,
             "tool_params": p.extra.get("tool_call", {}).get("input", {}),
+            "source_type": p.extra.get("source_type", "tool_guard"),
+            "driver": p.extra.get("driver"),
             "created_at": p.created_at,
             "timeout_seconds": p.timeout_seconds,
         }

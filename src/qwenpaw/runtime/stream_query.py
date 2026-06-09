@@ -2,6 +2,7 @@
 # pylint: disable=too-many-nested-blocks
 """Runner base class — drives an agentscope 2.0 Agent and translates
 events into the frontend's SSE envelope protocol."""
+
 from __future__ import annotations
 
 import json
@@ -257,15 +258,19 @@ class Runner:
         try:
             msgs = _request_input_to_msgs(raw_input)
 
-            # Get MCP clients from workspace manager
-            mcp_clients = None
-            mcp_mgr = getattr(self, "_mcp_manager", None)
-            if mcp_mgr is not None:
+            driver_capabilities = []
+            driver_manager = getattr(self, "_driver_manager", None)
+            if driver_manager is not None:
                 try:
-                    mcp_clients = await mcp_mgr.get_clients()
+                    driver_capabilities = (
+                        await driver_manager.list_capabilities(
+                            kind="tool",
+                            request_context=request_context,
+                        )
+                    )
                 except Exception:
                     logger.debug(
-                        "stream_query: failed to get MCP clients",
+                        "stream_query: failed to get Driver capabilities",
                         exc_info=True,
                     )
 
@@ -273,7 +278,12 @@ class Runner:
                 session_id,
                 agent_id=getattr(self, "agent_id", None),
                 workspace_dir=workspace_dir,
-                mcp_clients=mcp_clients or None,
+                driver_capabilities=driver_capabilities or None,
+                driver_invoker=(
+                    driver_manager.invoke_capability
+                    if driver_manager is not None
+                    else None
+                ),
                 request_context=request_context,
                 memory_manager=getattr(self, "memory_manager", None),
                 context_manager=getattr(self, "context_manager", None),

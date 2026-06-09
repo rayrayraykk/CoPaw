@@ -15,22 +15,46 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-async def create_mcp_service(ws: "Workspace", mcp):
-    """Initialize MCP manager and attach to runner.
+async def create_driver_service(ws: "Workspace", _service):
+    """Create and initialize the per-workspace DriverManager.
 
     Args:
         ws: Workspace instance
-        mcp: MCPClientManager instance
+        _service: Unused service slot from ServiceDescriptor.post_init
+
+    Returns:
+        DriverManager instance
     """
     # pylint: disable=protected-access
-    if ws._config.mcp:
-        try:
-            await mcp.init_from_config(ws._config.mcp)
-            logger.debug(f"MCP initialized for agent: {ws.agent_id}")
-        except Exception as e:
-            logger.warning(f"Failed to init MCP: {e}")
-    ws._service_manager.services["runner"].set_mcp_manager(mcp)
-    # pylint: enable=protected-access
+
+    from ...drivers.credentials.store import CredentialStore
+    from ...drivers.handlers import (
+        A2ADriverHandler,
+        ACPDriverHandler,
+        MCPDriverHandler,
+    )
+    from ...drivers.manager import DriverManager
+
+    credential_store = CredentialStore(ws.workspace_dir / "credentials.yaml")
+    driver_manager = DriverManager(
+        ws.workspace_dir / "drivers",
+        credential_store,
+    )
+    driver_manager.register_handler_type("mcp", MCPDriverHandler)
+    driver_manager.register_handler_type("acp", ACPDriverHandler)
+    driver_manager.register_handler_type("a2a", A2ADriverHandler)
+    from ...drivers.adapters.mcp_legacy_config import (
+        migrate_legacy_mcp_if_needed,
+    )
+
+    await migrate_legacy_mcp_if_needed(ws, driver_manager)
+    await driver_manager.start()
+    ws._service_manager.services["driver_manager"] = driver_manager
+    runner = ws._service_manager.services.get("runner")
+    if runner is not None:
+        runner.set_driver_manager(driver_manager)
+    logger.debug("DriverManager initialized for agent: %s", ws.agent_id)
+    return driver_manager
 
 
 async def create_chat_service(ws: "Workspace", service):
@@ -149,37 +173,5 @@ async def create_agent_config_watcher(ws: "Workspace", _):
         workspace=ws,
     )
     ws._service_manager.services["agent_config_watcher"] = watcher
-    return watcher
-    # pylint: enable=protected-access
-
-
-async def create_mcp_config_watcher(ws: "Workspace", _):
-    """Create MCP config watcher if MCP manager exists.
-
-    Args:
-        ws: Workspace instance
-        _: Unused service parameter
-
-    Returns:
-        MCPConfigWatcher instance or None if not needed
-    """
-    # pylint: disable=protected-access
-    mcp_mgr = ws._service_manager.services.get("mcp_manager")
-    if not mcp_mgr:
-        return None
-
-    from ..mcp.watcher import MCPConfigWatcher
-    from ...config.config import load_agent_config
-
-    def mcp_config_loader():
-        agent_config = load_agent_config(ws.agent_id)
-        return agent_config.mcp
-
-    watcher = MCPConfigWatcher(
-        mcp_manager=mcp_mgr,
-        config_loader=mcp_config_loader,
-        config_path=ws.workspace_dir / "agent.json",
-    )
-    ws._service_manager.services["mcp_config_watcher"] = watcher
     return watcher
     # pylint: enable=protected-access

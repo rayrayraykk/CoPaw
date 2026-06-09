@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from contextlib import AsyncExitStack
+from contextlib import AsyncExitStack, asynccontextmanager
 from datetime import timedelta
 from typing import Any, Literal
 
@@ -381,11 +381,21 @@ class _MCPClientMixin:
                 self.name,
                 _LIST_TOOLS_RECONNECT_WAIT,
             )
+
+            @asynccontextmanager
+            async def unavailable_client():
+                if self.session is None:
+                    raise RuntimeError(
+                        f"MCP client '{self.name}' is not connected. "
+                        f"Call connect() first.",
+                    )
+                yield self.session
+
             return [
                 MCPTool(
                     mcp_name=self.name,
                     tool=t,
-                    session=self.session,
+                    client_gen=unavailable_client,
                 )
                 for t in self._cached_tools
             ]

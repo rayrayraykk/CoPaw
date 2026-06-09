@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """Approval API endpoints for tool guard approvals."""
+
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -14,6 +15,16 @@ from ...security.tool_guard.approval import ApprovalDecision
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/approval", tags=["approval"])
+
+
+def _approval_display_fields(pending: Any) -> dict[str, str]:
+    display = pending.extra.get("display", {})
+    if not isinstance(display, dict):
+        display = {}
+    return {
+        "tool_display_name": str(display.get("tool_name") or pending.tool_name),
+        "tool_source": str(display.get("tool_source") or "builtin"),
+    }
 
 
 class ApprovalActionRequest(BaseModel):
@@ -223,6 +234,7 @@ async def get_approval_list(
                 "owner_agent_id": pending.owner_agent_id,
                 "agent_id": pending.agent_id,
                 "tool_name": pending.tool_name,
+                **_approval_display_fields(pending),
                 "severity": pending.severity,
                 "findings_count": pending.findings_count,
                 "created_at": pending.created_at,

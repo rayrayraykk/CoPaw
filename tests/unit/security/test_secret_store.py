@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=protected-access
 """Tests for the encrypted secret store layer."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -139,17 +140,27 @@ class TestDecryptFailureGraceful:
 
 
 class TestMasterKeyGeneration:
+    def test_disable_keyring_env_skips_keyring(self, monkeypatch):
+        import qwenpaw.security.secret_store as mod
+
+        monkeypatch.setenv("QWENPAW_DISABLE_KEYRING", "1")
+
+        assert mod._should_skip_keyring()
+
     def test_generates_key_when_missing(self, tmp_path: Path, monkeypatch):
         import qwenpaw.security.secret_store as mod
 
         monkeypatch.setattr(mod, "_cached_master_key", None)
         monkeypatch.setattr(mod, "_get_secret_dir", lambda: tmp_path)
 
-        with patch.object(
-            mod,
-            "_try_keyring_get",
-            return_value=None,
-        ), patch.object(mod, "_try_keyring_set", return_value=False):
+        with (
+            patch.object(
+                mod,
+                "_try_keyring_get",
+                return_value=None,
+            ),
+            patch.object(mod, "_try_keyring_set", return_value=False),
+        ):
             key = mod._get_master_key()
 
         assert isinstance(key, bytes)
@@ -165,11 +176,14 @@ class TestMasterKeyGeneration:
         monkeypatch.setattr(mod, "_cached_master_key", None)
         monkeypatch.setattr(mod, "_get_secret_dir", lambda: tmp_path)
 
-        with patch.object(
-            mod,
-            "_try_keyring_get",
-            return_value=None,
-        ), patch.object(mod, "_try_keyring_set", return_value=False):
+        with (
+            patch.object(
+                mod,
+                "_try_keyring_get",
+                return_value=None,
+            ),
+            patch.object(mod, "_try_keyring_set", return_value=False),
+        ):
             key = mod._get_master_key()
 
         assert key == bytes.fromhex(key_hex)
