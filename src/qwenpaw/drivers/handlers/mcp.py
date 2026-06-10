@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import logging
 import re
 from typing import Any
@@ -17,7 +16,12 @@ from qwenpaw.drivers.capabilities import (
     format_capability_id,
     parse_capability_id,
 )
-from qwenpaw.drivers.contracts import PolicyTarget
+from qwenpaw.drivers.contracts import DriverCard, PolicyTarget
+from qwenpaw.drivers.credentials.bindings import (
+    implicit_auth_headers,
+    resolve_binding,
+    resolve_credentials,
+)
 from qwenpaw.drivers.handlers.mcp_stateful_client import (
     HttpStatefulClient,
     StdIOStatefulClient,
@@ -25,6 +29,7 @@ from qwenpaw.drivers.handlers.mcp_stateful_client import (
 from qwenpaw.drivers.credentials.types import ResolvedCredential
 from qwenpaw.drivers.errors import (
     ApprovalRequiredError,
+    DriverCardError,
     DriverPermissionDeniedError,
 )
 from qwenpaw.drivers.handler import DriverHandler
@@ -49,18 +54,18 @@ class MCPDriverHandler(DriverHandler):
                 name=self._card.name,
                 command=str(endpoint.get("command") or ""),
                 args=list(endpoint.get("args") or []),
-                env=self._resolve_binding(
+                env=resolve_binding(
                     endpoint.get("env") or {},
                     credentials,
                 ),
                 cwd=endpoint.get("cwd") or None,
             )
         else:
-            headers = self._resolve_binding(
+            headers = resolve_binding(
                 endpoint.get("headers") or {},
                 credentials,
             )
-            headers.update(self._implicit_auth_headers(credentials, headers))
+            headers.update(implicit_auth_headers(credentials, headers))
             self._client = HttpStatefulClient(
                 name=self._card.name,
                 transport=transport,
@@ -199,140 +204,48 @@ class MCPDriverHandler(DriverHandler):
             )
         return DriverInvocationResult(ok=True, value=value)
 
-    @staticmethod
-    def _resolve_binding(
-        binding: dict[str, Any],
-        credentials: dict[str, ResolvedCredential],
-    ) -> dict[str, str]:
-        # A binding maps runtime names, such as env vars or HTTP headers, to
-        # public literals or keys inside resolved credential secrets.
-        if not isinstance(binding, dict):
-            return {}
-        if "public" not in binding and "secret_refs" not in binding:
-            result: dict[str, str] = {}
-            for output_name, spec in binding.items():
-                value = _resolve_value_source(spec, credentials)
-                if value is not None:
-                    result[str(output_name)] = value
-            return result
-
-        result = {
-            str(key): str(value)
-            for key, value in dict(binding.get("public") or {}).items()
-        }
-        for output_name, secret_key in dict(
-            binding.get("secret_refs") or {},
-        ).items():
-            value = _lookup_credential_value(credentials, str(secret_key))
-            if value is not None:
-                result[str(output_name)] = str(value)
-        return result
-
-    @staticmethod
-    def _implicit_auth_headers(
-        credentials: dict[str, ResolvedCredential],
-        existing_headers: dict[str, str],
-    ) -> dict[str, str]:
-        if any(key.lower() == "authorization" for key in existing_headers):
-            return {}
-
-        credential = credentials.get("oauth")
-        if credential is None:
-            credential = credentials.get("default") or next(
-                iter(credentials.values()),
-                ResolvedCredential.EMPTY,
-            )
-        values = credential.values
-        if not values:
-            return {}
-
-        headers = values.get("headers")
-        if isinstance(headers, dict):
-            return {str(key): str(value) for key, value in headers.items()}
-
-        access_token = values.get("access_token") or values.get("token")
-        if access_token:
-            return {"Authorization": f"Bearer {access_token}"}
-
-        username = values.get("username")
-        password = values.get("password")
-        if username is not None and password is not None:
-            raw = f"{username}:{password}".encode("utf-8")
-            encoded = base64.b64encode(raw).decode("ascii")
-            return {"Authorization": f"Basic {encoded}"}
-
-        return {}
-
     async def _resolve_credentials(self) -> dict[str, ResolvedCredential]:
-        credentials: dict[str, ResolvedCredential] = {}
-        for alias, provider in self._credential_providers.items():
-            credentials[alias] = await provider.resolve()
-        if "default" not in credentials and len(credentials) == 1:
-            credentials["default"] = next(iter(credentials.values()))
-        return credentials
+        return await resolve_credentials(self._credential_providers)
 
 
-def _resolve_value_source(
-    spec: Any,
-    credentials: dict[str, ResolvedCredential],
-) -> str | None:
-    if not isinstance(spec, dict) or "source" not in spec:
-        return str(spec)
+def validate_mcp_endpoint(card: DriverCard) -> None:
+    """Validate MCP endpoint shape beyond generic DriverCard checks."""
+    endpoint = card.endpoint
+    transport = str(endpoint.get("transport") or "stdio")
+    if transport == "stdio":
+        command = endpoint.get("command")
+        if not isinstance(command, str) or not command.strip():
+            raise DriverCardError(
+                f"DriverCard {card.name} stdio endpoint.command must be "
+                "a non-empty string",
+            )
+        args = endpoint.get("args")
+        if args is not None and (
+            not isinstance(args, list)
+            or not all(isinstance(item, str) for item in args)
+        ):
+            raise DriverCardError(
+                f"DriverCard {card.name} endpoint.args must be a list "
+                "of strings",
+            )
+        cwd = endpoint.get("cwd")
+        if cwd is not None and not isinstance(cwd, str):
+            raise DriverCardError(
+                f"DriverCard {card.name} endpoint.cwd must be a string",
+            )
+        return
 
-    source = str(spec.get("source") or "")
-    if source == "literal":
-        return str(spec.get("value") or "")
-    if source != "credential":
-        return None
-
-    alias = str(spec.get("credential") or "default")
-    field = str(spec.get("field") or "")
-    value = (
-        _lookup_credential_value(credentials, f"{alias}.{field}")
-        if field
-        else None
-    )
-    if value is None:
-        return None
-
-    text = str(value)
-    fmt = spec.get("format")
-    if isinstance(fmt, str) and fmt:
-        return fmt.replace("{value}", text)
-    return text
-
-
-def _lookup_credential_value(
-    credentials: dict[str, ResolvedCredential],
-    reference: str,
-) -> Any:
-    alias = ""
-    field = reference
-    if "." in reference:
-        alias, field = reference.split(".", 1)
-
-    candidates: list[ResolvedCredential] = []
-    if alias:
-        credential = credentials.get(alias)
-        if credential is not None:
-            candidates.append(credential)
-    else:
-        for preferred in ("static", "default"):
-            credential = credentials.get(preferred)
-            if credential is not None:
-                candidates.append(credential)
-        candidates.extend(
-            credential
-            for key, credential in credentials.items()
-            if key not in {"static", "default"}
+    if transport not in {"streamable_http", "sse"}:
+        raise DriverCardError(
+            f"DriverCard {card.name} has unsupported MCP transport: "
+            f"{transport}",
         )
-
-    for credential in candidates:
-        if field in credential.secrets:
-            return credential.secrets[field]
-        if field in credential.values:
-            return credential.values[field]
-    return None
+    url = endpoint.get("url")
+    if not isinstance(url, str) or not url.strip():
+        raise DriverCardError(
+            f"DriverCard {card.name} HTTP MCP endpoint.url must be "
+            "a non-empty string",
+        )
 
 
 def _subject_from_context(request_context: dict[str, str]) -> str:

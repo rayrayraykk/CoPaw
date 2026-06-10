@@ -13,7 +13,7 @@ from qwenpaw.drivers.capabilities import (
 )
 from qwenpaw.drivers.credentials.store import CredentialStore
 from qwenpaw.drivers.credentials.types import ResolvedCredential
-from qwenpaw.drivers.errors import UnsupportedProtocolError
+from qwenpaw.drivers.errors import DriverCardError, UnsupportedProtocolError
 from qwenpaw.drivers.handler import DriverHandler
 from qwenpaw.drivers.contracts import CredentialRef, DriverCard
 from qwenpaw.drivers.manager import DriverManager
@@ -278,7 +278,7 @@ async def test_reload_failure_keeps_old_handler(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_capabilities_uses_latest_stored_runtime_metadata(
+async def test_list_capabilities_uses_runtime_metadata_until_reload(
     tmp_path: Path,
 ) -> None:
     manager = _manager(tmp_path)
@@ -295,8 +295,43 @@ async def test_list_capabilities_uses_latest_stored_runtime_metadata(
 
     capabilities = await manager.list_capabilities(kind="tool")
 
+    assert capabilities[0].exposure.namespace == "old-platform"
+    assert capabilities[0].exposure.tool_name == "old-platform__noop"
+
+    await manager.reload_driver("demo")
+    capabilities = await manager.list_capabilities(kind="tool")
+
     assert capabilities[0].exposure.namespace == "new-platform"
     assert capabilities[0].exposure.tool_name == "new-platform__noop"
+
+
+@pytest.mark.asyncio
+async def test_register_handler_type_can_validate_endpoint(
+    tmp_path: Path,
+) -> None:
+    manager = DriverManager(
+        tmp_path / "drivers",
+        CredentialStore(tmp_path / "credentials.yaml"),
+    )
+
+    def validate_endpoint(card: DriverCard) -> None:
+        if card.endpoint.get("required") != "ok":
+            raise DriverCardError("endpoint missing required marker")
+
+    manager.register_handler_type(
+        "fake",
+        FakeHandler,
+        endpoint_validator=validate_endpoint,
+    )
+
+    with pytest.raises(DriverCardError, match="required marker"):
+        await manager.register_driver(_card("bad"))
+
+    good = _card("good")
+    good.endpoint["required"] = "ok"
+    await manager.register_driver(good)
+
+    assert await _active_names(manager) == ["good"]
 
 
 @pytest.mark.asyncio

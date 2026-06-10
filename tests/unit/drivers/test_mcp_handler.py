@@ -9,8 +9,10 @@ from qwenpaw.drivers.capabilities import DriverInvocation, parse_capability_id
 from qwenpaw.drivers.handlers.mcp import (
     MCPDriverHandler,
     _subjects_from_context,
+    validate_mcp_endpoint,
 )
 from qwenpaw.drivers.contracts import CredentialRef, DriverCard, PolicyRule
+from qwenpaw.drivers.errors import DriverCardError
 
 
 class StaticProvider:
@@ -112,6 +114,23 @@ def test_subjects_from_context_includes_user_app_channel_and_session() -> None:
         "app:finance",
         "channel:console",
     )
+
+
+def test_validate_mcp_endpoint_rejects_missing_stdio_command() -> None:
+    with pytest.raises(DriverCardError, match="endpoint.command"):
+        validate_mcp_endpoint(_card({"transport": "stdio"}))
+
+
+def test_validate_mcp_endpoint_rejects_missing_http_url() -> None:
+    with pytest.raises(DriverCardError, match="endpoint.url"):
+        validate_mcp_endpoint(_card({"transport": "streamable_http"}))
+
+
+def test_validate_mcp_endpoint_rejects_unknown_transport() -> None:
+    with pytest.raises(DriverCardError, match="unsupported MCP transport"):
+        validate_mcp_endpoint(
+            _card({"transport": "websocket", "url": "wss://example.test"}),
+        )
 
 
 @pytest.mark.asyncio

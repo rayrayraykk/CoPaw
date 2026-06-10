@@ -33,14 +33,21 @@ async def create_driver_service(ws: "Workspace", _service):
         ACPDriverHandler,
         MCPDriverHandler,
     )
+    from ...drivers.handlers.mcp import validate_mcp_endpoint
     from ...drivers.manager import DriverManager
+    from ..approvals.driver_gate import QwenPawDriverApprovalGate
 
     credential_store = CredentialStore(ws.workspace_dir / "credentials.yaml")
     driver_manager = DriverManager(
         ws.workspace_dir / "drivers",
         credential_store,
+        approval_gate=QwenPawDriverApprovalGate(),
     )
-    driver_manager.register_handler_type("mcp", MCPDriverHandler)
+    driver_manager.register_handler_type(
+        "mcp",
+        MCPDriverHandler,
+        endpoint_validator=validate_mcp_endpoint,
+    )
     driver_manager.register_handler_type("acp", ACPDriverHandler)
     driver_manager.register_handler_type("a2a", A2ADriverHandler)
     from ...drivers.adapters.mcp_legacy_config import (

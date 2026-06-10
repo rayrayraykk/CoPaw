@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from pathlib import Path
 
+from qwenpaw.drivers.approval import ApprovalGate
 from qwenpaw.drivers.capabilities import (
     DriverCapability,
     DriverInvocation,
@@ -15,7 +17,7 @@ from qwenpaw.drivers.capabilities import (
     parse_capability_id,
 )
 from qwenpaw.drivers.credentials.providers import build_provider
-from qwenpaw.drivers.credentials.store import CredentialStore
+from qwenpaw.drivers.credentials.store import CredentialStoreProtocol
 from qwenpaw.drivers.credentials.types import CredentialRecord
 from qwenpaw.drivers.errors import (
     DriverNotFoundError,
@@ -38,6 +40,7 @@ from qwenpaw.drivers.storage import (
 
 logger = logging.getLogger(__name__)
 _SHUTDOWN_TIMEOUT_SECONDS = 10.0
+EndpointValidator = Callable[[DriverCard], None]
 
 
 class DriverManager:
@@ -46,11 +49,14 @@ class DriverManager:
     def __init__(
         self,
         cards_dir: Path,
-        credential_store: CredentialStore,
+        credential_store: CredentialStoreProtocol,
+        approval_gate: ApprovalGate | None = None,
     ) -> None:
         self._cards_dir = cards_dir
         self._credential_store = credential_store
+        self._approval_gate = approval_gate
         self._handler_types: dict[str, type[DriverHandler]] = {}
+        self._endpoint_validators: dict[str, EndpointValidator] = {}
         self._handlers: dict[str, DriverHandler] = {}
         self._lock = asyncio.Lock()
 
@@ -58,11 +64,14 @@ class DriverManager:
         self,
         protocol: str,
         cls: type[DriverHandler],
+        endpoint_validator: EndpointValidator | None = None,
     ) -> None:
         """Register the handler for an exact Driver protocol."""
         if not protocol:
             raise UnsupportedProtocolError(protocol)
         self._handler_types[protocol] = cls
+        if endpoint_validator is not None:
+            self._endpoint_validators[protocol] = endpoint_validator
 
     async def start(self) -> None:
         """Build enabled drivers from persisted DriverCards."""
@@ -118,7 +127,7 @@ class DriverManager:
 
     async def register_driver(self, card: DriverCard) -> None:
         """Persist card, build handler, then publish after init success."""
-        validate_card(card)
+        self._validate_card_for_registered_protocol(card)
         path = card_path(self._cards_dir, card.name, card.protocol)
         dump_card(card, path)
         delete_card_paths_for_name(self._cards_dir, card.name, keep=path)
@@ -140,6 +149,7 @@ class DriverManager:
         if path is None:
             raise DriverNotFoundError(name)
         card = load_card(path)
+        self._validate_card_for_registered_protocol(card)
         handler = None
         if card.enabled:
             handler = await self._build_and_init_handler(card)
@@ -207,7 +217,6 @@ class DriverManager:
         handlers = self._iter_handlers(protocol)
         capabilities: list[DriverCapability] = []
         for handler in handlers:
-            self._sync_handler_runtime_metadata(handler)
             for capability in await handler.list_capabilities(
                 request_context=request_context,
             ):
@@ -224,7 +233,6 @@ class DriverManager:
     ) -> list[DriverCapability]:
         """Return capabilities from one active Driver only."""
         handler = self._get_handler(name)
-        self._sync_handler_runtime_metadata(handler)
         capabilities = await handler.list_capabilities(
             request_context=request_context,
         )
@@ -261,7 +269,6 @@ class DriverManager:
                 message=str(exc),
                 metadata={"driver_name": exc.name},
             )
-        self._sync_handler_runtime_metadata(handler)
         return await handler.invoke_capability(invocation)
 
     def _get_handler(self, name: str) -> DriverHandler:
@@ -297,7 +304,7 @@ class DriverManager:
         return handler
 
     def _build_handler(self, card: DriverCard) -> DriverHandler:
-        validate_card(card)
+        self._validate_card_for_registered_protocol(card)
         handler_type = self._resolve_handler_type(card.protocol)
         refs = iter_credential_refs(card)
         if refs:
@@ -311,33 +318,33 @@ class DriverManager:
         else:
             primary = build_provider(card.credential, self._credential_store)
             providers = {"default": primary}
-        return handler_type(card, primary, providers)
+        return handler_type(
+            card,
+            primary,
+            providers,
+            approval_gate=self._approval_gate,
+        )
 
     def _resolve_handler_type(self, protocol: str) -> type[DriverHandler]:
         if protocol in self._handler_types:
             return self._handler_types[protocol]
         raise UnsupportedProtocolError(protocol)
 
+    def _validate_card_for_registered_protocol(
+        self,
+        card: DriverCard,
+    ) -> None:
+        validate_card(card)
+        self._resolve_handler_type(card.protocol)
+        validator = self._endpoint_validators.get(card.protocol)
+        if validator is not None:
+            validator(card)
+
     def _stored_card_path(self, name: str) -> Path | None:
         paths = card_paths_for_name(self._cards_dir, name)
         if paths:
             return paths[0]
         return None
-
-    def _sync_handler_runtime_metadata(self, handler: DriverHandler) -> None:
-        path = self._stored_card_path(handler.name)
-        if path is None:
-            return
-        try:
-            card = load_card(path)
-        except Exception:
-            logger.debug(
-                "Failed to refresh runtime metadata for Driver '%s'",
-                handler.name,
-                exc_info=True,
-            )
-            return
-        handler.sync_runtime_metadata(card)
 
     def _runtime_info_from_card(self, card: DriverCard) -> DriverRuntimeInfo:
         active = card.name in self._handlers
@@ -361,7 +368,7 @@ class DriverManager:
         return self._cards_dir
 
     @property
-    def credential_store(self) -> CredentialStore:
+    def credential_store(self) -> CredentialStoreProtocol:
         return self._credential_store
 
     async def _shutdown_handlers(self, handlers) -> None:

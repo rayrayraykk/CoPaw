@@ -187,7 +187,7 @@ async def test_list_tools_fetches_fresh_schema_and_caches_it() -> None:
 
     tools = await client.list_tools()
 
-    assert tools[0].name == "mcp__demo__search"
+    assert tools[0].name == "search"
     assert client._cached_tools[0].name == "search"
 
 
@@ -198,7 +198,7 @@ async def test_list_tools_serves_cached_schema_when_disconnected() -> None:
 
     tools = await client.list_tools()
 
-    assert tools[0].name == "mcp__demo__cached"
+    assert tools[0].name == "cached"
 
 
 @pytest.mark.asyncio

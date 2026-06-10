@@ -67,10 +67,7 @@ class DriverPermissionDeniedError(PermissionDeniedError):
             f"- Subject: `{self.subject}`\n"
             f"- Reason: {self.reason}\n\n"
             "This denial applies only to the current tool call under the "
-            "policy observed at execution time. Do not automatically retry "
-            "within the same response. If the user later asks again, "
-            "attempt the relevant tool again so the current policy can be "
-            "applied."
+            "policy observed at execution time."
         )
 
     def to_result(self) -> dict[str, str | bool]:

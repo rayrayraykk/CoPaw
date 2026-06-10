@@ -7,6 +7,8 @@ import pytest
 from qwenpaw.drivers.credentials.types import ResolvedCredential
 from qwenpaw.drivers.capabilities import DriverInvocation
 from qwenpaw.app.approvals.service import ApprovalService
+from qwenpaw.app.approvals.driver_gate import QwenPawDriverApprovalGate
+from qwenpaw.drivers.approval import ApprovalGate
 from qwenpaw.drivers.errors import (
     ApprovalRequiredError,
     DriverPermissionDeniedError,
@@ -46,8 +48,9 @@ class RecordingHandler(DriverHandler):
         provider: RecordingProvider,
         events: list[str],
         teardown_raises: bool = False,
+        approval_gate: ApprovalGate | None = None,
     ) -> None:
-        super().__init__(card, provider)
+        super().__init__(card, provider, approval_gate=approval_gate)
         self.events = events
         self.teardown_raises = teardown_raises
 
@@ -91,8 +94,8 @@ def test_driver_permission_denial_message_is_point_in_time() -> None:
 
     assert "current tool call" in message
     assert "policy observed at execution time" in message
-    assert "If the user later asks again" in message
-    assert "Do not retry this tool with similar parameters" not in message
+    assert "automatically retry" not in message
+    assert "If the user later asks again" not in message
 
 
 def test_sync_runtime_metadata_updates_display_and_policy_only() -> None:
@@ -118,9 +121,14 @@ def test_sync_runtime_metadata_updates_display_and_policy_only() -> None:
     assert handler.card.policy.rules[0].subject == "user:alice"
 
 
-async def _next_pending_request(service: ApprovalService):
+async def _next_pending_request(
+    service: ApprovalService,
+    task: asyncio.Task | None = None,
+):
     # pylint: disable=protected-access
     while not service._pending:
+        if task is not None and task.done():
+            await task
         await asyncio.sleep(0)
     return next(iter(service._pending.values()))
 
@@ -151,7 +159,12 @@ async def test_guarded_execute_order(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.mark.asyncio
 async def test_base_invoke_capability_returns_unsupported_result() -> None:
     events: list[str] = []
-    handler = RecordingHandler(_card(), RecordingProvider(events), events)
+    handler = RecordingHandler(
+        _card(),
+        RecordingProvider(events),
+        events,
+        approval_gate=QwenPawDriverApprovalGate(),
+    )
 
     result = await handler.invoke_capability(
         DriverInvocation(
@@ -174,7 +187,12 @@ async def test_deny_does_not_resolve_credential(
         "qwenpaw.drivers.handler.evaluate_policy",
         lambda *_, **__: "deny",
     )
-    handler = RecordingHandler(_card(), RecordingProvider(events), events)
+    handler = RecordingHandler(
+        _card(),
+        RecordingProvider(events),
+        events,
+        approval_gate=QwenPawDriverApprovalGate(),
+    )
 
     with pytest.raises(PermissionDeniedError):
         await handler._guarded_execute("user:alice")
@@ -215,7 +233,12 @@ async def test_ask_approval_approved_resumes_execution(
     from qwenpaw.security.tool_guard.approval import ApprovalDecision
 
     events: list[str] = []
-    handler = RecordingHandler(_card(), RecordingProvider(events), events)
+    handler = RecordingHandler(
+        _card(),
+        RecordingProvider(events),
+        events,
+        approval_gate=QwenPawDriverApprovalGate(),
+    )
     task = asyncio.create_task(
         handler._guarded_execute(
             "user:alice",
@@ -230,7 +253,7 @@ async def test_ask_approval_approved_resumes_execution(
         ),
     )
 
-    pending = await _next_pending_request(service)
+    pending = await _next_pending_request(service, task)
     assert pending.tool_name == "driver:fake:demo"
     assert pending.result_summary == (
         "Driver 'fake:demo' requires approval for invoke."
@@ -272,7 +295,12 @@ async def test_ask_approval_adds_tool_display_source_metadata(
         endpoint={},
         credential=CredentialRef(kind="none"),
     )
-    handler = RecordingHandler(card, RecordingProvider(events), events)
+    handler = RecordingHandler(
+        card,
+        RecordingProvider(events),
+        events,
+        approval_gate=QwenPawDriverApprovalGate(),
+    )
     task = asyncio.create_task(
         handler._guarded_execute(
             "user:alice",
@@ -289,7 +317,7 @@ async def test_ask_approval_adds_tool_display_source_metadata(
         ),
     )
 
-    pending = await _next_pending_request(service)
+    pending = await _next_pending_request(service, task)
     assert pending.tool_name == "driver:mcp:aone-code-mcp"
     assert pending.extra["display"] == {
         "tool_name": "search_authorized_repositories",
@@ -326,7 +354,12 @@ async def test_ask_approval_denied_blocks_execution(
     from qwenpaw.security.tool_guard.approval import ApprovalDecision
 
     events: list[str] = []
-    handler = RecordingHandler(_card(), RecordingProvider(events), events)
+    handler = RecordingHandler(
+        _card(),
+        RecordingProvider(events),
+        events,
+        approval_gate=QwenPawDriverApprovalGate(),
+    )
     task = asyncio.create_task(
         handler._guarded_execute(
             "user:alice",
@@ -334,7 +367,7 @@ async def test_ask_approval_denied_blocks_execution(
         ),
     )
 
-    pending = await _next_pending_request(service)
+    pending = await _next_pending_request(service, task)
     await service.resolve_request(pending.request_id, ApprovalDecision.DENIED)
 
     with pytest.raises(DriverPermissionDeniedError):

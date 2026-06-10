@@ -9,7 +9,9 @@ from qwenpaw.drivers.contracts import (
     CredentialRef,
     DriverCard,
     DriverPolicy,
+    PolicyCondition,
     PolicyPrincipal,
+    RateLimit,
     PolicyRule,
     PolicyTarget,
     validate_card,
@@ -64,6 +66,49 @@ def test_validate_card_rejects_invalid_policy_effect() -> None:
     )
 
     with pytest.raises(DriverCardError, match="invalid policy effect"):
+        validate_card(card)
+
+
+def test_validate_card_rejects_invalid_policy_target_kind() -> None:
+    card = DriverCard(
+        name="demo",
+        protocol="mcp",
+        endpoint={},
+        credential=CredentialRef(kind="none"),
+        policy=[
+            PolicyRule(
+                subject="*",
+                effect="ask",
+                target=PolicyTarget(kind="database", name="demo"),
+            ),
+        ],
+    )
+
+    with pytest.raises(DriverCardError, match="target.kind"):
+        validate_card(card)
+
+
+def test_validate_card_rejects_unenforced_rate_limit() -> None:
+    card = DriverCard(
+        name="demo",
+        protocol="mcp",
+        endpoint={},
+        credential=CredentialRef(kind="none"),
+        policy=[
+            PolicyRule(
+                subject="*",
+                effect="ask",
+                condition=PolicyCondition(
+                    rate_limit=RateLimit(
+                        max_calls=1,
+                        window_seconds=60,
+                    ),
+                ),
+            ),
+        ],
+    )
+
+    with pytest.raises(DriverCardError, match="rate_limit"):
         validate_card(card)
 
 

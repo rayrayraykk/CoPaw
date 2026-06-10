@@ -5,12 +5,17 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal, get_args
 
+from qwenpaw.drivers.capabilities import CapabilityKind
 from qwenpaw.drivers.errors import DriverCardError
 
+PolicyEffect = Literal["allow", "deny", "ask"]
 ALLOWED_POLICY_EFFECTS: frozenset[str] = frozenset(
     {"allow", "deny", "ask"},
+)
+ALLOWED_POLICY_TARGET_KINDS: frozenset[str] = frozenset(
+    {*get_args(CapabilityKind), "*"},
 )
 
 
@@ -107,7 +112,7 @@ class PolicyPrincipal:
 @dataclass
 class PolicyRule:
     subject: str = "*"
-    effect: str = "ask"
+    effect: PolicyEffect | str = "ask"
     target: PolicyTarget = field(default_factory=PolicyTarget)
     principal: PolicyPrincipal = field(default_factory=PolicyPrincipal)
     condition: PolicyCondition | None = None
@@ -115,7 +120,7 @@ class PolicyRule:
 
 @dataclass
 class DriverPolicy:
-    default_effect: str = "deny"
+    default_effect: PolicyEffect | str = "deny"
     rules: list[PolicyRule] = field(default_factory=list)
 
     def __iter__(self) -> Iterator[PolicyRule]:
@@ -298,9 +303,19 @@ def _validate_driver_policy(card: DriverCard) -> None:
             raise DriverCardError(
                 f"DriverCard {card.name} policy target.kind must be non-empty",
             )
+        if rule.target.kind not in ALLOWED_POLICY_TARGET_KINDS:
+            raise DriverCardError(
+                f"DriverCard {card.name} has invalid policy target.kind: "
+                f"{rule.target.kind}",
+            )
         if not rule.target.name or not isinstance(rule.target.name, str):
             raise DriverCardError(
                 f"DriverCard {card.name} policy target.name must be non-empty",
+            )
+        if rule.condition and rule.condition.rate_limit is not None:
+            raise DriverCardError(
+                f"DriverCard {card.name} policy rate_limit is not enforced "
+                "yet and cannot be configured",
             )
         for field_name in (
             "source_type",

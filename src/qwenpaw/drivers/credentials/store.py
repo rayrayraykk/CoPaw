@@ -7,7 +7,7 @@ import os
 import tempfile
 import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import yaml
 
@@ -18,7 +18,23 @@ from qwenpaw.security.secret_store import decrypt, encrypt, is_encrypted
 _STORE_VERSION = 1
 
 
-class CredentialStore:
+class CredentialStoreProtocol(Protocol):
+    """Storage boundary used by Driver credential providers."""
+
+    def get(self, ref: str) -> CredentialRecord:
+        """Read one CredentialRecord."""
+
+    def put(self, record: CredentialRecord) -> None:
+        """Persist one CredentialRecord."""
+
+    def delete(self, ref: str) -> None:
+        """Delete one CredentialRecord if present."""
+
+    def list_refs(self) -> list[str]:
+        """Return known credential refs."""
+
+
+class YAMLCredentialStore:
     """Per-workspace YAML credential store."""
 
     def __init__(self, credentials_path: Path) -> None:
@@ -186,3 +202,6 @@ class CredentialStore:
             key: decrypt(value) if isinstance(value, str) else value
             for key, value in data.items()
         }
+
+
+CredentialStore = YAMLCredentialStore
