@@ -66,6 +66,8 @@ def _should_skip_keyring() -> bool:
         ``_KEYRING_TIMEOUT`` seconds regardless of what this function
         returns.
     """
+    # Explicit escape hatch for CI, containers, and remote/headless hosts
+    # where OS keyring access is unavailable or may block.
     if EnvVarLoader.get_bool("QWENPAW_DISABLE_KEYRING"):
         return True
 

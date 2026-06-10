@@ -21,8 +21,7 @@ from .message_convert import (
     _media_type_to_block_type,
     _request_input_to_msgs,
 )
-from ..agents.prompt import build_driver_policy_recheck_hint
-from ..agents.tools.driver_capability_tool import DriverCapabilityTool
+from ..drivers.adapters.agentscope_tool import build_driver_agent_tools
 
 logger = logging.getLogger(__name__)
 
@@ -260,35 +259,10 @@ class Runner:
         try:
             msgs = _request_input_to_msgs(raw_input)
 
-            external_tools = []
-            extra_prompts = []
-            driver_manager = getattr(self, "_driver_manager", None)
-            if driver_manager is not None:
-                try:
-                    driver_capabilities = (
-                        await driver_manager.list_capabilities(
-                            kind="tool",
-                            request_context=request_context,
-                        )
-                    )
-                    external_tools = [
-                        DriverCapabilityTool(
-                            capability,
-                            driver_manager.invoke_capability,
-                            request_context,
-                        )
-                        for capability in driver_capabilities
-                        if getattr(capability.exposure, "as_tool", False)
-                    ]
-                    if external_tools:
-                        extra_prompts.append(
-                            build_driver_policy_recheck_hint(),
-                        )
-                except Exception:
-                    logger.debug(
-                        "stream_query: failed to build Driver tools",
-                        exc_info=True,
-                    )
+            external_tools, extra_prompts = await build_driver_agent_tools(
+                getattr(self, "_driver_manager", None),
+                request_context,
+            )
 
             agent = build_agent(
                 session_id,

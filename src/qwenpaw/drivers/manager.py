@@ -50,7 +50,12 @@ EndpointValidator = Callable[[DriverCard], None]
 
 
 class DriverManager:
-    """Own DriverCard storage, handler lifecycle, and capability dispatch."""
+    """Own external capability storage, lifecycle, and dispatch.
+
+    DriverManager is protocol-neutral: MCP, ACP, and A2A handlers expose their
+    native operations as Driver capabilities with a shared policy, credential,
+    and invocation lifecycle.
+    """
 
     def __init__(
         self,

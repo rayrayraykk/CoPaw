@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from ...constant import TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS
 from ...security.tool_guard.approval import ApprovalDecision
+from .models import ApprovalRequestSummary
 
 if TYPE_CHECKING:
     from ...security.tool_guard.models import ToolGuardResult
@@ -55,18 +56,6 @@ class PendingApproval:
     findings_count: int = 0
     severity: str = "medium"  # For frontend display
     extra: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass(frozen=True)
-class ApprovalRequestSummary:
-    """Generic approval summary for non-ToolGuard approval sources."""
-
-    source_type: str
-    name: str
-    severity: str = "medium"
-    findings_count: int = 1
-    result_summary: str = ""
-    payload: dict[str, Any] = field(default_factory=dict)
 
 
 # ------------------------------------------------------------------

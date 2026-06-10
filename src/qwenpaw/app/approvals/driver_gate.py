@@ -11,7 +11,7 @@ from qwenpaw.drivers.errors import (
 from qwenpaw.drivers.policy import DriverInvocationContext
 from qwenpaw.security.tool_guard.approval import ApprovalDecision
 
-from .service import ApprovalRequestSummary
+from .models import ApprovalRequestSummary
 
 
 class QwenPawDriverApprovalGate:

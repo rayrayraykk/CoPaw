@@ -9,7 +9,7 @@ import logging
 import re
 import uuid
 from pathlib import Path
-from typing import Any, AsyncGenerator, Union
+from typing import AsyncGenerator, Union
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel
@@ -21,6 +21,7 @@ from qwenpaw.schemas import (
 )
 from ...utils.logging import LOG_FILE_PATH
 from ..agent_context import get_agent_for_request
+from ..approvals.display import approval_display_fields
 from ..runner.title_generator import generate_and_update_title
 
 logger = logging.getLogger(__name__)
@@ -35,18 +36,6 @@ class MarkInboxReadRequest(BaseModel):
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 MAX_DEBUG_LOG_LINES = 1000
-
-
-def _approval_display_fields(pending: Any) -> dict[str, str]:
-    display = pending.extra.get("display", {})
-    if not isinstance(display, dict):
-        display = {}
-    return {
-        "tool_display_name": str(
-            display.get("tool_name") or pending.tool_name,
-        ),
-        "tool_source": str(display.get("tool_source") or "builtin"),
-    }
 
 
 def _safe_filename(name: str) -> str:
@@ -404,7 +393,7 @@ async def get_push_messages(
             "owner_agent_id": p.owner_agent_id,
             "agent_id": p.agent_id,
             "tool_name": p.tool_name,
-            **_approval_display_fields(p),
+            **approval_display_fields(p),
             "severity": p.severity,
             "findings_count": p.findings_count,
             "findings_summary": p.result_summary,

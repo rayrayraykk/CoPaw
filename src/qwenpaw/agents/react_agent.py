@@ -8,13 +8,14 @@ with integrated tools, skills, and memory management.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, List, Literal, Optional, TYPE_CHECKING
 
 from agentscope.agent import Agent, ReActConfig
 from agentscope.message import Msg, TextBlock
 from agentscope.state import AgentState
-from agentscope.tool import Toolkit
+from agentscope.tool import Toolkit, ToolBase
 
 from .command_handler import CommandHandler
 from .hooks import BootstrapHook
@@ -87,7 +88,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
         self,
         agent_config: "AgentProfileConfig",
         env_context: Optional[str] = None,
-        external_tools: Optional[List[Any]] = None,
+        external_tools: Optional[Sequence[ToolBase]] = None,
         extra_prompts: Optional[List[str]] = None,
         memory_manager: BaseMemoryManager | None = None,
         context_manager: BaseContextManager | None = None,

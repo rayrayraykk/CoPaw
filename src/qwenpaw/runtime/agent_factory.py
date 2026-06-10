@@ -7,7 +7,10 @@ session load/save in stream_query, not by caching agent instances.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from typing import Any
+
+from agentscope.tool import ToolBase
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +19,7 @@ def build_agent(
     session_id: str,
     agent_id: str | None = None,
     workspace_dir: Any = None,
-    external_tools: list[Any] | None = None,
+    external_tools: Sequence[ToolBase] | None = None,
     extra_prompts: list[str] | None = None,
     request_context: dict[str, str] | None = None,
     memory_manager: Any = None,

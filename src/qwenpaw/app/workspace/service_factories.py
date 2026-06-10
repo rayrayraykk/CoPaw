@@ -18,6 +18,10 @@ logger = logging.getLogger(__name__)
 async def create_driver_service(ws: "Workspace", _service):
     """Create and initialize the per-workspace DriverManager.
 
+    DriverManager is the unified runtime for external capabilities.  Protocol
+    handlers such as MCP, ACP, and A2A adapt their native endpoints into the
+    same Driver capability lifecycle and invocation surface.
+
     Args:
         ws: Workspace instance
         _service: Unused service slot from ServiceDescriptor.post_init
@@ -60,8 +64,34 @@ async def create_driver_service(ws: "Workspace", _service):
     runner = ws._service_manager.services.get("runner")
     if runner is not None:
         runner.set_driver_manager(driver_manager)
-    logger.debug("DriverManager initialized for agent: %s", ws.agent_id)
+    logger.debug(
+        "DriverManager external capability runtime initialized for agent: %s",
+        ws.agent_id,
+    )
     return driver_manager
+
+
+async def create_driver_config_watcher(ws: "Workspace", _service):
+    """Create watcher for manual DriverCard edits.
+
+    Console/API updates call ``DriverConfigService.reload_driver_best_effort``
+    immediately.  This watcher covers the manual-edit path and works for all
+    Driver protocols instead of only MCP.
+    """
+    # pylint: disable=protected-access
+    driver_manager = ws._service_manager.services.get("driver_manager")
+    if driver_manager is None:
+        return None
+
+    from ..driver_config_watcher import DriverConfigWatcher
+
+    watcher = DriverConfigWatcher(
+        driver_manager,
+        ws.workspace_dir / "drivers",
+    )
+    ws._service_manager.services["driver_config_watcher"] = watcher
+    return watcher
+    # pylint: enable=protected-access
 
 
 async def create_chat_service(ws: "Workspace", service):

@@ -35,7 +35,7 @@ class AgentRunner(Runner):
             workspace_dir  # Store workspace_dir for prompt building
         )
         self._chat_manager = None  # Store chat_manager reference
-        self._driver_manager = None  # DriverManager for runtime integrations
+        self._driver_manager = None  # External capability runtime
         self._workspace: Any = None  # Workspace instance for control commands
         self.memory_manager: BaseMemoryManager | None = None
         self.context_manager: BaseContextManager | None = None
@@ -66,7 +66,7 @@ class AgentRunner(Runner):
         self._chat_manager = chat_manager
 
     def set_driver_manager(self, driver_manager):
-        """Set DriverManager for runtime integrations."""
+        """Set DriverManager for external capability dispatch."""
         self._driver_manager = driver_manager
 
     def set_workspace(self, workspace):

@@ -10,7 +10,7 @@ from qwenpaw.drivers.credentials.types import CredentialRecord
 from qwenpaw.drivers.handlers.mcp import MCPDriverHandler
 from qwenpaw.drivers.manager import DriverManager
 from qwenpaw.drivers.storage import card_path, dump_card
-from tests.e2e.driver_mcp_fakes import (
+from tests.integration.driver_mcp_fakes import (
     FakeHttpClient,
     patch_mcp_runtime_clients,
 )

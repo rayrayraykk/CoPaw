@@ -5,7 +5,7 @@ Each Workspace represents a standalone agent workspace with its own:
 - Runner (request processing)
 - ChannelManager (communication channels)
 - BaseMemoryManager (conversation memory)
-- DriverManager (runtime protocol integrations)
+- DriverManager (unified external capability runtime: MCP/A2A/ACP)
 - CronManager (scheduled tasks)
 
 All existing single-agent components are reused without modification.
@@ -21,6 +21,7 @@ from qwenpaw.config.utils import load_config
 from .service_manager import ServiceDescriptor, ServiceManager
 from .service_factories import (
     create_driver_service,
+    create_driver_config_watcher,
     create_chat_service,
     create_channel_service,
     create_agent_config_watcher,
@@ -41,7 +42,7 @@ class Workspace:
     - Runner: Processes agent requests
     - ChannelManager: Manages communication channels
     - BaseMemoryManager: Manages conversation memory
-    - DriverManager: Manages runtime protocol integrations
+    - DriverManager: Manages external capabilities across MCP/A2A/ACP
     - CronManager: Manages scheduled tasks
 
     All components use existing single-agent code without modification.
@@ -226,6 +227,19 @@ class Workspace:
                 stop_method="shutdown_all",
                 priority=19,
                 concurrent_init=True,
+                optional=True,
+            ),
+        )
+
+        sm.register(
+            ServiceDescriptor(
+                name="driver_config_watcher",
+                service_class=None,
+                post_init=create_driver_config_watcher,
+                start_method="start",
+                stop_method="stop",
+                priority=24,
+                concurrent_init=False,
                 optional=True,
             ),
         )

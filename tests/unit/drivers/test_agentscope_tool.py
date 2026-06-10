@@ -6,7 +6,7 @@ from agentscope.message import ToolResultState
 from agentscope.tool import ToolChunk
 from mcp.types import CallToolResult, TextContent
 
-from qwenpaw.agents.tools.driver_capability_tool import DriverCapabilityTool
+from qwenpaw.drivers.adapters.agentscope_tool import DriverCapabilityTool
 from qwenpaw.drivers.capabilities import (
     CapabilityExposure,
     DriverCapability,

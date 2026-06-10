@@ -1,9 +1,15 @@
 # -*- coding: utf-8 -*-
-"""AgentScope tool adapter for Driver capabilities."""
+"""AgentScope runtime adapter for Driver capabilities.
+
+Driver owns capability discovery and policy execution.  This module is the
+thin boundary that turns those protocol-neutral capabilities into
+AgentScope ``ToolBase`` instances for the agent runtime.
+"""
 
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -14,6 +20,8 @@ from qwenpaw.drivers.capabilities import (
     DriverInvocation,
     DriverInvocationResult,
 )
+
+logger = logging.getLogger(__name__)
 
 DriverInvoker = Callable[[DriverInvocation], Awaitable[DriverInvocationResult]]
 
@@ -174,3 +182,45 @@ class DriverCapabilityTool(ToolBase):
             ),
         )
         return _tool_chunk_from_driver_result(result)
+
+
+async def build_driver_agent_tools(
+    driver_manager: Any | None,
+    request_context: dict[str, str],
+) -> tuple[list[ToolBase], list[str]]:
+    """Build AgentScope tools and prompt hints from active Drivers.
+
+    Keeping this assembly here lets ``stream_query`` stay focused on request
+    streaming while Driver remains responsible for capability discovery and
+    the AgentScope adapter boundary.
+    """
+    if driver_manager is None:
+        return [], []
+
+    try:
+        driver_capabilities = await driver_manager.list_capabilities(
+            kind="tool",
+            request_context=request_context,
+        )
+        tools: list[ToolBase] = [
+            DriverCapabilityTool(
+                capability,
+                driver_manager.invoke_capability,
+                request_context,
+            )
+            for capability in driver_capabilities
+            if getattr(capability.exposure, "as_tool", False)
+        ]
+    except Exception:
+        logger.debug(
+            "Failed to build AgentScope tools from Driver capabilities",
+            exc_info=True,
+        )
+        return [], []
+
+    if not tools:
+        return [], []
+
+    from qwenpaw.agents.prompt import build_driver_policy_recheck_hint
+
+    return tools, [build_driver_policy_recheck_hint()]

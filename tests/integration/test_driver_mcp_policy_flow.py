@@ -13,7 +13,7 @@ from qwenpaw.drivers.handlers.mcp import MCPDriverHandler
 from qwenpaw.drivers.manager import DriverManager
 from qwenpaw.drivers.storage import card_path, dump_card
 from qwenpaw.security.tool_guard.approval import ApprovalDecision
-from tests.e2e.driver_mcp_fakes import (
+from tests.integration.driver_mcp_fakes import (
     FakeStdIOClient,
     patch_mcp_runtime_clients,
 )
