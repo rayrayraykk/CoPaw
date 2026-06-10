@@ -21,6 +21,8 @@ from .message_convert import (
     _media_type_to_block_type,
     _request_input_to_msgs,
 )
+from ..agents.prompt import build_driver_policy_recheck_hint
+from ..agents.tools.driver_capability_tool import DriverCapabilityTool
 
 logger = logging.getLogger(__name__)
 
@@ -258,7 +260,8 @@ class Runner:
         try:
             msgs = _request_input_to_msgs(raw_input)
 
-            driver_capabilities = []
+            external_tools = []
+            extra_prompts = []
             driver_manager = getattr(self, "_driver_manager", None)
             if driver_manager is not None:
                 try:
@@ -268,9 +271,22 @@ class Runner:
                             request_context=request_context,
                         )
                     )
+                    external_tools = [
+                        DriverCapabilityTool(
+                            capability,
+                            driver_manager.invoke_capability,
+                            request_context,
+                        )
+                        for capability in driver_capabilities
+                        if getattr(capability.exposure, "as_tool", False)
+                    ]
+                    if external_tools:
+                        extra_prompts.append(
+                            build_driver_policy_recheck_hint(),
+                        )
                 except Exception:
                     logger.debug(
-                        "stream_query: failed to get Driver capabilities",
+                        "stream_query: failed to build Driver tools",
                         exc_info=True,
                     )
 
@@ -278,12 +294,8 @@ class Runner:
                 session_id,
                 agent_id=getattr(self, "agent_id", None),
                 workspace_dir=workspace_dir,
-                driver_capabilities=driver_capabilities or None,
-                driver_invoker=(
-                    driver_manager.invoke_capability
-                    if driver_manager is not None
-                    else None
-                ),
+                external_tools=external_tools or None,
+                extra_prompts=extra_prompts or None,
                 request_context=request_context,
                 memory_manager=getattr(self, "memory_manager", None),
                 context_manager=getattr(self, "context_manager", None),
