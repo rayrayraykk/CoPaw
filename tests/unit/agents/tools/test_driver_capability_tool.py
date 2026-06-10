@@ -56,6 +56,7 @@ async def test_driver_tool_wraps_mcp_result_as_tool_chunk() -> None:
         request_context={"session_id": "session-1"},
     )
 
+    assert isinstance(tool, DriverCapabilityTool)
     chunk = await getattr(tool, "__call__")(text="hello-debug")
 
     assert isinstance(chunk, ToolChunk)

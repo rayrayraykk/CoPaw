@@ -7,6 +7,8 @@ import json
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from agentscope.tool import ToolBase
+
 from qwenpaw.drivers.capabilities import (
     DriverCapability,
     DriverInvocation,
@@ -122,56 +124,53 @@ def _tool_chunk_from_driver_result(result: DriverInvocationResult) -> Any:
     )
 
 
-class DriverCapabilityTool:
+class DriverCapabilityTool(ToolBase):
     """Expose one Driver capability as an AgentScope ToolBase instance."""
 
-    def __new__(
-        cls,
+    name = ""
+    description = ""
+    input_schema: dict[str, Any] = {}
+    is_concurrency_safe = False
+    is_read_only = False
+    is_external_tool = False
+    is_state_injected = False
+    is_mcp = False
+    mcp_name = None
+
+    def __init__(
+        self,
         capability: DriverCapability,
         invoker: DriverInvoker,
         request_context: dict[str, str] | None = None,
-    ) -> Any:  # type: ignore[misc]
-        from agentscope.tool import ToolBase
+    ) -> None:
+        self.name = capability.exposure.tool_name or capability.name
+        self.description = capability.description
+        self.input_schema = dict(capability.input_schema or {})
+        self._capability = capability
+        self._invoker = invoker
+        self._request_context = dict(request_context or {})
 
-        class _DriverCapabilityTool(ToolBase):
-            name = capability.exposure.tool_name or capability.name
-            description = capability.description
-            input_schema = dict(capability.input_schema or {})
-            is_concurrency_safe = False
-            is_read_only = False
-            is_external_tool = False
-            is_state_injected = False
-            is_mcp = False
-            mcp_name = None
+    async def check_permissions(
+        self,
+        *_args: Any,
+        **_kwargs: Any,
+    ) -> Any:
+        from agentscope.permission import (
+            PermissionBehavior,
+            PermissionDecision,
+        )
 
-            def __init__(self) -> None:
-                self._capability = capability
-                self._invoker = invoker
-                self._request_context = dict(request_context or {})
+        return PermissionDecision(
+            behavior=PermissionBehavior.ALLOW,
+            message="Driver capability policy is handled by Driver.",
+        )
 
-            async def check_permissions(
-                self,
-                *_args: Any,
-                **_kwargs: Any,
-            ) -> Any:
-                from agentscope.permission import (
-                    PermissionBehavior,
-                    PermissionDecision,
-                )
-
-                return PermissionDecision(
-                    behavior=PermissionBehavior.ALLOW,
-                    message="Driver capability policy is handled by Driver.",
-                )
-
-            async def __call__(self, **kwargs: Any) -> Any:
-                result = await self._invoker(
-                    DriverInvocation(
-                        capability_id=self._capability.capability_id,
-                        payload=dict(kwargs or {}),
-                        request_context=self._request_context,
-                    ),
-                )
-                return _tool_chunk_from_driver_result(result)
-
-        return _DriverCapabilityTool()
+    async def __call__(self, **kwargs: Any) -> Any:
+        result = await self._invoker(
+            DriverInvocation(
+                capability_id=self._capability.capability_id,
+                payload=dict(kwargs or {}),
+                request_context=self._request_context,
+            ),
+        )
+        return _tool_chunk_from_driver_result(result)
