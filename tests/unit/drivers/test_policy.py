@@ -211,6 +211,60 @@ def test_exact_tool_target_wins_over_global_target() -> None:
     assert evaluate_policy(policy, _ctx()) == "allow"
 
 
+def test_structured_console_tool_rule_beats_tool_default_rule() -> None:
+    policy = DriverPolicy(
+        default_effect="allow",
+        rules=[
+            PolicyRule(
+                subject="*",
+                effect="deny",
+                target=PolicyTarget(kind="tool", name="add_note"),
+            ),
+            PolicyRule(
+                subject="*",
+                effect="ask",
+                target=PolicyTarget(kind="tool", name="add_note"),
+                principal=PolicyPrincipal(
+                    source_type="channel",
+                    source_value="console",
+                    subject_type="all",
+                    subject_value="",
+                ),
+            ),
+        ],
+    )
+
+    target = PolicyTarget(kind="tool", name="add_note")
+    context = PolicyContext(
+        subject="user:default",
+        driver_name="qwenpaw_test_notes",
+        protocol="mcp",
+        target=target,
+        request_context={
+            "channel": "console",
+            "user_id": "default",
+        },
+    )
+
+    assert evaluate_policy(policy, context) == "ask"
+    assert (
+        evaluate_policy(
+            policy,
+            PolicyContext(
+                subject="user:default",
+                driver_name="qwenpaw_test_notes",
+                protocol="mcp",
+                target=target,
+                request_context={
+                    "channel": "",
+                    "user_id": "default",
+                },
+            ),
+        )
+        == "deny"
+    )
+
+
 def test_new_tool_without_override_uses_default_effect() -> None:
     policy = DriverPolicy(
         default_effect="ask",

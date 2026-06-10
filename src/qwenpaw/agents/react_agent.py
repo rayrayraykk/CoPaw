@@ -26,6 +26,7 @@ from .model_factory import create_model_and_formatter
 from ..runtime import GuardedFunctionTool
 from .tools.driver_capability_tool import DriverCapabilityTool, DriverInvoker
 from .prompt import (
+    build_driver_policy_recheck_hint,
     build_multimodal_hint,
     build_system_prompt_from_working_dir,
 )
@@ -480,6 +481,13 @@ class QwenPawAgent(CodingModeMixin, Agent):
         multimodal_hint = build_multimodal_hint()
         if multimodal_hint:
             sys_prompt = sys_prompt + "\n\n" + multimodal_hint
+
+        if self._driver_capabilities:
+            sys_prompt = (
+                sys_prompt
+                + "\n\n"
+                + build_driver_policy_recheck_hint()
+            )
 
         if self._env_context is not None:
             sys_prompt = sys_prompt + "\n\n" + self._env_context

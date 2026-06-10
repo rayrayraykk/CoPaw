@@ -65,9 +65,11 @@ class DriverPermissionDeniedError(PermissionDeniedError):
             f"- Operation: `{self.operation}`\n"
             f"- Subject: `{self.subject}`\n"
             f"- Reason: {self.reason}\n\n"
-            "This denial is final for the current request. Do not retry "
-            "this tool with similar parameters. Explain the limitation to "
-            "the user and ask how they want to proceed."
+            "This denial applies only to the current tool call under the "
+            "policy observed at execution time. Do not automatically retry "
+            "within the same response. If the user later asks again, "
+            "attempt the relevant tool again so the current policy can be "
+            "applied."
         )
 
     def to_result(self) -> dict[str, str | bool]:

@@ -78,6 +78,22 @@ def _card() -> DriverCard:
     )
 
 
+def test_driver_permission_denial_message_is_point_in_time() -> None:
+    error = DriverPermissionDeniedError(
+        driver_name="mcp:notes",
+        subject="user:default",
+        operation="invoke",
+        reason="Rule denied add_note.",
+    )
+
+    message = error.to_user_message()
+
+    assert "current tool call" in message
+    assert "policy observed at execution time" in message
+    assert "If the user later asks again" in message
+    assert "Do not retry this tool with similar parameters" not in message
+
+
 def test_sync_runtime_metadata_updates_display_and_policy_only() -> None:
     events: list[str] = []
     card = _card()

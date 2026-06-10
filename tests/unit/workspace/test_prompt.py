@@ -3,7 +3,10 @@
 import tempfile
 from pathlib import Path
 import pytest
-from qwenpaw.agents.prompt import build_system_prompt_from_working_dir
+from qwenpaw.agents.prompt import (
+    build_driver_policy_recheck_hint,
+    build_system_prompt_from_working_dir,
+)
 
 
 @pytest.fixture
@@ -96,3 +99,14 @@ def test_prompt_identity_format(temp_workspace):  # pylint: disable=W0621
         "This is your unique identifier in the multi-agent system.\n\n"
     )
     assert expected_header in prompt
+
+
+def test_driver_policy_recheck_hint_is_point_in_time() -> None:
+    """Driver/MCP denials in history should not be treated as permanent."""
+    hint = build_driver_policy_recheck_hint()
+
+    assert "evaluated at the moment of a tool call" in hint
+    assert "previous `driver_policy_denied` result" in hint
+    assert "attempt the relevant tool again" in hint
+    assert "Previous assistant messages" in hint
+    assert "Do not refuse solely" in hint
