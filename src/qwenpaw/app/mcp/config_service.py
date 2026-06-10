@@ -29,6 +29,22 @@ from qwenpaw.drivers.adapters.mcp_console import (
     mcp_credential_ref,
     mcp_oauth_credential_ref,
 )
+from qwenpaw.drivers.constants import (
+    CAPABILITY_KIND_TOOL,
+    CREDENTIAL_ALIAS_OAUTH,
+    CREDENTIAL_ALIAS_STATIC,
+    CREDENTIAL_KIND_OAUTH_AUTH_CODE,
+    CREDENTIAL_KIND_STATIC,
+    POLICY_EFFECT_ALLOW,
+    POLICY_EFFECT_ASK,
+    POLICY_EFFECT_DENY,
+    POLICY_TARGET_WILDCARD,
+    PRINCIPAL_SOURCE_APP,
+    PRINCIPAL_SOURCE_CHANNEL,
+    PRINCIPAL_SUBJECT_ALL,
+    PRINCIPAL_SUBJECT_USER,
+    PROTOCOL_MCP,
+)
 from qwenpaw.drivers.contracts import (
     DriverCard,
     iter_credential_refs,
@@ -42,8 +58,8 @@ from qwenpaw.drivers.policy_types import (
 
 logger = logging.getLogger(__name__)
 
-MCP_PROTOCOL = "mcp"
-MCP_TOOL_KIND = "tool"
+MCP_PROTOCOL = PROTOCOL_MCP
+MCP_TOOL_KIND = CAPABILITY_KIND_TOOL
 
 _RESERVED_KEY_PREFIXES = ("tools/", "toggle/", "oauth/", "policy/")
 
@@ -68,8 +84,8 @@ class MCPConfigService:
         credentials = iter_credential_refs(card)
         static_ref = _credential_ref_by_alias_or_kind(
             credentials,
-            alias="static",
-            kind="static",
+            alias=CREDENTIAL_ALIAS_STATIC,
+            kind=CREDENTIAL_KIND_STATIC,
         )
         credential = (
             self._driver_config.load_optional_credential(static_ref.ref)
@@ -78,8 +94,8 @@ class MCPConfigService:
         )
         oauth_ref = _credential_ref_by_alias_or_kind(
             credentials,
-            alias="oauth",
-            kind="oauth2_auth_code",
+            alias=CREDENTIAL_ALIAS_OAUTH,
+            kind=CREDENTIAL_KIND_OAUTH_AUTH_CODE,
         )
         oauth_credential = self._driver_config.load_optional_credential(
             (
@@ -348,21 +364,22 @@ def driver_policy_from_mcp_access_update(
     managed_rules: list[PolicyRule] = []
     for default in access.tool_defaults:
         tool_name = default.tool_name.strip()
-        if not tool_name or tool_name == "*":
+        if not tool_name or tool_name == POLICY_TARGET_WILDCARD:
             raise HTTPException(400, detail="MCP tool default name is empty")
         if tool_name in seen_defaults:
             continue
         seen_defaults.add(tool_name)
         managed_rules.append(
             PolicyRule(
-                subject="*",
+                subject=POLICY_TARGET_WILDCARD,
                 effect=default.effect,
-                target=PolicyTarget(kind="tool", name=tool_name),
+                target=PolicyTarget(kind=CAPABILITY_KIND_TOOL, name=tool_name),
                 principal=PolicyPrincipal(),
             ),
         )
     for target_name, override in [
-        ("*", override) for override in access.client_overrides
+        (POLICY_TARGET_WILDCARD, override)
+        for override in access.client_overrides
     ] + [
         (override.tool_name.strip(), override)
         for override in access.tool_overrides
@@ -373,9 +390,12 @@ def driver_policy_from_mcp_access_update(
         subject_value = override.subject_value.strip()
         if not source_value:
             raise HTTPException(400, detail="MCP policy source value is empty")
-        if override.subject_type == "user" and not subject_value:
+        if (
+            override.subject_type == PRINCIPAL_SUBJECT_USER
+            and not subject_value
+        ):
             raise HTTPException(400, detail="MCP policy user value is empty")
-        if override.subject_type == "all":
+        if override.subject_type == PRINCIPAL_SUBJECT_ALL:
             subject_value = ""
         key = (
             target_name,
@@ -389,9 +409,12 @@ def driver_policy_from_mcp_access_update(
         seen_rules.add(key)
         managed_rules.append(
             PolicyRule(
-                subject="*",
+                subject=POLICY_TARGET_WILDCARD,
                 effect=override.effect,
-                target=PolicyTarget(kind="tool", name=target_name),
+                target=PolicyTarget(
+                    kind=CAPABILITY_KIND_TOOL,
+                    name=target_name,
+                ),
                 principal=PolicyPrincipal(
                     source_type=override.source_type,
                     source_value=source_value,
@@ -445,9 +468,10 @@ def _mcp_access_rule_from_rule(
 ) -> MCPAccessRule | None:
     if (
         rule.condition is not None
-        or rule.target.kind != "tool"
+        or rule.target.kind != CAPABILITY_KIND_TOOL
         or not rule.target.name
-        or rule.effect not in {"allow", "ask", "deny"}
+        or rule.effect
+        not in {POLICY_EFFECT_ALLOW, POLICY_EFFECT_ASK, POLICY_EFFECT_DENY}
     ):
         return None
 
@@ -457,15 +481,17 @@ def _mcp_access_rule_from_rule(
     subject_type = principal.subject_type.strip().lower()
     subject_value = principal.subject_value.strip()
     if (
-        source_type in {"channel", "app"}
+        source_type in {PRINCIPAL_SOURCE_CHANNEL, PRINCIPAL_SOURCE_APP}
         and source_value
-        and subject_type in {"all", "user"}
+        and subject_type in {PRINCIPAL_SUBJECT_ALL, PRINCIPAL_SUBJECT_USER}
     ):
         return MCPAccessRule(
             source_type=source_type,  # type: ignore[arg-type]
             source_value=source_value,
             subject_type=subject_type,  # type: ignore[arg-type]
-            subject_value="" if subject_type == "all" else subject_value,
+            subject_value=(
+                "" if subject_type == PRINCIPAL_SUBJECT_ALL else subject_value
+            ),
             effect=rule.effect,
         )
 
@@ -478,37 +504,45 @@ def _legacy_subject_access_rule(
     subject = rule.subject.strip()
     if not subject:
         return None
-    if subject == "*":
+    if subject == POLICY_TARGET_WILDCARD:
         return MCPAccessRule(
-            source_type="channel",
+            source_type=PRINCIPAL_SOURCE_CHANNEL,
             source_value="console",
-            subject_type="all",
+            subject_type=PRINCIPAL_SUBJECT_ALL,
             subject_value="",
             effect=rule.effect,
         )
     if subject.startswith("channel:"):
         return MCPAccessRule(
-            source_type="channel",
-            source_value=subject.removeprefix("channel:") or "*",
-            subject_type="all",
+            source_type=PRINCIPAL_SOURCE_CHANNEL,
+            source_value=(
+                subject.removeprefix("channel:") or POLICY_TARGET_WILDCARD
+            ),
+            subject_type=PRINCIPAL_SUBJECT_ALL,
             subject_value="",
             effect=rule.effect,
         )
     if subject.startswith("app:"):
         return MCPAccessRule(
-            source_type="app",
-            source_value=subject.removeprefix("app:") or "*",
-            subject_type="all",
+            source_type=PRINCIPAL_SOURCE_APP,
+            source_value=(
+                subject.removeprefix("app:") or POLICY_TARGET_WILDCARD
+            ),
+            subject_type=PRINCIPAL_SUBJECT_ALL,
             subject_value="",
             effect=rule.effect,
         )
     if subject.startswith("user:"):
         user = subject.removeprefix("user:")
         return MCPAccessRule(
-            source_type="channel",
+            source_type=PRINCIPAL_SOURCE_CHANNEL,
             source_value="console",
-            subject_type="all" if user == "*" else "user",
-            subject_value="" if user == "*" else user,
+            subject_type=(
+                PRINCIPAL_SUBJECT_ALL
+                if user == POLICY_TARGET_WILDCARD
+                else PRINCIPAL_SUBJECT_USER
+            ),
+            subject_value="" if user == POLICY_TARGET_WILDCARD else user,
             effect=rule.effect,
         )
     return None
@@ -517,31 +551,38 @@ def _legacy_subject_access_rule(
 def _is_mcp_tool_default_rule(rule: PolicyRule) -> bool:
     if (
         rule.condition is not None
-        or rule.target.kind != "tool"
-        or rule.target.name in {"", "*"}
-        or rule.effect not in {"allow", "ask", "deny"}
-        or rule.subject != "*"
+        or rule.target.kind != CAPABILITY_KIND_TOOL
+        or rule.target.name in {"", POLICY_TARGET_WILDCARD}
+        or rule.effect
+        not in {POLICY_EFFECT_ALLOW, POLICY_EFFECT_ASK, POLICY_EFFECT_DENY}
+        or rule.subject != POLICY_TARGET_WILDCARD
     ):
         return False
     principal = rule.principal
     return (
-        principal.source_type in {"", "*"}
-        and principal.source_value in {"", "*"}
-        and principal.subject_type in {"", "*"}
-        and principal.subject_value in {"", "*"}
+        principal.source_type in {"", POLICY_TARGET_WILDCARD}
+        and principal.source_value in {"", POLICY_TARGET_WILDCARD}
+        and principal.subject_type in {"", POLICY_TARGET_WILDCARD}
+        and principal.subject_value in {"", POLICY_TARGET_WILDCARD}
     )
 
 
 def _mcp_client_override_from_rule(rule: PolicyRule) -> MCPAccessRule | None:
-    if rule.target.kind == "*" and rule.target.name == "*":
+    if (
+        rule.target.kind == POLICY_TARGET_WILDCARD
+        and rule.target.name == POLICY_TARGET_WILDCARD
+    ):
         if rule.condition is not None or rule.effect not in {
-            "allow",
-            "ask",
-            "deny",
+            POLICY_EFFECT_ALLOW,
+            POLICY_EFFECT_ASK,
+            POLICY_EFFECT_DENY,
         }:
             return None
         return _legacy_subject_access_rule(rule)
-    if rule.target.kind != "tool" or rule.target.name != "*":
+    if (
+        rule.target.kind != CAPABILITY_KIND_TOOL
+        or rule.target.name != POLICY_TARGET_WILDCARD
+    ):
         return None
     return _mcp_access_rule_from_rule(rule)
 
@@ -561,8 +602,8 @@ def _mcp_tool_override_from_rule(
     rule: PolicyRule,
 ) -> MCPToolAccessOverride | None:
     if (
-        rule.target.kind != "tool"
-        or rule.target.name in {"", "*"}
+        rule.target.kind != CAPABILITY_KIND_TOOL
+        or rule.target.name in {"", POLICY_TARGET_WILDCARD}
         or _is_mcp_tool_default_rule(rule)
     ):
         return None

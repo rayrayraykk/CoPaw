@@ -17,6 +17,16 @@ from qwenpaw.drivers.adapters.mcp_console import (
     source_binding_from_split,
     split_mcp_binding,
 )
+from qwenpaw.drivers.constants import (
+    CAPABILITY_KIND_TOOL,
+    CREDENTIAL_ALIAS_OAUTH,
+    CREDENTIAL_ALIAS_STATIC,
+    CREDENTIAL_KIND_OAUTH_AUTH_CODE,
+    CREDENTIAL_KIND_STATIC,
+    POLICY_EFFECT_ALLOW,
+    POLICY_TARGET_WILDCARD,
+    PROTOCOL_MCP,
+)
 from qwenpaw.drivers.contracts import (
     CredentialRef,
     DriverCard,
@@ -86,7 +96,11 @@ def _migrate_one_client(
     driver_manager: DriverManager,
     report: LegacyMCPMigrationReport,
 ) -> None:
-    target = card_path(driver_manager.cards_dir, client_key, protocol="mcp")
+    target = card_path(
+        driver_manager.cards_dir,
+        client_key,
+        protocol=PROTOCOL_MCP,
+    )
     if target.is_file():
         report.skipped.append(
             LegacyMCPMigrationSkippedClient(
@@ -135,7 +149,11 @@ def legacy_mcp_client_to_driver(
     """Convert one legacy MCP config object into Driver contracts."""
     transport = str(getattr(config, "transport", "stdio") or "stdio")
     oauth = getattr(config, "oauth", None)
-    credential_alias = "oauth" if oauth is not None else "static"
+    credential_alias = (
+        CREDENTIAL_ALIAS_OAUTH
+        if oauth is not None
+        else CREDENTIAL_ALIAS_STATIC
+    )
     now = time.time()
 
     env_public, env_secrets = split_mcp_binding(
@@ -189,7 +207,7 @@ def legacy_mcp_client_to_driver(
     )
     card = DriverCard(
         name=client_key,
-        protocol="mcp",
+        protocol=PROTOCOL_MCP,
         endpoint=endpoint,
         credentials=_legacy_credential_refs(credential),
         config={
@@ -199,9 +217,12 @@ def legacy_mcp_client_to_driver(
         enabled=bool(getattr(config, "enabled", True)),
         policy=[
             PolicyRule(
-                subject="*",
-                effect="allow",
-                target=PolicyTarget(kind="tool", name="*"),
+                subject=POLICY_TARGET_WILDCARD,
+                effect=POLICY_EFFECT_ALLOW,
+                target=PolicyTarget(
+                    kind=CAPABILITY_KIND_TOOL,
+                    name=POLICY_TARGET_WILDCARD,
+                ),
             ),
         ],
     )
@@ -218,7 +239,7 @@ def _build_legacy_credential(
 ) -> CredentialRecord | None:
     secrets: dict[str, Any] = {}
     public: dict[str, Any] = {}
-    kind = "static"
+    kind = CREDENTIAL_KIND_STATIC
     ref = mcp_credential_ref(client_key)
 
     for key, value in env_secrets.items():
@@ -234,7 +255,7 @@ def _build_legacy_credential(
         secrets[secret_key] = value
 
     if oauth is not None:
-        kind = "oauth2_auth_code"
+        kind = CREDENTIAL_KIND_OAUTH_AUTH_CODE
         ref = mcp_oauth_credential_ref(client_key)
         public.update(
             {
@@ -274,7 +295,11 @@ def _legacy_credential_refs(
 ) -> dict[str, CredentialRef]:
     if credential is None:
         return {}
-    alias = "oauth" if credential.kind == "oauth2_auth_code" else "static"
+    alias = (
+        CREDENTIAL_ALIAS_OAUTH
+        if credential.kind == CREDENTIAL_KIND_OAUTH_AUTH_CODE
+        else CREDENTIAL_ALIAS_STATIC
+    )
     return {alias: CredentialRef(kind=credential.kind, ref=credential.ref)}
 
 

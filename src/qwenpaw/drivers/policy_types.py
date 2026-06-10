@@ -8,15 +8,19 @@ from dataclasses import dataclass, field
 from typing import Any, Literal, TypeAlias, cast, get_args
 
 from qwenpaw.drivers.capabilities import CapabilityKind
+from qwenpaw.drivers.constants import (
+    POLICY_EFFECT_ASK,
+    POLICY_EFFECT_DENY,
+    POLICY_EFFECTS,
+    POLICY_TARGET_WILDCARD,
+)
 
 PolicyEffect: TypeAlias = Literal["allow", "deny", "ask"]
 PolicyTargetKind: TypeAlias = CapabilityKind | Literal["*"]
 
-ALLOWED_POLICY_EFFECTS: frozenset[str] = frozenset(
-    {"allow", "deny", "ask"},
-)
+ALLOWED_POLICY_EFFECTS: frozenset[str] = POLICY_EFFECTS
 ALLOWED_POLICY_TARGET_KINDS: frozenset[str] = frozenset(
-    {*get_args(CapabilityKind), "*"},
+    {*get_args(CapabilityKind), POLICY_TARGET_WILDCARD},
 )
 
 
@@ -41,24 +45,24 @@ class PolicyCondition:
 
 @dataclass
 class PolicyTarget:
-    kind: PolicyTargetKind = "*"
-    name: str = "*"
+    kind: PolicyTargetKind = POLICY_TARGET_WILDCARD
+    name: str = POLICY_TARGET_WILDCARD
 
 
 @dataclass
 class PolicyPrincipal:
     """Structured caller selector for Driver policy rules."""
 
-    source_type: str = "*"
-    source_value: str = "*"
-    subject_type: str = "*"
-    subject_value: str = "*"
+    source_type: str = POLICY_TARGET_WILDCARD
+    source_value: str = POLICY_TARGET_WILDCARD
+    subject_type: str = POLICY_TARGET_WILDCARD
+    subject_value: str = POLICY_TARGET_WILDCARD
 
 
 @dataclass
 class PolicyRule:
-    subject: str = "*"
-    effect: PolicyEffect = "ask"
+    subject: str = POLICY_TARGET_WILDCARD
+    effect: PolicyEffect = POLICY_EFFECT_ASK
     target: PolicyTarget = field(default_factory=PolicyTarget)
     principal: PolicyPrincipal = field(default_factory=PolicyPrincipal)
     condition: PolicyCondition | None = None
@@ -66,7 +70,7 @@ class PolicyRule:
 
 @dataclass
 class DriverPolicy:
-    default_effect: PolicyEffect = "deny"
+    default_effect: PolicyEffect = POLICY_EFFECT_DENY
     rules: list[PolicyRule] = field(default_factory=list)
 
     def __iter__(self) -> Iterator[PolicyRule]:
@@ -85,7 +89,7 @@ def coerce_driver_policy(value: Any) -> DriverPolicy:
         return DriverPolicy(
             default_effect=_coerce_policy_effect(
                 value.default_effect,
-                default="deny",
+                default=POLICY_EFFECT_DENY,
             ),
             rules=[_coerce_policy_rule(item) for item in value.rules],
         )
@@ -93,14 +97,14 @@ def coerce_driver_policy(value: Any) -> DriverPolicy:
         return DriverPolicy()
     if isinstance(value, list):
         return DriverPolicy(
-            default_effect="deny",
+            default_effect=POLICY_EFFECT_DENY,
             rules=[_coerce_policy_rule(item) for item in value],
         )
     if isinstance(value, dict):
         return DriverPolicy(
             default_effect=_coerce_policy_effect(
                 value.get("default_effect"),
-                default="deny",
+                default=POLICY_EFFECT_DENY,
             ),
             rules=[
                 _coerce_policy_rule(item)
@@ -114,7 +118,10 @@ def _coerce_policy_rule(value: Any) -> PolicyRule:
     if isinstance(value, PolicyRule):
         return PolicyRule(
             subject=_coerce_subject(value.subject),
-            effect=_coerce_policy_effect(value.effect, default="ask"),
+            effect=_coerce_policy_effect(
+                value.effect,
+                default=POLICY_EFFECT_ASK,
+            ),
             target=_coerce_policy_target(value.target),
             principal=_coerce_policy_principal(
                 getattr(value, "principal", None),
@@ -123,8 +130,13 @@ def _coerce_policy_rule(value: Any) -> PolicyRule:
         )
     if isinstance(value, dict):
         return PolicyRule(
-            subject=_coerce_subject(value.get("subject", "*")),
-            effect=_coerce_policy_effect(value.get("effect"), default="ask"),
+            subject=_coerce_subject(
+                value.get("subject", POLICY_TARGET_WILDCARD),
+            ),
+            effect=_coerce_policy_effect(
+                value.get("effect"),
+                default=POLICY_EFFECT_ASK,
+            ),
             target=_coerce_policy_target(value.get("target")),
             principal=_coerce_policy_principal(value.get("principal")),
             condition=value.get("condition"),
@@ -136,12 +148,12 @@ def _coerce_policy_target(value: Any) -> PolicyTarget:
     if isinstance(value, PolicyTarget):
         return PolicyTarget(
             kind=_coerce_target_kind(value.kind),
-            name=str(value.name or "*"),
+            name=str(value.name or POLICY_TARGET_WILDCARD),
         )
     if isinstance(value, dict):
         return PolicyTarget(
             kind=_coerce_target_kind(value.get("kind")),
-            name=str(value.get("name") or "*"),
+            name=str(value.get("name") or POLICY_TARGET_WILDCARD),
         )
     return PolicyTarget()
 
@@ -174,10 +186,10 @@ def _coerce_policy_effect(
 
 
 def _coerce_target_kind(value: Any) -> PolicyTargetKind:
-    return cast(PolicyTargetKind, str(value or "*"))
+    return cast(PolicyTargetKind, str(value or POLICY_TARGET_WILDCARD))
 
 
 def _coerce_subject(value: Any) -> str:
     if value is None:
-        return "*"
+        return POLICY_TARGET_WILDCARD
     return str(value)

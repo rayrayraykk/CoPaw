@@ -16,6 +16,16 @@ from qwenpaw.drivers.capabilities import (
     format_capability_id,
     parse_capability_id,
 )
+from qwenpaw.drivers.constants import (
+    CAPABILITY_KIND_TOOL,
+    DRIVER_OPERATION_INVOKE,
+    PRINCIPAL_SOURCE_APP,
+    PRINCIPAL_SOURCE_CHANNEL,
+    PRINCIPAL_SUBJECT_SESSION,
+    PRINCIPAL_SUBJECT_USER,
+    PROTOCOL_MCP,
+    SUBJECT_UNKNOWN_USER,
+)
 from qwenpaw.drivers.contracts import DriverCard, PolicyTarget
 from qwenpaw.drivers.credentials.bindings import (
     implicit_auth_headers,
@@ -149,10 +159,10 @@ class MCPDriverHandler(DriverHandler):
                 message=str(exc),
             )
         if (
-            protocol != "mcp"
+            protocol != PROTOCOL_MCP
             or driver_name != self.name
-            or kind != "tool"
-            or action != "invoke"
+            or kind != CAPABILITY_KIND_TOOL
+            or action != DRIVER_OPERATION_INVOKE
         ):
             return DriverInvocationResult(
                 ok=False,
@@ -166,8 +176,8 @@ class MCPDriverHandler(DriverHandler):
         try:
             value = await self._guarded_execute(
                 subject,
-                operation="invoke",
-                target=PolicyTarget(kind="tool", name=tool_name),
+                operation=DRIVER_OPERATION_INVOKE,
+                target=PolicyTarget(kind=CAPABILITY_KIND_TOOL, name=tool_name),
                 request_context=invocation.request_context,
                 subjects=subjects,
                 tool_name=tool_name,
@@ -206,7 +216,7 @@ class MCPDriverHandler(DriverHandler):
     async def _guarded_execute(
         self,
         subject: str,
-        operation: str = "invoke",
+        operation: str = DRIVER_OPERATION_INVOKE,
         request_context: dict[str, str] | None = None,
         target: PolicyTarget | None = None,
         subjects: list[str] | tuple[str, ...] | None = None,
@@ -282,22 +292,22 @@ def _subjects_from_context(request_context: dict[str, str]) -> tuple[str, ...]:
 
     user_id = str(request_context.get("user_id") or "").strip()
     if user_id:
-        add(_typed_subject("user", user_id))
+        add(_typed_subject(PRINCIPAL_SUBJECT_USER, user_id))
 
     session_id = str(request_context.get("session_id") or "").strip()
     if session_id:
-        add(_typed_subject("session", session_id))
+        add(_typed_subject(PRINCIPAL_SUBJECT_SESSION, session_id))
 
     for key in ("app_id", "domain_app_id", "agent_id", "root_agent_id"):
         value = str(request_context.get(key) or "").strip()
         if value:
-            add(_typed_subject("app", value))
+            add(_typed_subject(PRINCIPAL_SOURCE_APP, value))
 
     channel = str(request_context.get("channel") or "").strip()
     if channel:
-        add(_typed_subject("channel", channel))
+        add(_typed_subject(PRINCIPAL_SOURCE_CHANNEL, channel))
 
-    return tuple(subjects or ("user:unknown",))
+    return tuple(subjects or (SUBJECT_UNKNOWN_USER,))
 
 
 def _typed_subject(kind: str, value: str) -> str:
@@ -344,16 +354,16 @@ def _mcp_tool_to_capability(
     input_schema.setdefault("required", [])
     return DriverCapability(
         capability_id=format_capability_id(
-            "mcp",
+            PROTOCOL_MCP,
             driver_name,
-            "tool",
-            "invoke",
+            CAPABILITY_KIND_TOOL,
+            DRIVER_OPERATION_INVOKE,
             name,
         ),
         driver_name=driver_name,
-        protocol="mcp",
-        kind="tool",
-        action="invoke",
+        protocol=PROTOCOL_MCP,
+        kind=CAPABILITY_KIND_TOOL,
+        action=DRIVER_OPERATION_INVOKE,
         name=name,
         description=description,
         input_schema=input_schema,

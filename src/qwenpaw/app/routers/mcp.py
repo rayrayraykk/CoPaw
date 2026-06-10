@@ -25,6 +25,18 @@ from qwenpaw.app.mcp.schemas import (
 
 router = APIRouter(prefix="/mcp", tags=["mcp"])
 
+__all__ = [
+    "MCPAccessPolicy",
+    "MCPAccessRule",
+    "MCPClientCreateRequest",
+    "MCPClientInfo",
+    "MCPClientUpdateRequest",
+    "MCPToolAccessOverride",
+    "MCPToolDefaultPolicy",
+    "MCPToolInfo",
+    "router",
+]
+
 
 def _mcp_service(agent: Any) -> MCPConfigService:
     return MCPConfigService(agent)

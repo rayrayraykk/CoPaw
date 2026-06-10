@@ -29,6 +29,7 @@ from ...drivers.adapters.mcp_console import (
     detach_mcp_oauth_credential,
     mcp_oauth_credential_ref,
 )
+from ...drivers.constants import PROTOCOL_MCP
 from ...drivers.credentials.store import CredentialStoreProtocol
 from ...drivers.credentials.types import CredentialRecord
 from ...drivers.errors import CredentialNotFoundError
@@ -39,7 +40,10 @@ router = APIRouter(prefix="/mcp", tags=["mcp-oauth"])
 
 
 def _mcp_card_path(workspace, client_key: str):
-    return DriverConfigService(workspace).card_path(client_key, protocol="mcp")
+    return DriverConfigService(workspace).card_path(
+        client_key,
+        protocol=PROTOCOL_MCP,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -637,7 +641,7 @@ def _load_mcp_card_for_oauth(workspace, client_key: str):
     try:
         return DriverConfigService(workspace).load_card(
             client_key,
-            protocol="mcp",
+            protocol=PROTOCOL_MCP,
         )
     except HTTPException as exc:
         raise HTTPException(

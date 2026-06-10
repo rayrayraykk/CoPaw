@@ -13,6 +13,12 @@ from qwenpaw.drivers.capabilities import (
     DriverInvocation,
     DriverInvocationResult,
 )
+from qwenpaw.drivers.constants import (
+    CREDENTIAL_ALIAS_DEFAULT,
+    DRIVER_OPERATION_INVOKE,
+    POLICY_EFFECT_ASK,
+    POLICY_EFFECT_DENY,
+)
 from qwenpaw.drivers.credentials.bindings import resolve_credentials
 from qwenpaw.drivers.credentials.providers import CredentialProvider
 from qwenpaw.drivers.credentials.types import ResolvedCredential
@@ -43,7 +49,7 @@ class DriverHandler(ABC):
         self._card = card
         self._credential_provider = credential_provider
         self._credential_providers = credential_providers or {
-            "default": credential_provider,
+            CREDENTIAL_ALIAS_DEFAULT: credential_provider,
         }
         self._approval_gate = approval_gate
 
@@ -95,7 +101,7 @@ class DriverHandler(ABC):
     async def _authorize_invocation(
         self,
         subject: str,
-        operation: str = "invoke",
+        operation: str = DRIVER_OPERATION_INVOKE,
         request_context: dict[str, str] | None = None,
         target: PolicyTarget | None = None,
         subjects: list[str] | tuple[str, ...] | None = None,
@@ -113,13 +119,13 @@ class DriverHandler(ABC):
             extras=dict(extras or {}),
         )
         effect = evaluate_policy(self._card.policy, context)
-        if effect == "deny":
+        if effect == POLICY_EFFECT_DENY:
             raise DriverPermissionDeniedError(
                 self._card.name,
                 subject,
                 operation,
             )
-        if effect == "ask":
+        if effect == POLICY_EFFECT_ASK:
             await self._request_approval(context)
         return context
 

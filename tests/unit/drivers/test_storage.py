@@ -115,6 +115,38 @@ policy:
     assert loaded.policy.rules[0].target.name == "*"
 
 
+def test_load_legacy_singular_credential_dump_writes_credentials(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "legacy_credential.yaml"
+    path.write_text(
+        """
+name: demo
+protocol: mcp
+endpoint:
+  transport: stdio
+  command: demo
+credential:
+  kind: static
+  ref: mcp/demo
+""",
+        encoding="utf-8",
+    )
+
+    loaded = load_card(path)
+    out = tmp_path / "normalized.yaml"
+    dump_card(loaded, out)
+    text = out.read_text(encoding="utf-8")
+
+    assert loaded.credentials["default"] == CredentialRef(
+        kind="static",
+        ref="mcp/demo",
+    )
+    assert "\ncredentials:" in text
+    assert "\ncredential:" not in text
+    assert load_card(out).credentials == loaded.credentials
+
+
 def test_load_policy_principal_empty_source_value_as_wildcard(
     tmp_path: Path,
 ) -> None:

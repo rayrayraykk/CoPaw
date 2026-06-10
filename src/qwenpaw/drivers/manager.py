@@ -16,6 +16,10 @@ from qwenpaw.drivers.capabilities import (
     DriverRuntimeInfo,
     parse_capability_id,
 )
+from qwenpaw.drivers.constants import (
+    CREDENTIAL_ALIAS_DEFAULT,
+    CREDENTIAL_KIND_NONE,
+)
 from qwenpaw.drivers.credentials.providers import build_provider
 from qwenpaw.drivers.credentials.store import CredentialStoreProtocol
 from qwenpaw.drivers.credentials.types import CredentialRecord
@@ -314,15 +318,15 @@ class DriverManager:
                 alias: build_provider(ref, self._credential_store)
                 for alias, ref in refs.items()
             }
-            primary = providers.get("default") or next(
+            primary = providers.get(CREDENTIAL_ALIAS_DEFAULT) or next(
                 iter(providers.values()),
             )
         else:
             primary = build_provider(
-                CredentialRef(kind="none"),
+                CredentialRef(kind=CREDENTIAL_KIND_NONE),
                 self._credential_store,
             )
-            providers = {"default": primary}
+            providers = {CREDENTIAL_ALIAS_DEFAULT: primary}
         return handler_type(
             card,
             primary,

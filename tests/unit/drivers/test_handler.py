@@ -275,7 +275,7 @@ async def test_ask_approval_approved_resumes_execution(
     context = await task
 
     assert context.extras == {"value": 1}
-    assert events == []
+    assert not events
 
 
 @pytest.mark.asyncio
@@ -340,7 +340,7 @@ async def test_ask_approval_adds_tool_display_source_metadata(
     context = await task
 
     assert context.extras == {"arguments": {"query": "qwenpaw"}}
-    assert events == []
+    assert not events
 
 
 @pytest.mark.asyncio

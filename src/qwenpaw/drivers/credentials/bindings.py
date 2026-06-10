@@ -7,6 +7,11 @@ import base64
 import logging
 from typing import Any
 
+from qwenpaw.drivers.constants import (
+    CREDENTIAL_ALIAS_DEFAULT,
+    CREDENTIAL_ALIAS_OAUTH,
+    CREDENTIAL_ALIAS_STATIC,
+)
 from qwenpaw.drivers.credentials.providers import CredentialProvider
 from qwenpaw.drivers.credentials.types import ResolvedCredential
 
@@ -20,8 +25,10 @@ async def resolve_credentials(
     credentials: dict[str, ResolvedCredential] = {}
     for alias, provider in providers.items():
         credentials[alias] = await provider.resolve()
-    if "default" not in credentials and len(credentials) == 1:
-        credentials["default"] = next(iter(credentials.values()))
+    if CREDENTIAL_ALIAS_DEFAULT not in credentials and len(credentials) == 1:
+        credentials[CREDENTIAL_ALIAS_DEFAULT] = next(
+            iter(credentials.values()),
+        )
     return credentials
 
 
@@ -65,9 +72,9 @@ def implicit_auth_headers(
     if any(key.lower() == "authorization" for key in existing_headers):
         return {}
 
-    credential = credentials.get("oauth")
+    credential = credentials.get(CREDENTIAL_ALIAS_OAUTH)
     if credential is None:
-        credential = credentials.get("default") or next(
+        credential = credentials.get(CREDENTIAL_ALIAS_DEFAULT) or next(
             iter(credentials.values()),
             ResolvedCredential.EMPTY,
         )
@@ -109,14 +116,14 @@ def lookup_credential_value(
         if credential is not None:
             candidates.append(credential)
     else:
-        for preferred in ("static", "default"):
+        for preferred in (CREDENTIAL_ALIAS_STATIC, CREDENTIAL_ALIAS_DEFAULT):
             credential = credentials.get(preferred)
             if credential is not None:
                 candidates.append(credential)
         candidates.extend(
             credential
             for key, credential in credentials.items()
-            if key not in {"static", "default"}
+            if key not in {CREDENTIAL_ALIAS_STATIC, CREDENTIAL_ALIAS_DEFAULT}
         )
 
     for credential in candidates:
@@ -140,7 +147,7 @@ def _resolve_value_source(
     if source != "credential":
         return None
 
-    alias = str(spec.get("credential") or "default")
+    alias = str(spec.get("credential") or CREDENTIAL_ALIAS_DEFAULT)
     field = str(spec.get("field") or "")
     value = (
         lookup_credential_value(credentials, f"{alias}.{field}")

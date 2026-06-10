@@ -7,10 +7,16 @@ import os
 import tempfile
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 
+from qwenpaw.drivers.constants import (
+    CREDENTIAL_KIND_NONE,
+    POLICY_EFFECT_ASK,
+    POLICY_EFFECT_DENY,
+    POLICY_TARGET_WILDCARD,
+)
 from qwenpaw.drivers.errors import DriverCardError
 from qwenpaw.drivers.contracts import (
     CredentialRef,
@@ -21,10 +27,12 @@ from qwenpaw.drivers.contracts import (
 )
 from qwenpaw.drivers.policy_types import (
     DriverPolicy,
+    PolicyEffect,
     PolicyCondition,
     PolicyPrincipal,
     PolicyRule,
     PolicyTarget,
+    PolicyTargetKind,
     RateLimit,
     TimeRange,
 )
@@ -188,9 +196,9 @@ def _card_from_mapping(data: dict[str, Any], path: Path) -> DriverCard:
             f"DriverCard {path} missing required fields: {', '.join(missing)}",
         )
 
-    credential = data.get("credential", {"kind": "none"})
+    credential = data.get("credential", {"kind": CREDENTIAL_KIND_NONE})
     if credential is None:
-        credential = {"kind": "none"}
+        credential = {"kind": CREDENTIAL_KIND_NONE}
     if not isinstance(credential, dict):
         raise DriverCardError(
             f"DriverCard {path} credential must be a mapping",
@@ -256,7 +264,7 @@ def _policy_from_mapping(value: Any, path: Path) -> DriverPolicy:
         return DriverPolicy()
     if isinstance(value, list):
         return DriverPolicy(
-            default_effect="deny",
+            default_effect=POLICY_EFFECT_DENY,
             rules=[_policy_rule_from_mapping(item, path) for item in value],
         )
     if not isinstance(value, dict):
@@ -270,7 +278,10 @@ def _policy_from_mapping(value: Any, path: Path) -> DriverPolicy:
     if not isinstance(rules_raw, list):
         raise DriverCardError(f"DriverCard {path} policy.rules must be a list")
     return DriverPolicy(
-        default_effect=str(value.get("default_effect") or "deny"),
+        default_effect=cast(
+            PolicyEffect,
+            str(value.get("default_effect") or POLICY_EFFECT_DENY),
+        ),
         rules=[_policy_rule_from_mapping(item, path) for item in rules_raw],
     )
 
@@ -282,8 +293,11 @@ def _policy_rule_from_mapping(value: Any, path: Path) -> PolicyRule:
         )
     condition = value.get("condition")
     return PolicyRule(
-        subject=str(value.get("subject") or "*"),
-        effect=str(value.get("effect") or "ask"),
+        subject=str(value.get("subject") or POLICY_TARGET_WILDCARD),
+        effect=cast(
+            PolicyEffect,
+            str(value.get("effect") or POLICY_EFFECT_ASK),
+        ),
         target=_policy_target_from_mapping(value.get("target"), path),
         principal=_policy_principal_from_mapping(value.get("principal"), path),
         condition=_condition_from_mapping(condition, path),
@@ -298,8 +312,11 @@ def _policy_target_from_mapping(value: Any, path: Path) -> PolicyTarget:
             f"DriverCard {path} policy target must be a mapping",
         )
     return PolicyTarget(
-        kind=str(value.get("kind") or "*"),
-        name=str(value.get("name") or "*"),
+        kind=cast(
+            PolicyTargetKind,
+            str(value.get("kind") or POLICY_TARGET_WILDCARD),
+        ),
+        name=str(value.get("name") or POLICY_TARGET_WILDCARD),
     )
 
 
@@ -311,10 +328,10 @@ def _policy_principal_from_mapping(value: Any, path: Path) -> PolicyPrincipal:
             f"DriverCard {path} policy principal must be a mapping",
         )
     return PolicyPrincipal(
-        source_type=str(value.get("source_type") or "*"),
-        source_value=str(value.get("source_value") or "*"),
-        subject_type=str(value.get("subject_type") or "*"),
-        subject_value=str(value.get("subject_value", "*")),
+        source_type=str(value.get("source_type") or POLICY_TARGET_WILDCARD),
+        source_value=str(value.get("source_value") or POLICY_TARGET_WILDCARD),
+        subject_type=str(value.get("subject_type") or POLICY_TARGET_WILDCARD),
+        subject_value=str(value.get("subject_value", POLICY_TARGET_WILDCARD)),
     )
 
 

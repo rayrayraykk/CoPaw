@@ -16,12 +16,25 @@ from qwenpaw.drivers.adapters.mcp_binding import (
     source_binding_from_split,
     split_mcp_binding,
 )
+from qwenpaw.drivers.constants import (
+    CAPABILITY_KIND_TOOL,
+    CREDENTIAL_ALIAS_OAUTH,
+    CREDENTIAL_ALIAS_STATIC,
+    CREDENTIAL_KIND_OAUTH_AUTH_CODE,
+    CREDENTIAL_KIND_STATIC,
+    POLICY_EFFECT_ASK,
+    PROTOCOL_MCP,
+    PRINCIPAL_SOURCE_APP,
+    PRINCIPAL_SOURCE_CHANNEL,
+    PRINCIPAL_SUBJECT_ALL,
+    PRINCIPAL_SUBJECT_USER,
+)
 from qwenpaw.drivers.contracts import CredentialRef, DriverCard
 from qwenpaw.drivers.credentials.types import CredentialRecord
 from qwenpaw.drivers.policy_types import DriverPolicy
 
-STATIC_CREDENTIAL_ALIAS = "static"
-OAUTH_CREDENTIAL_ALIAS = "oauth"
+STATIC_CREDENTIAL_ALIAS = CREDENTIAL_ALIAS_STATIC
+OAUTH_CREDENTIAL_ALIAS = CREDENTIAL_ALIAS_OAUTH
 
 
 def mcp_credential_ref(client_key: str) -> str:
@@ -78,7 +91,7 @@ def build_mcp_credential_record(
     meta["updated_at"] = now
     return CredentialRecord(
         ref=ref,
-        kind="static",
+        kind=CREDENTIAL_KIND_STATIC,
         public={},
         secrets=secrets,
         meta=meta,
@@ -139,14 +152,14 @@ def build_mcp_driver_card(
     credentials = _credential_refs_from_existing(existing)
     if secrets:
         credentials[STATIC_CREDENTIAL_ALIAS] = CredentialRef(
-            kind="static",
+            kind=CREDENTIAL_KIND_STATIC,
             ref=credential_ref,
         )
     else:
         credentials.pop(STATIC_CREDENTIAL_ALIAS, None)
     return DriverCard(
         name=client_key,
-        protocol="mcp",
+        protocol=PROTOCOL_MCP,
         endpoint=endpoint,
         credentials=credentials,
         config={
@@ -157,7 +170,7 @@ def build_mcp_driver_card(
         policy=(
             existing.policy
             if existing
-            else DriverPolicy(default_effect="ask", rules=[])
+            else DriverPolicy(default_effect=POLICY_EFFECT_ASK, rules=[])
         ),
     )
 
@@ -208,7 +221,7 @@ def attach_mcp_oauth_credential(card: DriverCard, ref: str) -> DriverCard:
     """Return a card with OAuth source and bearer header binding."""
     credentials = _credential_refs_from_existing(card)
     credentials[OAUTH_CREDENTIAL_ALIAS] = CredentialRef(
-        "oauth2_auth_code",
+        CREDENTIAL_KIND_OAUTH_AUTH_CODE,
         ref,
     )
     endpoint = dict(card.endpoint)
@@ -251,16 +264,18 @@ def update_oauth_credential_ref(card: DriverCard, ref: str) -> DriverCard:
 def _is_tool_access_override(rule: Any) -> bool:
     if (
         rule.condition is not None
-        or rule.target.kind != "tool"
+        or rule.target.kind != CAPABILITY_KIND_TOOL
         or not rule.target.name
         or rule.effect not in {"allow", "ask", "deny"}
     ):
         return False
     principal = rule.principal
     if (
-        principal.source_type.strip().lower() in {"channel", "app"}
+        principal.source_type.strip().lower()
+        in {PRINCIPAL_SOURCE_CHANNEL, PRINCIPAL_SOURCE_APP}
         and principal.source_value.strip()
-        and principal.subject_type.strip().lower() in {"all", "user"}
+        and principal.subject_type.strip().lower()
+        in {PRINCIPAL_SUBJECT_ALL, PRINCIPAL_SUBJECT_USER}
     ):
         return True
     subject = rule.subject.strip()

@@ -3,11 +3,23 @@
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass, field
 from datetime import datetime, time, timezone
 from typing import Any
 
+from qwenpaw.drivers.constants import (
+    DRIVER_OPERATION_INVOKE,
+    POLICY_EFFECT_ALLOW,
+    POLICY_EFFECT_ASK,
+    POLICY_EFFECT_DENY,
+    POLICY_TARGET_WILDCARD,
+    PRINCIPAL_SOURCE_APP,
+    PRINCIPAL_SOURCE_CHANNEL,
+    PRINCIPAL_SUBJECT_ALL,
+    PRINCIPAL_SUBJECT_SESSION,
+    PRINCIPAL_SUBJECT_USER,
+    SUBJECT_UNKNOWN_USER,
+)
 from qwenpaw.drivers.policy_types import (
     DriverPolicy,
     PolicyCondition,
@@ -18,9 +30,11 @@ from qwenpaw.drivers.policy_types import (
     coerce_driver_policy,
 )
 
-logger = logging.getLogger(__name__)
-
-_STRICTNESS: dict[str, int] = {"deny": 3, "ask": 2, "allow": 1}
+_STRICTNESS: dict[str, int] = {
+    POLICY_EFFECT_DENY: 3,
+    POLICY_EFFECT_ASK: 2,
+    POLICY_EFFECT_ALLOW: 1,
+}
 
 
 @dataclass(frozen=True)
@@ -28,7 +42,7 @@ class DriverInvocationContext:
     subject: str
     driver_name: str
     protocol: str
-    operation: str = "invoke"
+    operation: str = DRIVER_OPERATION_INVOKE
     target: PolicyTarget = field(default_factory=PolicyTarget)
     subjects: tuple[str, ...] = field(default_factory=tuple)
     workspace_id: str = ""
@@ -60,7 +74,7 @@ def evaluate_policy(
     ]
     if not matches:
         default = driver_policy.default_effect
-        return default if default in _STRICTNESS else "deny"
+        return default if default in _STRICTNESS else POLICY_EFFECT_DENY
 
     matches.sort(
         key=lambda rule: (
@@ -94,7 +108,7 @@ def subject_matches(pattern: str, subject: str) -> bool:
     """Support exact, typed-prefix wildcard, and global wildcard patterns."""
     if not pattern or not subject:
         return False
-    if pattern == "*":
+    if pattern == POLICY_TARGET_WILDCARD:
         return True
     if pattern.endswith(":*"):
         return subject.startswith(pattern[:-1])
@@ -107,7 +121,7 @@ def context_subjects(context: DriverInvocationContext) -> tuple[str, ...]:
     for subject in (context.subject, *context.subjects):
         if subject and subject not in subjects:
             subjects.append(subject)
-    return tuple(subjects or ("user:unknown",))
+    return tuple(subjects or (SUBJECT_UNKNOWN_USER,))
 
 
 def target_matches(pattern: PolicyTarget, target: PolicyTarget) -> bool:
@@ -124,7 +138,7 @@ def target_matches(pattern: PolicyTarget, target: PolicyTarget) -> bool:
 def _target_part_matches(pattern: str, value: str) -> bool:
     if not pattern or not value:
         return False
-    if pattern == "*":
+    if pattern == POLICY_TARGET_WILDCARD:
         return True
     return pattern == value
 
@@ -144,11 +158,11 @@ def subject_specificity(pattern: str) -> int:
 
 
 def target_kind_specificity(target: PolicyTarget) -> int:
-    return 0 if target.kind == "*" else 1
+    return 0 if target.kind == POLICY_TARGET_WILDCARD else 1
 
 
 def target_name_specificity(target: PolicyTarget) -> int:
-    return 0 if target.name == "*" else 1
+    return 0 if target.name == POLICY_TARGET_WILDCARD else 1
 
 
 def principal_specificity(
@@ -163,13 +177,16 @@ def principal_specificity(
     source_value = _selector_value(selector.source_value)
     subject_type = _normalize_selector_part(selector.subject_type)
     subject_value = _selector_value(selector.subject_value)
-    if source_type != "*":
+    if source_type != POLICY_TARGET_WILDCARD:
         score += 1
-        if source_value not in {"", "*"}:
+        if source_value not in {"", POLICY_TARGET_WILDCARD}:
             score += 1
-    if subject_type != "*":
+    if subject_type != POLICY_TARGET_WILDCARD:
         score += 1
-        if subject_type != "all" and subject_value not in {"", "*"}:
+        if subject_type != PRINCIPAL_SUBJECT_ALL and subject_value not in {
+            "",
+            POLICY_TARGET_WILDCARD,
+        }:
             score += 1
     return score
 
@@ -195,21 +212,21 @@ def _source_matches(
 ) -> bool:
     source_type = _normalize_selector_part(selector.source_type)
     source_value = _selector_value(selector.source_value)
-    if source_type == "*":
+    if source_type == POLICY_TARGET_WILDCARD:
         return True
-    if source_type == "channel":
+    if source_type == PRINCIPAL_SOURCE_CHANNEL:
         channel = _selector_value(context.request_context.get("channel"))
-        if source_value in {"", "*"}:
+        if source_value in {"", POLICY_TARGET_WILDCARD}:
             return bool(channel)
         return channel.lower() == source_value.lower()
-    if source_type == "app":
+    if source_type == PRINCIPAL_SOURCE_APP:
         app_candidates = (
             context.request_context.get("app_id"),
             context.request_context.get("domain_app_id"),
             context.request_context.get("agent_id"),
             context.request_context.get("root_agent_id"),
         )
-        if source_value in {"", "*"}:
+        if source_value in {"", POLICY_TARGET_WILDCARD}:
             return any(
                 _selector_value(candidate) for candidate in app_candidates
             )
@@ -226,16 +243,16 @@ def _subject_scope_matches(
 ) -> bool:
     subject_type = _normalize_selector_part(selector.subject_type)
     subject_value = _selector_value(selector.subject_value)
-    if subject_type in {"*", "all"}:
+    if subject_type in {POLICY_TARGET_WILDCARD, PRINCIPAL_SUBJECT_ALL}:
         return True
-    if subject_value in {"", "*"}:
-        return subject_value == "*"
-    if subject_type == "user":
+    if subject_value in {"", POLICY_TARGET_WILDCARD}:
+        return subject_value == POLICY_TARGET_WILDCARD
+    if subject_type == PRINCIPAL_SUBJECT_USER:
         return (
             _selector_value(context.request_context.get("user_id"))
             == subject_value
         )
-    if subject_type == "session":
+    if subject_type == PRINCIPAL_SUBJECT_SESSION:
         return (
             _selector_value(context.request_context.get("session_id"))
             == subject_value
@@ -245,7 +262,7 @@ def _subject_scope_matches(
 
 def _normalize_selector_part(value: str | None) -> str:
     normalized = _selector_value(value).lower()
-    return normalized or "*"
+    return normalized or POLICY_TARGET_WILDCARD
 
 
 def _selector_value(value: str | None) -> str:

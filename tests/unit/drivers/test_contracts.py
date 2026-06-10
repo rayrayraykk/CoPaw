@@ -14,6 +14,7 @@ from qwenpaw.drivers.contracts import (
     RateLimit,
     PolicyRule,
     PolicyTarget,
+    coerce_card,
     validate_card,
 )
 from qwenpaw.drivers.errors import DriverCardError
@@ -62,7 +63,12 @@ def test_validate_card_rejects_invalid_policy_effect() -> None:
         protocol="mcp",
         endpoint={},
         credential=CredentialRef(kind="none"),
-        policy=[PolicyRule(subject="user:alice", effect="maybe")],
+        policy=[
+            PolicyRule(
+                subject="user:alice",
+                effect="maybe",  # type: ignore[arg-type]
+            ),
+        ],
     )
 
     with pytest.raises(DriverCardError, match="invalid policy effect"):
@@ -79,7 +85,10 @@ def test_validate_card_rejects_invalid_policy_target_kind() -> None:
             PolicyRule(
                 subject="*",
                 effect="ask",
-                target=PolicyTarget(kind="database", name="demo"),
+                target=PolicyTarget(
+                    kind="database",  # type: ignore[arg-type]
+                    name="demo",
+                ),
             ),
         ],
     )
@@ -209,3 +218,55 @@ def test_validate_card_does_not_enum_lock_protocol() -> None:
     )
 
     validate_card(card)
+
+
+def test_validate_card_does_not_mutate_card() -> None:
+    card = DriverCard(
+        name="demo",
+        protocol="mcp",
+        endpoint={"transport": "stdio", "command": "demo"},
+        credential=CredentialRef(kind="none"),
+        policy=DriverPolicy(
+            default_effect="ask",
+            rules=[
+                PolicyRule(
+                    subject="user:alice",
+                    effect="allow",
+                    target=PolicyTarget(kind="tool", name="echo"),
+                ),
+            ],
+        ),
+    )
+    before = DriverCard(
+        name=card.name,
+        protocol=card.protocol,
+        endpoint=dict(card.endpoint),
+        credentials=dict(card.credentials),
+        config=dict(card.config),
+        enabled=card.enabled,
+        policy=DriverPolicy(
+            default_effect=card.policy.default_effect,
+            rules=list(card.policy.rules),
+        ),
+    )
+
+    validate_card(card)
+
+    assert card == before
+
+
+def test_coerce_card_returns_normalized_copy_without_mutating_input() -> None:
+    card = DriverCard(
+        name="demo",
+        protocol="mcp",
+        endpoint={"transport": "stdio", "command": "demo"},
+        credential=CredentialRef(kind="none"),
+    )
+    card.policy = [  # type: ignore[assignment]
+        PolicyRule(subject="*", effect="allow"),
+    ]
+
+    normalized = coerce_card(card)
+
+    assert isinstance(normalized.policy, DriverPolicy)
+    assert isinstance(card.policy, list)

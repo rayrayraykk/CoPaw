@@ -1,0 +1,36 @@
+# -*- coding: utf-8 -*-
+"""Shared Driver string constants."""
+
+from __future__ import annotations
+
+CREDENTIAL_ALIAS_DEFAULT = "default"
+CREDENTIAL_ALIAS_STATIC = "static"
+CREDENTIAL_ALIAS_OAUTH = "oauth"
+
+CREDENTIAL_KIND_NONE = "none"
+CREDENTIAL_KIND_STATIC = "static"
+CREDENTIAL_KIND_OAUTH_AUTH_CODE = "oauth2_auth_code"
+
+POLICY_EFFECT_ALLOW = "allow"
+POLICY_EFFECT_ASK = "ask"
+POLICY_EFFECT_DENY = "deny"
+POLICY_EFFECTS = frozenset(
+    {
+        POLICY_EFFECT_ALLOW,
+        POLICY_EFFECT_ASK,
+        POLICY_EFFECT_DENY,
+    },
+)
+
+PROTOCOL_MCP = "mcp"
+CAPABILITY_KIND_TOOL = "tool"
+DRIVER_OPERATION_INVOKE = "invoke"
+
+POLICY_TARGET_WILDCARD = "*"
+SUBJECT_UNKNOWN_USER = "user:unknown"
+
+PRINCIPAL_SOURCE_CHANNEL = "channel"
+PRINCIPAL_SOURCE_APP = "app"
+PRINCIPAL_SUBJECT_ALL = "all"
+PRINCIPAL_SUBJECT_USER = "user"
+PRINCIPAL_SUBJECT_SESSION = "session"

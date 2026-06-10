@@ -6,6 +6,11 @@ from __future__ import annotations
 from dataclasses import InitVar, dataclass, field, replace
 from typing import Any
 
+from qwenpaw.drivers.constants import (
+    CREDENTIAL_ALIAS_DEFAULT,
+    CREDENTIAL_KIND_NONE,
+    PRINCIPAL_SUBJECT_USER,
+)
 from qwenpaw.drivers.errors import DriverCardError
 from qwenpaw.drivers.policy_types import (
     ALLOWED_POLICY_EFFECTS,
@@ -21,8 +26,27 @@ from qwenpaw.drivers.policy_types import (
     coerce_driver_policy,
 )
 
-NO_CREDENTIAL_KIND = "none"
-DEFAULT_CREDENTIAL_ALIAS = "default"
+NO_CREDENTIAL_KIND = CREDENTIAL_KIND_NONE
+DEFAULT_CREDENTIAL_ALIAS = CREDENTIAL_ALIAS_DEFAULT
+
+__all__ = [
+    "CredentialRef",
+    "DriverCard",
+    "DriverPolicy",
+    "PolicyCondition",
+    "PolicyEffect",
+    "PolicyPrincipal",
+    "PolicyRule",
+    "PolicyTarget",
+    "RateLimit",
+    "TimeRange",
+    "coerce_card",
+    "coerce_credential_ref",
+    "coerce_credential_refs",
+    "iter_credential_refs",
+    "validate_card",
+    "validate_card_name",
+]
 
 
 def validate_card_name(name: str) -> None:
@@ -204,7 +228,8 @@ def _validate_driver_policy(card: DriverCard) -> None:
                     f"{field_name} must be a string",
                 )
         if (
-            rule.principal.subject_type.strip().lower() == "user"
+            rule.principal.subject_type.strip().lower()
+            == PRINCIPAL_SUBJECT_USER
             and not rule.principal.subject_value.strip()
         ):
             raise DriverCardError(

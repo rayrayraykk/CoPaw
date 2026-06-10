@@ -159,7 +159,11 @@ def binding_to_response(
     return result
 
 
-def binding_plain_keys(binding: Any, *, credential_alias: str) -> dict[str, str]:
+def binding_plain_keys(
+    binding: Any,
+    *,
+    credential_alias: str,
+) -> dict[str, str]:
     """Return unmasked public values and blank placeholders for secret keys."""
     if not isinstance(binding, dict):
         return {}

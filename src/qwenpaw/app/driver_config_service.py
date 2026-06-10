@@ -27,6 +27,9 @@ from qwenpaw.drivers.storage import (
 )
 
 logger = logging.getLogger(__name__)
+_MANAGER_NOT_READY_DETAIL = (
+    "Driver manager is not ready yet, please try again later"
+)
 
 
 class DriverConfigService:
@@ -44,7 +47,9 @@ class DriverConfigService:
         manager = getattr(self._workspace, "driver_manager", None)
         if manager is not None:
             return manager.credential_store
-        return CredentialStore(self._workspace.workspace_dir / "credentials.yaml")
+        return CredentialStore(
+            self._workspace.workspace_dir / "credentials.yaml",
+        )
 
     def card_path(self, name: str, *, protocol: str) -> Path:
         try:
@@ -144,7 +149,7 @@ class DriverConfigService:
         if manager is None:
             raise HTTPException(
                 503,
-                detail="Driver manager is not ready yet, please try again later",
+                detail=_MANAGER_NOT_READY_DETAIL,
             )
         drivers = await manager.list_drivers(protocol=protocol)
         current = next(
@@ -173,7 +178,7 @@ class DriverConfigService:
         if manager is None:
             raise HTTPException(
                 503,
-                detail="Driver manager is not ready yet, please try again later",
+                detail=_MANAGER_NOT_READY_DETAIL,
             )
         await self.ensure_driver_active(name, protocol=protocol)
         return await manager.list_driver_capabilities(
