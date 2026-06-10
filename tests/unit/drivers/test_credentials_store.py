@@ -5,7 +5,10 @@ import pytest
 import yaml
 
 from qwenpaw.drivers.credentials.store import CredentialStore
-from qwenpaw.drivers.credentials.types import CredentialRecord
+from qwenpaw.drivers.credentials.types import (
+    CredentialRecord,
+    ResolvedCredential,
+)
 from qwenpaw.drivers.errors import CredentialNotFoundError
 
 
@@ -46,6 +49,25 @@ def test_put_encrypts_all_secret_fields_and_keeps_public_plain(
     assert raw["credentials"]["demo"]["secrets"]["token"] == "ENC:plain"
     assert raw["credentials"]["demo"]["secrets"]["api_key"] == "ENC:key"
     assert raw["credentials"]["demo"]["public"]["name"] == "visible"
+
+
+def test_credential_repr_redacts_secrets() -> None:
+    record = CredentialRecord(
+        ref="demo",
+        kind="static",
+        public={"name": "visible"},
+        secrets={"token": "plain"},
+    )
+    resolved = ResolvedCredential(
+        kind="static",
+        public={"name": "visible"},
+        secrets={"token": "plain"},
+    )
+
+    assert "plain" not in repr(record)
+    assert "plain" not in repr(resolved)
+    assert "'token': '***'" in repr(record)
+    assert "'token': '***'" in repr(resolved)
 
 
 def test_get_decrypts_and_resolves_env(

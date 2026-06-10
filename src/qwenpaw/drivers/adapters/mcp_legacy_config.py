@@ -16,7 +16,12 @@ from qwenpaw.drivers.adapters.mcp_console import (
     normalize_secret_key,
     split_mcp_binding,
 )
-from qwenpaw.drivers.contracts import CredentialRef, DriverCard, PolicyRule
+from qwenpaw.drivers.contracts import (
+    CredentialRef,
+    DriverCard,
+    PolicyRule,
+    PolicyTarget,
+)
 from qwenpaw.drivers.credentials.types import CredentialRecord
 from qwenpaw.drivers.manager import DriverManager
 from qwenpaw.drivers.storage import card_path, dump_card
@@ -192,7 +197,13 @@ def legacy_mcp_client_to_driver(
             "description": str(getattr(config, "description", "") or ""),
         },
         enabled=bool(getattr(config, "enabled", True)),
-        policy=[PolicyRule(subject="*", effect="allow")],
+        policy=[
+            PolicyRule(
+                subject="*",
+                effect="allow",
+                target=PolicyTarget(kind="tool", name="*"),
+            ),
+        ],
     )
     return card, credential
 

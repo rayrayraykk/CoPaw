@@ -64,6 +64,22 @@ def test_validate_card_rejects_invalid_policy_effect() -> None:
         validate_card(card)
 
 
+@pytest.mark.parametrize(
+    "name",
+    ["../escape", "..", "nested/name", "nested\\name", "bad\x00name"],
+)
+def test_validate_card_rejects_unsafe_name(name: str) -> None:
+    card = DriverCard(
+        name=name,
+        protocol="mcp",
+        endpoint={},
+        credential=CredentialRef(kind="none"),
+    )
+
+    with pytest.raises(DriverCardError, match="DriverCard.name"):
+        validate_card(card)
+
+
 def test_validate_card_allows_dynamic_credential_kind() -> None:
     card = DriverCard(
         name="demo",

@@ -142,6 +142,44 @@ describe("MCP access policy helpers", () => {
     ).toEqual([]);
   });
 
+  it("preserves custom source values instead of coercing them", () => {
+    const normalized = addClientRule({
+      ...policy,
+      client_overrides: [
+        {
+          source_type: "channel",
+          source_value: "custom-channel",
+          subject_type: "all",
+          subject_value: "",
+          effect: "allow",
+        },
+        {
+          source_type: "app",
+          source_value: "Builder",
+          subject_type: "user",
+          subject_value: "alice",
+          effect: "deny",
+        },
+      ],
+      tool_overrides: [],
+    });
+
+    expect(normalized.client_overrides).toContainEqual({
+      source_type: "channel",
+      source_value: "custom-channel",
+      subject_type: "all",
+      subject_value: "",
+      effect: "allow",
+    });
+    expect(normalized.client_overrides).toContainEqual({
+      source_type: "app",
+      source_value: "Builder",
+      subject_type: "user",
+      subject_value: "alice",
+      effect: "deny",
+    });
+  });
+
   it("sets a per-tool default policy without adding a source rule", () => {
     const next = upsertToolDefault(policy, "echo", "deny");
 

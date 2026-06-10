@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import logging
 import re
 from typing import Any
 
@@ -28,6 +29,8 @@ from qwenpaw.drivers.errors import (
 )
 from qwenpaw.drivers.handler import DriverHandler
 from qwenpaw.drivers.policy import PolicyContext
+
+logger = logging.getLogger(__name__)
 
 
 class MCPDriverHandler(DriverHandler):
@@ -178,6 +181,20 @@ class MCPDriverHandler(DriverHandler):
                 ok=False,
                 error_type="driver_policy_approval_required",
                 message=str(exc),
+            )
+        except Exception as exc:
+            logger.warning(
+                "MCP capability invocation failed for Driver '%s' tool '%s': %s",
+                self.name,
+                tool_name,
+                exc,
+                exc_info=True,
+            )
+            return DriverInvocationResult(
+                ok=False,
+                error_type="execution_error",
+                message=str(exc),
+                metadata={"driver_name": self.name, "tool_name": tool_name},
             )
         return DriverInvocationResult(ok=True, value=value)
 

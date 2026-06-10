@@ -23,6 +23,7 @@ from qwenpaw.drivers.contracts import (
     RateLimit,
     TimeRange,
     validate_card,
+    validate_card_name,
 )
 
 
@@ -107,11 +108,15 @@ def card_path(
     protocol: str,
 ) -> Path:
     """Return the canonical YAML path for one DriverCard name."""
-    return cards_dir / _protocol_path(protocol) / f"{name}.yaml"
+    validate_card_name(name)
+    path = cards_dir / _protocol_path(protocol) / f"{name}.yaml"
+    _ensure_path_under(cards_dir, path)
+    return path
 
 
 def card_paths_for_name(cards_dir: Path, name: str) -> list[Path]:
     """Return all stored paths whose YAML filename matches the card name."""
+    validate_card_name(name)
     return [path for path in list_card_paths(cards_dir) if path.stem == name]
 
 
@@ -160,6 +165,15 @@ def _protocol_path(protocol: str) -> Path:
     if not parts:
         raise DriverCardError("DriverCard protocol must be non-empty")
     return Path(*parts)
+
+
+def _ensure_path_under(root: Path, path: Path) -> None:
+    try:
+        path.resolve().relative_to(root.resolve())
+    except ValueError as exc:
+        raise DriverCardError(
+            f"DriverCard path escapes storage directory: {path}",
+        ) from exc
 
 
 def _card_from_mapping(data: dict[str, Any], path: Path) -> DriverCard:

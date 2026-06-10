@@ -30,7 +30,7 @@ from ...drivers.adapters.mcp_console import (
 )
 from ...drivers.credentials.store import CredentialStore
 from ...drivers.credentials.types import CredentialRecord
-from ...drivers.errors import CredentialNotFoundError
+from ...drivers.errors import CredentialNotFoundError, DriverCardError
 from ...drivers.storage import (
     card_path,
     delete_card_paths_for_name,
@@ -44,11 +44,14 @@ router = APIRouter(prefix="/mcp", tags=["mcp-oauth"])
 
 
 def _mcp_card_path(workspace, client_key: str):
-    return card_path(
-        workspace.workspace_dir / "drivers",
-        client_key,
-        protocol="mcp",
-    )
+    try:
+        return card_path(
+            workspace.workspace_dir / "drivers",
+            client_key,
+            protocol="mcp",
+        )
+    except DriverCardError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 # ---------------------------------------------------------------------------

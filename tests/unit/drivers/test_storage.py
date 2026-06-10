@@ -169,6 +169,12 @@ def test_protocol_card_path_and_lookup_ignore_flat_files(
     assert list_card_paths(tmp_path) == [nested]
 
 
+@pytest.mark.parametrize("name", ["../escape", "nested/name", "bad\x00name"])
+def test_card_path_rejects_unsafe_name(tmp_path: Path, name: str) -> None:
+    with pytest.raises(DriverCardError, match="DriverCard.name"):
+        card_path(tmp_path, name, protocol="mcp")
+
+
 def test_atomic_write_failure_keeps_existing_file(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

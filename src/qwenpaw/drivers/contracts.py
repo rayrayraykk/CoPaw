@@ -14,6 +14,19 @@ ALLOWED_POLICY_EFFECTS: frozenset[str] = frozenset(
 )
 
 
+def validate_card_name(name: str) -> None:
+    """Reject Driver names that cannot safely be used as storage keys."""
+    if not name or not isinstance(name, str):
+        raise DriverCardError("DriverCard.name must be a non-empty string")
+    if "\x00" in name or "/" in name or "\\" in name or ".." in name:
+        raise DriverCardError(
+            "DriverCard.name must not contain path separators, null bytes, "
+            "or '..'",
+        )
+    if name in {".", ".."}:
+        raise DriverCardError("DriverCard.name must be a safe file name")
+
+
 @dataclass(frozen=True)
 class CredentialRef:
     """Reference from DriverCard to a credential source."""
@@ -224,8 +237,7 @@ def validate_card(card: DriverCard) -> None:
 
 
 def _validate_card_identity(card: DriverCard) -> None:
-    if not card.name or not isinstance(card.name, str):
-        raise DriverCardError("DriverCard.name must be a non-empty string")
+    validate_card_name(card.name)
     if not card.protocol or not isinstance(card.protocol, str):
         raise DriverCardError(
             f"DriverCard.protocol must be non-empty for {card.name}",

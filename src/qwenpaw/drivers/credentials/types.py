@@ -7,6 +7,10 @@ from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
 
+def _redact_mapping(values: dict[str, Any]) -> dict[str, str]:
+    return {str(key): "***" for key in values}
+
+
 @dataclass(frozen=True)
 class CredentialRecord:
     ref: str
@@ -18,6 +22,16 @@ class CredentialRecord:
     @property
     def values(self) -> dict[str, Any]:
         return {**self.public, **self.secrets}
+
+    def __repr__(self) -> str:
+        return (
+            "CredentialRecord("
+            f"ref={self.ref!r}, "
+            f"kind={self.kind!r}, "
+            f"public={self.public!r}, "
+            f"secrets={_redact_mapping(self.secrets)!r}, "
+            f"meta={self.meta!r})"
+        )
 
 
 @dataclass(frozen=True)
@@ -32,6 +46,15 @@ class ResolvedCredential:
     @property
     def values(self) -> dict[str, Any]:
         return {**self.public, **self.secrets}
+
+    def __repr__(self) -> str:
+        return (
+            "ResolvedCredential("
+            f"kind={self.kind!r}, "
+            f"public={self.public!r}, "
+            f"secrets={_redact_mapping(self.secrets)!r}, "
+            f"meta={self.meta!r})"
+        )
 
 
 ResolvedCredential.EMPTY = ResolvedCredential()

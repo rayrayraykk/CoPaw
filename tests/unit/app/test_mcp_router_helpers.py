@@ -221,6 +221,44 @@ async def test_get_mcp_policy_reads_saved_policy_without_driver_manager(
 
 
 @pytest.mark.asyncio
+async def test_get_mcp_policy_maps_legacy_wildcard_to_client_override(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    agent = SimpleNamespace(workspace_dir=tmp_path)
+    dump_card(
+        DriverCard(
+            name="demo",
+            protocol="mcp",
+            endpoint={"transport": "stdio", "command": "demo"},
+            credential=CredentialRef(kind="none"),
+            policy=DriverPolicy(
+                default_effect="deny",
+                rules=[PolicyRule(subject="*", effect="allow")],
+            ),
+        ),
+        card_path(tmp_path / "drivers", "demo", protocol="mcp"),
+    )
+    monkeypatch.setattr(
+        "qwenpaw.app.agent_context.get_agent_for_request",
+        _fake_agent_context,
+    )
+
+    policy = await get_mcp_policy(agent, "demo")
+
+    assert policy.client_overrides == [
+        MCPAccessRule(
+            source_type="channel",
+            source_value="console",
+            subject_type="all",
+            subject_value="",
+            effect="allow",
+        ),
+    ]
+    assert policy.unmanaged_rules_count == 0
+
+
+@pytest.mark.asyncio
 async def test_update_mcp_policy_replaces_rules_and_preserves_unmanaged(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,

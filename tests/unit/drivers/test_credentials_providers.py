@@ -10,6 +10,7 @@ from qwenpaw.drivers.credentials.providers import (
     DirectProvider,
     OAuth2AuthCodeProvider,
     OAuth2CCProvider,
+    StandardOAuth2Exchanger,
     build_provider,
     register_provider,
     unregister_provider,
@@ -54,6 +55,25 @@ class FakeExchanger:
         self.calls += 1
         await asyncio.sleep(0)
         return f"token-{self.calls}", 3600
+
+
+class FakeOAuthResponse:
+    def raise_for_status(self) -> None:
+        return None
+
+    def json(self) -> dict[str, str]:
+        return {"error": "invalid_client"}
+
+
+class FakeOAuthClient:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_args):
+        return None
+
+    async def post(self, *_args, **_kwargs):
+        return FakeOAuthResponse()
 
 
 @pytest.mark.asyncio
@@ -134,6 +154,29 @@ async def test_oauth2_cc_concurrent_resolve_refreshes_once() -> None:
         "token-1",
     ]
     assert exchanger.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_standard_oauth_exchanger_reports_missing_access_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        providers_module.httpx,
+        "AsyncClient",
+        lambda: FakeOAuthClient(),
+    )
+
+    with pytest.raises(
+        DriverCredentialProviderError,
+        match="did not return access_token",
+    ):
+        await StandardOAuth2Exchanger().exchange(
+            {
+                "token_endpoint": "https://oauth.example.test/token",
+                "client_id": "id",
+                "client_secret": "secret",
+            },
+        )
 
 
 @pytest.mark.asyncio

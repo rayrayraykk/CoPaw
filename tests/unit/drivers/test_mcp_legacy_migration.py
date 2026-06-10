@@ -199,4 +199,6 @@ async def test_migration_writes_card_and_credential(tmp_path: Path) -> None:
     assert report.migrated[0].client_key == "echo"
     assert card.endpoint["env"]["public"]["NODE_ENV"] == "production"
     assert card.endpoint["env"]["secret_refs"]["ECHO_TOKEN"] == "ECHO_TOKEN"
+    assert card.policy.rules[0].target.kind == "tool"
+    assert card.policy.rules[0].target.name == "*"
     assert record.secrets["ECHO_TOKEN"] == "secret-token"

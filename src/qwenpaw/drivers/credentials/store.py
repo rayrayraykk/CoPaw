@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,7 @@ class CredentialStore:
 
     def __init__(self, credentials_path: Path) -> None:
         self._path = credentials_path
+        self._lock = threading.RLock()
 
     def get(self, ref: str) -> CredentialRecord:
         """Read one CredentialRecord and decrypt values under secrets."""
@@ -70,25 +72,27 @@ class CredentialStore:
             raise DriverCardError("CredentialRecord.kind must be non-empty")
         self._validate_secret_values(record.secrets)
 
-        root = self._read_root()
-        credentials = dict(root["credentials"])
-        credentials[record.ref] = {
-            "kind": record.kind,
-            "public": dict(record.public),
-            "secrets": self._encrypt_secrets(dict(record.secrets)),
-            "meta": dict(record.meta),
-        }
-        root["credentials"] = credentials
-        self._write_root(root)
+        with self._lock:
+            root = self._read_root()
+            credentials = dict(root["credentials"])
+            credentials[record.ref] = {
+                "kind": record.kind,
+                "public": dict(record.public),
+                "secrets": self._encrypt_secrets(dict(record.secrets)),
+                "meta": dict(record.meta),
+            }
+            root["credentials"] = credentials
+            self._write_root(root)
 
     def delete(self, ref: str) -> None:
         """Remove one credential entry if present."""
-        root = self._read_root()
-        credentials = dict(root["credentials"])
-        if ref in credentials:
-            credentials.pop(ref, None)
-            root["credentials"] = credentials
-            self._write_root(root)
+        with self._lock:
+            root = self._read_root()
+            credentials = dict(root["credentials"])
+            if ref in credentials:
+                credentials.pop(ref, None)
+                root["credentials"] = credentials
+                self._write_root(root)
 
     def list_refs(self) -> list[str]:
         """Return sorted credential refs."""

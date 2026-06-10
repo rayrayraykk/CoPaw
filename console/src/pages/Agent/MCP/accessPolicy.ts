@@ -336,11 +336,7 @@ function normalizeSourceValue(
   sourceValue: string,
 ): string {
   const trimmed = (sourceValue || "").trim();
-  const allowedValues =
-    sourceType === "app" ? MCP_APP_SOURCE_VALUES : MCP_CHANNEL_SOURCE_VALUES;
-  return allowedValues.some((value) => value === trimmed)
-    ? trimmed
-    : defaultSourceValue(sourceType);
+  return trimmed || defaultSourceValue(sourceType);
 }
 
 function normalizeSourceType(

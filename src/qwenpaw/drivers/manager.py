@@ -37,6 +37,7 @@ from qwenpaw.drivers.storage import (
 )
 
 logger = logging.getLogger(__name__)
+_SHUTDOWN_TIMEOUT_SECONDS = 10.0
 
 
 class DriverManager:
@@ -214,6 +215,28 @@ class DriverManager:
                     capabilities.append(capability)
         return sorted(capabilities, key=lambda item: item.capability_id)
 
+    async def list_driver_capabilities(
+        self,
+        name: str,
+        *,
+        kind: str | None = None,
+        request_context: dict[str, str] | None = None,
+    ) -> list[DriverCapability]:
+        """Return capabilities from one active Driver only."""
+        handler = self._get_handler(name)
+        self._sync_handler_runtime_metadata(handler)
+        capabilities = await handler.list_capabilities(
+            request_context=request_context,
+        )
+        return sorted(
+            [
+                capability
+                for capability in capabilities
+                if kind is None or capability.kind == kind
+            ],
+            key=lambda item: item.capability_id,
+        )
+
     async def invoke_capability(
         self,
         invocation: DriverInvocation,
@@ -342,8 +365,13 @@ class DriverManager:
         return self._credential_store
 
     async def _shutdown_handlers(self, handlers) -> None:
-        for handler in handlers:
-            await self._shutdown_handler(handler)
+        await asyncio.gather(
+            *[
+                self._shutdown_handler_with_timeout(handler)
+                for handler in handlers
+            ],
+            return_exceptions=True,
+        )
 
     @staticmethod
     async def _shutdown_handler(handler: DriverHandler) -> None:
@@ -355,4 +383,21 @@ class DriverManager:
                 handler.name,
                 exc,
                 exc_info=True,
+            )
+
+    @classmethod
+    async def _shutdown_handler_with_timeout(
+        cls,
+        handler: DriverHandler,
+    ) -> None:
+        try:
+            await asyncio.wait_for(
+                cls._shutdown_handler(handler),
+                timeout=_SHUTDOWN_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Timed out shutting down Driver '%s' after %.1fs",
+                handler.name,
+                _SHUTDOWN_TIMEOUT_SECONDS,
             )

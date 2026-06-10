@@ -40,6 +40,8 @@ class FakeHandler(DriverHandler):
         request_context: dict[str, str] | None = None,
     ) -> list[DriverCapability]:
         del request_context
+        if self.card.config.get("fail_list"):
+            raise RuntimeError(f"list failed for {self.name}")
         namespace = str(self.card.config.get("display_name") or self.name)
         return [
             DriverCapability(
@@ -89,12 +91,15 @@ def _card(
     enabled: bool = True,
     fail_setup: bool = False,
     cancel_setup: bool = False,
+    fail_list: bool = False,
 ) -> DriverCard:
     config = {}
     if fail_setup:
         config["fail_setup"] = True
     if cancel_setup:
         config["cancel_setup"] = True
+    if fail_list:
+        config["fail_list"] = True
     return DriverCard(
         name=name,
         protocol=protocol,
@@ -292,6 +297,19 @@ async def test_list_capabilities_uses_latest_stored_runtime_metadata(
 
     assert capabilities[0].exposure.namespace == "new-platform"
     assert capabilities[0].exposure.tool_name == "new-platform__noop"
+
+
+@pytest.mark.asyncio
+async def test_list_driver_capabilities_queries_only_target(
+    tmp_path: Path,
+) -> None:
+    manager = _manager(tmp_path)
+    await manager.register_driver(_card("good"))
+    await manager.register_driver(_card("bad", fail_list=True))
+
+    capabilities = await manager.list_driver_capabilities("good", kind="tool")
+
+    assert [capability.driver_name for capability in capabilities] == ["good"]
 
 
 @pytest.mark.asyncio

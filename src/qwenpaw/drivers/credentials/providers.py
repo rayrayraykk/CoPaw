@@ -82,7 +82,17 @@ class StandardOAuth2Exchanger:
             response = await client.post(token_endpoint, data=payload)
             response.raise_for_status()
             data = response.json()
-        return str(data["access_token"]), int(data.get("expires_in", 3600))
+        access_token = str(data.get("access_token") or "")
+        if not access_token:
+            reason = str(
+                data.get("error_description")
+                or data.get("error")
+                or "missing access_token",
+            )
+            raise DriverCredentialProviderError(
+                f"OAuth token endpoint did not return access_token: {reason}",
+            )
+        return access_token, int(data.get("expires_in", 3600))
 
 
 class NoneProvider(CredentialProvider):

@@ -30,6 +30,7 @@ class StaticProvider:
 class FakeStdIOClient:
     instances: list["FakeStdIOClient"] = []
     connect_error: BaseException | None = None
+    call_error: BaseException | None = None
 
     def __init__(self, **kwargs: Any) -> None:
         self.kwargs = kwargs
@@ -48,6 +49,8 @@ class FakeStdIOClient:
         self.closed = True
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> str:
+        if self.call_error is not None:
+            raise self.call_error
         self.calls.append((name, arguments))
         return "called"
 
@@ -70,6 +73,7 @@ class FakeHttpClient(FakeStdIOClient):
 def fake_clients(monkeypatch: pytest.MonkeyPatch) -> None:
     FakeStdIOClient.instances.clear()
     FakeStdIOClient.connect_error = None
+    FakeStdIOClient.call_error = None
     FakeHttpClient.instances.clear()
     monkeypatch.setattr(
         "qwenpaw.drivers.handlers.mcp.StdIOStatefulClient",
@@ -315,3 +319,29 @@ async def test_capability_invoke_returns_approval_required() -> None:
     assert result.ok is False
     assert result.error_type == "driver_policy_approval_required"
     assert FakeStdIOClient.instances[0].calls == []
+
+
+@pytest.mark.asyncio
+async def test_capability_invoke_returns_execution_error() -> None:
+    FakeStdIOClient.call_error = RuntimeError("transport failed")
+    handler = MCPDriverHandler(
+        _card({"transport": "stdio", "command": "server"}),
+        StaticProvider(),
+    )
+    await handler.init()
+
+    capability = (await handler.list_capabilities())[0]
+    result = await handler.invoke_capability(
+        DriverInvocation(
+            capability_id=capability.capability_id,
+            payload={"q": "driver"},
+            request_context={},
+        ),
+    )
+
+    assert result.ok is False
+    assert result.error_type == "execution_error"
+    assert result.metadata == {
+        "driver_name": "demo",
+        "tool_name": "tool",
+    }

@@ -26,7 +26,7 @@ from ...drivers.contracts import (
 )
 from ...drivers.credentials.store import CredentialStore
 from ...drivers.credentials.types import CredentialRecord
-from ...drivers.errors import CredentialNotFoundError
+from ...drivers.errors import CredentialNotFoundError, DriverCardError
 from ...drivers.storage import (
     card_path,
     delete_card_paths_for_name,
@@ -367,7 +367,12 @@ def _workspace_cards_dir(agent: Any):
 
 
 def _mcp_card_path(agent: Any, client_key: str):
-    return card_path(_workspace_cards_dir(agent), client_key, protocol="mcp")
+    try:
+        return card_path(
+            _workspace_cards_dir(agent), client_key, protocol="mcp"
+        )
+    except DriverCardError as exc:
+        raise HTTPException(400, detail=str(exc)) from exc
 
 
 def _workspace_credential_store(agent: Any) -> CredentialStore:
@@ -415,9 +420,11 @@ def _build_info_from_card(agent: Any, card: Any) -> MCPClientInfo:
         oauth_ref = card.credential
     oauth_credential = _load_optional_credential(
         store,
-        oauth_ref.ref
-        if oauth_ref is not None
-        else mcp_oauth_credential_ref(card.name),
+        (
+            oauth_ref.ref
+            if oauth_ref is not None
+            else mcp_oauth_credential_ref(card.name)
+        ),
     )
     return MCPClientInfo.model_validate(
         build_mcp_client_info_payload(card, credential, oauth_credential),
@@ -606,6 +613,14 @@ def _is_mcp_tool_default_rule(rule: PolicyRule) -> bool:
 
 
 def _mcp_client_override_from_rule(rule: PolicyRule) -> MCPAccessRule | None:
+    if rule.target.kind == "*" and rule.target.name == "*":
+        if rule.condition is not None or rule.effect not in {
+            "allow",
+            "ask",
+            "deny",
+        }:
+            return None
+        return _legacy_subject_access_rule(rule)
     if rule.target.kind != "tool" or rule.target.name != "*":
         return None
     return _mcp_access_rule_from_rule(rule)
@@ -780,8 +795,8 @@ async def list_mcp_tools(
 
     try:
         await _ensure_mcp_driver_active(manager, client_key)
-        capabilities = await manager.list_capabilities(
-            protocol="mcp",
+        capabilities = await manager.list_driver_capabilities(
+            client_key,
             kind="tool",
             request_context={},
         )
@@ -801,7 +816,6 @@ async def list_mcp_tools(
             input_schema=capability.input_schema,
         )
         for capability in capabilities
-        if capability.driver_name == client_key
     ]
 
 
