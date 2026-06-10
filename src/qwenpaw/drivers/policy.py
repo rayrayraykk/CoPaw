@@ -6,11 +6,12 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, time, timezone
-from typing import Any, Literal
+from typing import Any
 
-from qwenpaw.drivers.contracts import (
+from qwenpaw.drivers.policy_types import (
     DriverPolicy,
     PolicyCondition,
+    PolicyEffect,
     PolicyPrincipal,
     PolicyRule,
     PolicyTarget,
@@ -18,8 +19,6 @@ from qwenpaw.drivers.contracts import (
 )
 
 logger = logging.getLogger(__name__)
-
-PolicyEffect = Literal["allow", "deny", "ask"]
 
 _STRICTNESS: dict[str, int] = {"deny": 3, "ask": 2, "allow": 1}
 
@@ -61,9 +60,7 @@ def evaluate_policy(
     ]
     if not matches:
         default = driver_policy.default_effect
-        return (
-            default if default in _STRICTNESS else "deny"
-        )  # type: ignore[return-value]
+        return default if default in _STRICTNESS else "deny"
 
     matches.sort(
         key=lambda rule: (
@@ -79,7 +76,7 @@ def evaluate_policy(
         ),
         reverse=True,
     )
-    return matches[0].effect  # type: ignore[return-value]
+    return matches[0].effect
 
 
 def principal_matches(
@@ -189,12 +186,6 @@ def condition_satisfied(
         context.now,
     ):
         return False
-    if condition.rate_limit is not None:
-        logger.warning(
-            "Driver policy rate_limit is configured for %s but is not "
-            "enforced in phase 1",
-            context.driver_name,
-        )
     return True
 
 

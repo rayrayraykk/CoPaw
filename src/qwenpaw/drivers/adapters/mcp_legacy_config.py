@@ -14,6 +14,7 @@ from qwenpaw.drivers.adapters.mcp_console import (
     mcp_credential_ref,
     mcp_oauth_credential_ref,
     normalize_secret_key,
+    source_binding_from_split,
     split_mcp_binding,
 )
 from qwenpaw.drivers.contracts import (
@@ -134,6 +135,7 @@ def legacy_mcp_client_to_driver(
     """Convert one legacy MCP config object into Driver contracts."""
     transport = str(getattr(config, "transport", "stdio") or "stdio")
     oauth = getattr(config, "oauth", None)
+    credential_alias = "oauth" if oauth is not None else "static"
     now = time.time()
 
     env_public, env_secrets = split_mcp_binding(
@@ -151,10 +153,11 @@ def legacy_mcp_client_to_driver(
             "transport": "stdio",
             "command": str(getattr(config, "command", "") or ""),
             "args": list(getattr(config, "args", []) or []),
-            "env": {
-                "public": env_public,
-                "secret_refs": {key: key for key in env_secrets},
-            },
+            "env": source_binding_from_split(
+                env_public,
+                {key: key for key in env_secrets},
+                credential_alias,
+            ),
         }
         cwd = str(getattr(config, "cwd", "") or "")
         if cwd:
@@ -169,10 +172,11 @@ def legacy_mcp_client_to_driver(
         endpoint = {
             "transport": transport,
             "url": str(getattr(config, "url", "") or ""),
-            "headers": {
-                "public": header_public,
-                "secret_refs": header_secret_refs,
-            },
+            "headers": source_binding_from_split(
+                header_public,
+                header_secret_refs,
+                credential_alias,
+            ),
         }
 
     credential = _build_legacy_credential(
@@ -187,11 +191,7 @@ def legacy_mcp_client_to_driver(
         name=client_key,
         protocol="mcp",
         endpoint=endpoint,
-        credential=(
-            CredentialRef(kind=credential.kind, ref=credential.ref)
-            if credential is not None
-            else CredentialRef(kind="none")
-        ),
+        credentials=_legacy_credential_refs(credential),
         config={
             "display_name": str(getattr(config, "name", "") or client_key),
             "description": str(getattr(config, "description", "") or ""),
@@ -225,13 +225,12 @@ def _build_legacy_credential(
         secrets[key] = value
 
     headers = endpoint.get("headers") if isinstance(endpoint, dict) else None
-    secret_refs = {}
-    if isinstance(headers, dict):
-        secret_refs = dict(headers.get("secret_refs") or {})
     for header, value in header_secrets.items():
-        secret_key = str(
-            secret_refs.get(header) or normalize_secret_key(header),
-        )
+        secret_key = normalize_secret_key(header)
+        if isinstance(headers, dict):
+            spec = headers.get(header)
+            if isinstance(spec, dict) and spec.get("source") == "credential":
+                secret_key = str(spec.get("field") or secret_key)
         secrets[secret_key] = value
 
     if oauth is not None:
@@ -268,6 +267,15 @@ def _build_legacy_credential(
             "source": "legacy_agent_json_mcp",
         },
     )
+
+
+def _legacy_credential_refs(
+    credential: CredentialRecord | None,
+) -> dict[str, CredentialRef]:
+    if credential is None:
+        return {}
+    alias = "oauth" if credential.kind == "oauth2_auth_code" else "static"
+    return {alias: CredentialRef(kind=credential.kind, ref=credential.ref)}
 
 
 def _args_may_contain_secret(args: list[str]) -> bool:

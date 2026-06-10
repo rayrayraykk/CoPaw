@@ -25,7 +25,9 @@ from qwenpaw.drivers.errors import (
 )
 from qwenpaw.drivers.handler import DriverHandler
 from qwenpaw.drivers.contracts import (
+    CredentialRef,
     DriverCard,
+    coerce_card,
     iter_credential_refs,
     validate_card,
 )
@@ -127,7 +129,7 @@ class DriverManager:
 
     async def register_driver(self, card: DriverCard) -> None:
         """Persist card, build handler, then publish after init success."""
-        self._validate_card_for_registered_protocol(card)
+        card = self._validate_card_for_registered_protocol(card)
         path = card_path(self._cards_dir, card.name, card.protocol)
         dump_card(card, path)
         delete_card_paths_for_name(self._cards_dir, card.name, keep=path)
@@ -149,7 +151,7 @@ class DriverManager:
         if path is None:
             raise DriverNotFoundError(name)
         card = load_card(path)
-        self._validate_card_for_registered_protocol(card)
+        card = self._validate_card_for_registered_protocol(card)
         handler = None
         if card.enabled:
             handler = await self._build_and_init_handler(card)
@@ -304,7 +306,7 @@ class DriverManager:
         return handler
 
     def _build_handler(self, card: DriverCard) -> DriverHandler:
-        self._validate_card_for_registered_protocol(card)
+        card = self._validate_card_for_registered_protocol(card)
         handler_type = self._resolve_handler_type(card.protocol)
         refs = iter_credential_refs(card)
         if refs:
@@ -316,7 +318,10 @@ class DriverManager:
                 iter(providers.values()),
             )
         else:
-            primary = build_provider(card.credential, self._credential_store)
+            primary = build_provider(
+                CredentialRef(kind="none"),
+                self._credential_store,
+            )
             providers = {"default": primary}
         return handler_type(
             card,
@@ -333,12 +338,14 @@ class DriverManager:
     def _validate_card_for_registered_protocol(
         self,
         card: DriverCard,
-    ) -> None:
+    ) -> DriverCard:
+        card = coerce_card(card)
         validate_card(card)
         self._resolve_handler_type(card.protocol)
         validator = self._endpoint_validators.get(card.protocol)
         if validator is not None:
             validator(card)
+        return card
 
     def _stored_card_path(self, name: str) -> Path | None:
         paths = card_paths_for_name(self._cards_dir, name)

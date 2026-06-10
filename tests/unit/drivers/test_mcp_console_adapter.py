@@ -46,7 +46,6 @@ def test_build_stdio_card_and_credential_split_secret_refs() -> None:
     assert record.ref == "mcp/tavily"
     assert record.kind == "static"
     assert record.secrets == {"TAVILY_API_KEY": "plain-token-value"}
-    assert card.credential.ref == "mcp/tavily"
     assert card.credentials["static"].ref == "mcp/tavily"
     assert card.endpoint["env"] == {
         "TAVILY_API_KEY": {

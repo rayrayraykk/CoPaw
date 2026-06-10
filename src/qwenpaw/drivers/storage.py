@@ -15,6 +15,11 @@ from qwenpaw.drivers.errors import DriverCardError
 from qwenpaw.drivers.contracts import (
     CredentialRef,
     DriverCard,
+    coerce_card,
+    validate_card,
+    validate_card_name,
+)
+from qwenpaw.drivers.policy_types import (
     DriverPolicy,
     PolicyCondition,
     PolicyPrincipal,
@@ -22,8 +27,6 @@ from qwenpaw.drivers.contracts import (
     PolicyTarget,
     RateLimit,
     TimeRange,
-    validate_card,
-    validate_card_name,
 )
 
 
@@ -43,13 +46,14 @@ def load_card(path: Path) -> DriverCard:
     if not isinstance(raw, dict):
         raise DriverCardError(f"DriverCard YAML must be a mapping: {path}")
 
-    card = _card_from_mapping(raw, path)
+    card = coerce_card(_card_from_mapping(raw, path))
     validate_card(card)
     return card
 
 
 def dump_card(card: DriverCard, path: Path) -> None:
     """Atomically write one DriverCard to YAML."""
+    card = coerce_card(card)
     validate_card(card)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = _card_to_mapping(card)
@@ -214,10 +218,6 @@ def _card_from_mapping(data: dict[str, Any], path: Path) -> DriverCard:
         name=str(data["name"]),
         protocol=str(data["protocol"]),
         endpoint=dict(endpoint),
-        credential=CredentialRef(
-            kind=str(credential.get("kind", "")),
-            ref=str(credential.get("ref", "")),
-        ),
         credentials={
             str(alias): CredentialRef(
                 kind=str(ref.get("kind", "")),
@@ -229,6 +229,10 @@ def _card_from_mapping(data: dict[str, Any], path: Path) -> DriverCard:
         config=dict(config),
         enabled=bool(data.get("enabled", True)),
         policy=_policy_from_mapping(data.get("policy"), path),
+        credential=CredentialRef(
+            kind=str(credential.get("kind", "")),
+            ref=str(credential.get("ref", "")),
+        ),
     )
 
 
@@ -244,8 +248,6 @@ def _card_to_mapping(card: DriverCard) -> dict[str, Any]:
         "enabled": card.enabled,
         "policy": asdict(card.policy),
     }
-    if not card.credentials:
-        payload["credential"] = asdict(card.credential)
     return payload
 
 

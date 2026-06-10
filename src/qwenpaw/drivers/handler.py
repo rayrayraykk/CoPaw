@@ -13,6 +13,7 @@ from qwenpaw.drivers.capabilities import (
     DriverInvocation,
     DriverInvocationResult,
 )
+from qwenpaw.drivers.credentials.bindings import resolve_credentials
 from qwenpaw.drivers.credentials.providers import CredentialProvider
 from qwenpaw.drivers.credentials.types import ResolvedCredential
 from qwenpaw.drivers.errors import (
@@ -91,15 +92,16 @@ class DriverHandler(ABC):
             ),
         )
 
-    async def _guarded_execute(
+    async def _authorize_invocation(
         self,
         subject: str,
         operation: str = "invoke",
         request_context: dict[str, str] | None = None,
         target: PolicyTarget | None = None,
         subjects: list[str] | tuple[str, ...] | None = None,
-        **kwargs: Any,
-    ) -> Any:
+        extras: dict[str, Any] | None = None,
+    ) -> DriverInvocationContext:
+        """Evaluate Driver policy for one protocol-specific operation."""
         context = DriverInvocationContext(
             subject=subject,
             driver_name=self._card.name,
@@ -108,7 +110,7 @@ class DriverHandler(ABC):
             target=target or PolicyTarget(),
             subjects=tuple(subjects or ()),
             request_context=dict(request_context or {}),
-            extras=dict(kwargs),
+            extras=dict(extras or {}),
         )
         effect = evaluate_policy(self._card.policy, context)
         if effect == "deny":
@@ -119,8 +121,11 @@ class DriverHandler(ABC):
             )
         if effect == "ask":
             await self._request_approval(context)
-        credential = await self._credential_provider.resolve()
-        return await self._execute(credential, context, **kwargs)
+        return context
+
+    async def _resolve_credentials(self) -> dict[str, ResolvedCredential]:
+        """Resolve all credential aliases for protocol handlers."""
+        return await resolve_credentials(self._credential_providers)
 
     async def _request_approval(
         self,

@@ -1,22 +1,28 @@
 # -*- coding: utf-8 -*-
-"""Driver card and policy data contracts."""
+"""Driver card contracts and validation."""
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-from dataclasses import dataclass, field
-from typing import Any, Literal, get_args
+from dataclasses import InitVar, dataclass, field, replace
+from typing import Any
 
-from qwenpaw.drivers.capabilities import CapabilityKind
 from qwenpaw.drivers.errors import DriverCardError
+from qwenpaw.drivers.policy_types import (
+    ALLOWED_POLICY_EFFECTS,
+    ALLOWED_POLICY_TARGET_KINDS,
+    DriverPolicy,
+    PolicyCondition,
+    PolicyEffect,
+    PolicyPrincipal,
+    PolicyRule,
+    PolicyTarget,
+    RateLimit,
+    TimeRange,
+    coerce_driver_policy,
+)
 
-PolicyEffect = Literal["allow", "deny", "ask"]
-ALLOWED_POLICY_EFFECTS: frozenset[str] = frozenset(
-    {"allow", "deny", "ask"},
-)
-ALLOWED_POLICY_TARGET_KINDS: frozenset[str] = frozenset(
-    {*get_args(CapabilityKind), "*"},
-)
+NO_CREDENTIAL_KIND = "none"
+DEFAULT_CREDENTIAL_ALIAS = "default"
 
 
 def validate_card_name(name: str) -> None:
@@ -50,7 +56,7 @@ def coerce_credential_ref(value: Any) -> CredentialRef:
             ref=str(value.get("ref") or ""),
         )
     if value is None:
-        return CredentialRef(kind="none")
+        return CredentialRef(kind=NO_CREDENTIAL_KIND)
     return CredentialRef(
         kind=str(getattr(value, "kind", "") or ""),
         ref=str(getattr(value, "ref", "") or ""),
@@ -69,68 +75,9 @@ def coerce_credential_refs(value: Any) -> dict[str, CredentialRef]:
         if not alias_str:
             continue
         ref = coerce_credential_ref(raw_ref)
-        if ref.kind and ref.kind != "none":
+        if ref.kind and ref.kind != NO_CREDENTIAL_KIND:
             result[alias_str] = ref
     return result
-
-
-@dataclass
-class TimeRange:
-    after: str | None = None
-    before: str | None = None
-    weekdays: list[int] | None = None
-
-
-@dataclass
-class RateLimit:
-    max_calls: int
-    window_seconds: int
-
-
-@dataclass
-class PolicyCondition:
-    time_range: TimeRange | None = None
-    rate_limit: RateLimit | None = None
-
-
-@dataclass
-class PolicyTarget:
-    kind: str = "*"
-    name: str = "*"
-
-
-@dataclass
-class PolicyPrincipal:
-    """Structured caller selector for Driver policy rules."""
-
-    source_type: str = "*"
-    source_value: str = "*"
-    subject_type: str = "*"
-    subject_value: str = "*"
-
-
-@dataclass
-class PolicyRule:
-    subject: str = "*"
-    effect: PolicyEffect | str = "ask"
-    target: PolicyTarget = field(default_factory=PolicyTarget)
-    principal: PolicyPrincipal = field(default_factory=PolicyPrincipal)
-    condition: PolicyCondition | None = None
-
-
-@dataclass
-class DriverPolicy:
-    default_effect: PolicyEffect | str = "deny"
-    rules: list[PolicyRule] = field(default_factory=list)
-
-    def __iter__(self) -> Iterator[PolicyRule]:
-        return iter(self.rules)
-
-    def __getitem__(self, index: int) -> PolicyRule:
-        return self.rules[index]
-
-    def __len__(self) -> int:
-        return len(self.rules)
 
 
 @dataclass
@@ -138,104 +85,38 @@ class DriverCard:
     name: str
     protocol: str
     endpoint: dict[str, Any]
-    credential: CredentialRef = field(
-        default_factory=lambda: CredentialRef("none"),
-    )
     credentials: dict[str, CredentialRef] = field(default_factory=dict)
     config: dict[str, Any] = field(default_factory=dict)
     enabled: bool = True
     policy: DriverPolicy = field(default_factory=DriverPolicy)
+    credential: InitVar[Any] = None
 
-    def __post_init__(self) -> None:
+    def __post_init__(self, credential: Any) -> None:
+        credentials = coerce_credential_refs(self.credentials)
+        legacy = coerce_credential_ref(credential)
+        if not credentials and legacy.kind != NO_CREDENTIAL_KIND:
+            credentials = {DEFAULT_CREDENTIAL_ALIAS: legacy}
+        self.credentials = credentials
         self.policy = coerce_driver_policy(self.policy)
-        self.credential = coerce_credential_ref(self.credential)
-        self.credentials = coerce_credential_refs(self.credentials)
-        if not self.credentials and self.credential.kind != "none":
-            self.credentials = {"default": self.credential}
-        if self.credential.kind == "none" and self.credentials:
-            self.credential = self.credentials.get("default") or next(
-                iter(self.credentials.values()),
-            )
+
+
+def coerce_card(card: DriverCard) -> DriverCard:
+    """Return a normalized DriverCard without mutating the input object."""
+    return replace(
+        card,
+        credentials=coerce_credential_refs(card.credentials),
+        policy=coerce_driver_policy(card.policy),
+    )
 
 
 def iter_credential_refs(card: DriverCard) -> dict[str, CredentialRef]:
     """Return the effective credential refs declared by a DriverCard."""
-    if card.credentials:
-        return dict(card.credentials)
-    if card.credential.kind != "none":
-        return {"default": card.credential}
-    return {}
-
-
-def coerce_driver_policy(value: Any) -> DriverPolicy:
-    """Normalize legacy list policies into the DriverPolicy shape."""
-    if isinstance(value, DriverPolicy):
-        return value
-    if value is None:
-        return DriverPolicy()
-    if isinstance(value, list):
-        return DriverPolicy(
-            default_effect="deny",
-            rules=[_coerce_policy_rule(item) for item in value],
-        )
-    if isinstance(value, dict):
-        return DriverPolicy(
-            default_effect=str(value.get("default_effect") or "deny"),
-            rules=[
-                _coerce_policy_rule(item)
-                for item in list(value.get("rules") or [])
-            ],
-        )
-    return DriverPolicy()
-
-
-def _coerce_policy_rule(value: Any) -> PolicyRule:
-    if isinstance(value, PolicyRule):
-        value.target = _coerce_policy_target(value.target)
-        value.principal = _coerce_policy_principal(
-            getattr(value, "principal", None),
-        )
-        return value
-    if isinstance(value, dict):
-        return PolicyRule(
-            subject=str(value.get("subject") or "*"),
-            effect=str(value.get("effect") or "ask"),
-            target=_coerce_policy_target(value.get("target")),
-            principal=_coerce_policy_principal(value.get("principal")),
-            condition=value.get("condition"),
-        )
-    return PolicyRule()
-
-
-def _coerce_policy_target(value: Any) -> PolicyTarget:
-    if isinstance(value, PolicyTarget):
-        return value
-    if isinstance(value, dict):
-        return PolicyTarget(
-            kind=str(value.get("kind") or "*"),
-            name=str(value.get("name") or "*"),
-        )
-    return PolicyTarget()
-
-
-def _coerce_policy_principal(value: Any) -> PolicyPrincipal:
-    if isinstance(value, PolicyPrincipal):
-        return value
-    if isinstance(value, dict):
-        return PolicyPrincipal(
-            source_type=str(value.get("source_type") or "*"),
-            source_value=str(value.get("source_value") or "*"),
-            subject_type=str(value.get("subject_type") or "*"),
-            subject_value=str(value.get("subject_value", "*")),
-        )
-    return PolicyPrincipal()
+    return dict(card.credentials)
 
 
 def validate_card(card: DriverCard) -> None:
-    """Validate the public DriverCard contract."""
+    """Validate the public DriverCard contract without mutating it."""
     _validate_card_identity(card)
-    card.policy = coerce_driver_policy(card.policy)
-    _normalize_card_credentials(card)
     _validate_card_credentials(card)
     _validate_driver_policy(card)
     _validate_endpoint_bindings(card)
@@ -255,23 +136,16 @@ def _validate_card_identity(card: DriverCard) -> None:
         raise DriverCardError(
             f"DriverCard.config must be a mapping for {card.name}",
         )
-
-
-def _normalize_card_credentials(card: DriverCard) -> None:
-    card.credential = coerce_credential_ref(card.credential)
-    card.credentials = coerce_credential_refs(card.credentials)
-    if not card.credentials and card.credential.kind != "none":
-        card.credentials = {"default": card.credential}
-    if card.credential.kind == "none" and card.credentials:
-        card.credential = card.credentials.get("default") or next(
-            iter(card.credentials.values()),
+    if not isinstance(card.policy, DriverPolicy):
+        raise DriverCardError(
+            f"DriverCard.policy must be DriverPolicy for {card.name}",
         )
 
 
 def _validate_card_credentials(card: DriverCard) -> None:
-    if not card.credential.kind or not isinstance(card.credential.kind, str):
+    if not isinstance(card.credentials, dict):
         raise DriverCardError(
-            f"DriverCard {card.name} credential.kind must be non-empty",
+            f"DriverCard {card.name} credentials must be a mapping",
         )
     for alias, credential_ref in card.credentials.items():
         if not alias or not isinstance(alias, str):

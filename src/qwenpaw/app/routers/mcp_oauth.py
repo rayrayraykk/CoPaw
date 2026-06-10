@@ -23,20 +23,15 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
+from qwenpaw.app.driver_config_service import DriverConfigService
 from ...drivers.adapters.mcp_console import (
     attach_mcp_oauth_credential,
     detach_mcp_oauth_credential,
     mcp_oauth_credential_ref,
 )
-from ...drivers.credentials.store import CredentialStore
+from ...drivers.credentials.store import CredentialStoreProtocol
 from ...drivers.credentials.types import CredentialRecord
-from ...drivers.errors import CredentialNotFoundError, DriverCardError
-from ...drivers.storage import (
-    card_path,
-    delete_card_paths_for_name,
-    dump_card,
-    load_card,
-)
+from ...drivers.errors import CredentialNotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -44,14 +39,7 @@ router = APIRouter(prefix="/mcp", tags=["mcp-oauth"])
 
 
 def _mcp_card_path(workspace, client_key: str):
-    try:
-        return card_path(
-            workspace.workspace_dir / "drivers",
-            client_key,
-            protocol="mcp",
-        )
-    except DriverCardError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return DriverConfigService(workspace).card_path(client_key, protocol="mcp")
 
 
 # ---------------------------------------------------------------------------
@@ -604,7 +592,8 @@ async def _persist_tokens(
 
     workspace = await manager.get_agent(agent_id)
     card = _load_mcp_card_for_oauth_value_error(workspace, session.client_key)
-    store = _workspace_credential_store(workspace)
+    config_service = DriverConfigService(workspace)
+    store = config_service.credential_store
     oauth_ref = mcp_oauth_credential_ref(session.client_key)
     existing = _load_optional_credential(store, oauth_ref)
     public = dict(existing.public) if existing else {}
@@ -637,40 +626,24 @@ async def _persist_tokens(
         ),
     )
     card = attach_mcp_oauth_credential(card, oauth_ref)
-    path = _mcp_card_path(workspace, session.client_key)
-    dump_card(
-        card,
-        path,
-    )
-    delete_card_paths_for_name(
-        workspace.workspace_dir / "drivers",
-        session.client_key,
-        keep=path,
-    )
-    await _reload_driver_best_effort(workspace, session.client_key)
+    await config_service.save_card(card)
 
 
-def _workspace_credential_store(workspace) -> CredentialStore:
-    manager = getattr(workspace, "driver_manager", None)
-    if manager is not None:
-        return manager.credential_store
-    return CredentialStore(workspace.workspace_dir / "credentials.yaml")
+def _workspace_credential_store(workspace) -> CredentialStoreProtocol:
+    return DriverConfigService(workspace).credential_store
 
 
 def _load_mcp_card_for_oauth(workspace, client_key: str):
-    path = _mcp_card_path(workspace, client_key)
-    if not path.is_file():
+    try:
+        return DriverConfigService(workspace).load_card(
+            client_key,
+            protocol="mcp",
+        )
+    except HTTPException as exc:
         raise HTTPException(
             status_code=404,
             detail=f"MCP client '{client_key}' not found",
-        )
-    card = load_card(path)
-    if card.protocol != "mcp":
-        raise HTTPException(
-            status_code=404,
-            detail=f"MCP client '{client_key}' not found",
-        )
-    return card
+        ) from exc
 
 
 def _load_mcp_card_for_oauth_value_error(workspace, client_key: str):
@@ -684,7 +657,7 @@ def _load_mcp_card_for_oauth_value_error(workspace, client_key: str):
 
 
 def _load_optional_credential(
-    store: CredentialStore,
+    store: CredentialStoreProtocol,
     ref: str,
 ) -> CredentialRecord | None:
     try:
@@ -704,18 +677,7 @@ def _load_optional_oauth_credential(
 
 
 async def _reload_driver_best_effort(workspace, client_key: str) -> None:
-    manager = getattr(workspace, "driver_manager", None)
-    if manager is None:
-        return
-
-    try:
-        await manager.reload_driver(client_key)
-    except Exception as exc:
-        logger.info(
-            "MCP OAuth driver '%s' saved but not active yet: %s",
-            client_key,
-            exc,
-        )
+    await DriverConfigService(workspace).reload_driver_best_effort(client_key)
 
 
 @router.get("/oauth/callback", response_class=HTMLResponse)
@@ -819,16 +781,10 @@ async def oauth_revoke(
 
     agent = await get_agent_for_request(request)
     card = _load_mcp_card_for_oauth(agent, client_key)
-    store = _workspace_credential_store(agent)
+    config_service = DriverConfigService(agent)
+    store = config_service.credential_store
     store.delete(mcp_oauth_credential_ref(client_key))
     card = detach_mcp_oauth_credential(card)
-    path = _mcp_card_path(agent, client_key)
-    dump_card(card, path)
-    delete_card_paths_for_name(
-        agent.workspace_dir / "drivers",
-        client_key,
-        keep=path,
-    )
-    await _reload_driver_best_effort(agent, client_key)
+    await config_service.save_card(card)
 
     return {"message": "OAuth tokens cleared"}

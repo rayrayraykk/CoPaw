@@ -134,7 +134,9 @@ async def _next_pending_request(
 
 
 @pytest.mark.asyncio
-async def test_guarded_execute_order(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_authorize_invocation_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     events: list[str] = []
 
     def fake_evaluate_policy(*args, **kwargs):
@@ -150,10 +152,13 @@ async def test_guarded_execute_order(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = RecordingProvider(events)
     handler = RecordingHandler(_card(), provider, events)
 
-    result = await handler._guarded_execute("user:alice", value=1)
+    result = await handler._authorize_invocation(
+        "user:alice",
+        extras={"value": 1},
+    )
 
-    assert events == ["policy", "credential", "execute"]
-    assert result["credential"] == {"token": "abc"}
+    assert events == ["policy"]
+    assert result.extras == {"value": 1}
 
 
 @pytest.mark.asyncio
@@ -195,7 +200,7 @@ async def test_deny_does_not_resolve_credential(
     )
 
     with pytest.raises(PermissionDeniedError):
-        await handler._guarded_execute("user:alice")
+        await handler._authorize_invocation("user:alice")
 
     assert not events
 
@@ -212,7 +217,7 @@ async def test_ask_raises_default_approval_required(
     handler = RecordingHandler(_card(), RecordingProvider(events), events)
 
     with pytest.raises(ApprovalRequiredError):
-        await handler._guarded_execute("user:alice")
+        await handler._authorize_invocation("user:alice")
 
     assert not events
 
@@ -240,7 +245,7 @@ async def test_ask_approval_approved_resumes_execution(
         approval_gate=QwenPawDriverApprovalGate(),
     )
     task = asyncio.create_task(
-        handler._guarded_execute(
+        handler._authorize_invocation(
             "user:alice",
             request_context={
                 "session_id": "session-1",
@@ -249,7 +254,7 @@ async def test_ask_approval_approved_resumes_execution(
                 "user_id": "alice",
                 "channel": "console",
             },
-            value=1,
+            extras={"value": 1},
         ),
     )
 
@@ -267,10 +272,10 @@ async def test_ask_approval_approved_resumes_execution(
         ApprovalDecision.APPROVED,
     )
 
-    result = await task
+    context = await task
 
-    assert result["kwargs"] == {"value": 1}
-    assert events == ["credential", "execute"]
+    assert context.extras == {"value": 1}
+    assert events == []
 
 
 @pytest.mark.asyncio
@@ -302,7 +307,7 @@ async def test_ask_approval_adds_tool_display_source_metadata(
         approval_gate=QwenPawDriverApprovalGate(),
     )
     task = asyncio.create_task(
-        handler._guarded_execute(
+        handler._authorize_invocation(
             "user:alice",
             target=PolicyTarget(
                 kind="tool",
@@ -313,7 +318,7 @@ async def test_ask_approval_adds_tool_display_source_metadata(
                 "root_session_id": "session-1",
                 "agent_id": "agent-1",
             },
-            arguments={"query": "qwenpaw"},
+            extras={"arguments": {"query": "qwenpaw"}},
         ),
     )
 
@@ -332,10 +337,10 @@ async def test_ask_approval_adds_tool_display_source_metadata(
         pending.request_id,
         ApprovalDecision.APPROVED,
     )
-    result = await task
+    context = await task
 
-    assert result["kwargs"] == {"arguments": {"query": "qwenpaw"}}
-    assert events == ["credential", "execute"]
+    assert context.extras == {"arguments": {"query": "qwenpaw"}}
+    assert events == []
 
 
 @pytest.mark.asyncio
@@ -361,7 +366,7 @@ async def test_ask_approval_denied_blocks_execution(
         approval_gate=QwenPawDriverApprovalGate(),
     )
     task = asyncio.create_task(
-        handler._guarded_execute(
+        handler._authorize_invocation(
             "user:alice",
             request_context={"session_id": "session-1", "agent_id": "agent-1"},
         ),

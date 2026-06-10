@@ -38,10 +38,13 @@ def test_legacy_stdio_secret_env_to_driver_card_and_credential() -> None:
     )
 
     assert card.endpoint["env"] == {
-        "public": {},
-        "secret_refs": {"TAVILY_API_KEY": "TAVILY_API_KEY"},
+        "TAVILY_API_KEY": {
+            "source": "credential",
+            "credential": "static",
+            "field": "TAVILY_API_KEY",
+        },
     }
-    assert card.credential.ref == "mcp/tavily_search"
+    assert card.credentials["static"].ref == "mcp/tavily_search"
     assert credential is not None
     assert credential.secrets["TAVILY_API_KEY"] == "tvly-xxx"
     assert "tvly-xxx" not in str(card)
@@ -59,11 +62,19 @@ def test_legacy_stdio_public_and_secret_env_split() -> None:
         ),
     )
 
-    assert card.endpoint["env"]["public"] == {
-        "NODE_ENV": "production",
-        "LOG_LEVEL": "info",
+    assert card.endpoint["env"]["NODE_ENV"] == {
+        "source": "literal",
+        "value": "production",
     }
-    assert card.endpoint["env"]["secret_refs"] == {"ECHO_TOKEN": "ECHO_TOKEN"}
+    assert card.endpoint["env"]["LOG_LEVEL"] == {
+        "source": "literal",
+        "value": "info",
+    }
+    assert card.endpoint["env"]["ECHO_TOKEN"] == {
+        "source": "credential",
+        "credential": "static",
+        "field": "ECHO_TOKEN",
+    }
     assert credential is not None
     assert credential.secrets["ECHO_TOKEN"] == "secret-token"
 
@@ -82,12 +93,18 @@ def test_legacy_http_headers_split_public_and_secret() -> None:
         ),
     )
 
-    assert card.endpoint["headers"]["public"] == {
-        "Content-Type": "application/json",
-        "X-Client-Name": "qwenpaw",
+    assert card.endpoint["headers"]["Content-Type"] == {
+        "source": "literal",
+        "value": "application/json",
     }
-    assert card.endpoint["headers"]["secret_refs"] == {
-        "Authorization": "authorization",
+    assert card.endpoint["headers"]["X-Client-Name"] == {
+        "source": "literal",
+        "value": "qwenpaw",
+    }
+    assert card.endpoint["headers"]["Authorization"] == {
+        "source": "credential",
+        "credential": "static",
+        "field": "authorization",
     }
     assert credential is not None
     assert credential.secrets["authorization"] == "Bearer secret-token"
@@ -111,8 +128,8 @@ def test_legacy_oauth_maps_tokens_to_oauth_credential() -> None:
         ),
     )
 
-    assert card.credential.kind == "oauth2_auth_code"
-    assert card.credential.ref == "mcp/oauth_docs/oauth"
+    assert card.credentials["oauth"].kind == "oauth2_auth_code"
+    assert card.credentials["oauth"].ref == "mcp/oauth_docs/oauth"
     assert credential is not None
     assert credential.public["client_id"] == "client-id"
     assert credential.public["scope"] == "read write"
@@ -197,8 +214,15 @@ async def test_migration_writes_card_and_credential(tmp_path: Path) -> None:
     card = load_card(tmp_path / "drivers" / "mcp" / "echo.yaml")
     record = manager.credential_store.get("mcp/echo")
     assert report.migrated[0].client_key == "echo"
-    assert card.endpoint["env"]["public"]["NODE_ENV"] == "production"
-    assert card.endpoint["env"]["secret_refs"]["ECHO_TOKEN"] == "ECHO_TOKEN"
+    assert card.endpoint["env"]["NODE_ENV"] == {
+        "source": "literal",
+        "value": "production",
+    }
+    assert card.endpoint["env"]["ECHO_TOKEN"] == {
+        "source": "credential",
+        "credential": "static",
+        "field": "ECHO_TOKEN",
+    }
     assert card.policy.rules[0].target.kind == "tool"
     assert card.policy.rules[0].target.name == "*"
     assert record.secrets["ECHO_TOKEN"] == "secret-token"

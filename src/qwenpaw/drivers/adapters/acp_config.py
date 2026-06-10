@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from qwenpaw.drivers.contracts import CredentialRef, DriverCard
+from qwenpaw.drivers.contracts import DriverCard
 
 if TYPE_CHECKING:
     from qwenpaw.config.config import ACPAgentConfig, ACPConfig
@@ -25,7 +25,7 @@ def acp_agent_config_to_card(
             "args": list(config.args),
             "env": dict(config.env),
         },
-        credential=CredentialRef(kind="none"),
+        credentials={},
         config={
             "trusted": config.trusted,
             "tool_parse_mode": config.tool_parse_mode,

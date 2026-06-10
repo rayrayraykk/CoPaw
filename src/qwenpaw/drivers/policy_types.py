@@ -1,0 +1,183 @@
+# -*- coding: utf-8 -*-
+"""Driver policy data types and coercion helpers."""
+
+from __future__ import annotations
+
+from collections.abc import Iterator
+from dataclasses import dataclass, field
+from typing import Any, Literal, TypeAlias, cast, get_args
+
+from qwenpaw.drivers.capabilities import CapabilityKind
+
+PolicyEffect: TypeAlias = Literal["allow", "deny", "ask"]
+PolicyTargetKind: TypeAlias = CapabilityKind | Literal["*"]
+
+ALLOWED_POLICY_EFFECTS: frozenset[str] = frozenset(
+    {"allow", "deny", "ask"},
+)
+ALLOWED_POLICY_TARGET_KINDS: frozenset[str] = frozenset(
+    {*get_args(CapabilityKind), "*"},
+)
+
+
+@dataclass
+class TimeRange:
+    after: str | None = None
+    before: str | None = None
+    weekdays: list[int] | None = None
+
+
+@dataclass
+class RateLimit:
+    max_calls: int
+    window_seconds: int
+
+
+@dataclass
+class PolicyCondition:
+    time_range: TimeRange | None = None
+    rate_limit: RateLimit | None = None
+
+
+@dataclass
+class PolicyTarget:
+    kind: PolicyTargetKind = "*"
+    name: str = "*"
+
+
+@dataclass
+class PolicyPrincipal:
+    """Structured caller selector for Driver policy rules."""
+
+    source_type: str = "*"
+    source_value: str = "*"
+    subject_type: str = "*"
+    subject_value: str = "*"
+
+
+@dataclass
+class PolicyRule:
+    subject: str = "*"
+    effect: PolicyEffect = "ask"
+    target: PolicyTarget = field(default_factory=PolicyTarget)
+    principal: PolicyPrincipal = field(default_factory=PolicyPrincipal)
+    condition: PolicyCondition | None = None
+
+
+@dataclass
+class DriverPolicy:
+    default_effect: PolicyEffect = "deny"
+    rules: list[PolicyRule] = field(default_factory=list)
+
+    def __iter__(self) -> Iterator[PolicyRule]:
+        return iter(self.rules)
+
+    def __getitem__(self, index: int) -> PolicyRule:
+        return self.rules[index]
+
+    def __len__(self) -> int:
+        return len(self.rules)
+
+
+def coerce_driver_policy(value: Any) -> DriverPolicy:
+    """Normalize loose/legacy policy data into the DriverPolicy shape."""
+    if isinstance(value, DriverPolicy):
+        return DriverPolicy(
+            default_effect=_coerce_policy_effect(
+                value.default_effect,
+                default="deny",
+            ),
+            rules=[_coerce_policy_rule(item) for item in value.rules],
+        )
+    if value is None:
+        return DriverPolicy()
+    if isinstance(value, list):
+        return DriverPolicy(
+            default_effect="deny",
+            rules=[_coerce_policy_rule(item) for item in value],
+        )
+    if isinstance(value, dict):
+        return DriverPolicy(
+            default_effect=_coerce_policy_effect(
+                value.get("default_effect"),
+                default="deny",
+            ),
+            rules=[
+                _coerce_policy_rule(item)
+                for item in list(value.get("rules") or [])
+            ],
+        )
+    return DriverPolicy()
+
+
+def _coerce_policy_rule(value: Any) -> PolicyRule:
+    if isinstance(value, PolicyRule):
+        return PolicyRule(
+            subject=_coerce_subject(value.subject),
+            effect=_coerce_policy_effect(value.effect, default="ask"),
+            target=_coerce_policy_target(value.target),
+            principal=_coerce_policy_principal(
+                getattr(value, "principal", None),
+            ),
+            condition=value.condition,
+        )
+    if isinstance(value, dict):
+        return PolicyRule(
+            subject=_coerce_subject(value.get("subject", "*")),
+            effect=_coerce_policy_effect(value.get("effect"), default="ask"),
+            target=_coerce_policy_target(value.get("target")),
+            principal=_coerce_policy_principal(value.get("principal")),
+            condition=value.get("condition"),
+        )
+    return PolicyRule()
+
+
+def _coerce_policy_target(value: Any) -> PolicyTarget:
+    if isinstance(value, PolicyTarget):
+        return PolicyTarget(
+            kind=_coerce_target_kind(value.kind),
+            name=str(value.name or "*"),
+        )
+    if isinstance(value, dict):
+        return PolicyTarget(
+            kind=_coerce_target_kind(value.get("kind")),
+            name=str(value.get("name") or "*"),
+        )
+    return PolicyTarget()
+
+
+def _coerce_policy_principal(value: Any) -> PolicyPrincipal:
+    if isinstance(value, PolicyPrincipal):
+        return PolicyPrincipal(
+            source_type=str(value.source_type or "*"),
+            source_value=str(value.source_value or "*"),
+            subject_type=str(value.subject_type or "*"),
+            subject_value=str(value.subject_value),
+        )
+    if isinstance(value, dict):
+        return PolicyPrincipal(
+            source_type=str(value.get("source_type") or "*"),
+            source_value=str(value.get("source_value") or "*"),
+            subject_type=str(value.get("subject_type") or "*"),
+            subject_value=str(value.get("subject_value", "*")),
+        )
+    return PolicyPrincipal()
+
+
+def _coerce_policy_effect(
+    value: Any,
+    *,
+    default: PolicyEffect,
+) -> PolicyEffect:
+    text = str(value or default)
+    return cast(PolicyEffect, text)
+
+
+def _coerce_target_kind(value: Any) -> PolicyTargetKind:
+    return cast(PolicyTargetKind, str(value or "*"))
+
+
+def _coerce_subject(value: Any) -> str:
+    if value is None:
+        return "*"
+    return str(value)

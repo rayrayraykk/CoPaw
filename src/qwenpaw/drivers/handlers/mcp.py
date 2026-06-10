@@ -20,7 +20,6 @@ from qwenpaw.drivers.contracts import DriverCard, PolicyTarget
 from qwenpaw.drivers.credentials.bindings import (
     implicit_auth_headers,
     resolve_binding,
-    resolve_credentials,
 )
 from qwenpaw.drivers.handlers.mcp_stateful_client import (
     HttpStatefulClient,
@@ -204,8 +203,26 @@ class MCPDriverHandler(DriverHandler):
             )
         return DriverInvocationResult(ok=True, value=value)
 
-    async def _resolve_credentials(self) -> dict[str, ResolvedCredential]:
-        return await resolve_credentials(self._credential_providers)
+    async def _guarded_execute(
+        self,
+        subject: str,
+        operation: str = "invoke",
+        request_context: dict[str, str] | None = None,
+        target: PolicyTarget | None = None,
+        subjects: list[str] | tuple[str, ...] | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        """MCP request-response policy + credential scaffold."""
+        context = await self._authorize_invocation(
+            subject,
+            operation=operation,
+            target=target,
+            request_context=request_context,
+            subjects=subjects,
+            extras=dict(kwargs),
+        )
+        credential = await self._credential_provider.resolve()
+        return await self._execute(credential, context, **kwargs)
 
 
 def validate_mcp_endpoint(card: DriverCard) -> None:
