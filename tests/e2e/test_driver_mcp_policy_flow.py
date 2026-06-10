@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from qwenpaw.app.approvals.driver_gate import QwenPawDriverApprovalGate
 from qwenpaw.app.approvals.service import ApprovalService
 from qwenpaw.drivers.capabilities import DriverInvocation
 from qwenpaw.drivers.contracts import CredentialRef, DriverCard, PolicyRule
@@ -33,17 +34,32 @@ async def _registry_with_policy(
         ),
         card_path(tmp_path / "drivers", "policy_echo", protocol="mcp"),
     )
-    manager = DriverManager(tmp_path / "drivers", store)
+    manager = DriverManager(
+        tmp_path / "drivers",
+        store,
+        approval_gate=QwenPawDriverApprovalGate(),
+    )
     manager.register_handler_type("mcp", MCPDriverHandler)
     await manager.build_drivers()
     return manager
 
 
-async def _next_pending_request(service: ApprovalService):
+async def _next_pending_request(
+    service: ApprovalService,
+    task: asyncio.Task,
+):
     # pylint: disable=protected-access
-    while not service._pending:
+    for _ in range(1000):
+        if service._pending:
+            return next(iter(service._pending.values()))
+        if task.done():
+            result = await task
+            raise AssertionError(
+                "Driver invocation completed before creating approval "
+                f"request: {result}",
+            )
         await asyncio.sleep(0)
-    return next(iter(service._pending.values()))
+    raise AssertionError("Timed out waiting for approval request")
 
 
 @pytest.mark.asyncio
@@ -103,7 +119,7 @@ async def test_driver_mcp_policy_ask_approve_resumes_client_call(
         ),
     )
 
-    pending = await _next_pending_request(service)
+    pending = await _next_pending_request(service, task)
     assert pending.result_summary == (
         "Tool 'echo' from 'mcp:policy_echo' requires approval for invoke."
     )
