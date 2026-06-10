@@ -184,7 +184,8 @@ class MCPDriverHandler(DriverHandler):
             )
         except Exception as exc:
             logger.warning(
-                "MCP capability invocation failed for Driver '%s' tool '%s': %s",
+                "MCP capability invocation failed for Driver '%s' "
+                "tool '%s': %s",
                 self.name,
                 tool_name,
                 exc,

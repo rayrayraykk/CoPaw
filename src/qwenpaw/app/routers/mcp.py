@@ -369,7 +369,9 @@ def _workspace_cards_dir(agent: Any):
 def _mcp_card_path(agent: Any, client_key: str):
     try:
         return card_path(
-            _workspace_cards_dir(agent), client_key, protocol="mcp"
+            _workspace_cards_dir(agent),
+            client_key,
+            protocol="mcp",
         )
     except DriverCardError as exc:
         raise HTTPException(400, detail=str(exc)) from exc

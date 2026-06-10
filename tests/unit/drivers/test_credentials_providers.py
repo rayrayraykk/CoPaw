@@ -163,7 +163,7 @@ async def test_standard_oauth_exchanger_reports_missing_access_token(
     monkeypatch.setattr(
         providers_module.httpx,
         "AsyncClient",
-        lambda: FakeOAuthClient(),
+        FakeOAuthClient,
     )
 
     with pytest.raises(
