@@ -115,6 +115,41 @@ policy:
     assert loaded.policy.rules[0].target.name == "*"
 
 
+def test_load_policy_principal_empty_source_value_as_wildcard(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "source.yaml"
+    path.write_text(
+        """
+name: demo
+protocol: mcp
+endpoint:
+  transport: stdio
+  command: demo
+credential:
+  kind: none
+policy:
+  default_effect: deny
+  rules:
+    - subject: "*"
+      effect: allow
+      target:
+        kind: tool
+        name: echo
+      principal:
+        source_type: channel
+        source_value: ""
+        subject_type: all
+        subject_value: ""
+""",
+        encoding="utf-8",
+    )
+
+    loaded = load_card(path)
+
+    assert loaded.policy.rules[0].principal.source_value == "*"
+
+
 def test_load_card_missing_required_field_raises(tmp_path: Path) -> None:
     path = tmp_path / "bad.yaml"
     path.write_text("name: demo\nprotocol: mcp\n", encoding="utf-8")

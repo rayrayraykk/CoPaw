@@ -219,7 +219,7 @@ def _coerce_policy_principal(value: Any) -> PolicyPrincipal:
     if isinstance(value, dict):
         return PolicyPrincipal(
             source_type=str(value.get("source_type") or "*"),
-            source_value=str(value.get("source_value", "*")),
+            source_value=str(value.get("source_value") or "*"),
             subject_type=str(value.get("subject_type") or "*"),
             subject_value=str(value.get("subject_value", "*")),
         )
@@ -314,6 +314,14 @@ def _validate_driver_policy(card: DriverCard) -> None:
                     f"DriverCard {card.name} policy principal."
                     f"{field_name} must be a string",
                 )
+        if (
+            rule.principal.subject_type.strip().lower() == "user"
+            and not rule.principal.subject_value.strip()
+        ):
+            raise DriverCardError(
+                f"DriverCard {card.name} policy principal.subject_value "
+                "must be non-empty when subject_type is user",
+            )
 
 
 def _validate_endpoint_bindings(card: DriverCard) -> None:

@@ -8,7 +8,10 @@ from qwenpaw.drivers.capabilities import (
 from qwenpaw.drivers.contracts import (
     CredentialRef,
     DriverCard,
+    DriverPolicy,
+    PolicyPrincipal,
     PolicyRule,
+    PolicyTarget,
     validate_card,
 )
 from qwenpaw.drivers.errors import DriverCardError
@@ -61,6 +64,33 @@ def test_validate_card_rejects_invalid_policy_effect() -> None:
     )
 
     with pytest.raises(DriverCardError, match="invalid policy effect"):
+        validate_card(card)
+
+
+def test_validate_card_rejects_user_principal_without_value() -> None:
+    card = DriverCard(
+        name="demo",
+        protocol="mcp",
+        endpoint={},
+        credential=CredentialRef(kind="none"),
+        policy=DriverPolicy(
+            rules=[
+                PolicyRule(
+                    subject="*",
+                    effect="allow",
+                    target=PolicyTarget(kind="tool", name="echo"),
+                    principal=PolicyPrincipal(
+                        source_type="channel",
+                        source_value="console",
+                        subject_type="user",
+                        subject_value="",
+                    ),
+                ),
+            ],
+        ),
+    )
+
+    with pytest.raises(DriverCardError, match="subject_value"):
         validate_card(card)
 
 

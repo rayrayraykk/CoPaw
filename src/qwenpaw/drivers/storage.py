@@ -310,7 +310,7 @@ def _policy_principal_from_mapping(value: Any, path: Path) -> PolicyPrincipal:
         )
     return PolicyPrincipal(
         source_type=str(value.get("source_type") or "*"),
-        source_value=str(value.get("source_value", "*")),
+        source_value=str(value.get("source_value") or "*"),
         subject_type=str(value.get("subject_type") or "*"),
         subject_value=str(value.get("subject_value", "*")),
     )

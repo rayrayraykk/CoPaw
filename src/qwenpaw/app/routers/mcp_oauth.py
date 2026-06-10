@@ -647,7 +647,7 @@ async def _persist_tokens(
         session.client_key,
         keep=path,
     )
-    _reload_driver_background(workspace, session.client_key)
+    await _reload_driver_best_effort(workspace, session.client_key)
 
 
 def _workspace_credential_store(workspace) -> CredentialStore:
@@ -703,24 +703,19 @@ def _load_optional_oauth_credential(
     )
 
 
-def _reload_driver_background(workspace, client_key: str) -> None:
+async def _reload_driver_best_effort(workspace, client_key: str) -> None:
     manager = getattr(workspace, "driver_manager", None)
     if manager is None:
         return
 
-    async def _reload() -> None:
-        try:
-            await manager.reload_driver(client_key)
-        except Exception as exc:
-            logger.info(
-                "MCP OAuth driver '%s' saved but not active yet: %s",
-                client_key,
-                exc,
-            )
-
-    import asyncio
-
-    asyncio.create_task(_reload())
+    try:
+        await manager.reload_driver(client_key)
+    except Exception as exc:
+        logger.info(
+            "MCP OAuth driver '%s' saved but not active yet: %s",
+            client_key,
+            exc,
+        )
 
 
 @router.get("/oauth/callback", response_class=HTMLResponse)
@@ -834,6 +829,6 @@ async def oauth_revoke(
         client_key,
         keep=path,
     )
-    _reload_driver_background(agent, client_key)
+    await _reload_driver_best_effort(agent, client_key)
 
     return {"message": "OAuth tokens cleared"}
