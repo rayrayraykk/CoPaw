@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Read-only helpers for extracting channel credential candidates."""
 
 from __future__ import annotations

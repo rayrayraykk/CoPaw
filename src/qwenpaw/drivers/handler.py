@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """DriverHandler template method base class."""
 
 from __future__ import annotations
@@ -58,10 +59,12 @@ class DriverHandler(ABC):
                 await provider.close()
 
     @abstractmethod
-    async def _setup(self) -> None: ...
+    async def _setup(self) -> None:
+        ...
 
     @abstractmethod
-    async def _teardown(self) -> None: ...
+    async def _teardown(self) -> None:
+        ...
 
     async def list_capabilities(
         self,
@@ -116,7 +119,10 @@ class DriverHandler(ABC):
         credential = await self._credential_provider.resolve()
         return await self._execute(credential, context, **kwargs)
 
-    async def _request_approval(self, context: DriverInvocationContext) -> None:
+    async def _request_approval(
+        self,
+        context: DriverInvocationContext,
+    ) -> None:
         # Reuse QwenPaw's approval Future flow: this coroutine pauses until the
         # console or command approval endpoint resolves the pending request.
         ctx = context.request_context
@@ -134,7 +140,8 @@ class DriverHandler(ABC):
             )
         else:
             result_summary = (
-                f"Driver '{driver_ref}' requires approval for {context.operation}."
+                f"Driver '{driver_ref}' requires approval for "
+                f"{context.operation}."
             )
         if not session_id:
             raise ApprovalRequiredError(
@@ -158,7 +165,9 @@ class DriverHandler(ABC):
         pending = await svc.create_pending_summary(
             session_id=session_id,
             root_session_id=str(ctx.get("root_session_id") or session_id),
-            owner_agent_id=str(ctx.get("root_agent_id") or ctx.get("agent_id") or ""),
+            owner_agent_id=str(
+                ctx.get("root_agent_id") or ctx.get("agent_id") or "",
+            ),
             user_id=str(ctx.get("user_id") or ""),
             channel=str(ctx.get("channel") or ""),
             agent_id=str(ctx.get("agent_id") or "unknown"),
@@ -208,14 +217,18 @@ class DriverHandler(ABC):
         credential: ResolvedCredential,
         context: DriverInvocationContext,
         **kwargs: Any,
-    ) -> Any: ...
+    ) -> Any:
+        ...
 
     def set_policy(self, policy: DriverPolicy | list[PolicyRule]) -> None:
         self._card.policy = coerce_driver_policy(policy)
 
     def sync_runtime_metadata(self, card: DriverCard) -> None:
-        """Apply DriverCard fields that are safe to refresh without reconnecting."""
-        if card.name != self._card.name or card.protocol != self._card.protocol:
+        """Refresh DriverCard fields that do not require reconnecting."""
+        if (
+            card.name != self._card.name
+            or card.protocol != self._card.protocol
+        ):
             return
         self._card.config = dict(card.config)
         self._card.policy = coerce_driver_policy(card.policy)

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from datetime import datetime, timezone
 
 from qwenpaw.drivers.contracts import (
@@ -66,7 +67,7 @@ def test_context_subject_set_matches_secondary_app_subject() -> None:
                 subject="app:finance",
                 effect="allow",
                 target=PolicyTarget(kind="tool", name="echo"),
-            )
+            ),
         ],
     )
     context = PolicyContext(
@@ -80,7 +81,9 @@ def test_context_subject_set_matches_secondary_app_subject() -> None:
     assert evaluate_policy(policy, context) == "allow"
 
 
-def test_structured_principal_matches_source_and_user_with_and_semantics() -> None:
+def test_structured_principal_matches_source_and_user_with_and_semantics() -> (
+    None
+):
     policy = DriverPolicy(
         default_effect="deny",
         rules=[
@@ -94,7 +97,7 @@ def test_structured_principal_matches_source_and_user_with_and_semantics() -> No
                     subject_type="user",
                     subject_value="alice",
                 ),
-            )
+            ),
         ],
     )
 
@@ -273,7 +276,7 @@ def test_new_tool_without_override_uses_default_effect() -> None:
                 subject="*",
                 effect="allow",
                 target=PolicyTarget(kind="tool", name="echo"),
-            )
+            ),
         ],
     )
 

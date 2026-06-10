@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Driver manager and lifecycle owner."""
 
 from __future__ import annotations
@@ -21,7 +22,11 @@ from qwenpaw.drivers.errors import (
     UnsupportedProtocolError,
 )
 from qwenpaw.drivers.handler import DriverHandler
-from qwenpaw.drivers.contracts import DriverCard, iter_credential_refs, validate_card
+from qwenpaw.drivers.contracts import (
+    DriverCard,
+    iter_credential_refs,
+    validate_card,
+)
 from qwenpaw.drivers.storage import (
     card_path,
     card_paths_for_name,
@@ -78,7 +83,10 @@ class DriverManager:
                 continue
             try:
                 if not card.enabled:
-                    logger.debug("Driver '%s' is disabled; skipping", card.name)
+                    logger.debug(
+                        "Driver '%s' is disabled; skipping",
+                        card.name,
+                    )
                     continue
                 handler = await self._build_and_init_handler(card)
                 built[card.name] = handler
@@ -239,11 +247,16 @@ class DriverManager:
             raise DriverNotFoundError(name)
         return handler
 
-    def _iter_handlers(self, protocol: str | None = None) -> list[DriverHandler]:
+    def _iter_handlers(
+        self,
+        protocol: str | None = None,
+    ) -> list[DriverHandler]:
         handlers = list(self._handlers.values())
         if protocol is not None:
             handlers = [
-                handler for handler in handlers if handler.card.protocol == protocol
+                handler
+                for handler in handlers
+                if handler.card.protocol == protocol
             ]
         return sorted(handlers, key=lambda handler: handler.name)
 
@@ -269,7 +282,9 @@ class DriverManager:
                 alias: build_provider(ref, self._credential_store)
                 for alias, ref in refs.items()
             }
-            primary = providers.get("default") or next(iter(providers.values()))
+            primary = providers.get("default") or next(
+                iter(providers.values()),
+            )
         else:
             primary = build_provider(card.credential, self._credential_store)
             providers = {"default": primary}

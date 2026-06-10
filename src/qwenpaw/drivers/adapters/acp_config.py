@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Adapters from ACP config to DriverCard."""
 
 from __future__ import annotations

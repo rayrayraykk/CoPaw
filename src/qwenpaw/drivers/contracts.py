@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Driver card and policy data contracts."""
 
 from __future__ import annotations
@@ -119,7 +120,9 @@ class DriverCard:
     name: str
     protocol: str
     endpoint: dict[str, Any]
-    credential: CredentialRef = field(default_factory=lambda: CredentialRef("none"))
+    credential: CredentialRef = field(
+        default_factory=lambda: CredentialRef("none"),
+    )
     credentials: dict[str, CredentialRef] = field(default_factory=dict)
     config: dict[str, Any] = field(default_factory=dict)
     enabled: bool = True
@@ -161,7 +164,8 @@ def coerce_driver_policy(value: Any) -> DriverPolicy:
         return DriverPolicy(
             default_effect=str(value.get("default_effect") or "deny"),
             rules=[
-                _coerce_policy_rule(item) for item in list(value.get("rules") or [])
+                _coerce_policy_rule(item)
+                for item in list(value.get("rules") or [])
             ],
         )
     return DriverPolicy()
@@ -211,7 +215,15 @@ def _coerce_policy_principal(value: Any) -> PolicyPrincipal:
 
 def validate_card(card: DriverCard) -> None:
     """Validate the public DriverCard contract."""
+    _validate_card_identity(card)
     card.policy = coerce_driver_policy(card.policy)
+    _normalize_card_credentials(card)
+    _validate_card_credentials(card)
+    _validate_driver_policy(card)
+    _validate_endpoint_bindings(card)
+
+
+def _validate_card_identity(card: DriverCard) -> None:
     if not card.name or not isinstance(card.name, str):
         raise DriverCardError("DriverCard.name must be a non-empty string")
     if not card.protocol or not isinstance(card.protocol, str):
@@ -226,6 +238,9 @@ def validate_card(card: DriverCard) -> None:
         raise DriverCardError(
             f"DriverCard.config must be a mapping for {card.name}",
         )
+
+
+def _normalize_card_credentials(card: DriverCard) -> None:
     card.credential = coerce_credential_ref(card.credential)
     card.credentials = coerce_credential_refs(card.credentials)
     if not card.credentials and card.credential.kind != "none":
@@ -235,6 +250,8 @@ def validate_card(card: DriverCard) -> None:
             iter(card.credentials.values()),
         )
 
+
+def _validate_card_credentials(card: DriverCard) -> None:
     if not card.credential.kind or not isinstance(card.credential.kind, str):
         raise DriverCardError(
             f"DriverCard {card.name} credential.kind must be non-empty",
@@ -242,13 +259,17 @@ def validate_card(card: DriverCard) -> None:
     for alias, credential_ref in card.credentials.items():
         if not alias or not isinstance(alias, str):
             raise DriverCardError(
-                f"DriverCard {card.name} credentials aliases must be non-empty strings",
+                f"DriverCard {card.name} credentials aliases must be "
+                "non-empty strings",
             )
         if not credential_ref.kind or not isinstance(credential_ref.kind, str):
             raise DriverCardError(
-                f"DriverCard {card.name} credentials.{alias}.kind must be non-empty",
+                f"DriverCard {card.name} credentials.{alias}.kind must be "
+                "non-empty",
             )
 
+
+def _validate_driver_policy(card: DriverCard) -> None:
     if card.policy.default_effect not in ALLOWED_POLICY_EFFECTS:
         raise DriverCardError(
             f"DriverCard {card.name} has invalid default policy effect: "
@@ -258,7 +279,8 @@ def validate_card(card: DriverCard) -> None:
     for rule in card.policy.rules:
         if rule.effect not in ALLOWED_POLICY_EFFECTS:
             raise DriverCardError(
-                f"DriverCard {card.name} has invalid policy effect: " f"{rule.effect}",
+                f"DriverCard {card.name} has invalid policy effect: "
+                f"{rule.effect}",
             )
         if not rule.target.kind or not isinstance(rule.target.kind, str):
             raise DriverCardError(
@@ -281,8 +303,6 @@ def validate_card(card: DriverCard) -> None:
                     f"{field_name} must be a string",
                 )
 
-    _validate_endpoint_bindings(card)
-
 
 def _validate_endpoint_bindings(card: DriverCard) -> None:
     # Binding sections keep the DriverCard secret-free: public values are
@@ -293,7 +313,8 @@ def _validate_endpoint_bindings(card: DriverCard) -> None:
             continue
         if not isinstance(section, dict):
             raise DriverCardError(
-                f"DriverCard {card.name} endpoint.{section_name} " "must be a mapping",
+                f"DriverCard {card.name} endpoint.{section_name} "
+                "must be a mapping",
             )
         if "public" not in section and "secret_refs" not in section:
             _validate_value_source_bindings(card, section_name, section)
@@ -325,30 +346,35 @@ def _validate_value_source_bindings(
                 continue
             if source != "credential":
                 raise DriverCardError(
-                    f"DriverCard {card.name} endpoint.{section_name}.{output_name} "
+                    f"DriverCard {card.name} endpoint.{section_name}."
+                    f"{output_name} "
                     f"has invalid source: {source}",
                 )
             alias = str(spec.get("credential") or "")
             field_name = str(spec.get("field") or "")
             if not alias:
                 raise DriverCardError(
-                    f"DriverCard {card.name} endpoint.{section_name}.{output_name} "
+                    f"DriverCard {card.name} endpoint.{section_name}."
+                    f"{output_name} "
                     "credential source must name a credential alias",
                 )
             if alias not in aliases:
                 raise DriverCardError(
-                    f"DriverCard {card.name} endpoint.{section_name}.{output_name} "
+                    f"DriverCard {card.name} endpoint.{section_name}."
+                    f"{output_name} "
                     f"references unknown credential alias: {alias}",
                 )
             if not field_name:
                 raise DriverCardError(
-                    f"DriverCard {card.name} endpoint.{section_name}.{output_name} "
+                    f"DriverCard {card.name} endpoint.{section_name}."
+                    f"{output_name} "
                     "credential source must name a field",
                 )
             fmt = spec.get("format")
             if fmt is not None and not isinstance(fmt, str):
                 raise DriverCardError(
-                    f"DriverCard {card.name} endpoint.{section_name}.{output_name} "
+                    f"DriverCard {card.name} endpoint.{section_name}."
+                    f"{output_name} "
                     "format must be a string",
                 )
 

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from pathlib import Path
 
 import pytest
@@ -61,7 +62,11 @@ async def test_driver_manager_skips_disabled_card(tmp_path: Path) -> None:
     workspace = Workspace("agent", str(tmp_path / "agent"))
     dump_card(
         _a2a_card("disabled", enabled=False),
-        card_path(workspace.workspace_dir / "drivers", "disabled", protocol="a2a"),
+        card_path(
+            workspace.workspace_dir / "drivers",
+            "disabled",
+            protocol="a2a",
+        ),
     )
 
     manager = await _start_driver_service(workspace)
@@ -76,7 +81,11 @@ async def test_driver_manager_shutdown_all_on_service_stop(
     workspace = Workspace("agent", str(tmp_path / "agent"))
     dump_card(
         _a2a_card("enabled"),
-        card_path(workspace.workspace_dir / "drivers", "enabled", protocol="a2a"),
+        card_path(
+            workspace.workspace_dir / "drivers",
+            "enabled",
+            protocol="a2a",
+        ),
     )
     manager = await _start_driver_service(workspace)
 

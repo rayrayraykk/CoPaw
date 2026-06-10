@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from __future__ import annotations
 
 from typing import Any
@@ -34,8 +35,8 @@ class FakeStdIOClient:
         if name == "get_secret_status":
             return {
                 "has_secret": bool(
-                    self.kwargs.get("env", {}).get("ECHO_SECRET")
-                )
+                    self.kwargs.get("env", {}).get("ECHO_SECRET"),
+                ),
             }
         return {"echo": arguments}
 

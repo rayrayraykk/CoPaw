@@ -22,7 +22,9 @@ def _approval_display_fields(pending: Any) -> dict[str, str]:
     if not isinstance(display, dict):
         display = {}
     return {
-        "tool_display_name": str(display.get("tool_name") or pending.tool_name),
+        "tool_display_name": str(
+            display.get("tool_name") or pending.tool_name,
+        ),
         "tool_source": str(display.get("tool_source") or "builtin"),
     }
 

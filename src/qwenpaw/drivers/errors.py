@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Driver subsystem errors."""
 
 from __future__ import annotations

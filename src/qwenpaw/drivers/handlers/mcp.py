@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """MCP Driver handler."""
 
 from __future__ import annotations
@@ -149,7 +150,9 @@ class MCPDriverHandler(DriverHandler):
             return DriverInvocationResult(
                 ok=False,
                 error_type="unsupported_capability",
-                message=(f"Unsupported MCP capability: {invocation.capability_id}"),
+                message=(
+                    f"Unsupported MCP capability: {invocation.capability_id}"
+                ),
             )
         subjects = _subjects_from_context(invocation.request_context)
         subject = subjects[0]
@@ -266,11 +269,14 @@ def _resolve_value_source(
 
     alias = str(spec.get("credential") or "default")
     field = str(spec.get("field") or "")
-    if not field:
-        return None
-    value = _lookup_credential_value(credentials, f"{alias}.{field}")
+    value = (
+        _lookup_credential_value(credentials, f"{alias}.{field}")
+        if field
+        else None
+    )
     if value is None:
         return None
+
     text = str(value)
     fmt = spec.get("format")
     if isinstance(fmt, str) and fmt:
@@ -367,7 +373,8 @@ def _mcp_tool_to_capability(
         fallback=driver_name,
     )
     description = str(
-        getattr(raw_tool, "description", getattr(tool, "description", "")) or "",
+        getattr(raw_tool, "description", getattr(tool, "description", ""))
+        or "",
     )
     if display_namespace != driver_name:
         description = (

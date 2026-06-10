@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Runtime credential value types."""
 
 from __future__ import annotations

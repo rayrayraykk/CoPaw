@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from qwenpaw.config.config import (
     ACPAgentConfig,
     ACPConfig,

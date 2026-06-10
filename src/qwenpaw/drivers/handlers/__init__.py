@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Driver handler implementations."""
 
 from qwenpaw.drivers.handlers.a2a import A2ADriverHandler

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from pathlib import Path
 
 import pytest
@@ -62,4 +63,7 @@ async def test_driver_mcp_http_header_secret_flow(
     assert result.ok is True
     assert result.value["headers"]["Authorization"] == "Bearer static-token"
     assert result.value["headers"]["X-Client-Name"] == "qwenpaw-test"
-    assert FakeHttpClient.instances[0].kwargs["headers"] == result.value["headers"]
+    assert (
+        FakeHttpClient.instances[0].kwargs["headers"]
+        == result.value["headers"]
+    )

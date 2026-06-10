@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import asyncio
 from typing import Any
 
@@ -5,7 +6,10 @@ import pytest
 
 from qwenpaw.drivers.credentials.types import ResolvedCredential
 from qwenpaw.drivers.capabilities import DriverInvocation, parse_capability_id
-from qwenpaw.drivers.handlers.mcp import MCPDriverHandler, _subjects_from_context
+from qwenpaw.drivers.handlers.mcp import (
+    MCPDriverHandler,
+    _subjects_from_context,
+)
 from qwenpaw.drivers.contracts import CredentialRef, DriverCard, PolicyRule
 
 
@@ -77,7 +81,10 @@ def fake_clients(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def _card(endpoint: dict[str, Any], credential_kind: str = "none") -> DriverCard:
+def _card(
+    endpoint: dict[str, Any],
+    credential_kind: str = "none",
+) -> DriverCard:
     return DriverCard(
         name="demo",
         protocol="mcp",
@@ -94,7 +101,7 @@ def test_subjects_from_context_includes_user_app_channel_and_session() -> None:
             "agent_id": "finance",
             "channel": "console",
             "session_id": "s1",
-        }
+        },
     ) == (
         "user:alice",
         "session:s1",
@@ -147,7 +154,7 @@ async def test_stdio_connect_cancellation_closes_partial_client() -> None:
 
     client = FakeStdIOClient.instances[0]
     assert client.closed
-    assert handler._client is None
+    assert getattr(handler, "_client") is None
 
 
 @pytest.mark.asyncio
@@ -243,7 +250,9 @@ async def test_display_name_is_used_as_tool_namespace() -> None:
         "invoke",
         "tool",
     )
-    assert "MCP server display name: aone-code-platform" in (capability.description)
+    assert "MCP server display name: aone-code-platform" in (
+        capability.description
+    )
 
 
 @pytest.mark.asyncio

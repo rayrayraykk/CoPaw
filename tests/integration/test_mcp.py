@@ -288,7 +288,9 @@ def test_mcp_create_writes_driver_card_and_credentials_not_agent_json(
             (workspace_dir / "agent.json").read_text(encoding="utf-8"),
         )
         card = yaml.safe_load(card_path.read_text(encoding="utf-8"))
-        credentials = yaml.safe_load(credentials_path.read_text(encoding="utf-8"))
+        credentials = yaml.safe_load(
+            credentials_path.read_text(encoding="utf-8"),
+        )
 
         assert not flat_card_path.exists()
         assert card["protocol"] == "mcp"

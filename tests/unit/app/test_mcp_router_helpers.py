@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -48,8 +49,8 @@ async def test_ensure_mcp_driver_active_allows_active_driver() -> None:
                 protocol="mcp",
                 enabled=True,
                 status="active",
-            )
-        ]
+            ),
+        ],
     )
 
     await _ensure_mcp_driver_active(manager, "demo")
@@ -64,8 +65,8 @@ async def test_ensure_mcp_driver_active_rejects_inactive_driver() -> None:
                 protocol="mcp",
                 enabled=True,
                 status="inactive",
-            )
-        ]
+            ),
+        ],
     )
 
     with pytest.raises(HTTPException) as exc_info:
@@ -193,10 +194,10 @@ async def test_get_mcp_policy_reads_saved_policy_without_driver_manager(
             subject_type="all",
             subject_value="",
             effect="allow",
-        )
+        ),
     ]
     assert policy.tool_defaults == [
-        MCPToolDefaultPolicy(tool_name="search", effect="deny")
+        MCPToolDefaultPolicy(tool_name="search", effect="deny"),
     ]
     assert policy.tool_overrides == [
         MCPToolAccessOverride(
@@ -220,7 +221,7 @@ async def test_get_mcp_policy_reads_saved_policy_without_driver_manager(
 
 
 @pytest.mark.asyncio
-async def test_update_mcp_policy_replaces_console_rules_and_preserves_unmanaged(
+async def test_update_mcp_policy_replaces_rules_and_preserves_unmanaged(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -300,10 +301,10 @@ async def test_update_mcp_policy_replaces_console_rules_and_preserves_unmanaged(
             subject_type="all",
             subject_value="",
             effect="allow",
-        )
+        ),
     ]
     assert updated.tool_defaults == [
-        MCPToolDefaultPolicy(tool_name="search", effect="deny")
+        MCPToolDefaultPolicy(tool_name="search", effect="deny"),
     ]
     assert updated.tool_overrides == [
         MCPToolAccessOverride(
@@ -313,7 +314,7 @@ async def test_update_mcp_policy_replaces_console_rules_and_preserves_unmanaged(
             subject_type="all",
             subject_value="",
             effect="ask",
-        )
+        ),
     ]
     assert updated.unmanaged_rules_count == 1
     assert [

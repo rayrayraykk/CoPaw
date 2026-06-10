@@ -42,7 +42,9 @@ def _approval_display_fields(pending: Any) -> dict[str, str]:
     if not isinstance(display, dict):
         display = {}
     return {
-        "tool_display_name": str(display.get("tool_name") or pending.tool_name),
+        "tool_display_name": str(
+            display.get("tool_name") or pending.tool_name,
+        ),
         "tool_source": str(display.get("tool_source") or "builtin"),
     }
 
@@ -107,7 +109,8 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
                 # Coerce raw dicts to typed Content models so downstream
                 # getattr checks (e.g. _content_has_text) see real attrs.
                 content_parts.extend(
-                    _coerce_content_item(c) for c in (content_part["content"] or [])
+                    _coerce_content_item(c)
+                    for c in (content_part["content"] or [])
                 )
 
     native_payload = {
@@ -310,7 +313,8 @@ async def post_console_upload(
     if len(data) > MAX_UPLOAD_BYTES:
         raise HTTPException(
             status_code=400,
-            detail="File too large (max " f"{MAX_UPLOAD_BYTES // (1024 * 1024)} MB)",
+            detail="File too large (max "
+            f"{MAX_UPLOAD_BYTES // (1024 * 1024)} MB)",
         )
     safe_name = _safe_filename(file.filename or "file")
     stored_name = f"{uuid.uuid4().hex}_{safe_name}"

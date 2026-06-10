@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """ACP Driver handler skeleton for future integration."""
 
 from __future__ import annotations

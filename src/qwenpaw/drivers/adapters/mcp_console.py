@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Console MCP DTO adapters for DriverCard and CredentialRecord."""
 
 from __future__ import annotations
@@ -215,7 +216,9 @@ def build_mcp_client_info_payload(
         "access_summary": {
             "default_effect": card.policy.default_effect,
             "overrides_count": sum(
-                1 for rule in card.policy.rules if _is_tool_access_override(rule)
+                1
+                for rule in card.policy.rules
+                if _is_tool_access_override(rule)
             ),
         },
     }
@@ -254,9 +257,12 @@ def mcp_oauth_credential_ref(client_key: str) -> str:
 
 
 def attach_mcp_oauth_credential(card: DriverCard, ref: str) -> DriverCard:
-    """Return a card with an OAuth credential source and bearer header binding."""
+    """Return a card with OAuth source and bearer header binding."""
     credentials = _credential_refs_from_existing(card)
-    credentials[OAUTH_CREDENTIAL_ALIAS] = CredentialRef("oauth2_auth_code", ref)
+    credentials[OAUTH_CREDENTIAL_ALIAS] = CredentialRef(
+        "oauth2_auth_code",
+        ref,
+    )
     endpoint = dict(card.endpoint)
     if str(endpoint.get("transport") or "stdio") != "stdio":
         headers = dict(endpoint.get("headers") or {})
@@ -276,7 +282,7 @@ def attach_mcp_oauth_credential(card: DriverCard, ref: str) -> DriverCard:
 
 
 def detach_mcp_oauth_credential(card: DriverCard) -> DriverCard:
-    """Return a card with OAuth credential source and bearer binding removed."""
+    """Return a card with OAuth source and bearer binding removed."""
     credentials = _credential_refs_from_existing(card)
     credentials.pop(OAUTH_CREDENTIAL_ALIAS, None)
     endpoint = dict(card.endpoint)
@@ -388,10 +394,13 @@ def _binding_to_response(
                 result[str(key)] = str(spec)
         return result
     result = {
-        str(key): str(value) for key, value in dict(binding.get("public") or {}).items()
+        str(key): str(value)
+        for key, value in dict(binding.get("public") or {}).items()
     }
     secrets = credential.secrets if credential else {}
-    for output_name, secret_key in dict(binding.get("secret_refs") or {}).items():
+    for output_name, secret_key in dict(
+        binding.get("secret_refs") or {},
+    ).items():
         value = secrets.get(str(secret_key), "")
         result[str(output_name)] = _mask_env_value(str(value))
     return result
@@ -402,7 +411,9 @@ def _oauth_status(record: CredentialRecord | None) -> dict[str, Any] | None:
         return None
     access_token = str(record.secrets.get("access_token") or "")
     expires_at = float(record.public.get("expires_at") or 0.0)
-    authorized = bool(access_token) and (expires_at <= 0 or expires_at > time.time())
+    authorized = bool(access_token) and (
+        expires_at <= 0 or expires_at > time.time()
+    )
     return {
         "authorized": authorized,
         "expires_at": expires_at,
@@ -447,7 +458,8 @@ def _binding_plain_keys(binding: Any) -> dict[str, str]:
                 result[str(key)] = str(spec)
         return result
     result = {
-        str(key): str(value) for key, value in dict(binding.get("public") or {}).items()
+        str(key): str(value)
+        for key, value in dict(binding.get("public") or {}).items()
     }
     for key in dict(binding.get("secret_refs") or {}):
         result[str(key)] = ""

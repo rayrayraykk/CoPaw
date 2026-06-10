@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from pathlib import Path
 
 import pytest
@@ -73,7 +74,7 @@ def test_card_yaml_round_trip_new_policy_shape(tmp_path: Path) -> None:
                     subject_type="user",
                     subject_value="alice",
                 ),
-            )
+            ),
         ],
     )
 
@@ -143,13 +144,16 @@ def test_list_card_paths_filters_and_sorts(tmp_path: Path) -> None:
     (tmp_path / "ignored.txt").write_text("{}", encoding="utf-8")
 
     assert [
-        path.relative_to(tmp_path).as_posix() for path in list_card_paths(tmp_path)
+        path.relative_to(tmp_path).as_posix()
+        for path in list_card_paths(tmp_path)
     ] == [
         "mcp/c.yaml",
     ]
 
 
-def test_protocol_card_path_and_lookup_ignore_flat_files(tmp_path: Path) -> None:
+def test_protocol_card_path_and_lookup_ignore_flat_files(
+    tmp_path: Path,
+) -> None:
     flat = tmp_path / "demo.yaml"
     flat.write_text("{}", encoding="utf-8")
 
@@ -179,7 +183,10 @@ def test_atomic_write_failure_keeps_existing_file(
         raise RuntimeError("boom")
 
     with monkeypatch.context() as patcher:
-        patcher.setattr("qwenpaw.drivers.storage.yaml.safe_dump", fail_safe_dump)
+        patcher.setattr(
+            "qwenpaw.drivers.storage.yaml.safe_dump",
+            fail_safe_dump,
+        )
         with pytest.raises(DriverCardError, match="Failed to write"):
             dump_card(_card(name="new"), path)
 

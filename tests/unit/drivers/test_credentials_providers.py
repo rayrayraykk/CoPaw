@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import asyncio
 from typing import Any
 
@@ -206,7 +207,8 @@ async def test_custom_provider_factory_can_be_registered() -> None:
     )
     try:
         provider = build_provider(
-            CredentialRef("unit_custom", "demo"), FakeStore({})
+            CredentialRef("unit_custom", "demo"),
+            FakeStore({}),
         )
     finally:
         unregister_provider("unit_custom")
@@ -216,11 +218,13 @@ async def test_custom_provider_factory_can_be_registered() -> None:
 
 def test_register_provider_rejects_duplicate_kind() -> None:
     register_provider(
-        "unit_duplicate", lambda ref, store: DirectProvider(ref.ref, store)
+        "unit_duplicate",
+        lambda ref, store: DirectProvider(ref.ref, store),
     )
     try:
         with pytest.raises(
-            DriverCredentialProviderError, match="already registered"
+            DriverCredentialProviderError,
+            match="already registered",
         ):
             register_provider(
                 "unit_duplicate",

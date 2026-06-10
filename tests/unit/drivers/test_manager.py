@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import asyncio
 from pathlib import Path
 from typing import Any
@@ -59,7 +60,7 @@ class FakeHandler(DriverHandler):
                     namespace=namespace,
                     tool_name=f"{namespace}__noop",
                 ),
-            )
+            ),
         ]
 
     async def _execute(
@@ -202,7 +203,10 @@ async def test_invoke_capability_returns_missing_driver_result(
 async def test_build_drivers_skips_disabled_card(tmp_path: Path) -> None:
     manager = _manager(tmp_path)
     cards_dir = tmp_path / "drivers"
-    dump_card(_card("enabled"), card_path(cards_dir, "enabled", protocol="fake"))
+    dump_card(
+        _card("enabled"),
+        card_path(cards_dir, "enabled", protocol="fake"),
+    )
     dump_card(
         _card("disabled", enabled=False),
         card_path(cards_dir, "disabled", protocol="fake"),

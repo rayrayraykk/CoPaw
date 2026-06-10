@@ -360,7 +360,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     )
 
         # Build FunctionTool / GuardedFunctionTool instances
-        tool_instances = []
+        tool_instances: list[Any] = []
         for tool_name, tool_func in tool_functions.items():
             if tool_name in plugin_tools:
                 if tool_name not in enabled_tools:
@@ -484,9 +484,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
         if self._driver_capabilities:
             sys_prompt = (
-                sys_prompt
-                + "\n\n"
-                + build_driver_policy_recheck_hint()
+                sys_prompt + "\n\n" + build_driver_policy_recheck_hint()
             )
 
         if self._env_context is not None:

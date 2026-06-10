@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import asyncio
 from pathlib import Path
 
@@ -110,7 +111,10 @@ async def test_driver_mcp_policy_ask_approve_resumes_client_call(
         "tool_name": "echo",
         "tool_source": "mcp:policy_echo",
     }
-    await service.resolve_request(pending.request_id, ApprovalDecision.APPROVED)
+    await service.resolve_request(
+        pending.request_id,
+        ApprovalDecision.APPROVED,
+    )
     result = await task
 
     assert result.ok is True

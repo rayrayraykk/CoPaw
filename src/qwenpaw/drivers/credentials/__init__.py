@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Driver credential helpers."""
 
 from qwenpaw.drivers.credentials.providers import (

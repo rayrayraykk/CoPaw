@@ -415,7 +415,9 @@ def _build_info_from_card(agent: Any, card: Any) -> MCPClientInfo:
         oauth_ref = card.credential
     oauth_credential = _load_optional_credential(
         store,
-        oauth_ref.ref if oauth_ref is not None else mcp_oauth_credential_ref(card.name),
+        oauth_ref.ref
+        if oauth_ref is not None
+        else mcp_oauth_credential_ref(card.name),
     )
     return MCPClientInfo.model_validate(
         build_mcp_client_info_payload(card, credential, oauth_credential),
@@ -444,8 +446,6 @@ async def _reload_driver_best_effort(agent: Any, client_key: str) -> None:
         try:
             await manager.reload_driver(client_key)
             logger.info("MCP driver '%s' reloaded and active", client_key)
-        except asyncio.CancelledError:
-            raise
         except Exception as exc:
             logger.info(
                 "MCP driver '%s' saved but not active yet: %s",
@@ -469,7 +469,11 @@ async def _delete_driver_best_effort(agent: Any, client_key: str) -> None:
             await manager.delete_driver(client_key)
             return
         except Exception as exc:
-            logger.info("Failed to delete active MCP driver '%s': %s", client_key, exc)
+            logger.info(
+                "Failed to delete active MCP driver '%s': %s",
+                client_key,
+                exc,
+            )
     delete_card_paths_for_name(_workspace_cards_dir(agent), client_key)
 
 
@@ -499,7 +503,13 @@ def _merge_update_with_existing(
     data.pop("oauth_status", None)
     data.pop("access_summary", None)
     update_data = updates.model_dump(exclude_unset=True)
-    data.update({key: value for key, value in update_data.items() if value is not None})
+    data.update(
+        {
+            key: value
+            for key, value in update_data.items()
+            if value is not None
+        },
+    )
     return MCPClientCreateRequest.model_validate(data)
 
 
@@ -655,7 +665,9 @@ def _mcp_access_policy_from_card(card: Any) -> MCPAccessPolicy:
         if (override := _mcp_tool_override_from_rule(rule)) is not None
     ]
     unmanaged_rules_count = sum(
-        1 for rule in card.policy.rules if not _is_console_managed_mcp_policy_rule(rule)
+        1
+        for rule in card.policy.rules
+        if not _is_console_managed_mcp_policy_rule(rule)
     )
     return MCPAccessPolicy(
         default_effect=card.policy.default_effect,
@@ -671,7 +683,9 @@ def _driver_policy_from_mcp_access_update(
     access: MCPAccessPolicy,
 ) -> DriverPolicy:
     unmanaged_rules = [
-        rule for rule in existing.rules if not _is_console_managed_mcp_policy_rule(rule)
+        rule
+        for rule in existing.rules
+        if not _is_console_managed_mcp_policy_rule(rule)
     ]
     seen_rules: set[tuple[str, str, str, str, str]] = set()
     seen_defaults: set[str] = set()
@@ -689,11 +703,14 @@ def _driver_policy_from_mcp_access_update(
                 effect=default.effect,
                 target=PolicyTarget(kind="tool", name=tool_name),
                 principal=PolicyPrincipal(),
-            )
+            ),
         )
     for target_name, override in [
         ("*", override) for override in access.client_overrides
-    ] + [(override.tool_name.strip(), override) for override in access.tool_overrides]:
+    ] + [
+        (override.tool_name.strip(), override)
+        for override in access.tool_overrides
+    ]:
         if not target_name:
             raise HTTPException(400, detail="MCP tool override name is empty")
         source_value = override.source_value.strip()
@@ -725,7 +742,7 @@ def _driver_policy_from_mcp_access_update(
                     subject_type=override.subject_type,
                     subject_value=subject_value,
                 ),
-            )
+            ),
         )
     return DriverPolicy(
         default_effect=access.default_effect,
@@ -826,7 +843,11 @@ async def update_mcp_policy(
     )
     path = _mcp_card_path(agent, client_key)
     dump_card(card, path)
-    delete_card_paths_for_name(_workspace_cards_dir(agent), client_key, keep=path)
+    delete_card_paths_for_name(
+        _workspace_cards_dir(agent),
+        client_key,
+        keep=path,
+    )
     await _reload_driver_best_effort(agent, client_key)
     return _mcp_access_policy_from_card(card)
 
@@ -841,7 +862,9 @@ async def list_mcp_clients(request: Request) -> List[MCPClientInfo]:
     from ..agent_context import get_agent_for_request
 
     agent = await get_agent_for_request(request)
-    return [_build_info_from_card(agent, card) for card in _list_mcp_cards(agent)]
+    return [
+        _build_info_from_card(agent, card) for card in _list_mcp_cards(agent)
+    ]
 
 
 @router.post(
@@ -865,7 +888,8 @@ async def create_mcp_client(
     if path.is_file():
         raise HTTPException(
             400,
-            detail=f"MCP client '{client_key}' already exists. Use PUT to " f"update.",
+            detail=f"MCP client '{client_key}' already exists. Use PUT to "
+            f"update.",
         )
     _ensure_mcp_display_name_unique(
         agent,
@@ -908,7 +932,11 @@ async def toggle_mcp_client(
     card.enabled = not card.enabled
     path = _mcp_card_path(agent, client_key)
     dump_card(card, path)
-    delete_card_paths_for_name(_workspace_cards_dir(agent), client_key, keep=path)
+    delete_card_paths_for_name(
+        _workspace_cards_dir(agent),
+        client_key,
+        keep=path,
+    )
     await _reload_driver_best_effort(agent, client_key)
     return _build_info_from_card(agent, card)
 
@@ -981,7 +1009,11 @@ async def update_mcp_client(
         store.delete(credential.ref)
     path = _mcp_card_path(agent, client_key)
     dump_card(card, path)
-    delete_card_paths_for_name(_workspace_cards_dir(agent), client_key, keep=path)
+    delete_card_paths_for_name(
+        _workspace_cards_dir(agent),
+        client_key,
+        keep=path,
+    )
     await _reload_driver_best_effort(agent, client_key)
     return _build_info_from_card(agent, card)
 

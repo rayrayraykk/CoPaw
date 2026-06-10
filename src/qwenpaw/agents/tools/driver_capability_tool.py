@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """AgentScope tool adapter for Driver capabilities."""
 
 from __future__ import annotations

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from __future__ import annotations
 
 import pytest
@@ -55,7 +56,7 @@ async def test_driver_tool_wraps_mcp_result_as_tool_chunk() -> None:
         request_context={"session_id": "session-1"},
     )
 
-    chunk = await tool(text="hello-debug")
+    chunk = await getattr(tool, "__call__")(text="hello-debug")
 
     assert isinstance(chunk, ToolChunk)
     assert chunk.state == ToolResultState.SUCCESS
@@ -75,7 +76,8 @@ async def test_driver_tool_preserves_mcp_error_state() -> None:
             ),
         )
 
-    chunk = await DriverCapabilityTool(_capability(), invoker)()
+    tool = DriverCapabilityTool(_capability(), invoker)
+    chunk = await getattr(tool, "__call__")()
 
     assert isinstance(chunk, ToolChunk)
     assert chunk.state == ToolResultState.ERROR
@@ -93,7 +95,7 @@ async def test_driver_tool_wraps_driver_error_as_error_chunk() -> None:
         )
 
     tool = DriverCapabilityTool(_capability(), invoker)
-    chunk = await tool()
+    chunk = await getattr(tool, "__call__")()
 
     assert isinstance(chunk, ToolChunk)
     assert chunk.state == ToolResultState.ERROR

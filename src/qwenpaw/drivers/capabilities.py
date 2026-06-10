@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Driver runtime capability contracts."""
 
 from __future__ import annotations

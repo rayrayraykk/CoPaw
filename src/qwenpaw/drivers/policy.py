@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Access policy evaluation for Drivers."""
 
 from __future__ import annotations
@@ -114,7 +115,10 @@ def context_subjects(context: DriverInvocationContext) -> tuple[str, ...]:
 
 def target_matches(pattern: PolicyTarget, target: PolicyTarget) -> bool:
     """Support exact and wildcard matching for Driver-local targets."""
-    return _target_part_matches(pattern.kind, target.kind) and _target_part_matches(
+    return _target_part_matches(
+        pattern.kind,
+        target.kind,
+    ) and _target_part_matches(
         pattern.name,
         target.name,
     )
@@ -215,9 +219,12 @@ def _source_matches(
             context.request_context.get("root_agent_id"),
         )
         if source_value in {"", "*"}:
-            return any(_selector_value(candidate) for candidate in app_candidates)
+            return any(
+                _selector_value(candidate) for candidate in app_candidates
+            )
         return any(
-            _selector_value(candidate) == source_value for candidate in app_candidates
+            _selector_value(candidate) == source_value
+            for candidate in app_candidates
         )
     return False
 
@@ -233,10 +240,14 @@ def _subject_scope_matches(
     if subject_value in {"", "*"}:
         return subject_value == "*"
     if subject_type == "user":
-        return _selector_value(context.request_context.get("user_id")) == subject_value
+        return (
+            _selector_value(context.request_context.get("user_id"))
+            == subject_value
+        )
     if subject_type == "session":
         return (
-            _selector_value(context.request_context.get("session_id")) == subject_value
+            _selector_value(context.request_context.get("session_id"))
+            == subject_value
         )
     return False
 

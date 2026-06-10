@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Agent OS Driver subsystem."""
 
 from qwenpaw.drivers.handler import DriverHandler

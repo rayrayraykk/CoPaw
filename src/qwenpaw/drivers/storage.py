@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """YAML storage helpers for DriverCard files."""
 
 from __future__ import annotations
@@ -30,7 +31,9 @@ def load_card(path: Path) -> DriverCard:
     try:
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     except OSError as exc:
-        raise DriverCardError(f"Failed to read DriverCard {path}: {exc}") from exc
+        raise DriverCardError(
+            f"Failed to read DriverCard {path}: {exc}",
+        ) from exc
     except yaml.YAMLError as exc:
         raise DriverCardError(
             f"Failed to parse DriverCard YAML {path}: {exc}",
@@ -78,7 +81,9 @@ def dump_card(card: DriverCard, path: Path) -> None:
                 pass
         if isinstance(exc, DriverCardError):
             raise
-        raise DriverCardError(f"Failed to write DriverCard {path}: {exc}") from exc
+        raise DriverCardError(
+            f"Failed to write DriverCard {path}: {exc}",
+        ) from exc
 
 
 def list_card_paths(cards_dir: Path) -> list[Path]:
@@ -90,7 +95,10 @@ def list_card_paths(cards_dir: Path) -> list[Path]:
         if not _is_visible_card_file(cards_dir, path):
             continue
         paths.append(path)
-    return sorted(paths, key=lambda item: item.relative_to(cards_dir).as_posix())
+    return sorted(
+        paths,
+        key=lambda item: item.relative_to(cards_dir).as_posix(),
+    )
 
 
 def card_path(
@@ -113,7 +121,7 @@ def delete_card_paths_for_name(
     *,
     keep: Path | None = None,
 ) -> None:
-    """Delete stored card files with this name, except an optional keep path."""
+    """Delete stored card files with this name except optional keep path."""
     keep_resolved = keep.resolve() if keep is not None else None
     for path in card_paths_for_name(cards_dir, name):
         if keep_resolved is not None and path.resolve() == keep_resolved:
@@ -126,7 +134,9 @@ def delete_card(path: Path) -> None:
     try:
         path.unlink(missing_ok=True)
     except OSError as exc:
-        raise DriverCardError(f"Failed to delete DriverCard {path}: {exc}") from exc
+        raise DriverCardError(
+            f"Failed to delete DriverCard {path}: {exc}",
+        ) from exc
 
 
 def _is_visible_card_file(cards_dir: Path, path: Path) -> bool:
@@ -164,13 +174,17 @@ def _card_from_mapping(data: dict[str, Any], path: Path) -> DriverCard:
     if credential is None:
         credential = {"kind": "none"}
     if not isinstance(credential, dict):
-        raise DriverCardError(f"DriverCard {path} credential must be a mapping")
+        raise DriverCardError(
+            f"DriverCard {path} credential must be a mapping",
+        )
 
     credentials = data.get("credentials", {})
     if credentials is None:
         credentials = {}
     if not isinstance(credentials, dict):
-        raise DriverCardError(f"DriverCard {path} credentials must be a mapping")
+        raise DriverCardError(
+            f"DriverCard {path} credentials must be a mapping",
+        )
 
     endpoint = data["endpoint"]
     if not isinstance(endpoint, dict):
@@ -209,7 +223,9 @@ def _card_to_mapping(card: DriverCard) -> dict[str, Any]:
         "name": card.name,
         "protocol": card.protocol,
         "endpoint": card.endpoint,
-        "credentials": {alias: asdict(ref) for alias, ref in card.credentials.items()},
+        "credentials": {
+            alias: asdict(ref) for alias, ref in card.credentials.items()
+        },
         "config": card.config,
         "enabled": card.enabled,
         "policy": asdict(card.policy),
@@ -229,7 +245,7 @@ def _policy_from_mapping(value: Any, path: Path) -> DriverPolicy:
         )
     if not isinstance(value, dict):
         raise DriverCardError(
-            f"DriverCard {path} policy must be a mapping or legacy list"
+            f"DriverCard {path} policy must be a mapping or legacy list",
         )
 
     rules_raw = value.get("rules", [])
@@ -245,7 +261,9 @@ def _policy_from_mapping(value: Any, path: Path) -> DriverPolicy:
 
 def _policy_rule_from_mapping(value: Any, path: Path) -> PolicyRule:
     if not isinstance(value, dict):
-        raise DriverCardError(f"DriverCard {path} policy rule must be a mapping")
+        raise DriverCardError(
+            f"DriverCard {path} policy rule must be a mapping",
+        )
     condition = value.get("condition")
     return PolicyRule(
         subject=str(value.get("subject") or "*"),
@@ -260,7 +278,9 @@ def _policy_target_from_mapping(value: Any, path: Path) -> PolicyTarget:
     if value is None:
         return PolicyTarget()
     if not isinstance(value, dict):
-        raise DriverCardError(f"DriverCard {path} policy target must be a mapping")
+        raise DriverCardError(
+            f"DriverCard {path} policy target must be a mapping",
+        )
     return PolicyTarget(
         kind=str(value.get("kind") or "*"),
         name=str(value.get("name") or "*"),
@@ -271,7 +291,9 @@ def _policy_principal_from_mapping(value: Any, path: Path) -> PolicyPrincipal:
     if value is None:
         return PolicyPrincipal()
     if not isinstance(value, dict):
-        raise DriverCardError(f"DriverCard {path} policy principal must be a mapping")
+        raise DriverCardError(
+            f"DriverCard {path} policy principal must be a mapping",
+        )
     return PolicyPrincipal(
         source_type=str(value.get("source_type") or "*"),
         source_value=str(value.get("source_value", "*")),
@@ -301,7 +323,9 @@ def _time_range_from_mapping(value: Any, path: Path) -> TimeRange | None:
     if value is None:
         return None
     if not isinstance(value, dict):
-        raise DriverCardError(f"DriverCard {path} time_range must be a mapping")
+        raise DriverCardError(
+            f"DriverCard {path} time_range must be a mapping",
+        )
     weekdays = value.get("weekdays")
     return TimeRange(
         after=value.get("after"),
@@ -314,7 +338,9 @@ def _rate_limit_from_mapping(value: Any, path: Path) -> RateLimit | None:
     if value is None:
         return None
     if not isinstance(value, dict):
-        raise DriverCardError(f"DriverCard {path} rate_limit must be a mapping")
+        raise DriverCardError(
+            f"DriverCard {path} rate_limit must be a mapping",
+        )
     return RateLimit(
         max_calls=int(value.get("max_calls", 0)),
         window_seconds=int(value.get("window_seconds", 0)),

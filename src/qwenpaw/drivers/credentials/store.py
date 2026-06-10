@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Per-workspace YAML credential store."""
 
 from __future__ import annotations
@@ -43,11 +44,11 @@ class CredentialStore:
         meta = value.get("meta", {})
         if not isinstance(public, dict):
             raise DriverCardError(
-                f"Credential public must be a mapping: {ref}"
+                f"Credential public must be a mapping: {ref}",
             )
         if not isinstance(secrets, dict):
             raise DriverCardError(
-                f"Credential secrets must be a mapping: {ref}"
+                f"Credential secrets must be a mapping: {ref}",
             )
         if not isinstance(meta, dict):
             raise DriverCardError(f"Credential meta must be a mapping: {ref}")

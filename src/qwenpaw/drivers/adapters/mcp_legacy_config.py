@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Legacy agent.json MCP migration helpers."""
 
 from __future__ import annotations
@@ -44,7 +45,9 @@ class LegacyMCPMigrationWarning:
 @dataclass
 class LegacyMCPMigrationReport:
     migrated: list[LegacyMCPMigratedClient] = field(default_factory=list)
-    skipped: list[LegacyMCPMigrationSkippedClient] = field(default_factory=list)
+    skipped: list[LegacyMCPMigrationSkippedClient] = field(
+        default_factory=list,
+    )
     warnings: list[LegacyMCPMigrationWarning] = field(default_factory=list)
 
 
@@ -215,7 +218,9 @@ def _build_legacy_credential(
     if isinstance(headers, dict):
         secret_refs = dict(headers.get("secret_refs") or {})
     for header, value in header_secrets.items():
-        secret_key = str(secret_refs.get(header) or normalize_secret_key(header))
+        secret_key = str(
+            secret_refs.get(header) or normalize_secret_key(header),
+        )
         secrets[secret_key] = value
 
     if oauth is not None:
@@ -229,7 +234,9 @@ def _build_legacy_credential(
                 "token_endpoint": str(
                     getattr(oauth, "token_endpoint", "") or "",
                 ),
-                "auth_endpoint": str(getattr(oauth, "auth_endpoint", "") or ""),
+                "auth_endpoint": str(
+                    getattr(oauth, "auth_endpoint", "") or "",
+                ),
             },
         )
         for key in ("access_token", "refresh_token", "client_secret"):
@@ -254,7 +261,9 @@ def _build_legacy_credential(
 
 def _args_may_contain_secret(args: list[str]) -> bool:
     markers = ("api-key", "apikey", "token", "secret", "password", "auth")
-    return any(any(marker in str(arg).lower() for marker in markers) for arg in args)
+    return any(
+        any(marker in str(arg).lower() for marker in markers) for arg in args
+    )
 
 
 def _write_report(cards_dir: Path, report: LegacyMCPMigrationReport) -> None:

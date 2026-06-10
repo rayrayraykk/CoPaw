@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """CredentialProvider strategies and factory."""
 
 from __future__ import annotations
@@ -41,7 +42,10 @@ class CredentialProvider(ABC):
     async def close(self) -> None:
         """Release cached token or HTTP clients."""
 
-    def on_secrets_changed(self, secrets: dict[str, Any] | None = None) -> None:
+    def on_secrets_changed(
+        self,
+        secrets: dict[str, Any] | None = None,
+    ) -> None:
         """Clear derived credential cache."""
         del secrets
 
@@ -117,7 +121,10 @@ class OAuth2CCProvider(CredentialProvider):
 
     async def resolve(self) -> ResolvedCredential:
         now = time.time()
-        if self._cached_token and self._expires_at - now > _REFRESH_MARGIN_SECONDS:
+        if (
+            self._cached_token
+            and self._expires_at - now > _REFRESH_MARGIN_SECONDS
+        ):
             return ResolvedCredential(
                 kind="oauth2_cc",
                 secrets={"access_token": self._cached_token},
@@ -125,7 +132,10 @@ class OAuth2CCProvider(CredentialProvider):
 
         async with self._lock:
             now = time.time()
-            if self._cached_token and self._expires_at - now > _REFRESH_MARGIN_SECONDS:
+            if (
+                self._cached_token
+                and self._expires_at - now > _REFRESH_MARGIN_SECONDS
+            ):
                 return ResolvedCredential(
                     kind="oauth2_cc",
                     secrets={"access_token": self._cached_token},
@@ -141,7 +151,10 @@ class OAuth2CCProvider(CredentialProvider):
                 secrets={"access_token": token},
             )
 
-    def on_secrets_changed(self, secrets: dict[str, Any] | None = None) -> None:
+    def on_secrets_changed(
+        self,
+        secrets: dict[str, Any] | None = None,
+    ) -> None:
         del secrets
         self._cached_token = ""
         self._expires_at = 0.0
@@ -165,7 +178,8 @@ class OAuth2AuthCodeProvider(CredentialProvider):
         access_token = str(values.get("access_token") or "")
         expires_at = float(values.get("expires_at") or 0.0)
         if access_token and (
-            expires_at <= 0 or expires_at - time.time() > _REFRESH_MARGIN_SECONDS
+            expires_at <= 0
+            or expires_at - time.time() > _REFRESH_MARGIN_SECONDS
         ):
             return ResolvedCredential(
                 kind=record.kind,
@@ -178,7 +192,8 @@ class OAuth2AuthCodeProvider(CredentialProvider):
             access_token = str(values.get("access_token") or "")
             expires_at = float(values.get("expires_at") or 0.0)
             if access_token and (
-                expires_at <= 0 or expires_at - time.time() > _REFRESH_MARGIN_SECONDS
+                expires_at <= 0
+                or expires_at - time.time() > _REFRESH_MARGIN_SECONDS
             ):
                 return ResolvedCredential(
                     kind=record.kind,

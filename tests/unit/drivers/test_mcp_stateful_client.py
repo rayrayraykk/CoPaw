@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import asyncio
 from types import SimpleNamespace
 from typing import Any
@@ -263,7 +264,9 @@ def test_401_detection_walks_exception_groups() -> None:
 
     response = httpx.Response(401, request=httpx.Request("GET", "https://x"))
     error = httpx.HTTPStatusError(
-        "unauthorized", request=response.request, response=response
+        "unauthorized",
+        request=response.request,
+        response=response,
     )
 
     assert _is_401_error(ExceptionGroup("group", [error]))

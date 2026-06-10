@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import pytest
 
 from qwenpaw.drivers.capabilities import (
@@ -33,7 +34,9 @@ def test_capability_id_uses_uri_shape_and_round_trips() -> None:
         "read/file",
     )
 
-    assert capability_id == "driver://mcp/file%3Aserver/tools/read%2Ffile#invoke"
+    assert (
+        capability_id == "driver://mcp/file%3Aserver/tools/read%2Ffile#invoke"
+    )
     assert parse_capability_id(capability_id) == (
         "mcp",
         "file:server",

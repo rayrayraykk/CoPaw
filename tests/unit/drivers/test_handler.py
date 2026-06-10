@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import asyncio
 from typing import Any
 
@@ -238,7 +239,10 @@ async def test_ask_approval_approved_resumes_execution(
     assert pending.extra["driver"]["name"] == "demo"
     assert pending.extra["driver"]["protocol"] == "fake"
     assert pending.extra["tool_call"]["name"] == "driver:fake:demo"
-    await service.resolve_request(pending.request_id, ApprovalDecision.APPROVED)
+    await service.resolve_request(
+        pending.request_id,
+        ApprovalDecision.APPROVED,
+    )
 
     result = await task
 
@@ -296,7 +300,10 @@ async def test_ask_approval_adds_tool_display_source_metadata(
         "'mcp:aone-code-mcp' requires approval for invoke."
     )
 
-    await service.resolve_request(pending.request_id, ApprovalDecision.APPROVED)
+    await service.resolve_request(
+        pending.request_id,
+        ApprovalDecision.APPROVED,
+    )
     result = await task
 
     assert result["kwargs"] == {"arguments": {"query": "qwenpaw"}}
