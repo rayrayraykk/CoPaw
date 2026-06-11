@@ -16,7 +16,6 @@ from qwenpaw.drivers.errors import (
 )
 from qwenpaw.drivers.handler import DriverHandler
 from qwenpaw.drivers.contracts import (
-    CredentialRef,
     DriverCard,
     DriverPolicy,
     PolicyRule,
@@ -78,7 +77,6 @@ def _card() -> DriverCard:
         name="demo",
         protocol="fake",
         endpoint={},
-        credential=CredentialRef(kind="none"),
     )
 
 
@@ -298,7 +296,6 @@ async def test_ask_approval_adds_tool_display_source_metadata(
         name="aone-code-mcp",
         protocol="mcp",
         endpoint={},
-        credential=CredentialRef(kind="none"),
     )
     handler = RecordingHandler(
         card,

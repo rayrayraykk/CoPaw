@@ -27,7 +27,6 @@ def _card(name: str = "demo", enabled: bool = True) -> DriverCard:
         name=name,
         protocol="mcp",
         endpoint={"transport": "stdio", "command": "demo"},
-        credential=CredentialRef(kind="none"),
         enabled=enabled,
         policy=[
             PolicyRule(
@@ -90,6 +89,16 @@ def test_card_yaml_round_trip_new_policy_shape(tmp_path: Path) -> None:
     assert loaded.policy.rules[0].principal.subject_value == "alice"
 
 
+def test_dump_card_keeps_unicode_readable(tmp_path: Path) -> None:
+    path = tmp_path / "demo.yaml"
+    card = _card()
+    card.config["display_name"] = "代码平台"
+
+    dump_card(card, path)
+
+    assert "代码平台" in path.read_text(encoding="utf-8")
+
+
 def test_load_legacy_policy_list_as_wildcard_target(tmp_path: Path) -> None:
     path = tmp_path / "legacy.yaml"
     path.write_text(
@@ -99,8 +108,6 @@ protocol: mcp
 endpoint:
   transport: stdio
   command: demo
-credential:
-  kind: none
 policy:
   - subject: "*"
     effect: allow
@@ -115,10 +122,10 @@ policy:
     assert loaded.policy.rules[0].target.name == "*"
 
 
-def test_load_legacy_singular_credential_dump_writes_credentials(
+def test_load_plural_credentials_round_trips(
     tmp_path: Path,
 ) -> None:
-    path = tmp_path / "legacy_credential.yaml"
+    path = tmp_path / "credentials.yaml"
     path.write_text(
         """
 name: demo
@@ -126,9 +133,10 @@ protocol: mcp
 endpoint:
   transport: stdio
   command: demo
-credential:
-  kind: static
-  ref: mcp/demo
+credentials:
+  default:
+    kind: static
+    ref: mcp/demo
 """,
         encoding="utf-8",
     )
@@ -143,8 +151,33 @@ credential:
         ref="mcp/demo",
     )
     assert "\ncredentials:" in text
-    assert "\ncredential:" not in text
     assert load_card(out).credentials == loaded.credentials
+
+
+def test_load_card_rejects_rate_limit_condition(tmp_path: Path) -> None:
+    path = tmp_path / "rate_limit.yaml"
+    path.write_text(
+        """
+name: demo
+protocol: mcp
+endpoint:
+  transport: stdio
+  command: demo
+policy:
+  default_effect: deny
+  rules:
+    - subject: "*"
+      effect: ask
+      condition:
+        rate_limit:
+          max_calls: 1
+          window_seconds: 60
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(DriverCardError, match="rate_limit"):
+        load_card(path)
 
 
 def test_load_policy_principal_empty_source_value_as_wildcard(
@@ -158,8 +191,6 @@ protocol: mcp
 endpoint:
   transport: stdio
   command: demo
-credential:
-  kind: none
 policy:
   default_effect: deny
   rules:

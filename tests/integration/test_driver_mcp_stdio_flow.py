@@ -43,7 +43,9 @@ async def test_driver_mcp_stdio_env_secret_flow(
                     "secret_refs": {"ECHO_SECRET": "ECHO_SECRET"},
                 },
             },
-            credential=CredentialRef("static", "mcp/stdio_echo"),
+            credentials={
+                "default": CredentialRef("static", "mcp/stdio_echo"),
+            },
             policy=[PolicyRule(subject="*", effect="allow")],
         ),
         card_path(tmp_path / "drivers", "stdio_echo", protocol="mcp"),

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from qwenpaw.app.driver_config_watcher import DriverConfigWatcher
-from qwenpaw.drivers.contracts import CredentialRef, DriverCard
+from qwenpaw.drivers.contracts import DriverCard
 from qwenpaw.drivers.storage import card_path, dump_card
 
 
@@ -20,7 +20,6 @@ def _card(
         name=name,
         protocol="mcp",
         endpoint={"transport": "stdio", "command": command},
-        credential=CredentialRef(kind="none"),
     )
 
 

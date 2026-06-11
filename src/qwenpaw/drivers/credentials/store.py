@@ -167,10 +167,7 @@ class YAMLCredentialStore:
                 tmp.flush()
                 os.fsync(tmp.fileno())
             os.replace(tmp_name, self._path)
-            try:
-                os.chmod(self._path, 0o600)
-            except OSError:
-                pass
+            _restrict_file_permissions(self._path)
         except Exception as exc:
             if tmp_name:
                 try:
@@ -202,6 +199,22 @@ class YAMLCredentialStore:
             key: decrypt(value) if isinstance(value, str) else value
             for key, value in data.items()
         }
+
+
+def _restrict_file_permissions(path: Path) -> None:
+    """Best-effort local file permission hardening.
+
+    POSIX mode ``0o600`` is meaningful on Unix-like systems.  On Windows,
+    ``os.chmod`` only controls a limited read-only bit and does not provide
+    owner-only ACL semantics, so the credential store relies on encrypted
+    secret values there instead of pretending chmod is a security boundary.
+    """
+    if os.name == "nt":
+        return
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
 
 
 CredentialStore = YAMLCredentialStore

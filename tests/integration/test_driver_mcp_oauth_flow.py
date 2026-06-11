@@ -40,10 +40,12 @@ async def test_driver_mcp_oauth_access_token_flow(
                 "url": "http://127.0.0.1:18081/mcp",
                 "headers": {"public": {}, "secret_refs": {}},
             },
-            credential=CredentialRef(
-                "oauth2_auth_code",
-                "mcp/oauth_echo/oauth",
-            ),
+            credentials={
+                "oauth": CredentialRef(
+                    "oauth2_auth_code",
+                    "mcp/oauth_echo/oauth",
+                ),
+            },
             policy=[PolicyRule(subject="*", effect="allow")],
         ),
         card_path(tmp_path / "drivers", "oauth_echo", protocol="mcp"),

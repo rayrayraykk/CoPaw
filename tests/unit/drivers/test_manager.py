@@ -15,7 +15,7 @@ from qwenpaw.drivers.credentials.store import CredentialStore
 from qwenpaw.drivers.credentials.types import ResolvedCredential
 from qwenpaw.drivers.errors import DriverCardError, UnsupportedProtocolError
 from qwenpaw.drivers.handler import DriverHandler
-from qwenpaw.drivers.contracts import CredentialRef, DriverCard
+from qwenpaw.drivers.contracts import DriverCard
 from qwenpaw.drivers.manager import DriverManager
 from qwenpaw.drivers.policy import PolicyContext
 from qwenpaw.drivers.storage import card_path, dump_card
@@ -104,7 +104,6 @@ def _card(
         name=name,
         protocol=protocol,
         endpoint={},
-        credential=CredentialRef(kind="none"),
         enabled=enabled,
         config=config,
     )

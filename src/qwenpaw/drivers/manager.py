@@ -413,14 +413,25 @@ class DriverManager:
         cls,
         handler: DriverHandler,
     ) -> None:
+        task = asyncio.create_task(
+            cls._shutdown_handler(handler),
+            name=f"driver-shutdown:{handler.name}",
+        )
         try:
-            await asyncio.wait_for(
-                cls._shutdown_handler(handler),
-                timeout=_SHUTDOWN_TIMEOUT_SECONDS,
-            )
+            await asyncio.wait_for(task, timeout=_SHUTDOWN_TIMEOUT_SECONDS)
         except asyncio.TimeoutError:
             logger.warning(
-                "Timed out shutting down Driver '%s' after %.1fs",
+                "Timed out shutting down Driver '%s' after %.1fs; "
+                "cancellation requested",
                 handler.name,
                 _SHUTDOWN_TIMEOUT_SECONDS,
             )
+            if not task.done():
+                task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                logger.debug(
+                    "Driver '%s' shutdown task cancelled after timeout",
+                    handler.name,
+                )

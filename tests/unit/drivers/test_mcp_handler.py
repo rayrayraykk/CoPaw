@@ -91,11 +91,17 @@ def _card(
     endpoint: dict[str, Any],
     credential_kind: str = "none",
 ) -> DriverCard:
+    credentials = {}
+    if credential_kind != "none":
+        credentials["default"] = CredentialRef(
+            kind=credential_kind,
+            ref="demo",
+        )
     return DriverCard(
         name="demo",
         protocol="mcp",
         endpoint=endpoint,
-        credential=CredentialRef(kind=credential_kind, ref="demo"),
+        credentials=credentials,
         policy=[PolicyRule(subject="*", effect="allow")],
     )
 

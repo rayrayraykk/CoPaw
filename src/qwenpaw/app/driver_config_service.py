@@ -37,6 +37,7 @@ class DriverConfigService:
 
     def __init__(self, workspace: Any) -> None:
         self._workspace = workspace
+        self._reload_tasks: set[asyncio.Task] = set()
 
     @property
     def cards_dir(self) -> Path:
@@ -125,10 +126,12 @@ class DriverConfigService:
                     exc,
                 )
 
-        asyncio.create_task(
+        task = asyncio.create_task(
             reload_background(),
             name=f"driver-reload:{name}",
         )
+        self._reload_tasks.add(task)
+        task.add_done_callback(self._reload_tasks.discard)
 
     async def delete_driver_best_effort(self, name: str) -> None:
         manager = getattr(self._workspace, "driver_manager", None)

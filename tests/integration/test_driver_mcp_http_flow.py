@@ -42,7 +42,9 @@ async def test_driver_mcp_http_header_secret_flow(
                     "secret_refs": {"Authorization": "authorization"},
                 },
             },
-            credential=CredentialRef("static", "mcp/http_echo"),
+            credentials={
+                "default": CredentialRef("static", "mcp/http_echo"),
+            },
             policy=[PolicyRule(subject="*", effect="allow")],
         ),
         card_path(tmp_path / "drivers", "http_echo", protocol="mcp"),

@@ -14,6 +14,7 @@ from qwenpaw.drivers.constants import (
     POLICY_EFFECTS,
     POLICY_TARGET_WILDCARD,
 )
+from qwenpaw.drivers.errors import DriverCardError
 
 PolicyEffect: TypeAlias = Literal["allow", "deny", "ask"]
 PolicyTargetKind: TypeAlias = CapabilityKind | Literal["*"]
@@ -22,6 +23,20 @@ ALLOWED_POLICY_EFFECTS: frozenset[str] = POLICY_EFFECTS
 ALLOWED_POLICY_TARGET_KINDS: frozenset[str] = frozenset(
     {*get_args(CapabilityKind), POLICY_TARGET_WILDCARD},
 )
+
+__all__ = [
+    "ALLOWED_POLICY_EFFECTS",
+    "ALLOWED_POLICY_TARGET_KINDS",
+    "DriverPolicy",
+    "PolicyCondition",
+    "PolicyEffect",
+    "PolicyPrincipal",
+    "PolicyRule",
+    "PolicyTarget",
+    "PolicyTargetKind",
+    "TimeRange",
+    "coerce_driver_policy",
+]
 
 
 @dataclass
@@ -32,15 +47,8 @@ class TimeRange:
 
 
 @dataclass
-class RateLimit:
-    max_calls: int
-    window_seconds: int
-
-
-@dataclass
 class PolicyCondition:
     time_range: TimeRange | None = None
-    rate_limit: RateLimit | None = None
 
 
 @dataclass
@@ -182,6 +190,8 @@ def _coerce_policy_effect(
     default: PolicyEffect,
 ) -> PolicyEffect:
     text = str(value or default)
+    if text not in ALLOWED_POLICY_EFFECTS:
+        raise DriverCardError(f"invalid policy effect: {text}")
     return cast(PolicyEffect, text)
 
 

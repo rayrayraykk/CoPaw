@@ -27,6 +27,8 @@ from qwenpaw.drivers.errors import (
 from qwenpaw.drivers.contracts import CredentialRef
 
 _REFRESH_MARGIN_SECONDS = 300
+_OAUTH_TOKEN_MAX_ATTEMPTS = 3
+_OAUTH_RETRY_BASE_DELAY_SECONDS = 0.2
 CredentialProviderFactory = Callable[
     ["CredentialRef", CredentialStore],
     "CredentialProvider",
@@ -79,9 +81,11 @@ class StandardOAuth2Exchanger:
             }
 
         async with httpx.AsyncClient() as client:
-            response = await client.post(token_endpoint, data=payload)
-            response.raise_for_status()
-            data = response.json()
+            data = await _post_oauth_token_with_retry(
+                client,
+                token_endpoint,
+                payload,
+            )
         access_token = str(data.get("access_token") or "")
         if not access_token:
             reason = str(
@@ -98,6 +102,39 @@ class StandardOAuth2Exchanger:
 class NoneProvider(CredentialProvider):
     async def resolve(self) -> ResolvedCredential:
         return ResolvedCredential.EMPTY
+
+
+async def _post_oauth_token_with_retry(
+    client: httpx.AsyncClient,
+    token_endpoint: str,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    last_error: Exception | None = None
+    for attempt in range(1, _OAUTH_TOKEN_MAX_ATTEMPTS + 1):
+        try:
+            response = await client.post(token_endpoint, data=payload)
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as exc:
+            if not _is_transient_oauth_status(exc) or (
+                attempt >= _OAUTH_TOKEN_MAX_ATTEMPTS
+            ):
+                raise
+            last_error = exc
+        except (httpx.TimeoutException, httpx.TransportError) as exc:
+            if attempt >= _OAUTH_TOKEN_MAX_ATTEMPTS:
+                raise
+            last_error = exc
+        await asyncio.sleep(_OAUTH_RETRY_BASE_DELAY_SECONDS * attempt)
+
+    if last_error is not None:
+        raise last_error
+    raise DriverCredentialProviderError("OAuth token exchange failed")
+
+
+def _is_transient_oauth_status(exc: httpx.HTTPStatusError) -> bool:
+    status = exc.response.status_code
+    return status in {408, 425, 429} or status >= 500
 
 
 class DirectProvider(CredentialProvider):

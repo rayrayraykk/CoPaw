@@ -18,7 +18,6 @@ from qwenpaw.app.routers.mcp import (
 )
 from qwenpaw.drivers.capabilities import DriverRuntimeInfo
 from qwenpaw.drivers.contracts import (
-    CredentialRef,
     DriverCard,
     DriverPolicy,
     PolicyPrincipal,
@@ -87,7 +86,6 @@ def test_mcp_display_name_must_be_unique(tmp_path) -> None:
             name="aone-code-mcp",
             protocol="mcp",
             endpoint={"transport": "stdio", "command": "demo"},
-            credential=CredentialRef(kind="none"),
             config={"display_name": "aone-code-platform"},
         ),
         card_path(tmp_path / "drivers", "aone-code-mcp", protocol="mcp"),
@@ -131,7 +129,6 @@ async def test_get_mcp_policy_reads_saved_policy_without_driver_manager(
             name="demo",
             protocol="mcp",
             endpoint={"transport": "stdio", "command": "demo"},
-            credential=CredentialRef(kind="none"),
             policy=DriverPolicy(
                 default_effect="ask",
                 rules=[
@@ -231,7 +228,6 @@ async def test_get_mcp_policy_maps_legacy_wildcard_to_client_override(
             name="demo",
             protocol="mcp",
             endpoint={"transport": "stdio", "command": "demo"},
-            credential=CredentialRef(kind="none"),
             policy=DriverPolicy(
                 default_effect="deny",
                 rules=[PolicyRule(subject="*", effect="allow")],
@@ -269,7 +265,6 @@ async def test_update_mcp_policy_replaces_rules_and_preserves_unmanaged(
             name="demo",
             protocol="mcp",
             endpoint={"transport": "stdio", "command": "demo"},
-            credential=CredentialRef(kind="none"),
             policy=DriverPolicy(
                 default_effect="ask",
                 rules=[

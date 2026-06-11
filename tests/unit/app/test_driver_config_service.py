@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -9,7 +10,7 @@ from fastapi import HTTPException
 
 from qwenpaw.app.driver_config_service import DriverConfigService
 from qwenpaw.drivers.capabilities import DriverRuntimeInfo
-from qwenpaw.drivers.contracts import CredentialRef, DriverCard
+from qwenpaw.drivers.contracts import DriverCard
 from qwenpaw.drivers.storage import card_path, dump_card
 
 
@@ -22,7 +23,6 @@ def _card(
         name=name,
         protocol=protocol,
         endpoint={"transport": "stdio", "command": "demo"},
-        credential=CredentialRef(kind="none"),
     )
 
 
@@ -57,6 +57,17 @@ class FailingDeleteManager:
         raise RuntimeError("driver still shutting down")
 
 
+class SlowReloadManager:
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def reload_driver(self, name: str) -> None:
+        assert name == "demo"
+        self.started.set()
+        await self.release.wait()
+
+
 @pytest.mark.asyncio
 async def test_delete_driver_best_effort_falls_back_to_storage_cleanup(
     tmp_path: Path,
@@ -72,6 +83,27 @@ async def test_delete_driver_best_effort_falls_back_to_storage_cleanup(
 
     assert not mcp_path.exists()
     assert not acp_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_reload_driver_best_effort_tracks_background_task(
+    tmp_path: Path,
+) -> None:
+    manager = SlowReloadManager()
+    service = _service(tmp_path, manager)
+
+    await service.save_card(_card(), reload_driver=True)
+    await manager.started.wait()
+
+    assert len(service._reload_tasks) == 1  # pylint: disable=protected-access
+
+    manager.release.set()
+    for _ in range(10):
+        await asyncio.sleep(0)
+        if not service._reload_tasks:  # pylint: disable=protected-access
+            break
+
+    assert not service._reload_tasks  # pylint: disable=protected-access
 
 
 class FakeCapabilityManager:

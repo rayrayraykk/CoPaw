@@ -3,6 +3,7 @@ import asyncio
 from typing import Any
 
 import pytest
+import httpx
 
 import qwenpaw.drivers.credentials.providers as providers_module
 from qwenpaw.drivers.credentials.providers import (
@@ -74,6 +75,30 @@ class FakeOAuthClient:
 
     async def post(self, *_args, **_kwargs):
         return FakeOAuthResponse()
+
+
+class FlakyOAuthResponse:
+    def raise_for_status(self) -> None:
+        return None
+
+    def json(self) -> dict[str, str | int]:
+        return {"access_token": "retried-token", "expires_in": 123}
+
+
+class FlakyOAuthClient:
+    calls = 0
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_args):
+        return None
+
+    async def post(self, *_args, **_kwargs):
+        FlakyOAuthClient.calls += 1
+        if FlakyOAuthClient.calls < 3:
+            raise httpx.ConnectError("temporary network failure")
+        return FlakyOAuthResponse()
 
 
 @pytest.mark.asyncio
@@ -177,6 +202,37 @@ async def test_standard_oauth_exchanger_reports_missing_access_token(
                 "client_secret": "secret",
             },
         )
+
+
+@pytest.mark.asyncio
+async def test_standard_oauth_exchanger_retries_transient_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sleeps: list[float] = []
+    FlakyOAuthClient.calls = 0
+    monkeypatch.setattr(
+        providers_module.httpx,
+        "AsyncClient",
+        FlakyOAuthClient,
+    )
+
+    async def fake_sleep(delay: float) -> None:
+        sleeps.append(delay)
+
+    monkeypatch.setattr(providers_module.asyncio, "sleep", fake_sleep)
+
+    token, expires_in = await StandardOAuth2Exchanger().exchange(
+        {
+            "token_endpoint": "https://oauth.example.test/token",
+            "client_id": "id",
+            "client_secret": "secret",
+        },
+    )
+
+    assert token == "retried-token"
+    assert expires_in == 123
+    assert FlakyOAuthClient.calls == 3
+    assert sleeps == [0.2, 0.4]
 
 
 @pytest.mark.asyncio

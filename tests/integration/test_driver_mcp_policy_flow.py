@@ -7,7 +7,7 @@ import pytest
 from qwenpaw.app.approvals.driver_gate import QwenPawDriverApprovalGate
 from qwenpaw.app.approvals.service import ApprovalService
 from qwenpaw.drivers.capabilities import DriverInvocation
-from qwenpaw.drivers.contracts import CredentialRef, DriverCard, PolicyRule
+from qwenpaw.drivers.contracts import DriverCard, PolicyRule
 from qwenpaw.drivers.credentials.store import CredentialStore
 from qwenpaw.drivers.handlers.mcp import MCPDriverHandler
 from qwenpaw.drivers.manager import DriverManager
@@ -29,7 +29,6 @@ async def _registry_with_policy(
             name="policy_echo",
             protocol="mcp",
             endpoint={"transport": "stdio", "command": "python"},
-            credential=CredentialRef("none"),
             policy=policy,
         ),
         card_path(tmp_path / "drivers", "policy_echo", protocol="mcp"),

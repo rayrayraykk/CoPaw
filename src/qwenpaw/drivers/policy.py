@@ -30,6 +30,22 @@ from qwenpaw.drivers.policy_types import (
     coerce_driver_policy,
 )
 
+__all__ = [
+    "DriverInvocationContext",
+    "PolicyContext",
+    "condition_satisfied",
+    "context_subjects",
+    "evaluate_policy",
+    "principal_matches",
+    "principal_specificity",
+    "specificity",
+    "subject_matches",
+    "subject_specificity",
+    "target_kind_specificity",
+    "target_matches",
+    "target_name_specificity",
+]
+
 _STRICTNESS: dict[str, int] = {
     POLICY_EFFECT_DENY: 3,
     POLICY_EFFECT_ASK: 2,

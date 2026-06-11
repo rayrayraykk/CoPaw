@@ -17,6 +17,17 @@ CapabilityKind = Literal[
     "resource",
 ]
 
+__all__ = [
+    "CapabilityExposure",
+    "CapabilityKind",
+    "DriverCapability",
+    "DriverInvocation",
+    "DriverInvocationResult",
+    "DriverRuntimeInfo",
+    "format_capability_id",
+    "parse_capability_id",
+]
+
 
 @dataclass(frozen=True)
 class CapabilityExposure:

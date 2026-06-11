@@ -157,6 +157,15 @@ def build_mcp_driver_card(
         )
     else:
         credentials.pop(STATIC_CREDENTIAL_ALIAS, None)
+    # Generic DriverPolicy defaults to deny as the low-level safe fallback.
+    # Console-created MCP clients default to ask so a newly added external
+    # server requires human approval instead of failing silently before the
+    # user has configured detailed rules.
+    policy = (
+        existing.policy
+        if existing
+        else DriverPolicy(default_effect=POLICY_EFFECT_ASK, rules=[])
+    )
     return DriverCard(
         name=client_key,
         protocol=PROTOCOL_MCP,
@@ -167,11 +176,7 @@ def build_mcp_driver_card(
             "description": str(data.get("description") or ""),
         },
         enabled=bool(data.get("enabled", True)),
-        policy=(
-            existing.policy
-            if existing
-            else DriverPolicy(default_effect=POLICY_EFFECT_ASK, rules=[])
-        ),
+        policy=policy,
     )
 
 

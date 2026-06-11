@@ -12,7 +12,6 @@ from typing import Any, cast
 import yaml
 
 from qwenpaw.drivers.constants import (
-    CREDENTIAL_KIND_NONE,
     POLICY_EFFECT_ASK,
     POLICY_EFFECT_DENY,
     POLICY_TARGET_WILDCARD,
@@ -33,9 +32,18 @@ from qwenpaw.drivers.policy_types import (
     PolicyRule,
     PolicyTarget,
     PolicyTargetKind,
-    RateLimit,
     TimeRange,
 )
+
+__all__ = [
+    "card_path",
+    "card_paths_for_name",
+    "delete_card",
+    "delete_card_paths_for_name",
+    "dump_card",
+    "list_card_paths",
+    "load_card",
+]
 
 
 def load_card(path: Path) -> DriverCard:
@@ -80,7 +88,7 @@ def dump_card(card: DriverCard, path: Path) -> None:
             yaml.safe_dump(
                 payload,
                 tmp,
-                allow_unicode=False,
+                allow_unicode=True,
                 sort_keys=False,
             )
             tmp.flush()
@@ -196,14 +204,6 @@ def _card_from_mapping(data: dict[str, Any], path: Path) -> DriverCard:
             f"DriverCard {path} missing required fields: {', '.join(missing)}",
         )
 
-    credential = data.get("credential", {"kind": CREDENTIAL_KIND_NONE})
-    if credential is None:
-        credential = {"kind": CREDENTIAL_KIND_NONE}
-    if not isinstance(credential, dict):
-        raise DriverCardError(
-            f"DriverCard {path} credential must be a mapping",
-        )
-
     credentials = data.get("credentials", {})
     if credentials is None:
         credentials = {}
@@ -237,10 +237,6 @@ def _card_from_mapping(data: dict[str, Any], path: Path) -> DriverCard:
         config=dict(config),
         enabled=bool(data.get("enabled", True)),
         policy=_policy_from_mapping(data.get("policy"), path),
-        credential=CredentialRef(
-            kind=str(credential.get("kind", "")),
-            ref=str(credential.get("ref", "")),
-        ),
     )
 
 
@@ -343,12 +339,14 @@ def _condition_from_mapping(
         return None
     if not isinstance(value, dict):
         raise DriverCardError(f"DriverCard {path} condition must be a mapping")
+    if "rate_limit" in value:
+        raise DriverCardError(
+            f"DriverCard {path} policy condition rate_limit is not supported",
+        )
 
     time_range = value.get("time_range")
-    rate_limit = value.get("rate_limit")
     return PolicyCondition(
         time_range=_time_range_from_mapping(time_range, path),
-        rate_limit=_rate_limit_from_mapping(rate_limit, path),
     )
 
 
@@ -364,17 +362,4 @@ def _time_range_from_mapping(value: Any, path: Path) -> TimeRange | None:
         after=value.get("after"),
         before=value.get("before"),
         weekdays=list(weekdays) if weekdays is not None else None,
-    )
-
-
-def _rate_limit_from_mapping(value: Any, path: Path) -> RateLimit | None:
-    if value is None:
-        return None
-    if not isinstance(value, dict):
-        raise DriverCardError(
-            f"DriverCard {path} rate_limit must be a mapping",
-        )
-    return RateLimit(
-        max_calls=int(value.get("max_calls", 0)),
-        window_seconds=int(value.get("window_seconds", 0)),
     )

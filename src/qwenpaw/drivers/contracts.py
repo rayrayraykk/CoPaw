@@ -3,11 +3,10 @@
 
 from __future__ import annotations
 
-from dataclasses import InitVar, dataclass, field, replace
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from qwenpaw.drivers.constants import (
-    CREDENTIAL_ALIAS_DEFAULT,
     CREDENTIAL_KIND_NONE,
     PRINCIPAL_SUBJECT_USER,
 )
@@ -21,13 +20,11 @@ from qwenpaw.drivers.policy_types import (
     PolicyPrincipal,
     PolicyRule,
     PolicyTarget,
-    RateLimit,
     TimeRange,
     coerce_driver_policy,
 )
 
 NO_CREDENTIAL_KIND = CREDENTIAL_KIND_NONE
-DEFAULT_CREDENTIAL_ALIAS = CREDENTIAL_ALIAS_DEFAULT
 
 __all__ = [
     "CredentialRef",
@@ -38,7 +35,6 @@ __all__ = [
     "PolicyPrincipal",
     "PolicyRule",
     "PolicyTarget",
-    "RateLimit",
     "TimeRange",
     "coerce_card",
     "coerce_credential_ref",
@@ -113,14 +109,9 @@ class DriverCard:
     config: dict[str, Any] = field(default_factory=dict)
     enabled: bool = True
     policy: DriverPolicy = field(default_factory=DriverPolicy)
-    credential: InitVar[Any] = None
 
-    def __post_init__(self, credential: Any) -> None:
-        credentials = coerce_credential_refs(self.credentials)
-        legacy = coerce_credential_ref(credential)
-        if not credentials and legacy.kind != NO_CREDENTIAL_KIND:
-            credentials = {DEFAULT_CREDENTIAL_ALIAS: legacy}
-        self.credentials = credentials
+    def __post_init__(self) -> None:
+        self.credentials = coerce_credential_refs(self.credentials)
         self.policy = coerce_driver_policy(self.policy)
 
 
@@ -209,11 +200,6 @@ def _validate_driver_policy(card: DriverCard) -> None:
         if not rule.target.name or not isinstance(rule.target.name, str):
             raise DriverCardError(
                 f"DriverCard {card.name} policy target.name must be non-empty",
-            )
-        if rule.condition and rule.condition.rate_limit is not None:
-            raise DriverCardError(
-                f"DriverCard {card.name} policy rate_limit is not enforced "
-                "yet and cannot be configured",
             )
         for field_name in (
             "source_type",
