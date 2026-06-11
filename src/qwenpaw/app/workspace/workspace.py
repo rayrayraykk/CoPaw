@@ -5,7 +5,7 @@ Each Workspace represents a standalone agent workspace with its own:
 - Runner (request processing)
 - ChannelManager (communication channels)
 - BaseMemoryManager (conversation memory)
-- DriverManager (unified external capability runtime: MCP/A2A/ACP)
+- DriverManager (external capability runtime, currently MCP)
 - CronManager (scheduled tasks)
 
 All existing single-agent components are reused without modification.
@@ -42,7 +42,7 @@ class Workspace:
     - Runner: Processes agent requests
     - ChannelManager: Manages communication channels
     - BaseMemoryManager: Manages conversation memory
-    - DriverManager: Manages external capabilities across MCP/A2A/ACP
+    - DriverManager: Manages external capabilities exposed through Drivers
     - CronManager: Manages scheduled tasks
 
     All components use existing single-agent code without modification.

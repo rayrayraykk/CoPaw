@@ -18,9 +18,9 @@ logger = logging.getLogger(__name__)
 async def create_driver_service(ws: "Workspace", _service):
     """Create and initialize the per-workspace DriverManager.
 
-    DriverManager is the unified runtime for external capabilities.  Protocol
-    handlers such as MCP, ACP, and A2A adapt their native endpoints into the
-    same Driver capability lifecycle and invocation surface.
+    DriverManager is the runtime for external capabilities.  This PR wires MCP
+    as the first concrete Driver protocol; other external protocols can be
+    added later through the same registration seam.
 
     Args:
         ws: Workspace instance
@@ -32,11 +32,7 @@ async def create_driver_service(ws: "Workspace", _service):
     # pylint: disable=protected-access
 
     from ...drivers.credentials.store import CredentialStore
-    from ...drivers.handlers import (
-        A2ADriverHandler,
-        ACPDriverHandler,
-        MCPDriverHandler,
-    )
+    from ...drivers.handlers import MCPDriverHandler
     from ...drivers.handlers.mcp import validate_mcp_endpoint
     from ...drivers.manager import DriverManager
     from ..approvals.driver_gate import QwenPawDriverApprovalGate
@@ -52,8 +48,9 @@ async def create_driver_service(ws: "Workspace", _service):
         MCPDriverHandler,
         endpoint_validator=validate_mcp_endpoint,
     )
-    driver_manager.register_handler_type("acp", ACPDriverHandler)
-    driver_manager.register_handler_type("a2a", A2ADriverHandler)
+    # Future Driver protocols should be registered here together with their
+    # endpoint validator and tests.  This PR intentionally keeps the concrete
+    # runtime surface to MCP, while leaving DriverManager protocol-neutral.
     from ...drivers.adapters.mcp_legacy_config import (
         migrate_legacy_mcp_if_needed,
     )

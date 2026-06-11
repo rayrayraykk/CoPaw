@@ -282,7 +282,7 @@ async def test_update_mcp_policy_replaces_rules_and_preserves_unmanaged(
                     PolicyRule(
                         subject="user:*",
                         effect="deny",
-                        target=PolicyTarget(kind="resource", name="danger"),
+                        target=PolicyTarget(kind="*", name="danger"),
                     ),
                 ],
             ),
@@ -362,7 +362,7 @@ async def test_update_mcp_policy_replaces_rules_and_preserves_unmanaged(
         )
         for rule in saved.policy.rules
     ] == [
-        ("user:*", "resource", "danger", "*", "*", "*", "*"),
+        ("user:*", "*", "danger", "*", "*", "*", "*"),
         ("*", "tool", "search", "*", "*", "*", "*"),
         ("*", "tool", "*", "channel", "console", "all", ""),
         ("*", "tool", "echo", "app", "Creator", "all", ""),

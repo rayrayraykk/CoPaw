@@ -6,13 +6,14 @@ import pytest
 from qwenpaw.app.workspace import Workspace
 from qwenpaw.drivers.contracts import DriverCard
 from qwenpaw.drivers.storage import card_path, dump_card
+from tests.integration.driver_mcp_fakes import patch_mcp_runtime_clients
 
 
-def _a2a_card(name: str) -> DriverCard:
+def _mcp_card(name: str) -> DriverCard:
     return DriverCard(
         name=name,
-        protocol="a2a",
-        endpoint={"transport": "stdio"},
+        protocol="mcp",
+        endpoint={"transport": "stdio", "command": "fake-mcp"},
     )
 
 
@@ -32,23 +33,25 @@ async def _active_driver_names(manager) -> list[str]:
 @pytest.mark.asyncio
 async def test_driver_manager_uses_per_workspace_storage(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    patch_mcp_runtime_clients(monkeypatch)
     workspace_one = Workspace("agent-one", str(tmp_path / "one"))
     workspace_two = Workspace("agent-two", str(tmp_path / "two"))
     dump_card(
-        _a2a_card("driver-one"),
+        _mcp_card("driver-one"),
         card_path(
             workspace_one.workspace_dir / "drivers",
             "driver-one",
-            protocol="a2a",
+            protocol="mcp",
         ),
     )
     dump_card(
-        _a2a_card("driver-two"),
+        _mcp_card("driver-two"),
         card_path(
             workspace_two.workspace_dir / "drivers",
             "driver-two",
-            protocol="a2a",
+            protocol="mcp",
         ),
     )
 

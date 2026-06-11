@@ -7,15 +7,12 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 from urllib.parse import quote, unquote, urlsplit
 
-CapabilityKind = Literal[
-    "tool",
-    "agent",
-    "task",
-    "message",
-    "session",
-    "artifact",
-    "resource",
-]
+# Keep the concrete kind set aligned with implemented Driver protocols.  MCP
+# currently exposes tools only.  Future protocols such as ACP/A2A can extend
+# this Literal and _KIND_TO_PATH_SEGMENT in the same change that introduces
+# their concrete handlers, so this module remains a record of implemented API
+# surface rather than a bucket of aspirational kinds.
+CapabilityKind = Literal["tool"]
 
 __all__ = [
     "CapabilityExposure",
@@ -129,15 +126,7 @@ def parse_capability_id(capability_id: str) -> tuple[str, str, str, str, str]:
     return protocol, driver_name, kind, action, name
 
 
-_KIND_TO_PATH_SEGMENT = {
-    "tool": "tools",
-    "agent": "agents",
-    "task": "tasks",
-    "message": "messages",
-    "session": "sessions",
-    "artifact": "artifacts",
-    "resource": "resources",
-}
+_KIND_TO_PATH_SEGMENT = {"tool": "tools"}
 _PATH_SEGMENT_TO_KIND = {
     path_segment: kind for kind, path_segment in _KIND_TO_PATH_SEGMENT.items()
 }
