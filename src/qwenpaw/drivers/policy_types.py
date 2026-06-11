@@ -109,15 +109,17 @@ def coerce_driver_policy(value: Any) -> DriverPolicy:
             rules=[_coerce_policy_rule(item) for item in value],
         )
     if isinstance(value, dict):
+        rules = value.get("rules", [])
+        if rules is None:
+            rules = []
+        if not isinstance(rules, list):
+            raise DriverCardError("DriverPolicy.rules must be a list")
         return DriverPolicy(
             default_effect=_coerce_policy_effect(
                 value.get("default_effect"),
                 default=POLICY_EFFECT_DENY,
             ),
-            rules=[
-                _coerce_policy_rule(item)
-                for item in list(value.get("rules") or [])
-            ],
+            rules=[_coerce_policy_rule(item) for item in rules],
         )
     return DriverPolicy()
 

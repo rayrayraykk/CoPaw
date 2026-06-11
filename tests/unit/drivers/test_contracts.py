@@ -69,6 +69,28 @@ def test_validate_card_rejects_invalid_policy_effect() -> None:
         )
 
 
+@pytest.mark.parametrize("rules", [{"tool": "allow"}, "allow"])
+def test_validate_card_rejects_non_list_policy_rules(rules: object) -> None:
+    with pytest.raises(DriverCardError, match="DriverPolicy.rules"):
+        DriverCard(
+            name="demo",
+            protocol="mcp",
+            endpoint={},
+            policy={"rules": rules},  # type: ignore[arg-type]
+        )
+
+
+def test_validate_card_accepts_null_policy_rules_as_empty() -> None:
+    card = DriverCard(
+        name="demo",
+        protocol="mcp",
+        endpoint={},
+        policy={"rules": None},  # type: ignore[arg-type]
+    )
+
+    assert card.policy == DriverPolicy()
+
+
 def test_validate_card_rejects_invalid_policy_target_kind() -> None:
     card = DriverCard(
         name="demo",
