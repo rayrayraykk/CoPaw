@@ -7,12 +7,12 @@ from typing import Any, Dict, List
 
 from fastapi import APIRouter, Body, Path, Request
 
-from qwenpaw.app.mcp.config_service import (
+from ..mcp.config_service import (
     MCPConfigService,
     ensure_mcp_display_name_unique,
     ensure_mcp_driver_active,
 )
-from qwenpaw.app.mcp.schemas import (
+from ..mcp.schemas import (
     MCPAccessPolicy,
     MCPAccessRule,
     MCPClientCreateRequest,

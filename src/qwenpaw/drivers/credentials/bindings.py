@@ -7,13 +7,13 @@ import base64
 import logging
 from typing import Any
 
-from qwenpaw.drivers.constants import (
+from ..constants import (
     CREDENTIAL_ALIAS_DEFAULT,
     CREDENTIAL_ALIAS_OAUTH,
     CREDENTIAL_ALIAS_STATIC,
 )
-from qwenpaw.drivers.credentials.providers import CredentialProvider
-from qwenpaw.drivers.credentials.types import ResolvedCredential
+from .providers import CredentialProvider
+from .types import ResolvedCredential
 
 logger = logging.getLogger(__name__)
 

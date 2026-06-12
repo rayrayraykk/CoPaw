@@ -15,7 +15,7 @@ from typing import Any
 
 from agentscope.tool import ToolBase
 
-from qwenpaw.drivers.capabilities import (
+from ..capabilities import (
     DriverCapability,
     DriverInvocation,
     DriverInvocationResult,
@@ -221,6 +221,6 @@ async def build_driver_agent_tools(
     if not tools:
         return [], []
 
-    from qwenpaw.agents.prompt import build_driver_policy_recheck_hint
+    from ...agents.prompt import build_driver_policy_recheck_hint
 
     return tools, [build_driver_policy_recheck_hint()]

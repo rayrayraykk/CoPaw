@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from qwenpaw.drivers.adapters.mcp_binding import (
+from .mcp_binding import (
     binding_plain_keys,
     binding_to_response,
     classify_mcp_binding,
@@ -13,7 +13,7 @@ from qwenpaw.drivers.adapters.mcp_binding import (
     source_binding_from_split,
     split_mcp_binding,
 )
-from qwenpaw.drivers.adapters.mcp_card_builder import (
+from .mcp_card_builder import (
     OAUTH_CREDENTIAL_ALIAS,
     STATIC_CREDENTIAL_ALIAS,
     attach_mcp_oauth_credential,

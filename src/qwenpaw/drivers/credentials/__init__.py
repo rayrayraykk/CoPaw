@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """Driver credential helpers."""
 
-from qwenpaw.drivers.credentials.providers import (
+from .providers import (
     CredentialProvider,
     build_provider,
 )
-from qwenpaw.drivers.credentials.store import CredentialStore
-from qwenpaw.drivers.credentials.types import (
+from .store import CredentialStore
+from .types import (
     CredentialRecord,
     ResolvedCredential,
 )

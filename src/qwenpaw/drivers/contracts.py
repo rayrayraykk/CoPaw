@@ -6,12 +6,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from typing import Any
 
-from qwenpaw.drivers.constants import (
+from .constants import (
     CREDENTIAL_KIND_NONE,
     PRINCIPAL_SUBJECT_USER,
 )
-from qwenpaw.drivers.errors import DriverCardError
-from qwenpaw.drivers.policy_types import (
+from .errors import DriverCardError
+from .policy_types import (
     ALLOWED_POLICY_EFFECTS,
     ALLOWED_POLICY_TARGET_KINDS,
     DriverPolicy,

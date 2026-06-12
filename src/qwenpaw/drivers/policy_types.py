@@ -7,14 +7,14 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypeAlias, cast, get_args
 
-from qwenpaw.drivers.capabilities import CapabilityKind
-from qwenpaw.drivers.constants import (
+from .capabilities import CapabilityKind
+from .constants import (
     POLICY_EFFECT_ASK,
     POLICY_EFFECT_DENY,
     POLICY_EFFECTS,
     POLICY_TARGET_WILDCARD,
 )
-from qwenpaw.drivers.errors import DriverCardError
+from .errors import DriverCardError
 
 PolicyEffect: TypeAlias = Literal["allow", "deny", "ask"]
 PolicyTargetKind: TypeAlias = CapabilityKind | Literal["*"]

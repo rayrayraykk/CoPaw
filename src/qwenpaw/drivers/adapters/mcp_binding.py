@@ -6,7 +6,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from qwenpaw.drivers.credentials.types import CredentialRecord
+from ..credentials.types import CredentialRecord
 
 _SAFE_KEY_PATTERN = re.compile(r"[^a-z0-9_]+")
 

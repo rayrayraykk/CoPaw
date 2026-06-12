@@ -7,33 +7,33 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Any
 
-from qwenpaw.drivers.approval import ApprovalGate
-from qwenpaw.drivers.capabilities import (
+from .approval import ApprovalGate
+from .capabilities import (
     DriverCapability,
     DriverInvocation,
     DriverInvocationResult,
 )
-from qwenpaw.drivers.constants import (
+from .constants import (
     CREDENTIAL_ALIAS_DEFAULT,
     DRIVER_OPERATION_INVOKE,
     POLICY_EFFECT_ASK,
     POLICY_EFFECT_DENY,
 )
-from qwenpaw.drivers.credentials.bindings import resolve_credentials
-from qwenpaw.drivers.credentials.providers import CredentialProvider
-from qwenpaw.drivers.credentials.types import ResolvedCredential
-from qwenpaw.drivers.errors import (
+from .credentials.bindings import resolve_credentials
+from .credentials.providers import CredentialProvider
+from .credentials.types import ResolvedCredential
+from .errors import (
     ApprovalRequiredError,
     DriverPermissionDeniedError,
 )
-from qwenpaw.drivers.contracts import (
+from .contracts import (
     DriverCard,
     DriverPolicy,
     PolicyRule,
     PolicyTarget,
     coerce_driver_policy,
 )
-from qwenpaw.drivers.policy import DriverInvocationContext, evaluate_policy
+from .policy import DriverInvocationContext, evaluate_policy
 
 logger = logging.getLogger(__name__)
 

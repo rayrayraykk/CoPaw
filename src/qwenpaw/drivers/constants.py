@@ -3,18 +3,20 @@
 
 from __future__ import annotations
 
-CREDENTIAL_ALIAS_DEFAULT = "default"
-CREDENTIAL_ALIAS_STATIC = "static"
-CREDENTIAL_ALIAS_OAUTH = "oauth"
+from typing import Final, Literal
 
-CREDENTIAL_KIND_NONE = "none"
-CREDENTIAL_KIND_STATIC = "static"
-CREDENTIAL_KIND_OAUTH_AUTH_CODE = "oauth2_auth_code"
+CREDENTIAL_ALIAS_DEFAULT: Final = "default"
+CREDENTIAL_ALIAS_STATIC: Final = "static"
+CREDENTIAL_ALIAS_OAUTH: Final = "oauth"
 
-POLICY_EFFECT_ALLOW = "allow"
-POLICY_EFFECT_ASK = "ask"
-POLICY_EFFECT_DENY = "deny"
-POLICY_EFFECTS = frozenset(
+CREDENTIAL_KIND_NONE: Final = "none"
+CREDENTIAL_KIND_STATIC: Final = "static"
+CREDENTIAL_KIND_OAUTH_AUTH_CODE: Final = "oauth2_auth_code"
+
+POLICY_EFFECT_ALLOW: Final[Literal["allow"]] = "allow"
+POLICY_EFFECT_ASK: Final[Literal["ask"]] = "ask"
+POLICY_EFFECT_DENY: Final[Literal["deny"]] = "deny"
+POLICY_EFFECTS: Final[frozenset[str]] = frozenset(
     {
         POLICY_EFFECT_ALLOW,
         POLICY_EFFECT_ASK,
@@ -22,15 +24,15 @@ POLICY_EFFECTS = frozenset(
     },
 )
 
-PROTOCOL_MCP = "mcp"
-CAPABILITY_KIND_TOOL = "tool"
-DRIVER_OPERATION_INVOKE = "invoke"
+PROTOCOL_MCP: Final = "mcp"
+CAPABILITY_KIND_TOOL: Final[Literal["tool"]] = "tool"
+DRIVER_OPERATION_INVOKE: Final = "invoke"
 
-POLICY_TARGET_WILDCARD = "*"
-SUBJECT_UNKNOWN_USER = "user:unknown"
+POLICY_TARGET_WILDCARD: Final = "*"
+SUBJECT_UNKNOWN_USER: Final = "user:unknown"
 
-PRINCIPAL_SOURCE_CHANNEL = "channel"
-PRINCIPAL_SOURCE_APP = "app"
-PRINCIPAL_SUBJECT_ALL = "all"
-PRINCIPAL_SUBJECT_USER = "user"
-PRINCIPAL_SUBJECT_SESSION = "session"
+PRINCIPAL_SOURCE_CHANNEL: Final = "channel"
+PRINCIPAL_SOURCE_APP: Final = "app"
+PRINCIPAL_SUBJECT_ALL: Final = "all"
+PRINCIPAL_SUBJECT_USER: Final = "user"
+PRINCIPAL_SUBJECT_SESSION: Final = "session"

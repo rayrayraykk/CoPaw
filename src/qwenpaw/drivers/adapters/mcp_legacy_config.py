@@ -10,14 +10,14 @@ from typing import Any
 
 import yaml
 
-from qwenpaw.drivers.adapters.mcp_console import (
+from .mcp_console import (
     mcp_credential_ref,
     mcp_oauth_credential_ref,
     normalize_secret_key,
     source_binding_from_split,
     split_mcp_binding,
 )
-from qwenpaw.drivers.constants import (
+from ..constants import (
     CAPABILITY_KIND_TOOL,
     CREDENTIAL_ALIAS_OAUTH,
     CREDENTIAL_ALIAS_STATIC,
@@ -27,15 +27,16 @@ from qwenpaw.drivers.constants import (
     POLICY_TARGET_WILDCARD,
     PROTOCOL_MCP,
 )
-from qwenpaw.drivers.contracts import (
+from ..contracts import (
     CredentialRef,
     DriverCard,
+    DriverPolicy,
     PolicyRule,
     PolicyTarget,
 )
-from qwenpaw.drivers.credentials.types import CredentialRecord
-from qwenpaw.drivers.manager import DriverManager
-from qwenpaw.drivers.storage import card_path, dump_card
+from ..credentials.types import CredentialRecord
+from ..manager import DriverManager
+from ..storage import card_path, dump_card
 
 
 @dataclass
@@ -215,16 +216,18 @@ def legacy_mcp_client_to_driver(
             "description": str(getattr(config, "description", "") or ""),
         },
         enabled=bool(getattr(config, "enabled", True)),
-        policy=[
-            PolicyRule(
-                subject=POLICY_TARGET_WILDCARD,
-                effect=POLICY_EFFECT_ALLOW,
-                target=PolicyTarget(
-                    kind=CAPABILITY_KIND_TOOL,
-                    name=POLICY_TARGET_WILDCARD,
+        policy=DriverPolicy(
+            rules=[
+                PolicyRule(
+                    subject=POLICY_TARGET_WILDCARD,
+                    effect=POLICY_EFFECT_ALLOW,
+                    target=PolicyTarget(
+                        kind=CAPABILITY_KIND_TOOL,
+                        name=POLICY_TARGET_WILDCARD,
+                    ),
                 ),
-            ),
-        ],
+            ],
+        ),
     )
     return card, credential
 

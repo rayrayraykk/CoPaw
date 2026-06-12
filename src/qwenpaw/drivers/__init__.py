@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """Agent OS Driver subsystem."""
 
-from qwenpaw.drivers.handler import DriverHandler
-from qwenpaw.drivers.contracts import (
+from .handler import DriverHandler
+from .contracts import (
     CredentialRef,
     DriverCard,
     DriverPolicy,
@@ -10,7 +10,7 @@ from qwenpaw.drivers.contracts import (
     PolicyRule,
     PolicyTarget,
 )
-from qwenpaw.drivers.manager import DriverManager
+from .manager import DriverManager
 
 __all__ = [
     "CredentialRef",

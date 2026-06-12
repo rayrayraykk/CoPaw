@@ -11,20 +11,20 @@ from typing import Any, cast
 
 import yaml
 
-from qwenpaw.drivers.constants import (
+from .constants import (
     POLICY_EFFECT_ASK,
     POLICY_EFFECT_DENY,
     POLICY_TARGET_WILDCARD,
 )
-from qwenpaw.drivers.errors import DriverCardError
-from qwenpaw.drivers.contracts import (
+from .errors import DriverCardError
+from .contracts import (
     CredentialRef,
     DriverCard,
     coerce_card,
     validate_card,
     validate_card_name,
 )
-from qwenpaw.drivers.policy_types import (
+from .policy_types import (
     DriverPolicy,
     PolicyEffect,
     PolicyCondition,

@@ -14,23 +14,23 @@ from typing import Any, Protocol
 
 import httpx
 
-from qwenpaw.drivers.credentials.store import CredentialStore
-from qwenpaw.drivers.credentials.types import (
+from .store import CredentialStoreProtocol
+from .types import (
     CredentialRecord,
     ResolvedCredential,
 )
-from qwenpaw.drivers.errors import (
+from ..errors import (
     DriverCredentialProviderError,
     OAuthRequiredError,
     UnsupportedCredentialKindError,
 )
-from qwenpaw.drivers.contracts import CredentialRef
+from ..contracts import CredentialRef
 
 _REFRESH_MARGIN_SECONDS = 300
 _OAUTH_TOKEN_MAX_ATTEMPTS = 3
 _OAUTH_RETRY_BASE_DELAY_SECONDS = 0.2
 CredentialProviderFactory = Callable[
-    ["CredentialRef", CredentialStore],
+    ["CredentialRef", CredentialStoreProtocol],
     "CredentialProvider",
 ]
 _PROVIDER_FACTORIES: dict[str, CredentialProviderFactory] = {}
@@ -138,7 +138,7 @@ def _is_transient_oauth_status(exc: httpx.HTTPStatusError) -> bool:
 
 
 class DirectProvider(CredentialProvider):
-    def __init__(self, ref: str, store: CredentialStore) -> None:
+    def __init__(self, ref: str, store: CredentialStoreProtocol) -> None:
         self._ref = ref
         self._store = store
 
@@ -156,7 +156,7 @@ class OAuth2CCProvider(CredentialProvider):
     def __init__(
         self,
         ref: str,
-        store: CredentialStore,
+        store: CredentialStoreProtocol,
         exchanger: TokenExchanger | None = None,
     ) -> None:
         self._ref = ref
@@ -211,7 +211,7 @@ class OAuth2AuthCodeProvider(CredentialProvider):
     def __init__(
         self,
         ref: str,
-        store: CredentialStore,
+        store: CredentialStoreProtocol,
         exchanger: TokenExchanger | None = None,
     ) -> None:
         self._ref = ref
@@ -270,7 +270,7 @@ class OAuth2AuthCodeProvider(CredentialProvider):
 
 
 class AKSKProvider(CredentialProvider):
-    def __init__(self, ref: str, store: CredentialStore) -> None:
+    def __init__(self, ref: str, store: CredentialStoreProtocol) -> None:
         self._ref = ref
         self._store = store
 
@@ -320,7 +320,7 @@ def unregister_provider(kind: str) -> None:
 
 def build_provider(
     credential_ref: CredentialRef,
-    store: CredentialStore,
+    store: CredentialStoreProtocol,
 ) -> CredentialProvider:
     """Factory for CredentialProvider by CredentialRef.kind."""
     try:

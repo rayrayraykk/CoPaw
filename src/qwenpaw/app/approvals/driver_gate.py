@@ -3,13 +3,13 @@
 
 from __future__ import annotations
 
-from qwenpaw.constant import TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS
-from qwenpaw.drivers.errors import (
+from ...constant import TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS
+from ...drivers.errors import (
     ApprovalRequiredError,
     DriverPermissionDeniedError,
 )
-from qwenpaw.drivers.policy import DriverInvocationContext
-from qwenpaw.security.tool_guard.approval import ApprovalDecision
+from ...drivers.policy import DriverInvocationContext
+from ...security.tool_guard.approval import ApprovalDecision
 
 from .models import ApprovalRequestSummary
 
@@ -50,7 +50,7 @@ class QwenPawDriverApprovalGate:
                 f"is missing: {context.subject} -> {context.driver_name}",
             )
 
-        from qwenpaw.app.approvals import get_approval_service
+        from . import get_approval_service
 
         svc = get_approval_service()
         tool_call_id = str(ctx.get("tool_call_id") or "")

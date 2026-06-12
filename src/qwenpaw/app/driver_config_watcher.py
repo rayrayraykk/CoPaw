@@ -13,10 +13,10 @@ import logging
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
-from qwenpaw.drivers.storage import list_card_paths
+from ..drivers.storage import list_card_paths
 
 if TYPE_CHECKING:
-    from qwenpaw.drivers.manager import DriverManager
+    from ..drivers.manager import DriverManager
 
 logger = logging.getLogger(__name__)
 

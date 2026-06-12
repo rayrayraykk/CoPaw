@@ -8,7 +8,7 @@ import logging
 import re
 from typing import Any
 
-from qwenpaw.drivers.capabilities import (
+from ..capabilities import (
     CapabilityExposure,
     DriverCapability,
     DriverInvocation,
@@ -16,7 +16,7 @@ from qwenpaw.drivers.capabilities import (
     format_capability_id,
     parse_capability_id,
 )
-from qwenpaw.drivers.constants import (
+from ..constants import (
     CAPABILITY_KIND_TOOL,
     DRIVER_OPERATION_INVOKE,
     PRINCIPAL_SOURCE_APP,
@@ -26,23 +26,23 @@ from qwenpaw.drivers.constants import (
     PROTOCOL_MCP,
     SUBJECT_UNKNOWN_USER,
 )
-from qwenpaw.drivers.contracts import DriverCard, PolicyTarget
-from qwenpaw.drivers.credentials.bindings import (
+from ..contracts import DriverCard, PolicyTarget
+from ..credentials.bindings import (
     implicit_auth_headers,
     resolve_binding,
 )
-from qwenpaw.drivers.handlers.mcp_stateful_client import (
+from .mcp_stateful_client import (
     HttpStatefulClient,
     StdIOStatefulClient,
 )
-from qwenpaw.drivers.credentials.types import ResolvedCredential
-from qwenpaw.drivers.errors import (
+from ..credentials.types import ResolvedCredential
+from ..errors import (
     ApprovalRequiredError,
     DriverCardError,
     DriverPermissionDeniedError,
 )
-from qwenpaw.drivers.handler import DriverHandler
-from qwenpaw.drivers.policy import PolicyContext
+from ..handler import DriverHandler
+from ..policy import PolicyContext
 
 logger = logging.getLogger(__name__)
 

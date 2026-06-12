@@ -7,7 +7,7 @@ import time
 from dataclasses import replace
 from typing import Any
 
-from qwenpaw.drivers.adapters.mcp_binding import (
+from .mcp_binding import (
     binding_plain_keys,
     binding_to_response,
     classify_mcp_binding,
@@ -16,7 +16,7 @@ from qwenpaw.drivers.adapters.mcp_binding import (
     source_binding_from_split,
     split_mcp_binding,
 )
-from qwenpaw.drivers.constants import (
+from ..constants import (
     CAPABILITY_KIND_TOOL,
     CREDENTIAL_ALIAS_OAUTH,
     CREDENTIAL_ALIAS_STATIC,
@@ -29,9 +29,9 @@ from qwenpaw.drivers.constants import (
     PRINCIPAL_SUBJECT_ALL,
     PRINCIPAL_SUBJECT_USER,
 )
-from qwenpaw.drivers.contracts import CredentialRef, DriverCard
-from qwenpaw.drivers.credentials.types import CredentialRecord
-from qwenpaw.drivers.policy_types import DriverPolicy
+from ..contracts import CredentialRef, DriverCard
+from ..credentials.types import CredentialRecord
+from ..policy_types import DriverPolicy
 
 STATIC_CREDENTIAL_ALIAS = CREDENTIAL_ALIAS_STATIC
 OAUTH_CREDENTIAL_ALIAS = CREDENTIAL_ALIAS_OAUTH

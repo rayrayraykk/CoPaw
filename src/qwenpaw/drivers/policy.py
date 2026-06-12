@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, time, timezone
 from typing import Any
 
-from qwenpaw.drivers.constants import (
+from .constants import (
     DRIVER_OPERATION_INVOKE,
     POLICY_EFFECT_ALLOW,
     POLICY_EFFECT_ASK,
@@ -20,7 +20,7 @@ from qwenpaw.drivers.constants import (
     PRINCIPAL_SUBJECT_USER,
     SUBJECT_UNKNOWN_USER,
 )
-from qwenpaw.drivers.policy_types import (
+from .policy_types import (
     DriverPolicy,
     PolicyCondition,
     PolicyEffect,

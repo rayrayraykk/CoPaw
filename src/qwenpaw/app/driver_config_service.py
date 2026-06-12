@@ -10,15 +10,15 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from qwenpaw.drivers.capabilities import DriverRuntimeInfo
-from qwenpaw.drivers.contracts import DriverCard
-from qwenpaw.drivers.credentials.store import (
+from ..drivers.capabilities import DriverRuntimeInfo
+from ..drivers.contracts import DriverCard
+from ..drivers.credentials.store import (
     CredentialStore,
     CredentialStoreProtocol,
 )
-from qwenpaw.drivers.credentials.types import CredentialRecord
-from qwenpaw.drivers.errors import CredentialNotFoundError, DriverCardError
-from qwenpaw.drivers.storage import (
+from ..drivers.credentials.types import CredentialRecord
+from ..drivers.errors import CredentialNotFoundError, DriverCardError
+from ..drivers.storage import (
     card_path,
     delete_card_paths_for_name,
     dump_card,

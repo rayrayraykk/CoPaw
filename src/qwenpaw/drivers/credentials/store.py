@@ -11,9 +11,9 @@ from typing import Any, Protocol
 
 import yaml
 
-from qwenpaw.drivers.credentials.types import CredentialRecord
-from qwenpaw.drivers.errors import CredentialNotFoundError, DriverCardError
-from qwenpaw.security.secret_store import decrypt, encrypt, is_encrypted
+from .types import CredentialRecord
+from ..errors import CredentialNotFoundError, DriverCardError
+from ...security.secret_store import decrypt, encrypt, is_encrypted
 
 _STORE_VERSION = 1
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from qwenpaw.drivers.policy import DriverInvocationContext
+from .policy import DriverInvocationContext
 
 
 class ApprovalGate(Protocol):

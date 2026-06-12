@@ -8,34 +8,34 @@ import logging
 from collections.abc import Callable
 from pathlib import Path
 
-from qwenpaw.drivers.approval import ApprovalGate
-from qwenpaw.drivers.capabilities import (
+from .approval import ApprovalGate
+from .capabilities import (
     DriverCapability,
     DriverInvocation,
     DriverInvocationResult,
     DriverRuntimeInfo,
     parse_capability_id,
 )
-from qwenpaw.drivers.constants import (
+from .constants import (
     CREDENTIAL_ALIAS_DEFAULT,
     CREDENTIAL_KIND_NONE,
 )
-from qwenpaw.drivers.credentials.providers import build_provider
-from qwenpaw.drivers.credentials.store import CredentialStoreProtocol
-from qwenpaw.drivers.credentials.types import CredentialRecord
-from qwenpaw.drivers.errors import (
+from .credentials.providers import build_provider
+from .credentials.store import CredentialStoreProtocol
+from .credentials.types import CredentialRecord
+from .errors import (
     DriverNotFoundError,
     UnsupportedProtocolError,
 )
-from qwenpaw.drivers.handler import DriverHandler
-from qwenpaw.drivers.contracts import (
+from .handler import DriverHandler
+from .contracts import (
     CredentialRef,
     DriverCard,
     coerce_card,
     iter_credential_refs,
     validate_card,
 )
-from qwenpaw.drivers.storage import (
+from .storage import (
     card_path,
     card_paths_for_name,
     delete_card_paths_for_name,

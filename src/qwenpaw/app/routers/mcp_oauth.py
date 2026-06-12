@@ -23,7 +23,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
-from qwenpaw.app.driver_config_service import DriverConfigService
+from ..driver_config_service import DriverConfigService
 from ...drivers.adapters.mcp_console import (
     attach_mcp_oauth_credential,
     detach_mcp_oauth_credential,

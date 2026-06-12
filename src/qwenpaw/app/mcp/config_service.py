@@ -8,11 +8,11 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from qwenpaw.app.driver_config_service import (
+from ..driver_config_service import (
     DriverConfigService,
     ensure_driver_active,
 )
-from qwenpaw.app.mcp.schemas import (
+from .schemas import (
     MCPAccessPolicy,
     MCPAccessRule,
     MCPClientCreateRequest,
@@ -22,14 +22,14 @@ from qwenpaw.app.mcp.schemas import (
     MCPToolDefaultPolicy,
     MCPToolInfo,
 )
-from qwenpaw.drivers.adapters.mcp_console import (
+from ...drivers.adapters.mcp_console import (
     build_mcp_client_info_payload,
     build_mcp_credential_record,
     build_mcp_driver_card,
     mcp_credential_ref,
     mcp_oauth_credential_ref,
 )
-from qwenpaw.drivers.constants import (
+from ...drivers.constants import (
     CAPABILITY_KIND_TOOL,
     CREDENTIAL_ALIAS_OAUTH,
     CREDENTIAL_ALIAS_STATIC,
@@ -45,11 +45,11 @@ from qwenpaw.drivers.constants import (
     PRINCIPAL_SUBJECT_USER,
     PROTOCOL_MCP,
 )
-from qwenpaw.drivers.contracts import (
+from ...drivers.contracts import (
     DriverCard,
     iter_credential_refs,
 )
-from qwenpaw.drivers.policy_types import (
+from ...drivers.policy_types import (
     DriverPolicy,
     PolicyPrincipal,
     PolicyRule,
