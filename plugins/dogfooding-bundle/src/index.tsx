@@ -8,7 +8,7 @@ const { Card, Button, Alert, Typography, Descriptions } = antd;
 const { LoginOutlined } = antdIcons;
 const { Text: AntText } = Typography;
 
-const INTEGRATION_B_BASE = "http://121.43.136.192:8081";
+const INTEGRATION_B_BASE = "https://proxy.agentscope.design";
 const INTEGRATION_CLIENT_SECRET = "qwenpaw-proxy-v1.0";
 
 const QWENPAW_AUTH_TOKEN_KEY = "qwenpaw_auth_token";

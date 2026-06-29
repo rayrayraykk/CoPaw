@@ -1,7 +1,7 @@
 const E = window.QwenPaw;
 if (!E?.host?.React || !E?.host?.antd)
   throw new Error("window.QwenPaw.host not found");
-const { React: s, antd: U, antdIcons: N } = E.host, { Card: C, Button: B, Alert: p, Typography: _, Descriptions: y } = U, { LoginOutlined: v } = N, { Text: T } = _, x = "http://121.43.136.192:8081", A = "qwenpaw-proxy-v1.0", K = "qwenpaw_auth_token", b = "dogfooding-bundle";
+const { React: s, antd: U, antdIcons: N } = E.host, { Card: C, Button: B, Alert: f, Typography: _, Descriptions: y } = U, { LoginOutlined: v } = N, { Text: T } = _, x = "https://proxy.agentscope.design", A = "qwenpaw-proxy-v1.0", K = "qwenpaw_auth_token", b = "dogfooding-bundle";
 console.info(`[${b}] frontend runtime detected`);
 function k(e, t) {
   if (!e || typeof e != "object" || e === null)
@@ -148,7 +148,7 @@ function z(e) {
 function G() {
   const [e, t] = s.useState(!1), [n, o] = s.useState(""), [a, r] = s.useState(!1), [i, g] = s.useState(""), [c, $] = s.useState(
     null
-  ), [f, w] = s.useState(
+  ), [p, w] = s.useState(
     null
   );
   s.useEffect(() => {
@@ -239,51 +239,51 @@ function G() {
     },
     "阿里集团账号登录"
   ), n ? /* @__PURE__ */ s.createElement(
-    p,
+    f,
     {
       style: { marginBottom: 12 },
       type: "error",
       message: n
     }
   ) : null, a ? /* @__PURE__ */ s.createElement(
-    p,
+    f,
     {
       style: { marginBottom: 12 },
       type: "info",
       message: "正在使用登录回调参数换取 API 密钥…"
     }
   ) : null, i ? /* @__PURE__ */ s.createElement(
-    p,
+    f,
     {
       style: { marginBottom: 12 },
       type: "error",
       message: i
     }
-  ) : null, c ? /* @__PURE__ */ s.createElement("div", { style: { marginTop: 16 } }, /* @__PURE__ */ s.createElement(y, { bordered: !0, size: "small", column: 1 }, /* @__PURE__ */ s.createElement(y.Item, { label: "API 密钥" }, c?.proxyApiKey ? /* @__PURE__ */ s.createElement(T, { code: !0, copyable: { text: c.proxyApiKey } }, z(c.proxyApiKey)) : S(c?.proxyApiKey)), /* @__PURE__ */ s.createElement(y.Item, { label: "花名/姓名" }, S(c?.name)), /* @__PURE__ */ s.createElement(y.Item, { label: "工号" }, S(c?.account))), f?.kind === "success" ? /* @__PURE__ */ s.createElement(
-    p,
+  ) : null, c ? /* @__PURE__ */ s.createElement("div", { style: { marginTop: 16 } }, /* @__PURE__ */ s.createElement(y, { bordered: !0, size: "small", column: 1 }, /* @__PURE__ */ s.createElement(y.Item, { label: "API 密钥" }, c?.proxyApiKey ? /* @__PURE__ */ s.createElement(T, { code: !0, copyable: { text: c.proxyApiKey } }, z(c.proxyApiKey)) : S(c?.proxyApiKey)), /* @__PURE__ */ s.createElement(y.Item, { label: "花名/姓名" }, S(c?.name)), /* @__PURE__ */ s.createElement(y.Item, { label: "工号" }, S(c?.account))), p?.kind === "success" ? /* @__PURE__ */ s.createElement(
+    f,
     {
       type: "success",
       showIcon: !0,
       style: { marginBottom: 12 },
       message: "已写入本机 dogfooding 用户文件",
-      description: /* @__PURE__ */ s.createElement(T, { code: !0, copyable: !0 }, f.path)
+      description: /* @__PURE__ */ s.createElement(T, { code: !0, copyable: !0 }, p.path)
     }
-  ) : null, f?.kind === "skipped" ? /* @__PURE__ */ s.createElement(
-    p,
+  ) : null, p?.kind === "skipped" ? /* @__PURE__ */ s.createElement(
+    f,
     {
       type: "warning",
       showIcon: !0,
       style: { marginBottom: 12 },
-      message: f.reason
+      message: p.reason
     }
-  ) : null, f?.kind === "error" ? /* @__PURE__ */ s.createElement(
-    p,
+  ) : null, p?.kind === "error" ? /* @__PURE__ */ s.createElement(
+    f,
     {
       type: "error",
       showIcon: !0,
       style: { marginBottom: 12 },
       message: "保存工号到本机失败",
-      description: f.message
+      description: p.message
     }
   ) : null) : null));
 }
