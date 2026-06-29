@@ -1,9 +1,9 @@
 {
   "id": "dogfooding-bundle",
   "name": "Dogfooding Bundle",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "bundle",
-  "description": "Internal org bundle: AgentScope provider, AgentTrack hook, /feedback command, and dogfooding account API",
+  "description": "Internal org bundle: AgentScope Dogfooding provider (Qwen3.7-Max-DogFooding), feedback UI/cards, AgentTrack data backflow, /feedback command, and dogfooding account API",
   "author": "QwenPaw Team",
   "entry": {
     "backend": "plugin.py",
