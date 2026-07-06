@@ -164,6 +164,8 @@ def _collect_daemon_specs() -> list[CommandSpec]:
 def _make_control_adapter(
     handler: Any,
     command_name: str,
+    *,
+    help_text: str = "",
 ) -> CommandSpec:
     """Wrap a :class:`BaseControlCommandHandler` as
     a :class:`CommandSpec`.
@@ -238,11 +240,18 @@ def _make_control_adapter(
         name=command_name,
         handler=_handler,
         category="control",
+        help_text=help_text,
     )
 
 
 def _collect_control_specs() -> list[CommandSpec]:
     from .commands.control import _COMMAND_REGISTRY
+
+    # Commands that should be advertised via ACP with descriptions.
+    _ADVERTISED_CONTROL_COMMANDS: dict[str, str] = {
+        "model": "Switch the active LLM model",
+        "skills": "List or manage available skills",
+    }
 
     specs = []
     seen_names: set[str] = set()
@@ -251,7 +260,8 @@ def _collect_control_specs() -> list[CommandSpec]:
         if name in seen_names:
             continue
         seen_names.add(name)
-        specs.append(_make_control_adapter(handler, name))
+        help_text = _ADVERTISED_CONTROL_COMMANDS.get(name, "")
+        specs.append(_make_control_adapter(handler, name, help_text=help_text))
     return specs
 
 
@@ -388,7 +398,11 @@ def _resolve_scroll_block(
     return existing
 
 
-def _make_conversation_adapter(name: str) -> CommandSpec:
+def _make_conversation_adapter(
+    name: str,
+    *,
+    help_text: str = "",
+) -> CommandSpec:
     """Wrap one conversation command via standalone CommandHandler.
 
     Loads AgentState directly from session — no agent instance required.
@@ -476,12 +490,26 @@ def _make_conversation_adapter(name: str) -> CommandSpec:
         name=name,
         handler=_handler,
         category="conversation",
+        help_text=help_text,
     )
+
+
+# Commands that should be advertised via ACP with descriptions.
+_ADVERTISED_CONVERSATION_COMMANDS: dict[str, str] = {
+    "clear": "Clear the conversation context",
+    "compact": (
+        "Compact the conversation context; " "optional instruction supported"
+    ),
+}
 
 
 def _collect_conversation_specs() -> list[CommandSpec]:
     return [
-        _make_conversation_adapter(n) for n in sorted(_CONVERSATION_COMMANDS)
+        _make_conversation_adapter(
+            n,
+            help_text=_ADVERTISED_CONVERSATION_COMMANDS.get(n, ""),
+        )
+        for n in sorted(_CONVERSATION_COMMANDS)
     ]
 
 
