@@ -2206,21 +2206,27 @@ export default function ChatPage() {
         ...buildAuthHeaders(),
       };
 
-      try {
-        const activeModels = await providerApi.getActiveModels({
-          scope: "effective",
-          agent_id: selectedAgent,
-        });
-        if (
-          !activeModels?.active_llm?.provider_id ||
-          !activeModels?.active_llm?.model
-        ) {
+      const currentAgents = useAgentStore.getState().agents;
+      const currentAgent = currentAgents.find((a) => a.id === selectedAgent);
+      const isExternalAgent = currentAgent?.type === "external_acp";
+
+      if (!isExternalAgent) {
+        try {
+          const activeModels = await providerApi.getActiveModels({
+            scope: "effective",
+            agent_id: selectedAgent,
+          });
+          if (
+            !activeModels?.active_llm?.provider_id ||
+            !activeModels?.active_llm?.model
+          ) {
+            setShowModelPrompt(true);
+            return buildModelError();
+          }
+        } catch {
           setShowModelPrompt(true);
           return buildModelError();
         }
-      } catch {
-        setShowModelPrompt(true);
-        return buildModelError();
       }
 
       const { input = [], biz_params } = data;

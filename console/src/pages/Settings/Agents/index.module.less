@@ -222,10 +222,24 @@
   color: #1677ff;
 }
 
+.agentInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.agentNameRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+}
+
 .agentName {
   font-size: 14px;
   font-weight: 500;
   color: #1a1a1a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .agentDesc {

@@ -101,15 +101,29 @@ export function AgentTable({
           >
             {isExternal(record) ? <Unplug size={16} /> : <Bot size={16} />}
           </div>
-          <div style={{ opacity: record.enabled ? 1 : 0.5 }}>
-            <div className={styles.agentName}>
-              {getAgentDisplayName(record, t)}
+          <div className={styles.agentInfo}>
+            <div className={styles.agentNameRow}>
+              <span
+                className={styles.agentName}
+                style={{ opacity: record.enabled ? 1 : 0.5 }}
+              >
+                {getAgentDisplayName(record, t)}
+              </span>
+              {!record.enabled && (
+                <Tag color="error" style={{ marginLeft: 6 }}>
+                  {t("agent.disabled")}
+                </Tag>
+              )}
             </div>
             {record.description && (
-              <div className={styles.agentDesc}>{record.description}</div>
+              <div
+                className={styles.agentDesc}
+                style={{ opacity: record.enabled ? 1 : 0.5 }}
+              >
+                {record.description}
+              </div>
             )}
           </div>
-          {!record.enabled && <Tag color="error">{t("agent.disabled")}</Tag>}
         </div>
       ),
     },
