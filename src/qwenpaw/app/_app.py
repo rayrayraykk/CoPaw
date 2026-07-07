@@ -108,6 +108,9 @@ class DynamicMultiAgentRunner:
         Registers the task with the workspace's TaskTracker so that
         graceful shutdown during agent reload can detect in-flight
         background tasks.
+
+        External ACP workspaces bypass Runtime entirely and
+        delegate to their own ``stream_query``.
         """
         logger.debug("DynamicMultiAgentRunner.stream_query called")
         workspace = None
@@ -120,14 +123,20 @@ class DynamicMultiAgentRunner:
                 run_key,
             )
 
-            from ..runtime.runtime import Runtime
+            if self._is_external_workspace(workspace):
+                async for item in workspace.stream_query(
+                    request,
+                ):
+                    yield item
+            else:
+                from ..runtime.runtime import Runtime
 
-            rt = Runtime(
-                workspace=workspace,
-                app_services=self._app_services,
-            )
-            async for item in rt.run(request):
-                yield item
+                rt = Runtime(
+                    workspace=workspace,
+                    app_services=self._app_services,
+                )
+                async for item in rt.run(request):
+                    yield item
         except Exception as e:
             logger.error(
                 f"Error in stream_query: {e}",
@@ -142,6 +151,11 @@ class DynamicMultiAgentRunner:
                 await workspace.task_tracker.unregister_external_task(
                     run_key,
                 )
+
+    @staticmethod
+    def _is_external_workspace(workspace: Any) -> bool:
+        """Check if workspace is an ExternalAgentWorkspace."""
+        return type(workspace).__name__ == "ExternalAgentWorkspace"
 
     async def __aenter__(self):
         """No-op context manager entry."""

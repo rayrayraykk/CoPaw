@@ -7,6 +7,8 @@ Provides RESTful API for managing multiple agent instances.
 import json
 import logging
 from pathlib import Path
+from typing import Literal
+
 from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi import Path as PathParam
 from pydantic import BaseModel, field_validator
@@ -47,6 +49,7 @@ class AgentSummary(BaseModel):
     workspace_dir: str
     enabled: bool
     active_model: ModelSlotConfig | None = None
+    type: Literal["native", "external_acp"] = "native"
 
 
 class AgentListResponse(BaseModel):
@@ -67,6 +70,9 @@ class CreateAgentRequest(BaseModel):
     The ``id`` field is optional.  When provided the server uses it as
     the agent identifier (after sanitization); when omitted a random
     short UUID is generated automatically.
+
+    ``type`` controls whether a native QwenPaw workspace or an
+    external ACP agent wrapper is created.
     """
 
     id: str | None = None
@@ -76,6 +82,8 @@ class CreateAgentRequest(BaseModel):
     language: str | None = None
     skill_names: list[str] | None = None
     active_model: ModelSlotConfig | None = None
+    type: Literal["native", "external_acp"] = "native"
+    acp_agent_id: str | None = None
 
     @field_validator("id", mode="before")
     @classmethod
@@ -154,6 +162,34 @@ def _read_profile_description(workspace_dir: str) -> str:
         return ""
 
 
+class ACPAgentOption(BaseModel):
+    """Available ACP agent for external workspace."""
+
+    id: str
+    command: str
+    enabled: bool
+
+
+@router.get(
+    "/acp-agents",
+    response_model=list[ACPAgentOption],
+    summary="List available ACP agents",
+)
+async def list_acp_agents() -> list[ACPAgentOption]:
+    """Return ACP agents from root config."""
+    config = load_config()
+    if not config.acp or not config.acp.agents:
+        return []
+    return [
+        ACPAgentOption(
+            id=aid,
+            command=cfg.command,
+            enabled=cfg.enabled,
+        )
+        for aid, cfg in config.acp.agents.items()
+    ]
+
+
 @router.get(
     "",
     response_model=AgentListResponse,
@@ -189,6 +225,11 @@ async def list_agents() -> AgentListResponse:
                     workspace_dir=agent_ref.workspace_dir,
                     enabled=getattr(agent_ref, "enabled", True),
                     active_model=active_model,
+                    type=getattr(
+                        agent_ref,
+                        "type",
+                        "native",
+                    ),
                 ),
             )
         except Exception:  # noqa: E722
@@ -199,6 +240,11 @@ async def list_agents() -> AgentListResponse:
                     description="",
                     workspace_dir=agent_ref.workspace_dir,
                     enabled=getattr(agent_ref, "enabled", True),
+                    type=getattr(
+                        agent_ref,
+                        "type",
+                        "native",
+                    ),
                 ),
             )
 
@@ -305,53 +351,75 @@ async def create_agent(
     ).expanduser()
     workspace_dir.mkdir(parents=True, exist_ok=True)
 
-    from ...config.config import (
-        ChannelConfig,
-        MCPConfig,
-        HeartbeatConfig,
-        ToolsConfig,
-    )
+    is_external = request.type == "external_acp"
 
-    language = normalize_agent_language(
-        request.language or config.agents.language or "en",
-    )
+    if is_external:
+        acp_id = request.acp_agent_id or new_id
+        if not config.acp or acp_id not in config.acp.agents:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"ACP agent '{acp_id}' not found " f"in acp.agents config"
+                ),
+            )
 
-    active_model = request.active_model
-    if not active_model or not active_model.provider_id:
-        try:
-            from ...providers import ProviderManager
+        agent_config = AgentProfileConfig(
+            id=new_id,
+            name=request.name,
+            description=request.description,
+            workspace_dir=str(workspace_dir),
+        )
+    else:
+        from ...config.config import (
+            ChannelConfig,
+            MCPConfig,
+            HeartbeatConfig,
+            ToolsConfig,
+        )
 
-            global_model = ProviderManager.get_instance().get_active_model()
-            if global_model and global_model.provider_id:
-                active_model = global_model
-        except Exception:
-            pass
+        language = normalize_agent_language(
+            request.language or config.agents.language or "en",
+        )
 
-    agent_config = AgentProfileConfig(
-        id=new_id,
-        name=request.name,
-        description=request.description,
-        workspace_dir=str(workspace_dir),
-        language=language,
-        channels=ChannelConfig(),
-        mcp=MCPConfig(),
-        heartbeat=HeartbeatConfig(),
-        tools=ToolsConfig(),
-        active_model=active_model,
-    )
+        active_model = request.active_model
+        if not active_model or not active_model.provider_id:
+            try:
+                from ...providers import ProviderManager
 
-    _initialize_agent_workspace(
-        workspace_dir,
-        skill_names=(
-            request.skill_names if request.skill_names is not None else []
-        ),
-        language=language,
-    )
+                global_model = (
+                    ProviderManager.get_instance().get_active_model()
+                )
+                if global_model and global_model.provider_id:
+                    active_model = global_model
+            except Exception:
+                pass
+
+        agent_config = AgentProfileConfig(
+            id=new_id,
+            name=request.name,
+            description=request.description,
+            workspace_dir=str(workspace_dir),
+            language=language,
+            channels=ChannelConfig(),
+            mcp=MCPConfig(),
+            heartbeat=HeartbeatConfig(),
+            tools=ToolsConfig(),
+            active_model=active_model,
+        )
+
+        _initialize_agent_workspace(
+            workspace_dir,
+            skill_names=(
+                request.skill_names if request.skill_names is not None else []
+            ),
+            language=language,
+        )
 
     agent_ref = AgentProfileRef(
         id=new_id,
         workspace_dir=str(workspace_dir),
         enabled=True,
+        type=request.type,
     )
 
     config.agents.profiles[new_id] = agent_ref

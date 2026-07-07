@@ -195,6 +195,210 @@
   word-break: break-all;
 }
 
+/* ─── Agent Table Cells ─────────────────────────────────────────────────────── */
+.agentCell {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.agentAvatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.agentAvatarScope {
+  background: rgba(97, 92, 237, 0.08);
+  color: #615ced;
+}
+
+.agentAvatarExternal {
+  background: rgba(22, 119, 255, 0.08);
+  color: #1677ff;
+}
+
+.agentName {
+  font-size: 14px;
+  font-weight: 500;
+  color: #1a1a1a;
+}
+
+.agentDesc {
+  font-size: 12px;
+  color: #999;
+  margin-top: 1px;
+  max-width: 220px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.typePill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 10px;
+  border-radius: 100px;
+  white-space: nowrap;
+}
+
+.typePillScope {
+  background: rgba(97, 92, 237, 0.06);
+  color: #615ced;
+}
+
+.typePillExternal {
+  background: rgba(22, 119, 255, 0.06);
+  color: #1677ff;
+}
+
+/* ─── Type Selector Cards (Design A) ────────────────────────────────────────── */
+.typeSelector {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.typeCard {
+  border: 2px solid #e8e6e1;
+  border-radius: 12px;
+  padding: 16px 18px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+  background: #fff;
+
+  &:hover {
+    border-color: #c5c3be;
+    background: #faf9f7;
+  }
+
+  &.typeCardSelected {
+    border-color: #615ced;
+    background: rgba(97, 92, 237, 0.03);
+  }
+}
+
+.typeIcon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 10px;
+}
+
+.typeIconNative {
+  background: rgba(97, 92, 237, 0.08);
+  color: #615ced;
+}
+
+.typeIconAcp {
+  background: rgba(22, 119, 255, 0.08);
+  color: #1677ff;
+}
+
+.typeTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin-bottom: 3px;
+}
+
+.typeDesc {
+  font-size: 12px;
+  color: #999;
+  line-height: 1.4;
+}
+
+.typeCheck {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #615ced;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ─── ACP Agent List ────────────────────────────────────────────────────────── */
+.acpList {
+  border: 1.5px solid #e8e6e1;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.acpOption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  cursor: pointer;
+  transition: background 0.15s;
+  border-bottom: 1px solid #f0eeea;
+
+  &:last-child {
+    border-bottom: 0;
+  }
+
+  &:hover {
+    background: #faf9f7;
+  }
+
+  &.acpOptionSelected {
+    background: rgba(97, 92, 237, 0.04);
+  }
+}
+
+.acpOptionLeft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.acpOptionIcon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: rgba(22, 119, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #1677ff;
+  flex-shrink: 0;
+}
+
+.acpOptionName {
+  font-size: 14px;
+  font-weight: 500;
+  color: #1a1a1a;
+}
+
+.acpOptionCmd {
+  font-size: 12px;
+  color: #999;
+  font-family: "SF Mono", "Fira Code", monospace;
+}
+
+.acpOptionRight {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
 /* ─── Dark mode ──────────────────────────────────────────────────────────────── */
 :global(.dark-mode) {
   .pageHeader {
@@ -248,6 +452,81 @@
 
   .pickerCardTitle {
     color: rgba(255, 255, 255, 0.85);
+  }
+
+  .agentName {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .agentDesc {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .agentAvatarScope {
+    background: rgba(97, 92, 237, 0.12);
+  }
+
+  .agentAvatarExternal {
+    background: rgba(22, 119, 255, 0.12);
+  }
+
+  .typePillScope {
+    background: rgba(97, 92, 237, 0.1);
+  }
+
+  .typePillExternal {
+    background: rgba(22, 119, 255, 0.1);
+  }
+
+  .typeCard {
+    border-color: rgba(255, 255, 255, 0.12);
+    background: transparent;
+
+    &:hover {
+      border-color: rgba(255, 255, 255, 0.2);
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    &.typeCardSelected {
+      border-color: #615ced;
+      background: rgba(97, 92, 237, 0.08);
+    }
+  }
+
+  .typeTitle {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .typeDesc {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .acpList {
+    border-color: rgba(255, 255, 255, 0.12);
+  }
+
+  .acpOption {
+    border-bottom-color: rgba(255, 255, 255, 0.06);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    &.acpOptionSelected {
+      background: rgba(97, 92, 237, 0.08);
+    }
+  }
+
+  .acpOptionIcon {
+    background: rgba(22, 119, 255, 0.12);
+  }
+
+  .acpOptionName {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .acpOptionCmd {
+    color: rgba(255, 255, 255, 0.35);
   }
 
   :global {

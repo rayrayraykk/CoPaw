@@ -13,8 +13,8 @@ import {
   SortableContext,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { EditOutlined, DeleteOutlined, RobotOutlined } from "@ant-design/icons";
-import { EyeOff, Eye } from "lucide-react";
+import { EditOutlined, DeleteOutlined } from "@ant-design/icons";
+import { EyeOff, Eye, Unplug, Bot } from "lucide-react";
 import type { AgentSummary } from "../../../../api/types/agents";
 import { useTheme } from "../../../../contexts/ThemeContext";
 import { getAgentDisplayName } from "../../../../utils/agentDisplayName";
@@ -68,6 +68,8 @@ export function AgentTable({
     onReorder(String(active.id), String(over.id));
   };
 
+  const isExternal = (record: AgentSummary) => record.type === "external_acp";
+
   const columns: ColumnsType<AgentSummary> = [
     {
       title: "",
@@ -88,36 +90,43 @@ export function AgentTable({
       key: "name",
       width: 300,
       render: (_text: string, record: AgentSummary) => (
-        <Space>
-          <RobotOutlined
-            style={{
-              fontSize: 16,
-              opacity: record.enabled ? 1 : 0.5,
-            }}
-          />
-          <span style={{ opacity: record.enabled ? 1 : 0.5 }}>
-            {getAgentDisplayName(record, t)}
-          </span>
+        <div className={styles.agentCell}>
+          <div
+            className={`${styles.agentAvatar} ${
+              isExternal(record)
+                ? styles.agentAvatarExternal
+                : styles.agentAvatarScope
+            }`}
+            style={{ opacity: record.enabled ? 1 : 0.5 }}
+          >
+            {isExternal(record) ? <Unplug size={16} /> : <Bot size={16} />}
+          </div>
+          <div style={{ opacity: record.enabled ? 1 : 0.5 }}>
+            <div className={styles.agentName}>
+              {getAgentDisplayName(record, t)}
+            </div>
+            {record.description && (
+              <div className={styles.agentDesc}>{record.description}</div>
+            )}
+          </div>
           {!record.enabled && <Tag color="error">{t("agent.disabled")}</Tag>}
-        </Space>
+        </div>
       ),
     },
     {
-      title: t("agent.id"),
-      dataIndex: "id",
-      key: "id",
-    },
-    {
-      title: t("agent.description"),
-      dataIndex: "description",
-      key: "description",
-      ellipsis: true,
-    },
-    {
-      title: t("agent.workspace"),
-      dataIndex: "workspace_dir",
-      key: "workspace_dir",
-      ellipsis: true,
+      title: t("agent.typeColumn"),
+      key: "type",
+      width: 120,
+      render: (_: any, record: AgentSummary) =>
+        isExternal(record) ? (
+          <span className={`${styles.typePill} ${styles.typePillExternal}`}>
+            {t("agent.acpBadge")}
+          </span>
+        ) : (
+          <span className={`${styles.typePill} ${styles.typePillScope}`}>
+            AgentScope
+          </span>
+        ),
     },
     {
       title: t("agent.modelColumn"),
@@ -125,6 +134,13 @@ export function AgentTable({
       width: 260,
       ellipsis: true,
       render: (_: any, record: AgentSummary) => {
+        if (isExternal(record)) {
+          return (
+            <span style={{ opacity: 0.35, fontStyle: "italic", fontSize: 13 }}>
+              {t("agent.modelManagedExternally")}
+            </span>
+          );
+        }
         if (!record.active_model) {
           return (
             <span style={{ opacity: 0.45 }}>{t("agent.modelPlaceholder")}</span>

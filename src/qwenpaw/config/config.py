@@ -1343,7 +1343,16 @@ class AgentProfileRef(BaseModel):
     )
     enabled: bool = Field(
         default=True,
-        description="Whether agent is enabled (controls instance loading)",
+        description=(
+            "Whether agent is enabled " "(controls instance loading)"
+        ),
+    )
+    type: Literal["native", "external_acp"] = Field(
+        default="native",
+        description=(
+            "Agent type: 'native' for QwenPaw agent, "
+            "'external_acp' for external ACP agent"
+        ),
     )
 
 

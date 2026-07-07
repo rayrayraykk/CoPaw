@@ -5,6 +5,7 @@ import type {
   CreateAgentRequest,
   AgentProfileRef,
   ReorderAgentsResponse,
+  ACPAgentOption,
 } from "../types/agents";
 
 // Multi-agent management API
@@ -52,4 +53,7 @@ export const agentsApi = {
         body: JSON.stringify({ enabled }),
       },
     ),
+
+  // List available ACP agents
+  listACPAgents: () => request<ACPAgentOption[]>("/agents/acp-agents"),
 };

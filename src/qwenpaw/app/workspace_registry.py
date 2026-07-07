@@ -34,13 +34,47 @@ class WorkspaceRegistry(MultiAgentManager):
         self.app_services = app_services
         self._bootstrap_kwargs = bootstrap_plugins_kwargs or {}
 
-    def _create_workspace(self, agent_id: str, workspace_dir: str) -> Any:
-        """Override to run bootstrap_plugins after creation."""
-        from .workspace import Workspace
+    def _create_workspace(
+        self,
+        agent_id: str,
+        workspace_dir: str,
+    ) -> Any:
+        """Create workspace, dispatching by agent type.
 
-        workspace = Workspace(agent_id=agent_id, workspace_dir=workspace_dir)
-        if self._bootstrap_kwargs:
-            workspace.bootstrap_plugins(**self._bootstrap_kwargs)
+        ``external_acp`` agents get an
+        ``ExternalAgentWorkspace``; all others get a native
+        ``Workspace`` with bootstrapped plugins.
+        """
+        from ..config.utils import load_config
+
+        config = load_config()
+        profile = config.agents.profiles.get(agent_id)
+        is_external = (
+            profile is not None
+            and getattr(profile, "type", "native") == "external_acp"
+        )
+
+        if is_external:
+            from .workspace.external_agent_workspace import (
+                ExternalAgentWorkspace,
+            )
+
+            workspace = ExternalAgentWorkspace(
+                agent_id=agent_id,
+                workspace_dir=workspace_dir,
+            )
+        else:
+            from .workspace import Workspace
+
+            workspace = Workspace(
+                agent_id=agent_id,
+                workspace_dir=workspace_dir,
+            )
+            if self._bootstrap_kwargs:
+                workspace.bootstrap_plugins(
+                    **self._bootstrap_kwargs,
+                )
+
         if self.app_services is not None:
             workspace.set_app_services(self.app_services)
         return workspace

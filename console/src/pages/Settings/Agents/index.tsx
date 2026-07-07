@@ -33,6 +33,8 @@ export default function AgentsPage() {
       workspace_dir: "",
       active_model_provider: undefined,
       active_model_model: undefined,
+      type: "native",
+      acp_agent_id: undefined,
     });
     setSelectedSkills([]);
     installedSkillsRef.current = [];
@@ -130,11 +132,18 @@ export default function AgentsPage() {
         invalidateSkillCache({ agentId: editingAgent.id });
         message.success(t("agent.updateSuccess"));
       } else {
-        const result = await agentsApi.createAgent({
+        const agentType = values.type || "native";
+        const createPayload: any = {
           ...payload,
-          language: i18n.language,
-          skill_names: selectedSkills,
-        });
+          type: agentType,
+        };
+        if (agentType === "external_acp") {
+          createPayload.acp_agent_id = values.acp_agent_id;
+        } else {
+          createPayload.language = i18n.language;
+          createPayload.skill_names = selectedSkills;
+        }
+        const result = await agentsApi.createAgent(createPayload);
         message.success(`${t("agent.createSuccess")} (ID: ${result.id})`);
       }
 

@@ -2,6 +2,8 @@
 
 import type { ModelSlotConfig } from "./provider";
 
+export type AgentType = "native" | "external_acp";
+
 export interface AgentSummary {
   id: string;
   name: string;
@@ -9,6 +11,7 @@ export interface AgentSummary {
   workspace_dir: string;
   enabled: boolean;
   active_model?: ModelSlotConfig | null;
+  type?: AgentType;
 }
 
 export interface AgentListResponse {
@@ -45,6 +48,14 @@ export interface CreateAgentRequest {
   language?: string;
   skill_names?: string[];
   active_model?: ModelSlotConfig | null;
+  type?: AgentType;
+  acp_agent_id?: string;
+}
+
+export interface ACPAgentOption {
+  id: string;
+  command: string;
+  enabled: boolean;
 }
 
 export interface AgentProfileRef {

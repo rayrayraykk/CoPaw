@@ -9,15 +9,18 @@ import {
   Typography,
   Empty,
   Spin,
+  Divider,
 } from "antd";
 import { CheckOutlined } from "@ant-design/icons";
+import { Bot, Unplug, CircleDot } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { AgentSummary } from "@/api/types/agents";
+import type { AgentSummary, ACPAgentOption } from "@/api/types/agents";
 import type { ProviderInfo } from "@/api/types/provider";
 import { getAgentDisplayName } from "@/utils/agentDisplayName";
 import type { PoolSkillSpec } from "@/api/types/skill";
 import { skillApi } from "@/api/modules/skill";
 import { providerApi } from "@/api/modules/provider";
+import { agentsApi } from "@/api/modules/agents";
 import { providerIcon } from "../../Models/components/providerIcon";
 import styles from "../index.module.less";
 
@@ -56,6 +59,11 @@ export function AgentModal({
   const [loadingSkills, setLoadingSkills] = useState(false);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [loadingProviders, setLoadingProviders] = useState(false);
+  const [acpAgents, setAcpAgents] = useState<ACPAgentOption[]>([]);
+  const [loadingAcp, setLoadingAcp] = useState(false);
+
+  const agentType = Form.useWatch("type", form) || "native";
+  const isExternal = agentType === "external_acp";
 
   const selectedProviderId = Form.useWatch("active_model_provider", form);
   const selectedModelId = Form.useWatch("active_model_model", form);
@@ -86,6 +94,15 @@ export function AgentModal({
 
   useEffect(() => {
     if (!open) return;
+
+    setLoadingAcp(true);
+    agentsApi
+      .listACPAgents()
+      .then((data) => {
+        if (Array.isArray(data)) setAcpAgents(data);
+      })
+      .catch((err) => console.error("Failed to load ACP agents:", err))
+      .finally(() => setLoadingAcp(false));
 
     setLoadingProviders(true);
     providerApi
@@ -165,6 +182,22 @@ export function AgentModal({
     onSelectedSkillsChange(editingAgent ? [...installedSkills] : []);
   };
 
+  const handleTypeCardClick = (type: "native" | "external_acp") => {
+    form.setFieldsValue({ type });
+    if (type === "native") {
+      form.setFieldsValue({ acp_agent_id: undefined });
+    }
+  };
+
+  const handleAcpOptionClick = (agentId: string) => {
+    form.setFieldsValue({ acp_agent_id: agentId });
+    if (!form.getFieldValue("name")) {
+      form.setFieldsValue({ name: agentId });
+    }
+  };
+
+  const selectedAcpId = Form.useWatch("acp_agent_id", form);
+
   return (
     <Modal
       title={
@@ -188,6 +221,133 @@ export function AgentModal({
         <Form.Item name="active_model_model" hidden>
           <Input />
         </Form.Item>
+        <Form.Item name="type" hidden initialValue="native">
+          <Input />
+        </Form.Item>
+        <Form.Item name="acp_agent_id" hidden>
+          <Input />
+        </Form.Item>
+
+        {/* Type Selector Cards */}
+        {!editingAgent && (
+          <div style={{ marginBottom: 20 }}>
+            <Text
+              type="secondary"
+              style={{
+                fontSize: 13,
+                fontWeight: 500,
+                display: "block",
+                marginBottom: 8,
+              }}
+            >
+              {t("agent.type")}
+            </Text>
+            <div className={styles.typeSelector}>
+              <div
+                className={`${styles.typeCard} ${
+                  !isExternal ? styles.typeCardSelected : ""
+                }`}
+                onClick={() => handleTypeCardClick("native")}
+              >
+                <div className={`${styles.typeIcon} ${styles.typeIconNative}`}>
+                  <Bot size={20} />
+                </div>
+                <div className={styles.typeTitle}>{t("agent.typeNative")}</div>
+                <div className={styles.typeDesc}>
+                  {t("agent.typeNativeDesc")}
+                </div>
+                {!isExternal && (
+                  <span className={styles.typeCheck}>
+                    <CheckOutlined style={{ fontSize: 10 }} />
+                  </span>
+                )}
+              </div>
+              <div
+                className={`${styles.typeCard} ${
+                  isExternal ? styles.typeCardSelected : ""
+                }`}
+                onClick={() => handleTypeCardClick("external_acp")}
+              >
+                <div className={`${styles.typeIcon} ${styles.typeIconAcp}`}>
+                  <Unplug size={20} />
+                </div>
+                <div className={styles.typeTitle}>{t("agent.typeACP")}</div>
+                <div className={styles.typeDesc}>{t("agent.typeACPDesc")}</div>
+                {isExternal && (
+                  <span className={styles.typeCheck}>
+                    <CheckOutlined style={{ fontSize: 10 }} />
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ACP Agent List */}
+        {!editingAgent && isExternal && (
+          <div style={{ marginBottom: 20 }}>
+            <Text
+              type="secondary"
+              style={{
+                fontSize: 13,
+                fontWeight: 500,
+                display: "block",
+                marginBottom: 8,
+              }}
+            >
+              {t("agent.acpAgent")}
+            </Text>
+            {loadingAcp ? (
+              <div style={{ textAlign: "center", padding: 24 }}>
+                <Spin size="small" />
+              </div>
+            ) : acpAgents.length === 0 ? (
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description={t("agent.noACPAgents")}
+              />
+            ) : (
+              <div className={styles.acpList}>
+                {acpAgents.map((agent) => (
+                  <div
+                    key={agent.id}
+                    className={`${styles.acpOption} ${
+                      selectedAcpId === agent.id ? styles.acpOptionSelected : ""
+                    }`}
+                    onClick={() => handleAcpOptionClick(agent.id)}
+                  >
+                    <div className={styles.acpOptionLeft}>
+                      <div className={styles.acpOptionIcon}>
+                        <Unplug size={16} />
+                      </div>
+                      <div>
+                        <div className={styles.acpOptionName}>{agent.id}</div>
+                        <div className={styles.acpOptionCmd}>
+                          {agent.command}
+                        </div>
+                      </div>
+                    </div>
+                    <div className={styles.acpOptionRight}>
+                      <CircleDot
+                        size={12}
+                        style={{ color: agent.enabled ? "#52c41a" : "#d9d9d9" }}
+                      />
+                      <Text type="secondary" style={{ fontSize: 11 }}>
+                        {agent.enabled
+                          ? t("agent.acpEnabled")
+                          : t("agent.acpDisabled")}
+                      </Text>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {!editingAgent && isExternal && (
+          <Divider style={{ margin: "16px 0" }} />
+        )}
 
         {editingAgent && (
           <Form.Item name="id" label={t("agent.id")}>
@@ -222,139 +382,145 @@ export function AgentModal({
             rows={3}
           />
         </Form.Item>
-        <Form.Item label={t("agent.model")} help={t("agent.modelHelp")}>
-          <Space.Compact style={{ width: "100%" }}>
-            <Select
-              value={selectedProviderId || undefined}
-              onChange={handleProviderChange}
-              placeholder={t("agent.modelPlaceholder")}
-              allowClear
-              onClear={handleClearModel}
-              loading={loadingProviders}
-              style={{ width: "45%", gap: "8px" }}
-              showSearch
-              optionFilterProp="label"
-              options={eligibleProviders.map((p) => ({
-                value: p.id,
-                label: p.name,
-              }))}
-              optionRender={({ value }) => {
-                const p = eligibleProviders.find((ep) => ep.id === value);
-                if (!p) return value;
-                return (
-                  <Space size={6}>
-                    <img
-                      src={providerIcon(p.id)}
-                      alt=""
-                      style={{ width: 16, height: 16 }}
-                    />
-                    <span>{p.name}</span>
-                  </Space>
-                );
-              }}
-              notFoundContent={
-                loadingProviders ? (
-                  <Spin size="small" />
-                ) : (
-                  t("agent.noConfiguredModels")
-                )
-              }
+        {!isExternal && (
+          <Form.Item label={t("agent.model")} help={t("agent.modelHelp")}>
+            <Space.Compact style={{ width: "100%" }}>
+              <Select
+                value={selectedProviderId || undefined}
+                onChange={handleProviderChange}
+                placeholder={t("agent.modelPlaceholder")}
+                allowClear
+                onClear={handleClearModel}
+                loading={loadingProviders}
+                style={{ width: "45%", gap: "8px" }}
+                showSearch
+                optionFilterProp="label"
+                options={eligibleProviders.map((p) => ({
+                  value: p.id,
+                  label: p.name,
+                }))}
+                optionRender={({ value }) => {
+                  const p = eligibleProviders.find((ep) => ep.id === value);
+                  if (!p) return value;
+                  return (
+                    <Space size={6}>
+                      <img
+                        src={providerIcon(p.id)}
+                        alt=""
+                        style={{ width: 16, height: 16 }}
+                      />
+                      <span>{p.name}</span>
+                    </Space>
+                  );
+                }}
+                notFoundContent={
+                  loadingProviders ? (
+                    <Spin size="small" />
+                  ) : (
+                    t("agent.noConfiguredModels")
+                  )
+                }
+              />
+              <Select
+                value={selectedModelId || undefined}
+                onChange={(modelId) =>
+                  form.setFieldsValue({ active_model_model: modelId })
+                }
+                placeholder={
+                  selectedProviderId
+                    ? t("models.model")
+                    : t("agent.modelPlaceholder")
+                }
+                disabled={!selectedProviderId}
+                style={{ width: "55%" }}
+                showSearch
+                optionFilterProp="label"
+                options={availableModels.map((m) => ({
+                  value: m.id,
+                  label: m.name || m.id,
+                }))}
+              />
+            </Space.Compact>
+          </Form.Item>
+        )}
+        {!isExternal && (
+          <Form.Item
+            name="workspace_dir"
+            label={t("agent.workspace")}
+            help={!editingAgent ? t("agent.workspaceHelp") : undefined}
+          >
+            <Input
+              placeholder="~/.qwenpaw/workspaces/my-agent"
+              disabled={!!editingAgent}
             />
-            <Select
-              value={selectedModelId || undefined}
-              onChange={(modelId) =>
-                form.setFieldsValue({ active_model_model: modelId })
-              }
-              placeholder={
-                selectedProviderId
-                  ? t("models.model")
-                  : t("agent.modelPlaceholder")
-              }
-              disabled={!selectedProviderId}
-              style={{ width: "55%" }}
-              showSearch
-              optionFilterProp="label"
-              options={availableModels.map((m) => ({
-                value: m.id,
-                label: m.name || m.id,
-              }))}
-            />
-          </Space.Compact>
-        </Form.Item>
-        <Form.Item
-          name="workspace_dir"
-          label={t("agent.workspace")}
-          help={!editingAgent ? t("agent.workspaceHelp") : undefined}
-        >
-          <Input
-            placeholder="~/.qwenpaw/workspaces/my-agent"
-            disabled={!!editingAgent}
-          />
-        </Form.Item>
+          </Form.Item>
+        )}
       </Form>
 
-      <div style={{ marginTop: 4 }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: 8,
-          }}
-        >
-          <Text type="secondary" style={{ fontSize: 13 }}>
-            {editingAgent
-              ? t("agent.addSkillsToAgent")
-              : t("agent.initialSkills")}
-          </Text>
-          <Space size={4}>
-            <Button size="small" type="primary" onClick={handleSelectAll}>
-              {t("agent.selectAll")}
-            </Button>
-            <Button size="small" type="default" onClick={handleSelectBuiltin}>
-              {t("agent.selectBuiltin")}
-            </Button>
-            <Button size="small" type="default" onClick={handleSelectNone}>
-              {t("agent.selectNone")}
-            </Button>
-          </Space>
-        </div>
+      {!isExternal && (
+        <div style={{ marginTop: 4 }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: 8,
+            }}
+          >
+            <Text type="secondary" style={{ fontSize: 13 }}>
+              {editingAgent
+                ? t("agent.addSkillsToAgent")
+                : t("agent.initialSkills")}
+            </Text>
+            <Space size={4}>
+              <Button size="small" type="primary" onClick={handleSelectAll}>
+                {t("agent.selectAll")}
+              </Button>
+              <Button size="small" type="default" onClick={handleSelectBuiltin}>
+                {t("agent.selectBuiltin")}
+              </Button>
+              <Button size="small" type="default" onClick={handleSelectNone}>
+                {t("agent.selectNone")}
+              </Button>
+            </Space>
+          </div>
 
-        {loadingSkills ? (
-          <div style={{ textAlign: "center", padding: "16px 0" }}>
-            <Spin size="small" />
-          </div>
-        ) : poolSkills.length === 0 ? (
-          <Empty
-            image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description={t("agent.noPoolSkills")}
-          />
-        ) : (
-          <div className={styles.pickerGrid}>
-            {poolSkills.map((skill) => {
-              const selected = selectedSkills.includes(skill.name);
-              const isInstalled =
-                !!editingAgent && installedSkills.includes(skill.name);
-              return (
-                <div
-                  key={skill.name}
-                  className={`${styles.pickerCard} ${
-                    selected ? styles.pickerCardSelected : ""
-                  } ${isInstalled ? styles.pickerCardDisabled : ""}`}
-                  onClick={() => toggleSkill(skill.name)}
-                >
-                  {selected && (
-                    <span className={styles.pickerCheck}>
-                      <CheckOutlined />
-                    </span>
-                  )}
-                  <div className={styles.pickerCardTitle}>{skill.name}</div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
+          {loadingSkills ? (
+            <div style={{ textAlign: "center", padding: "16px 0" }}>
+              <Spin size="small" />
+            </div>
+          ) : poolSkills.length === 0 ? (
+            <Empty
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              description={t("agent.noPoolSkills")}
+            />
+          ) : (
+            <div className={styles.pickerGrid}>
+              {poolSkills.map((skill) => {
+                const selected = selectedSkills.includes(skill.name);
+                const isInstalled =
+                  !!editingAgent && installedSkills.includes(skill.name);
+                return (
+                  <div
+                    key={skill.name}
+                    className={`${styles.pickerCard} ${
+                      selected ? styles.pickerCardSelected : ""
+                    } ${isInstalled ? styles.pickerCardDisabled : ""}`}
+                    onClick={() => toggleSkill(skill.name)}
+                  >
+                    {selected && (
+                      <span className={styles.pickerCheck}>
+                        <CheckOutlined />
+                      </span>
+                    )}
+                    <div className={styles.pickerCardTitle}>{skill.name}</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </Modal>
   );
 }
