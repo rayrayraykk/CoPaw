@@ -1,7 +1,12 @@
 import { request } from "../request";
 import { getApiUrl } from "../config";
 import { buildAuthHeaders } from "../authHeaders";
-import type { AgentRequest, AgentsRunningConfig } from "../types";
+import type {
+  AgentRequest,
+  AgentsRunningConfig,
+  GateCatalogEntry,
+  ProfileInfo,
+} from "../types";
 
 export type TranscriptionErrorCode =
   | "TRANSCRIPTION_DISABLED"
@@ -103,6 +108,55 @@ export const agentApi = {
       ffmpeg_installed: boolean;
       whisper_installed: boolean;
     }>("/workspace/local-whisper-status"),
+
+  getGateCatalog: () =>
+    request<{ gates: GateCatalogEntry[] }>("/gates/catalog"),
+
+  getLoopProfiles: () =>
+    request<ProfileInfo[]>("/loops/profiles"),
+
+  updateLoopProfile: (
+    name: string,
+    gates: {
+      id: string;
+      type: string;
+      enabled: boolean;
+      priority: number;
+      params: Record<string, unknown>;
+    }[],
+  ) =>
+    request<{ status: string; profile: string }>(
+      `/loops/profiles/${name}`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ gates }),
+      },
+    ),
+
+  createLoopProfile: (
+    name: string,
+    description: string,
+    gates: {
+      id: string;
+      type: string;
+      enabled: boolean;
+      priority: number;
+      params: Record<string, unknown>;
+    }[],
+  ) =>
+    request<{ status: string; profile: string }>(
+      "/loops/profiles",
+      {
+        method: "POST",
+        body: JSON.stringify({ name, description, gates }),
+      },
+    ),
+
+  deleteLoopProfile: (name: string) =>
+    request<{ status: string; deleted: string }>(
+      `/loops/profiles/${name}`,
+      { method: "DELETE" },
+    ),
 
   transcribeAudio: async (file: File | Blob): Promise<{ text: string }> => {
     const formData = new FormData();

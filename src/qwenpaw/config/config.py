@@ -1096,6 +1096,54 @@ class RubricGateConfig(BaseModel):
     )
 
 
+class GateInstanceConfig(BaseModel):
+    """One gate in a profile pipeline."""
+
+    id: str = Field(
+        default="",
+        description="Stable instance ID for UI",
+    )
+    type: str = Field(
+        description="Catalog gate type key",
+    )
+    enabled: bool = Field(
+        default=True,
+        description="Whether this gate is active",
+    )
+    priority: int = Field(
+        default=100,
+        description="Evaluation order (lower=earlier)",
+    )
+    params: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Gate-specific parameters",
+    )
+
+
+class LoopProfileConfig(BaseModel):
+    """Declarative gate chain for one scope."""
+
+    name: str = Field(
+        description="Profile name",
+    )
+    scope: str = Field(
+        default="default",
+        description="Scope for handler filtering",
+    )
+    is_builtin: bool = Field(
+        default=False,
+        description="Built-in profiles are locked",
+    )
+    description: str = Field(
+        default="",
+        description="Human-readable description",
+    )
+    gates: List[GateInstanceConfig] = Field(
+        default_factory=list,
+        description="Ordered gate instances",
+    )
+
+
 class LoopConfig(BaseModel):
     """Loop engineering configuration."""
 
@@ -1110,6 +1158,10 @@ class LoopConfig(BaseModel):
     rubric: RubricGateConfig = Field(
         default_factory=RubricGateConfig,
         description="Completion check settings",
+    )
+    profiles: List[LoopProfileConfig] = Field(
+        default_factory=list,
+        description="Loop profiles (gate pipelines)",
     )
 
 

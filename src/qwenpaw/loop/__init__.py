@@ -26,10 +26,24 @@ from .gates import (
     StopHandlerRegistration,
     StopHandlerResult,
 )
-from .react_gates import register_react_gates, resolve_max_iterations
+from .gate_catalog import GateCatalog, GateCatalogEntry
+from .builtin_profiles import (
+    BUILTIN_PROFILES,
+    BuiltinProfileSpec,
+    GateSpec,
+)
+from .react_gates import (
+    register_react_gates,
+    resolve_max_iterations,
+)
 
 __all__ = [
+    "BUILTIN_PROFILES",
+    "BuiltinProfileSpec",
     "DoomLoopGate",
+    "GateCatalog",
+    "GateCatalogEntry",
+    "GateSpec",
     "GoalStatusRubric",
     "LoopGate",
     "RubricStrategy",

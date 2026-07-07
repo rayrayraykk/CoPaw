@@ -38,7 +38,10 @@ from .routers import router as api_router, create_agent_scoped_router
 from .routers.agent_scoped import AgentContextMiddleware
 from .routers.approval import router as approval_router
 from .routers.coding_mode import router as coding_mode_router
-from .routers.loops import router as loops_router
+from .routers.loops import (
+    router as loops_router,
+    gates_router,
+)
 from .routers.tool_calls import router as tool_calls_router
 from .routers.voice import voice_router
 from ..envs import load_envs_into_environ
@@ -884,6 +887,9 @@ app.include_router(coding_mode_router, prefix="/api")
 
 # Loops router: /api/loops
 app.include_router(loops_router, prefix="/api")
+
+# Gates router: /api/gates
+app.include_router(gates_router, prefix="/api")
 
 # Agent-scoped router: /api/agents/{agentId}/chats, etc.
 agent_scoped_router = create_agent_scoped_router()

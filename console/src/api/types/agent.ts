@@ -104,6 +104,22 @@ export interface LoopConfig {
   rubric?: RubricGateConfig;
 }
 
+export interface GateInstanceConfig {
+  id: string;
+  type: string;
+  enabled: boolean;
+  priority: number;
+  params: Record<string, unknown>;
+}
+
+export interface LoopProfileConfig {
+  name: string;
+  scope: string;
+  is_builtin: boolean;
+  description: string;
+  gates: GateInstanceConfig[];
+}
+
 export interface AgentsRunningConfig {
   max_iters: number;
   loop: LoopConfig;
@@ -126,4 +142,35 @@ export interface AgentsRunningConfig {
   reme_light_memory_config: ReMeLightMemoryConfig;
   approval_level?: string;
   auto_title_config: AutoTitleConfig;
+}
+
+export interface GateCatalogEntry {
+  type: string;
+  name: string;
+  description: string;
+  category: string;
+  default_priority: number;
+  scope_hints: string[];
+  builtin_in: string[];
+  params_schema: Record<string, unknown>;
+}
+
+export interface ProfileGateInfo {
+  id: string;
+  type: string;
+  name: string;
+  description: string;
+  category: string;
+  enabled: boolean;
+  priority: number;
+  params: Record<string, unknown>;
+  params_schema: Record<string, unknown>;
+}
+
+export interface ProfileInfo {
+  name: string;
+  scope: string;
+  is_builtin: boolean;
+  description: string;
+  gates: ProfileGateInfo[];
 }
