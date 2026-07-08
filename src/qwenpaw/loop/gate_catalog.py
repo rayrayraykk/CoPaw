@@ -123,8 +123,8 @@ class GateCatalog:
         return result
 
     @classmethod
-    def reset(cls) -> None:
-        """Reset singleton (for testing)."""
+    def _reset(cls) -> None:
+        """Reset singleton — test-only, not for production."""
         cls._instance = None
 
 

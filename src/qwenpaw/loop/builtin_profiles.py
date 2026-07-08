@@ -33,6 +33,24 @@ class BuiltinProfileSpec:
     gates: List[GateSpec]
 
 
+_WARN_REPETITIVE = (
+    "[WARNING] Repetitive pattern detected."
+    " Try a completely different approach."
+)
+_WARN_REPETITIVE_SHORT = (
+    "[WARNING] Repetitive pattern."
+    " Try a different approach."  # pylint: disable=implicit-str-concat
+)
+_WARN_MISSION = "[WARNING] Repetitive pattern in mission."
+_STOP_DOOM = "Doom loop: stuck after {n} repetitions"
+_STOP_GOAL = "Doom loop during goal execution"
+_STOP_MISSION = "Doom loop during mission execution"
+_RUBRIC_PROMPT = (
+    "You did not call any tool."
+    " If the task is complete, confirm."
+    " Otherwise, continue with tool calls."
+)
+
 BUILTIN_PROFILES: dict[str, BuiltinProfileSpec] = {
     "default": BuiltinProfileSpec(
         name="default",
@@ -53,18 +71,13 @@ BUILTIN_PROFILES: dict[str, BuiltinProfileSpec] = {
                         {
                             "after": 3,
                             "action": "modify_prompt",
-                            "prompt": (
-                                "[WARNING] Repetitive"
-                                " pattern detected."
-                                " Try a completely"
-                                " different approach."
-                            ),
+                            "prompt": _WARN_REPETITIVE,
                         },
                         {
                             "after": 6,
                             "action": "stop",
-                            "prompt": (
-                                "Doom loop: stuck" " after 6 repetitions"
+                            "prompt": _STOP_DOOM.format(
+                                n=6,
                             ),
                         },
                     ],
@@ -81,12 +94,7 @@ BUILTIN_PROFILES: dict[str, BuiltinProfileSpec] = {
                 type="rubric",
                 priority=90,
                 default_params={
-                    "prompt": (
-                        "You did not call any tool."
-                        " If the task is complete,"
-                        " confirm. Otherwise,"
-                        " continue with tool calls."
-                    ),
+                    "prompt": _RUBRIC_PROMPT,
                     "max_interventions": 1,
                 },
                 default_enabled=False,
@@ -125,16 +133,12 @@ BUILTIN_PROFILES: dict[str, BuiltinProfileSpec] = {
                         {
                             "after": 3,
                             "action": "modify_prompt",
-                            "prompt": (
-                                "[WARNING] Repetitive"
-                                " pattern. Try a"
-                                " different approach."
-                            ),
+                            "prompt": _WARN_REPETITIVE_SHORT,
                         },
                         {
                             "after": 6,
                             "action": "stop",
-                            "prompt": ("Doom loop during" " goal execution"),
+                            "prompt": _STOP_GOAL,
                         },
                     ],
                 },
@@ -168,16 +172,12 @@ BUILTIN_PROFILES: dict[str, BuiltinProfileSpec] = {
                         {
                             "after": 4,
                             "action": "modify_prompt",
-                            "prompt": (
-                                "[WARNING] Repetitive" " pattern in mission."
-                            ),
+                            "prompt": _WARN_MISSION,
                         },
                         {
                             "after": 8,
                             "action": "stop",
-                            "prompt": (
-                                "Doom loop during" " mission execution"
-                            ),
+                            "prompt": _STOP_MISSION,
                         },
                     ],
                 },

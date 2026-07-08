@@ -1,10 +1,12 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { produce } from "immer";
 import {
   InputNumber,
   Input,
   Button,
   message,
   Modal,
+  Select,
 } from "@agentscope-ai/design";
 import {
   Plus,
@@ -16,7 +18,6 @@ import {
   Wallet,
   Save,
   Loader2,
-  GripVertical,
   Lock,
   ChevronDown,
   Search,
@@ -35,6 +36,33 @@ import type {
 } from "@/api/types/agent";
 import s from "./AgentLoopCard.module.less";
 
+/* ── Gate Param Type Definitions (CODE-02) ── */
+interface IterationParams {
+  max_iterations: number;
+}
+
+interface BudgetParams {
+  max_tokens: number;
+}
+
+interface DoomLoopStage {
+  after: number;
+  action: string;
+  prompt: string;
+}
+
+interface DoomLoopParams {
+  window_size: number;
+  similarity_threshold: number;
+  stages: DoomLoopStage[];
+}
+
+interface RubricParams {
+  prompt: string;
+  max_interventions: number;
+}
+
+/* ── Icon / Style Maps ── */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const GATE_ICONS: Record<string, any> = {
   iteration: Repeat,
@@ -67,20 +95,32 @@ const ACTION_OPTIONS = [
 
 function getGateMeta(gate: ProfileGateInfo): string {
   if (gate.type === "iteration") {
-    return `max ${gate.params.max_iterations} iterations`;
+    const p = gate.params as unknown as IterationParams;
+    return `max ${p.max_iterations} iterations`;
   }
   if (gate.type === "budget") {
-    const t = gate.params.max_tokens as number;
-    return `budget ${(t / 1000).toFixed(0)}K tokens`;
+    const p = gate.params as unknown as BudgetParams;
+    return `budget ${(p.max_tokens / 1000).toFixed(0)}K tokens`;
   }
   if (gate.type === "doom_loop") {
-    const stages = (gate.params.stages || []) as unknown[];
-    return `${stages.length} escalation stages`;
+    const p = gate.params as unknown as DoomLoopParams;
+    return `${(p.stages || []).length} escalation stages`;
   }
   if (gate.type === "rubric") {
-    return `max ${gate.params.max_interventions || 1} interventions`;
+    const p = gate.params as unknown as RubricParams;
+    return `max ${p.max_interventions || 1} interventions`;
   }
   return "";
+}
+
+/* ── Error helper (CODE-05) ── */
+function getErrorMessage(err: unknown): string {
+  if (err && typeof err === "object") {
+    const e = err as { message?: string; response?: { data?: { detail?: string } } };
+    if (e.response?.data?.detail) return e.response.data.detail;
+    if (e.message) return e.message;
+  }
+  return "Unknown error";
 }
 
 /* ── Gate Catalog Panel (left) ── */
@@ -122,18 +162,8 @@ function CatalogPanel({
         <span className={s.panelHeaderCount}>{catalog.length} available</span>
       </div>
       <div className={s.panelBody}>
-        <div style={{ position: "relative", marginBottom: 10 }}>
-          <Search
-            size={13}
-            style={{
-              position: "absolute",
-              left: 9,
-              top: "50%",
-              transform: "translateY(-50%)",
-              opacity: 0.35,
-              pointerEvents: "none",
-            }}
-          />
+        <div className={s.catalogSearchWrap}>
+          <Search size={13} className={s.catalogSearchIcon} />
           <input
             className={s.catalogSearch}
             type="search"
@@ -142,20 +172,9 @@ function CatalogPanel({
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
+        {/* UX-04: Lock overlay for builtin profiles */}
         {isBuiltin && (
-          <div
-            style={{
-              fontSize: 11,
-              color: "var(--text-quaternary, #9c9c96)",
-              padding: "6px 8px",
-              marginBottom: 10,
-              background: "var(--bg-elevated, #f7f6f3)",
-              borderRadius: 6,
-              display: "flex",
-              alignItems: "center",
-              gap: 4,
-            }}
-          >
+          <div className={s.catalogLockedHint}>
             <Lock size={10} />
             Built-in template — create custom to add gates
           </div>
@@ -173,12 +192,8 @@ function CatalogPanel({
               return (
                 <div
                   key={entry.type}
-                  className={s.catalogItem}
+                  className={`${s.catalogItem} ${isBuiltin ? s.catalogItemLocked : ""}`}
                   onClick={() => !isBuiltin && onAddGate(entry)}
-                  style={{
-                    cursor: isBuiltin ? "default" : "pointer",
-                    opacity: isBuiltin ? 0.7 : 1,
-                  }}
                   title={
                     isBuiltin
                       ? "Structure locked for built-in templates"
@@ -192,12 +207,8 @@ function CatalogPanel({
                     <div className={s.catalogName}>{entry.name}</div>
                     <div className={s.catalogDesc}>{entry.description}</div>
                   </div>
-                  {!isBuiltin ? (
-                    <Plus size={14} style={{ opacity: 0.4, flexShrink: 0 }} />
-                  ) : (
-                    <span className={s.catalogPriority}>
-                      P{entry.default_priority}
-                    </span>
+                  {!isBuiltin && (
+                    <Plus size={14} className={s.catalogAddIcon} />
                   )}
                 </div>
               );
@@ -213,15 +224,19 @@ function CatalogPanel({
 function PipelinePanel({
   profile,
   selectedGateId,
+  highlightGateId,
   onSelectGate,
   onToggleGate,
   onRemoveGate,
+  pipelineRef,
 }: {
   profile: ProfileInfo;
   selectedGateId: string | null;
+  highlightGateId: string | null;
   onSelectGate: (id: string) => void;
   onToggleGate: (id: string, enabled: boolean) => void;
   onRemoveGate?: (id: string) => void;
+  pipelineRef: React.RefObject<HTMLDivElement>;
 }) {
   const label =
     profile.name.charAt(0).toUpperCase() + profile.name.slice(1);
@@ -234,7 +249,7 @@ function PipelinePanel({
           {profile.gates.length} gates
         </span>
       </div>
-      <div className={s.panelBody}>
+      <div className={s.panelBody} ref={pipelineRef}>
         <p className={s.pipelineHint}>
           {profile.is_builtin
             ? "Evaluation order top → bottom · structure locked"
@@ -242,14 +257,7 @@ function PipelinePanel({
         </p>
         <div className={s.pipelineFlow}>
           {profile.gates.length === 0 && (
-            <div
-              style={{
-                textAlign: "center",
-                padding: "40px 20px",
-                color: "var(--text-quaternary, #9c9c96)",
-                fontSize: 13,
-              }}
-            >
+            <div className={s.pipelineEmpty}>
               No gates yet. Click gates in the catalog to add.
             </div>
           )}
@@ -259,20 +267,22 @@ function PipelinePanel({
               GATE_CATEGORY_STYLES.plugin;
             const Icon = GATE_ICONS[gate.type] || Gauge;
             const selected = selectedGateId === gate.id;
+            const highlighted = highlightGateId === gate.id;
             return (
-              <div key={gate.id} style={{ width: "100%", display: "flex", flexDirection: "column", alignItems: "center" }}>
+              <div
+                key={gate.id}
+                className={s.pipelineNodeWrap}
+              >
                 {idx > 0 && <div className={s.flowArrow} />}
                 <div
                   className={[
                     s.pipelineNode,
                     selected ? s.selected : "",
                     !gate.enabled ? s.disabled : "",
+                    highlighted ? s.highlighted : "",
                   ].join(" ")}
                   onClick={() => onSelectGate(gate.id)}
                 >
-                  <span className={s.nodeDrag}>
-                    <GripVertical size={14} />
-                  </span>
                   <div
                     className={s.nodeIcon}
                     style={{ background: cStyle.bg, color: cStyle.color }}
@@ -294,11 +304,22 @@ function PipelinePanel({
                     </div>
                   </div>
                   <span className={s.nodePriority}>#{idx + 1}</span>
+                  {/* UX-07: ARIA toggle */}
                   <div
                     className={`${s.nodeToggle} ${!gate.enabled ? s.off : ""}`}
+                    role="switch"
+                    aria-checked={gate.enabled}
+                    tabIndex={0}
                     onClick={(e) => {
                       e.stopPropagation();
                       onToggleGate(gate.id, !gate.enabled);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onToggleGate(gate.id, !gate.enabled);
+                      }
                     }}
                   />
                   {!profile.is_builtin && onRemoveGate && (
@@ -339,10 +360,7 @@ function InspectorPanel({
         <div className={s.panelHeader}>Inspector</div>
         <div className={s.panelBody}>
           <div className={s.inspectorEmpty}>
-            <MousePointerClick
-              size={28}
-              style={{ opacity: 0.2, marginBottom: 12, display: "block", margin: "0 auto 12px" }}
-            />
+            <MousePointerClick size={28} className={s.inspectorEmptyIcon} />
             Select a gate from the pipeline to inspect and edit its parameters
           </div>
         </div>
@@ -359,11 +377,8 @@ function InspectorPanel({
       <div className={s.panelBody}>
         <div className={s.inspectorHeader}>
           <div className={s.inspectorTitle}>{gate.name}</div>
-          <div className={s.inspectorMeta}>
-            type: {gate.type}
-          </div>
+          <div className={s.inspectorMeta}>type: {gate.type}</div>
         </div>
-
 
         {gate.type === "iteration" && (
           <div className={s.formGroup}>
@@ -373,7 +388,7 @@ function InspectorPanel({
             <InputNumber
               min={1}
               max={500}
-              value={params.max_iterations as number}
+              value={(params as unknown as IterationParams).max_iterations}
               onChange={(val) =>
                 update({ ...params, max_iterations: val ?? 100 })
               }
@@ -393,7 +408,7 @@ function InspectorPanel({
               min={1000}
               max={10_000_000}
               step={10000}
-              value={params.max_tokens as number}
+              value={(params as unknown as BudgetParams).max_tokens}
               onChange={(val) =>
                 update({ ...params, max_tokens: val ?? 300_000 })
               }
@@ -401,174 +416,140 @@ function InspectorPanel({
               size="small"
             />
             <div className={s.formHint}>
-              Maximum token spend for this loop session
+              Maximum tokens before the agent stops
             </div>
           </div>
         )}
 
-        {gate.type === "doom_loop" && (
-          <>
-            <div className={s.formGroup}>
-              <label className={s.formLabel}>
-                {t("agentConfig.doomLoopWindowSize", "Detection Range")}
-              </label>
-              <InputNumber
-                min={2}
-                max={20}
-                value={params.window_size as number}
-                onChange={(val) =>
-                  update({ ...params, window_size: val ?? 3 })
-                }
-                style={{ width: "100%" }}
-                size="small"
-              />
-              <div className={s.formHint}>
-                How many recent actions to check for repetition
-              </div>
-            </div>
-            <div className={s.formGroup}>
-              <label className={s.formLabel}>
-                {t("agentConfig.doomLoopSimilarity", "Match Sensitivity")}
-              </label>
-              <InputNumber
-                min={0}
-                max={1}
-                step={0.05}
-                value={params.similarity_threshold as number}
-                onChange={(val) =>
-                  update({ ...params, similarity_threshold: val ?? 1.0 })
-                }
-                style={{ width: "100%" }}
-                size="small"
-              />
-            </div>
-            <div className={s.formGroup}>
-              <label className={s.formLabel}>
-                {t("agentConfig.doomLoopStages", "Escalation Stages")}
-              </label>
-              {(
-                (params.stages || []) as Array<{
-                  after: number;
-                  action: string;
-                  prompt: string;
-                }>
-              ).map((stage, idx) => (
-                <div key={idx} className={s.stageRow}>
-                  <input
-                    className={s.formInput}
-                    type="number"
-                    min={1}
-                    value={stage.after}
-                    onChange={(e) => {
-                      const stages = [
-                        ...((params.stages || []) as Array<{
-                          after: number;
-                          action: string;
-                          prompt: string;
-                        }>),
-                      ];
-                      stages[idx] = {
-                        ...stages[idx],
-                        after: parseInt(e.target.value) || 1,
-                      };
-                      update({ ...params, stages });
-                    }}
-                  />
-                  <select
-                    className={s.formInput}
-                    value={stage.action}
-                    onChange={(e) => {
-                      const stages = [
-                        ...((params.stages || []) as Array<{
-                          after: number;
-                          action: string;
-                          prompt: string;
-                        }>),
-                      ];
-                      stages[idx] = {
-                        ...stages[idx],
-                        action: e.target.value,
-                      };
-                      update({ ...params, stages });
-                    }}
-                  >
-                    {ACTION_OPTIONS.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    className={s.formInput}
-                    type="text"
-                    value={stage.prompt}
-                    placeholder="Message..."
-                    onChange={(e) => {
-                      const stages = [
-                        ...((params.stages || []) as Array<{
-                          after: number;
-                          action: string;
-                          prompt: string;
-                        }>),
-                      ];
-                      stages[idx] = {
-                        ...stages[idx],
-                        prompt: e.target.value,
-                      };
-                      update({ ...params, stages });
-                    }}
-                  />
+        {gate.type === "doom_loop" && (() => {
+          const dp = params as unknown as DoomLoopParams;
+          return (
+            <>
+              <div className={s.formGroup}>
+                <label className={s.formLabel}>
+                  {t("agentConfig.doomLoopWindow", "Detection Window")}
+                </label>
+                <InputNumber
+                  min={2}
+                  max={20}
+                  value={dp.window_size}
+                  onChange={(val) =>
+                    update({ ...params, window_size: val ?? 3 })
+                  }
+                  style={{ width: "100%" }}
+                  size="small"
+                />
+                <div className={s.formHint}>
+                  How many recent actions to check for repetition
                 </div>
-              ))}
-            </div>
-          </>
-        )}
-
-        {gate.type === "rubric" && (
-          <>
-            <div className={s.formGroup}>
-              <label className={s.formLabel}>
-                {t("agentConfig.rubricPrompt", "Re-prompt Message")}
-              </label>
-              <Input.TextArea
-                autoSize={{ minRows: 3, maxRows: 6 }}
-                value={params.prompt as string}
-                onChange={(e) =>
-                  update({ ...params, prompt: e.target.value })
-                }
-                size="small"
-              />
-            </div>
-            <div className={s.formGroup}>
-              <label className={s.formLabel}>
-                {t(
-                  "agentConfig.rubricMaxInterventions",
-                  "Max Interventions per Turn",
-                )}
-              </label>
-              <InputNumber
-                min={1}
-                max={10}
-                value={params.max_interventions as number}
-                onChange={(val) =>
-                  update({ ...params, max_interventions: val ?? 1 })
-                }
-                style={{ width: "100%" }}
-                size="small"
-              />
-              <div className={s.formHint}>
-                Prevents infinite re-prompting
               </div>
-            </div>
-          </>
-        )}
+              <div className={s.formGroup}>
+                <label className={s.formLabel}>
+                  {t("agentConfig.doomLoopSimilarity", "Match Sensitivity")}
+                </label>
+                <InputNumber
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={dp.similarity_threshold}
+                  onChange={(val) =>
+                    update({ ...params, similarity_threshold: val ?? 1.0 })
+                  }
+                  style={{ width: "100%" }}
+                  size="small"
+                />
+              </div>
+              <div className={s.formGroup}>
+                <label className={s.formLabel}>
+                  {t("agentConfig.doomLoopStages", "Escalation Stages")}
+                </label>
+                {(dp.stages || []).map((stage: DoomLoopStage, idx: number) => (
+                  <div key={idx} className={s.stageRow}>
+                    <input
+                      className={s.formInput}
+                      type="number"
+                      min={1}
+                      value={stage.after}
+                      onChange={(e) => {
+                        const stages = [...(dp.stages || [])];
+                        stages[idx] = { ...stages[idx], after: parseInt(e.target.value) || 1 };
+                        update({ ...params, stages });
+                      }}
+                    />
+                    <select
+                      className={s.formInput}
+                      value={stage.action}
+                      onChange={(e) => {
+                        const stages = [...(dp.stages || [])];
+                        stages[idx] = { ...stages[idx], action: e.target.value };
+                        update({ ...params, stages });
+                      }}
+                    >
+                      {ACTION_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                    <input
+                      className={s.formInput}
+                      type="text"
+                      value={stage.prompt}
+                      placeholder="Message..."
+                      onChange={(e) => {
+                        const stages = [...(dp.stages || [])];
+                        stages[idx] = { ...stages[idx], prompt: e.target.value };
+                        update({ ...params, stages });
+                      }}
+                    />
+                  </div>
+                ))}
+              </div>
+            </>
+          );
+        })()}
+
+        {gate.type === "rubric" && (() => {
+          const rp = params as unknown as RubricParams;
+          return (
+            <>
+              <div className={s.formGroup}>
+                <label className={s.formLabel}>
+                  {t("agentConfig.rubricPrompt", "Re-prompt Message")}
+                </label>
+                <Input.TextArea
+                  autoSize={{ minRows: 3, maxRows: 6 }}
+                  value={rp.prompt}
+                  onChange={(e) =>
+                    update({ ...params, prompt: e.target.value })
+                  }
+                  size="small"
+                />
+              </div>
+              <div className={s.formGroup}>
+                <label className={s.formLabel}>
+                  {t("agentConfig.rubricMaxInterventions", "Max Interventions per Turn")}
+                </label>
+                <InputNumber
+                  min={1}
+                  max={10}
+                  value={rp.max_interventions}
+                  onChange={(val) =>
+                    update({ ...params, max_interventions: val ?? 1 })
+                  }
+                  style={{ width: "100%" }}
+                  size="small"
+                />
+                <div className={s.formHint}>Prevents infinite re-prompting</div>
+              </div>
+            </>
+          );
+        })()}
 
         <div className={s.inspectorActions}>
           <Button
             size="small"
-            icon={<RotateCcw size={11} />}
-            style={{ flex: 1, fontSize: 12 }}
+            style={{ flex: 1, fontSize: 12, display: "inline-flex", alignItems: "center", gap: 4 }}
           >
+            <RotateCcw size={11} />
             Reset Default
           </Button>
         </div>
@@ -577,7 +558,7 @@ function InspectorPanel({
   );
 }
 
-/* ── Flow Preview ── */
+/* ── Flow Preview (UX-08: improved wording) ── */
 function FlowPreview({ profile }: { profile: ProfileInfo }) {
   const [open, setOpen] = useState(false);
   const sorted = [...profile.gates].sort((a, b) => a.priority - b.priority);
@@ -588,11 +569,7 @@ function FlowPreview({ profile }: { profile: ProfileInfo }) {
         <span>Evaluation Flow Preview</span>
         <ChevronDown
           size={13}
-          style={{
-            opacity: 0.35,
-            transform: open ? "rotate(0deg)" : "rotate(-90deg)",
-            transition: "transform 0.2s ease",
-          }}
+          className={`${s.flowPreviewChevron} ${open ? s.open : ""}`}
         />
       </div>
       {open && (
@@ -602,29 +579,26 @@ function FlowPreview({ profile }: { profile: ProfileInfo }) {
               <div className={s.flowChip}>Agent Turn</div>
               <div className={s.flowLabel}>input</div>
             </div>
-            {sorted.map((gate) => (
-              <div
-                key={gate.id}
-                style={{ display: "flex", alignItems: "center" }}
-              >
+            {sorted.map((gate, idx) => (
+              <div key={gate.id} className={s.flowStepRow}>
                 <div className={s.flowConnector} />
                 <div className={s.flowStep}>
                   <div
                     className={`${s.flowChip} ${gate.enabled ? s.stop : ""}`}
                     style={!gate.enabled ? { opacity: 0.35 } : undefined}
                   >
-                    P{gate.priority} {gate.type.replace("_", "-")}
+                    #{idx + 1} {gate.name}
                   </div>
                   <div className={s.flowLabel}>
-                    {!gate.enabled ? "disabled" : "can STOP"}
+                    {!gate.enabled ? "skipped" : "may stop loop"}
                   </div>
                 </div>
               </div>
             ))}
             <div className={s.flowConnector} />
             <div className={s.flowStep}>
-              <div className={s.flowChip}>No opinion</div>
-              <div className={s.flowLabel}>→ STOP</div>
+              <div className={s.flowChip}>All gates pass</div>
+              <div className={s.flowLabel}>→ continue loop</div>
             </div>
           </div>
         </div>
@@ -633,7 +607,7 @@ function FlowPreview({ profile }: { profile: ProfileInfo }) {
   );
 }
 
-/* ── Simple Mode ── */
+/* ── Simple Mode (UX-10: doom_loop basic editing) ── */
 function SimpleMode({
   profile,
   onToggleGate,
@@ -647,14 +621,7 @@ function SimpleMode({
 
   return (
     <div className={s.simpleMode}>
-      <p
-        style={{
-          color: "var(--text-secondary, #6b6b66)",
-          fontSize: 13,
-          marginBottom: 14,
-          lineHeight: 1.6,
-        }}
-      >
+      <p className={s.simpleModeDesc}>
         {t(
           "agentConfig.simpleModeDesc",
           "Toggle and configure each gate. Switch to Pipeline for the full orchestrator view.",
@@ -669,23 +636,22 @@ function SimpleMode({
           >
             <div className={s.simpleGateHeader}>
               <div className={s.simpleGateTitle}>
-                <Icon size={15} style={{ opacity: 0.6 }} />
-                <span style={{ fontWeight: 500, fontSize: 13 }}>
-                  {gate.name}
-                </span>
-                <span
-                  style={{
-                    fontSize: 10,
-                    color: "var(--text-quaternary, #9c9c96)",
-                    fontFamily: "monospace",
-                  }}
-                >
-                  P{gate.priority}
-                </span>
+                <Icon size={15} className={s.simpleGateIcon} />
+                <span className={s.simpleGateName}>{gate.name}</span>
               </div>
+              {/* UX-07: ARIA toggle */}
               <div
                 className={`${s.nodeToggle} ${!gate.enabled ? s.off : ""}`}
+                role="switch"
+                aria-checked={gate.enabled}
+                tabIndex={0}
                 onClick={() => onToggleGate(gate.id, !gate.enabled)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onToggleGate(gate.id, !gate.enabled);
+                  }
+                }}
               />
             </div>
             {gate.enabled && (
@@ -696,7 +662,7 @@ function SimpleMode({
                     <InputNumber
                       min={1}
                       max={500}
-                      value={gate.params.max_iterations as number}
+                      value={(gate.params as unknown as IterationParams).max_iterations}
                       onChange={(v) =>
                         onParamsChange(gate.id, {
                           ...gate.params,
@@ -715,7 +681,7 @@ function SimpleMode({
                       min={1000}
                       max={10_000_000}
                       step={10000}
-                      value={gate.params.max_tokens as number}
+                      value={(gate.params as unknown as BudgetParams).max_tokens}
                       onChange={(v) =>
                         onParamsChange(gate.id, {
                           ...gate.params,
@@ -727,32 +693,56 @@ function SimpleMode({
                     />
                   </div>
                 )}
-                {gate.type === "doom_loop" && (
-                  <div
-                    style={{
-                      fontSize: 12,
-                      color: "var(--text-secondary, #6b6b66)",
-                      lineHeight: 1.5,
-                    }}
-                  >
-                    {getGateMeta(gate)}
-                    <span
-                      style={{
-                        marginLeft: 6,
-                        fontSize: 11,
-                        color: "var(--text-quaternary, #9c9c96)",
-                      }}
-                    >
-                      — switch to Pipeline to configure stages
-                    </span>
-                  </div>
-                )}
+                {gate.type === "doom_loop" && (() => {
+                  const dp = gate.params as unknown as DoomLoopParams;
+                  return (
+                    <div className={s.simpleDoomLoop}>
+                      <div className={s.simpleDoomLoopRow}>
+                        <label className={s.formLabel}>Detection Window</label>
+                        <InputNumber
+                          min={2}
+                          max={20}
+                          value={dp.window_size}
+                          onChange={(v) =>
+                            onParamsChange(gate.id, {
+                              ...gate.params,
+                              window_size: v ?? 3,
+                            })
+                          }
+                          style={{ width: 120 }}
+                          size="small"
+                        />
+                      </div>
+                      <div className={s.simpleDoomLoopRow}>
+                        <label className={s.formLabel}>Stages</label>
+                        {(dp.stages || []).map((stage: DoomLoopStage, idx: number) => (
+                          <div key={idx} className={s.stageRowSimple}>
+                            <span className={s.stageLabel}>
+                              After {stage.after}×:
+                            </span>
+                            <Select
+                              size="small"
+                              value={stage.action}
+                              onChange={(val: string) => {
+                                const stages = [...(dp.stages || [])];
+                                stages[idx] = { ...stages[idx], action: val };
+                                onParamsChange(gate.id, { ...gate.params, stages });
+                              }}
+                              style={{ width: 140 }}
+                              options={ACTION_OPTIONS}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
                 {gate.type === "rubric" && (
                   <div>
                     <label className={s.formLabel}>Re-prompt Message</label>
                     <Input.TextArea
                       autoSize={{ minRows: 2, maxRows: 4 }}
-                      value={gate.params.prompt as string}
+                      value={(gate.params as unknown as RubricParams).prompt}
                       onChange={(e) =>
                         onParamsChange(gate.id, {
                           ...gate.params,
@@ -779,13 +769,15 @@ export function AgentLoopCard() {
   const [catalog, setCatalog] = useState<GateCatalogEntry[]>([]);
   const [activeProfile, setActiveProfile] = useState("default");
   const [selectedGateId, setSelectedGateId] = useState<string | null>(null);
+  const [highlightGateId, setHighlightGateId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState<Set<string>>(new Set());
-  const [mode, setMode] = useState<"simple" | "advanced">("advanced");
+  const [mode, setMode] = useState<"simple" | "advanced">("simple"); // UX-01: default simple
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [newProfileName, setNewProfileName] = useState("");
   const [newProfileDesc, setNewProfileDesc] = useState("");
+  const pipelineRef = useRef<HTMLDivElement>(null!); // eslint-disable-line @typescript-eslint/no-non-null-assertion
 
   const fetchData = useCallback(async () => {
     try {
@@ -797,8 +789,8 @@ export function AgentLoopCard() {
       setProfiles(profilesData);
       setCatalog(catalogData.gates);
       setDirty(new Set());
-    } catch {
-      message.error("Failed to load loop profiles");
+    } catch (err) {
+      message.error(`Failed to load profiles: ${getErrorMessage(err)}`);
     } finally {
       setLoading(false);
     }
@@ -814,18 +806,12 @@ export function AgentLoopCard() {
 
   const handleToggleGate = useCallback(
     (gateId: string, enabled: boolean) => {
-      setProfiles((prev) =>
-        prev.map((p) =>
-          p.name === activeProfile
-            ? {
-                ...p,
-                gates: p.gates.map((g) =>
-                  g.id === gateId ? { ...g, enabled } : g,
-                ),
-              }
-            : p,
-        ),
-      );
+      setProfiles(produce((draft) => {
+        const p = draft.find((x) => x.name === activeProfile);
+        if (!p) return;
+        const g = p.gates.find((x) => x.id === gateId);
+        if (g) g.enabled = enabled;
+      }));
       setDirty((prev) => new Set(prev).add(activeProfile));
     },
     [activeProfile],
@@ -833,23 +819,18 @@ export function AgentLoopCard() {
 
   const handleParamsChange = useCallback(
     (gateId: string, params: Record<string, unknown>) => {
-      setProfiles((prev) =>
-        prev.map((p) =>
-          p.name === activeProfile
-            ? {
-                ...p,
-                gates: p.gates.map((g) =>
-                  g.id === gateId ? { ...g, params } : g,
-                ),
-              }
-            : p,
-        ),
-      );
+      setProfiles(produce((draft) => {
+        const p = draft.find((x) => x.name === activeProfile);
+        if (!p) return;
+        const g = p.gates.find((x) => x.id === gateId);
+        if (g) g.params = params;
+      }));
       setDirty((prev) => new Set(prev).add(activeProfile));
     },
     [activeProfile],
   );
 
+  // UX-02: Visual feedback on gate add
   const handleAddGate = useCallback(
     (entry: GateCatalogEntry) => {
       if (!currentProfile || currentProfile.is_builtin) return;
@@ -864,15 +845,21 @@ export function AgentLoopCard() {
         params: {},
         params_schema: entry.params_schema,
       };
-      setProfiles((prev) =>
-        prev.map((p) =>
-          p.name === activeProfile
-            ? { ...p, gates: [...p.gates, newGate] }
-            : p,
-        ),
-      );
+      setProfiles(produce((draft) => {
+        const p = draft.find((x) => x.name === activeProfile);
+        if (p) p.gates.push(newGate);
+      }));
       setDirty((prev) => new Set(prev).add(activeProfile));
       setSelectedGateId(newGate.id);
+      setHighlightGateId(newGate.id);
+      setTimeout(() => setHighlightGateId(null), 1500);
+      setTimeout(() => {
+        pipelineRef.current?.scrollTo({
+          top: pipelineRef.current.scrollHeight,
+          behavior: "smooth",
+        });
+      }, 50);
+      message.success(`${entry.name} added to pipeline`);
     },
     [activeProfile, currentProfile],
   );
@@ -880,23 +867,27 @@ export function AgentLoopCard() {
   const handleRemoveGate = useCallback(
     (gateId: string) => {
       if (!currentProfile || currentProfile.is_builtin) return;
-      setProfiles((prev) =>
-        prev.map((p) =>
-          p.name === activeProfile
-            ? { ...p, gates: p.gates.filter((g) => g.id !== gateId) }
-            : p,
-        ),
-      );
+      setProfiles(produce((draft) => {
+        const p = draft.find((x) => x.name === activeProfile);
+        if (p) {
+          p.gates = p.gates.filter((g) => g.id !== gateId);
+        }
+      }));
       if (selectedGateId === gateId) setSelectedGateId(null);
       setDirty((prev) => new Set(prev).add(activeProfile));
     },
     [activeProfile, currentProfile, selectedGateId],
   );
 
+  // UX-09: Profile name validation
   const handleCreateProfile = useCallback(async () => {
     const name = newProfileName.trim().toLowerCase().replace(/\s+/g, "_");
     if (!name) {
       message.warning("Profile name is required");
+      return;
+    }
+    if (!/^[a-z][a-z0-9_]*$/.test(name)) {
+      message.warning("Name must start with a letter, only lowercase, digits, underscores");
       return;
     }
     if (profiles.some((p) => p.name === name)) {
@@ -910,8 +901,9 @@ export function AgentLoopCard() {
       setNewProfileDesc("");
       await fetchData();
       setActiveProfile(name);
-    } catch {
-      message.error("Failed to create profile");
+      message.success(`Profile "${name}" created`);
+    } catch (err) {
+      message.error(`Failed to create profile: ${getErrorMessage(err)}`);
     }
   }, [newProfileName, newProfileDesc, profiles, fetchData]);
 
@@ -928,13 +920,28 @@ export function AgentLoopCard() {
           setActiveProfile("default");
           await fetchData();
           message.success("Profile deleted");
-        } catch {
-          message.error("Failed to delete profile");
+        } catch (err) {
+          message.error(`Failed to delete: ${getErrorMessage(err)}`);
         }
       },
     });
   }, [currentProfile, activeProfile, fetchData]);
 
+  // UX-03: Reset confirmation
+  const handleReset = useCallback(() => {
+    if (dirty.size > 0) {
+      Modal.confirm({
+        title: "Discard unsaved changes?",
+        content: "Reset will reload all profiles from the server. Unsaved modifications will be lost.",
+        okText: "Reset",
+        onOk: () => fetchData(),
+      });
+    } else {
+      fetchData();
+    }
+  }, [dirty, fetchData]);
+
+  // CODE-01: Unified save with PUT
   const handleSave = useCallback(async () => {
     if (!currentProfile) return;
     try {
@@ -946,26 +953,15 @@ export function AgentLoopCard() {
         priority: (idx + 1) * 10,
         params: g.params,
       }));
-      if (currentProfile.is_builtin) {
-        await api.updateLoopProfile(
-          currentProfile.name,
-          gatesPayload,
-        );
-      } else {
-        await api.createLoopProfile(
-          currentProfile.name,
-          currentProfile.description || "",
-          gatesPayload,
-        );
-      }
+      await api.updateLoopProfile(currentProfile.name, gatesPayload);
       setDirty((prev) => {
         const next = new Set(prev);
         next.delete(activeProfile);
         return next;
       });
       message.success(`Profile "${activeProfile}" saved`);
-    } catch {
-      message.error(`Failed to save profile "${activeProfile}"`);
+    } catch (err) {
+      message.error(`Failed to save: ${getErrorMessage(err)}`);
     } finally {
       setSaving(false);
     }
@@ -980,6 +976,8 @@ export function AgentLoopCard() {
       </div>
     );
   }
+
+  const normalizedName = newProfileName.trim().toLowerCase().replace(/\s+/g, "_");
 
   return (
     <div className={s.loopCard}>
@@ -1033,33 +1031,14 @@ export function AgentLoopCard() {
               scope: {currentProfile.scope}
             </span>
             {currentProfile.is_builtin ? (
-              <span
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 3,
-                  fontSize: 11,
-                  color: "var(--text-quaternary, #9c9c96)",
-                }}
-              >
+              <span className={s.structureLocked}>
                 <Lock size={10} />
                 Structure locked
               </span>
             ) : (
               <button
+                className={s.deleteProfileBtn}
                 onClick={handleDeleteProfile}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 3,
-                  fontSize: 11,
-                  color: "#e53e3e",
-                  background: "none",
-                  border: "none",
-                  cursor: "pointer",
-                  padding: "2px 6px",
-                  borderRadius: 4,
-                }}
               >
                 <Trash2 size={11} />
                 Delete Profile
@@ -1081,11 +1060,13 @@ export function AgentLoopCard() {
             <PipelinePanel
               profile={currentProfile}
               selectedGateId={selectedGateId}
+              highlightGateId={highlightGateId}
               onSelectGate={setSelectedGateId}
               onToggleGate={handleToggleGate}
               onRemoveGate={
                 currentProfile.is_builtin ? undefined : handleRemoveGate
               }
+              pipelineRef={pipelineRef}
             />
             <InspectorPanel
               gate={selectedGate}
@@ -1109,9 +1090,9 @@ export function AgentLoopCard() {
       <div className={s.saveBar}>
         <Button
           size="small"
-          onClick={fetchData}
+          onClick={handleReset}
           disabled={saving}
-          style={{ fontSize: 12, display: "inline-flex", alignItems: "center", gap: 4 }}
+          className={s.saveBarBtn}
         >
           <RotateCcw size={12} />
           {t("common.reset", "Reset")}
@@ -1122,14 +1103,14 @@ export function AgentLoopCard() {
           loading={saving}
           disabled={!dirty.has(activeProfile)}
           onClick={handleSave}
-          style={{ fontSize: 12, display: "inline-flex", alignItems: "center", gap: 4 }}
+          className={s.saveBarBtn}
         >
           <Save size={12} />
           {t("common.save", "Save")}
         </Button>
       </div>
 
-      {/* Create Profile Modal */}
+      {/* Create Profile Modal (UX-09: name rules) */}
       <Modal
         title="Create Custom Profile"
         open={createModalOpen}
@@ -1141,24 +1122,24 @@ export function AgentLoopCard() {
         onOk={handleCreateProfile}
         okText="Create"
       >
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div className={s.createProfileForm}>
           <div>
-            <label
-              style={{ fontSize: 12, fontWeight: 500, marginBottom: 4, display: "block" }}
-            >
-              Profile Name
-            </label>
+            <label className={s.createProfileLabel}>Profile Name</label>
             <Input
               value={newProfileName}
               onChange={(e) => setNewProfileName(e.target.value)}
               placeholder="e.g. strict, relaxed, custom_flow"
               size="small"
             />
+            <div className={s.createProfileHint}>
+              Lowercase letters, digits, underscores only.
+              {normalizedName && normalizedName !== newProfileName.trim() && (
+                <span> Will be saved as: <strong>{normalizedName}</strong></span>
+              )}
+            </div>
           </div>
           <div>
-            <label
-              style={{ fontSize: 12, fontWeight: 500, marginBottom: 4, display: "block" }}
-            >
+            <label className={s.createProfileLabel}>
               Description (optional)
             </label>
             <Input.TextArea

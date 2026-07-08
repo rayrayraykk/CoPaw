@@ -118,6 +118,32 @@
   text-transform: uppercase;
 }
 
+/* CODE-09: toolbar inline styles moved here */
+.structureLocked {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--text-quaternary, #9c9c96);
+}
+
+.deleteProfileBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: #e53e3e;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+
+  &:hover {
+    background: rgba(229, 62, 62, 0.06);
+  }
+}
+
 /* ── Three-column orchestrator ── */
 .orchestrator {
   display: grid;
@@ -126,10 +152,11 @@
   min-height: 460px;
 }
 
-@media (max-width: 1100px) {
+/* UX-06: Medium breakpoint — two columns */
+@media (max-width: 1100px) and (min-width: 769px) {
   .orchestrator {
-    grid-template-columns: 1fr;
-    min-height: auto;
+    grid-template-columns: 1fr 280px;
+    min-height: 320px;
   }
 }
 
@@ -170,13 +197,27 @@
 }
 
 /* ── Gate Catalog (left) ── */
+/* CODE-09: search icon positioning via CSS */
+.catalogSearchWrap {
+  position: relative;
+  margin-bottom: 10px;
+}
+
+.catalogSearchIcon {
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: 0.35;
+  pointer-events: none;
+}
+
 .catalogSearch {
   width: 100%;
   padding: 7px 10px 7px 30px;
   border: 1px solid var(--border-color, #e8e6e1);
   border-radius: 6px;
   font-size: 12px;
-  margin-bottom: 10px;
   background: var(--bg-elevated, #f7f6f3);
   outline: none;
   transition: border-color 0.15s, box-shadow 0.15s;
@@ -185,6 +226,19 @@
     border-color: #2c5f4a;
     box-shadow: 0 0 0 2px rgba(44, 95, 74, 0.08);
   }
+}
+
+/* UX-04: locked hint for builtin profiles */
+.catalogLockedHint {
+  font-size: 11px;
+  color: var(--text-quaternary, #9c9c96);
+  padding: 6px 8px;
+  margin-bottom: 10px;
+  background: var(--bg-elevated, #f7f6f3);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .catalogGroup {
@@ -218,6 +272,24 @@
     transform: translateY(-1px);
     box-shadow: 0 2px 8px rgba(26, 26, 24, 0.04);
   }
+}
+
+/* UX-04: locked catalog items */
+.catalogItemLocked {
+  cursor: default;
+  opacity: 0.55;
+
+  &:hover {
+    transform: none;
+    box-shadow: none;
+    background: transparent;
+    border-color: transparent;
+  }
+}
+
+.catalogAddIcon {
+  opacity: 0.4;
+  flex-shrink: 0;
 }
 
 .catalogIcon {
@@ -268,13 +340,6 @@
   margin-top: 1px;
 }
 
-.catalogPriority {
-  font-size: 10px;
-  color: var(--text-quaternary, #9c9c96);
-  font-family: "SF Mono", "Fira Code", ui-monospace, monospace;
-  flex-shrink: 0;
-}
-
 /* ── Pipeline (center) ── */
 .pipelineHint {
   text-align: center;
@@ -290,6 +355,22 @@
   align-items: center;
   gap: 0;
   padding: 4px 12px 12px;
+}
+
+/* CODE-09: pipeline empty state */
+.pipelineEmpty {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-quaternary, #9c9c96);
+  font-size: 13px;
+}
+
+/* CODE-09: pipeline node wrap */
+.pipelineNodeWrap {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
 .flowArrow {
@@ -347,16 +428,21 @@
       box-shadow: none;
     }
   }
+
+  /* UX-02: highlight animation */
+  &.highlighted {
+    animation: nodeHighlight 1.5s ease-out;
+  }
 }
 
-.nodeDrag {
-  color: var(--text-quaternary, #c4c4be);
-  flex-shrink: 0;
-  cursor: grab;
-  transition: color 0.15s;
-
-  &:hover {
-    color: var(--text-secondary, #6b6b66);
+@keyframes nodeHighlight {
+  0% {
+    box-shadow: 0 0 0 3px rgba(44, 95, 74, 0.3);
+    border-color: #2c5f4a;
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(44, 95, 74, 0);
+    border-color: var(--border-color, #e8e6e1);
   }
 }
 
@@ -437,7 +523,7 @@
   font-weight: 400;
 }
 
-/* ── Toggle switch (custom) ── */
+/* ── Toggle switch (UX-07: ARIA-friendly) ── */
 .nodeToggle {
   width: 34px;
   height: 18px;
@@ -447,6 +533,7 @@
   flex-shrink: 0;
   cursor: pointer;
   transition: background 0.2s ease;
+  outline: none;
 
   &::after {
     content: "";
@@ -473,6 +560,10 @@
   &:hover {
     opacity: 0.85;
   }
+
+  &:focus-visible {
+    box-shadow: 0 0 0 2px rgba(44, 95, 74, 0.3);
+  }
 }
 
 /* ── Inspector (right) ── */
@@ -482,6 +573,13 @@
   color: var(--text-quaternary, #9c9c96);
   font-size: 12px;
   line-height: 1.6;
+}
+
+/* CODE-09: inspector empty icon */
+.inspectorEmptyIcon {
+  opacity: 0.2;
+  margin: 0 auto 12px;
+  display: block;
 }
 
 .inspectorHeader {
@@ -555,7 +653,7 @@
   margin-top: 12px;
 }
 
-/* ── Flow Preview ── */
+/* ── Flow Preview (UX-08) ── */
 .flowPreview {
   margin-top: 12px;
   background: var(--surface, #fff);
@@ -581,6 +679,17 @@
   }
 }
 
+/* CODE-09: chevron style */
+.flowPreviewChevron {
+  opacity: 0.35;
+  transform: rotate(-90deg);
+  transition: transform 0.2s ease;
+
+  &.open {
+    transform: rotate(0deg);
+  }
+}
+
 .flowPreviewBody {
   padding: 14px;
   border-top: 1px solid var(--border-color, #f0eeea);
@@ -601,6 +710,12 @@
   flex-direction: column;
   align-items: center;
   flex-shrink: 0;
+}
+
+/* CODE-09: flow step row */
+.flowStepRow {
+  display: flex;
+  align-items: center;
 }
 
 .flowChip {
@@ -637,12 +752,19 @@
   letter-spacing: 0.02em;
 }
 
-/* ── Simple mode ── */
+/* ── Simple mode (CODE-09: inline styles moved) ── */
 .simpleMode {
   background: var(--surface, #fff);
   border: 1px solid var(--border-color, #e8e6e1);
   border-radius: 10px;
   padding: 20px;
+}
+
+.simpleModeDesc {
+  color: var(--text-secondary, #6b6b66);
+  font-size: 13px;
+  margin-bottom: 14px;
+  line-height: 1.6;
 }
 
 .simpleGate {
@@ -673,9 +795,45 @@
   gap: 8px;
 }
 
+.simpleGateIcon {
+  opacity: 0.6;
+}
+
+.simpleGateName {
+  font-weight: 500;
+  font-size: 13px;
+}
+
 .simpleGateBody {
   padding-left: 24px;
   margin-top: 12px;
+}
+
+/* UX-10: doom_loop simple editing */
+.simpleDoomLoop {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.simpleDoomLoopRow {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stageRowSimple {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.stageLabel {
+  font-size: 12px;
+  color: var(--text-secondary, #6b6b66);
+  min-width: 70px;
+  font-family: "SF Mono", "Fira Code", ui-monospace, monospace;
 }
 
 /* ── Loading ── */
@@ -695,7 +853,7 @@
   opacity: 0.4;
 }
 
-/* ── Save bar ── */
+/* ── Save bar (CODE-09) ── */
 .saveBar {
   display: flex;
   justify-content: flex-end;
@@ -704,6 +862,34 @@
   margin-top: 14px;
   padding-top: 14px;
   border-top: 1px solid var(--border-color, #f0eeea);
+}
+
+.saveBarBtn {
+  font-size: 12px;
+  display: inline-flex !important;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ── Create Profile Modal (UX-09) ── */
+.createProfileForm {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.createProfileLabel {
+  font-size: 12px;
+  font-weight: 500;
+  margin-bottom: 4px;
+  display: block;
+}
+
+.createProfileHint {
+  font-size: 10px;
+  color: var(--text-quaternary, #9c9c96);
+  margin-top: 4px;
+  line-height: 1.4;
 }
 
 /* ── Dark mode ── */
@@ -752,9 +938,19 @@
   .panel {
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   }
+  .catalogLockedHint {
+    background: rgba(255, 255, 255, 0.05);
+  }
 }
 
 /* ── Responsive ── */
+/* UX-06: medium breakpoint */
+@media (max-width: 1100px) and (min-width: 769px) {
+  .profileTabs {
+    overflow-x: auto;
+  }
+}
+
 @media (max-width: 768px) {
   .profileTabs {
     overflow-x: auto;
