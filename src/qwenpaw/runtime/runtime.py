@@ -21,6 +21,8 @@ from datetime import datetime, timezone
 from typing import Any, AsyncGenerator
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from agentscope.message import HintBlock
+
 from .builder import AgentBuilder
 from .envelope import Envelope
 from .executor import AgentExecutor
@@ -456,15 +458,15 @@ class Runtime:
 
     @staticmethod
     def _inject_current_time(msgs: list[Any]) -> None:
-        """Prepend current time to the last user message's first text block.
+        """Insert a HintBlock with the current time into the last user
+        message's content list (position 0).
 
-        Operates in-place on *msgs* (a list of agentscope ``Msg`` objects)
-        so that only model-facing input receives the timestamp — slash
-        commands, lifecycle hooks, and short-circuit paths see raw text.
-
-        If the last user message has no text block (media-only input),
-        a text block with the timestamp alone is inserted.
+        The formatter converts it into a separate user-role message for
+        the LLM without polluting the raw user text.
         """
+        if not msgs:
+            return
+
         try:
             user_tz_name = load_config().user_timezone or "UTC"
             now = datetime.now(ZoneInfo(user_tz_name))
@@ -476,41 +478,31 @@ class Runtime:
             user_tz_name = "UTC"
             now = datetime.now(timezone.utc)
 
-        prefix = (
+        hint_text = (
             f"Current time: {now.strftime('%Y-%m-%d %H:%M:%S')} "
-            f"{user_tz_name} ({now.strftime('%A')})\n\n"
+            f"{user_tz_name} ({now.strftime('%A')})"
         )
 
-        # Walk backwards to find the last user message
+        # Find the last user message
         for msg in reversed(msgs):
             if getattr(msg, "role", None) != "user":
                 continue
-            # A content block may be an agentscope ``TextBlock`` object
-            # (``.type`` / ``.text``) or a plain dict, depending on the
-            # agentscope version — handle both.
-            content: list[Any] = getattr(msg, "content", None) or []
-            for block in content:
-                if isinstance(block, dict):
-                    if block.get("type") == "text":
-                        text = block.get("text", "")
-                        if not text.startswith("Current time:"):
-                            block["text"] = prefix + text
-                        return
-                elif getattr(block, "type", None) == "text":
-                    text = getattr(block, "text", "")
-                    if not text.startswith("Current time:"):
-                        block.text = prefix + text
+            content = getattr(msg, "content", None) or []
+            # Prevent double injection
+            if (
+                content
+                and getattr(
+                    content[0],
+                    "type",
+                    None,
+                )
+                == "hint"
+            ):
+                hint_val = getattr(content[0], "hint", "")
+                if str(hint_val).startswith("Current time:"):
                     return
-            # No text block (media-only) — insert one matching the
-            # existing blocks' representation (agentscope objects vs
-            # plain dicts) so the content list stays homogeneous and
-            # ``get_text_content`` keeps working.
-            if content and not isinstance(content[0], dict):
-                from agentscope.message import TextBlock
 
-                content.insert(0, TextBlock(type="text", text=prefix))
-            else:
-                content.insert(0, {"type": "text", "text": prefix})
+            content.insert(0, HintBlock(hint=hint_text))
             return
 
     def _build_context(self, request: Any) -> HookContext:

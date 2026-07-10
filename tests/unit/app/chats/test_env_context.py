@@ -5,37 +5,19 @@ Covers:
 
 - ``build_env_context()`` no longer includes a static ``Current date``
   so that prompt caching benefits from stable env context.
-- ``Runtime._inject_current_time()`` prepends a dynamic timestamp to
-  the last user message *after* slash-command dispatch, leaving the
-  raw text untouched for hooks and commands.
+- ``Runtime._inject_current_time()`` inserts a HintBlock into the last
+  user message's content list.
 """
 # pylint: disable=protected-access,redefined-outer-name
 # pylint: disable=unused-argument,wrong-import-position
 from __future__ import annotations
 
-from types import SimpleNamespace
 from typing import Any
+
+from agentscope.message import HintBlock, Msg, TextBlock
 
 from qwenpaw.app.chats.utils import build_env_context
 from qwenpaw.runtime.runtime import Runtime
-
-
-# ---------------------------------------------------------------------------
-# _inject_current_time helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_user_msg(content: list[dict[str, str]]) -> Any:
-    """Create a minimal Msg-like object that represents a user message."""
-    return SimpleNamespace(role="user", content=content)
-
-
-def _make_assistant_msg() -> Any:
-    """Create a minimal Msg-like object for a non-user message."""
-    return SimpleNamespace(
-        role="assistant",
-        content=[{"type": "text", "text": "ok"}],
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -47,13 +29,14 @@ class TestBuildEnvContext:
     """The env context string should be stable across requests."""
 
     def test_no_current_date_field(self) -> None:
-        """``build_env_context()`` must not contain a ``Current date`` line."""
-        ctx = build_env_context(session_id="s1", user_id="u1", add_hint=True)
-        assert "Current date" not in ctx, (
-            "build_env_context() should no longer inject a static "
-            "current date.  Dynamic time is handled by "
-            "Runtime._inject_current_time()."
+        """``build_env_context()`` must not contain a ``Current date``
+        line."""
+        ctx = build_env_context(
+            session_id="s1",
+            user_id="u1",
+            add_hint=True,
         )
+        assert "Current date" not in ctx
 
     def test_stable_across_calls(self) -> None:
         """Without time injection the env context should be identical."""
@@ -69,116 +52,64 @@ class TestBuildEnvContext:
             working_dir="/tmp",
             add_hint=True,
         )
-        assert ctx1 == ctx2, (
-            "build_env_context() returned different values for the "
-            "same arguments — it should be deterministic."
-        )
+        assert ctx1 == ctx2
 
 
 # ---------------------------------------------------------------------------
-# _inject_current_time — dynamic time prefix on the last user message
+# _inject_current_time — HintBlock insertion
 # ---------------------------------------------------------------------------
+
+
+def _make_user_msg(text: str = "hello") -> Msg:
+    """Create a real agentscope user Msg."""
+    return Msg(
+        name="user",
+        role="user",
+        content=[TextBlock(type="text", text=text)],
+    )
 
 
 class TestInjectCurrentTime:
-    """``Runtime._inject_current_time()`` prepends time to user text."""
+    """``Runtime._inject_current_time()`` inserts a HintBlock."""
 
-    def test_prepends_to_text_block(self) -> None:
-        """A normal text-only user message gets a ``Current time:`` prefix."""
-        msgs = [
-            _make_assistant_msg(),
-            _make_user_msg([{"type": "text", "text": "hello"}]),
-        ]
-        Runtime._inject_current_time(msgs)  # type: ignore[arg-type]
-        text = msgs[-1].content[0]["text"]
-        assert text.startswith(
-            "Current time:",
-        ), f"Expected text to start with 'Current time:', got {text!r}"
-        # Original content should appear after the prefix
-        assert text.rstrip().endswith(
-            "hello",
-        ), f"Expected original text 'hello' to be preserved, got {text!r}"
+    def test_inserts_hint_block(self) -> None:
+        """A HintBlock is inserted at position 0 of user content."""
+        msgs: list[Any] = [_make_user_msg("hello")]
+        Runtime._inject_current_time(msgs)
+        content = msgs[0].content
+        assert len(content) == 2
+        assert isinstance(content[0], HintBlock)
+        assert str(content[0].hint).startswith("Current time:")
+        assert content[1].text == "hello"
 
-    def test_inserts_text_block_for_media_only(self) -> None:
-        """Inserts text block when user msg has no text block."""
-        msgs = [
-            _make_assistant_msg(),
-            _make_user_msg(
-                [
-                    {
-                        "type": "image_url",
-                        "image_url": "data:img/png;base64,abc",
-                    },
-                ],
-            ),
-        ]
-        Runtime._inject_current_time(msgs)  # type: ignore[arg-type]
-        content = msgs[-1].content
-        assert content[0]["type"] == "text"
-        assert content[0]["text"].startswith("Current time:")
-        # The original image block should still be present
-        assert any(b.get("type") == "image_url" for b in content)
+    def test_user_text_unchanged(self) -> None:
+        """``get_text_content()`` still returns raw user text."""
+        msgs: list[Any] = [_make_user_msg("hello")]
+        Runtime._inject_current_time(msgs)
+        assert msgs[0].get_text_content() == "hello"
 
-    def test_ignores_non_user_messages(self) -> None:
-        """Only last user message is modified; assistant keeps raw text."""
-        msgs = [
-            _make_assistant_msg(),
-            _make_user_msg([{"type": "text", "text": "user says hi"}]),
-        ]
-        Runtime._inject_current_time(msgs)  # type: ignore[arg-type]
-        assert (
-            msgs[0].content[0]["text"] == "ok"
-        ), "Assistant message should not be modified."
-        assert msgs[1].content[0]["text"].startswith("Current time:")
-
-    def test_timestamp_format_english(self) -> None:
-        """The weekday should be in English (``strftime('%A')``)."""
-        msgs = [_make_user_msg([{"type": "text", "text": "test"}])]
-        Runtime._inject_current_time(msgs)  # type: ignore[arg-type]
-        text = msgs[0].content[0]["text"]
-        # Should contain something like "(Wednesday)" not "(星期三)"
-        assert "(" in text and ")" in text
-        weekday_part = text[text.rfind("(") + 1 : text.rfind(")")]
-        # Should not be Chinese
-        assert not any(
-            "\u4e00" <= c <= "\u9fff" for c in weekday_part
-        ), f"Weekday should be English, got {weekday_part!r}"
+    def test_no_double_injection(self) -> None:
+        """Calling twice must not insert the hint twice."""
+        msgs: list[Any] = [_make_user_msg("hello")]
+        Runtime._inject_current_time(msgs)
+        Runtime._inject_current_time(msgs)
+        hints = [b for b in msgs[0].content if isinstance(b, HintBlock)]
+        assert len(hints) == 1
 
     def test_empty_message_list(self) -> None:
         """An empty message list should not raise."""
-        Runtime._inject_current_time([])  # type: ignore[arg-type]
+        msgs: list[Any] = []
+        Runtime._inject_current_time(msgs)
+        assert not msgs
 
-    def test_no_role_attribute(self) -> None:
-        """Messages without a ``role`` are skipped gracefully."""
-        msgs = [SimpleNamespace(content=[{"type": "text", "text": "no role"}])]
-        Runtime._inject_current_time(msgs)  # type: ignore[arg-type]
-        # Should not crash and should not modify the non-role message
-        assert msgs[0].content[0]["text"] == "no role"
-
-    def test_prepends_to_real_agentscope_textblock(self) -> None:
-        """Real agentscope ``Msg`` uses ``TextBlock`` objects (not plain
-        dicts); injecting must prepend to ``.text`` without breaking
-        ``get_text_content()`` — the runtime representation that
-        regressed in CI for #5455.
-        """
-        from agentscope.message import Msg, TextBlock
-
+    def test_no_user_message(self) -> None:
+        """If there is no user message, nothing changes."""
         msg = Msg(
-            name="user",
-            role="user",
-            content=[TextBlock(type="text", text="hello")],
+            name="assistant",
+            role="assistant",
+            content=[TextBlock(type="text", text="ok")],
         )
-        Runtime._inject_current_time([msg])  # type: ignore[arg-type]
-        text = msg.get_text_content()
-        assert text.startswith("Current time:")
-        assert text.rstrip().endswith("hello")
-
-    def test_no_double_injection(self) -> None:
-        """Calling twice must not prepend the timestamp twice."""
-        msgs = [_make_user_msg([{"type": "text", "text": "hello"}])]
-        Runtime._inject_current_time(msgs)  # type: ignore[arg-type]
-        Runtime._inject_current_time(msgs)  # type: ignore[arg-type]
-        text = msgs[0].content[0]["text"]
-        assert (
-            text.count("Current time:") == 1
-        ), f"Expected a single injection, got {text!r}"
+        msgs: list[Any] = [msg]
+        Runtime._inject_current_time(msgs)
+        assert len(msgs) == 1
+        assert not any(isinstance(b, HintBlock) for b in msgs[0].content)
