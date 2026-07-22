@@ -625,17 +625,17 @@ def test_init_from_storage_migrates_with_different_provider(
     provider = manager.get_provider("minimax")
 
     assert provider is not None
-    assert isinstance(provider, AnthropicProvider)
+    assert isinstance(provider, OpenAIProvider)
     # url / name / chatmodel should be updated
-    assert provider.base_url == "https://api.minimax.io/anthropic"
-    assert provider.chat_model == "AnthropicChatModel"
+    assert provider.base_url == "https://api.minimax.io/v1"
+    assert provider.chat_model == "OpenAIChatModel"
     assert provider.name == "MiniMax (International)"
     # api key should be preserved
     assert provider.api_key == "sk-legacy-minimax"
 
-    from agentscope.model import AnthropicChatModel
+    from agentscope.model import OpenAIChatModel
 
-    assert provider.get_chat_model_cls() == AnthropicChatModel
+    assert provider.get_chat_model_cls() == OpenAIChatModel
 
     legacy_ollama_provider = {
         "id": "ollama",
@@ -654,6 +654,18 @@ def test_init_from_storage_migrates_with_different_provider(
     assert (
         manager.get_provider("ollama").base_url == "http://legacy-ollama:11434"
     )
+
+
+def test_minimax_m3_uses_supported_standard_api(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+
+    provider = manager.get_provider("minimax-cn")
+
+    assert isinstance(provider, OpenAIProvider)
+    assert provider.base_url == "https://api.minimaxi.com/v1"
+    assert provider.has_model("MiniMax-M3")
 
 
 def test_provider_group_metadata(isolated_secret_dir) -> None:

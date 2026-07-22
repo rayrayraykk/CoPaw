@@ -28,6 +28,7 @@ from .context_windows import DEFAULT_CONTEXT_WINDOW
 from .dashscope_provider import DashScopeProvider
 from .gemini_provider import GeminiProvider
 from .lmstudio_provider import LMStudioProvider
+from .minimax_provider import MiniMaxProvider
 from .ollama_provider import OllamaProvider
 from .openai_provider import (
     GitHubModelsProvider,
@@ -586,6 +587,15 @@ AZURE_OPENAI_MODELS: List[ModelInfo] = [
 
 MINIMAX_MODELS: List[ModelInfo] = [
     ModelInfo(
+        id="MiniMax-M3",
+        name="MiniMax M3",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+        max_input_length=1024 * 1024,
+        max_input_length_configured=True,
+    ),
+    ModelInfo(
         id="MiniMax-M2.5",
         name="MiniMax M2.5",
         supports_image=False,
@@ -1092,12 +1102,11 @@ PROVIDER_AZURE_OPENAI = OpenAIProvider(
     models=AZURE_OPENAI_MODELS,
 )
 
-PROVIDER_MINIMAX = AnthropicProvider(
+PROVIDER_MINIMAX = MiniMaxProvider(
     id="minimax",
     name="MiniMax (International)",
-    base_url="https://api.minimax.io/anthropic",
+    base_url="https://api.minimax.io/v1",
     models=MINIMAX_MODELS,
-    chat_model="AnthropicChatModel",
     freeze_url=True,
     support_connection_check=False,
     provider_group="minimax",
@@ -1105,12 +1114,11 @@ PROVIDER_MINIMAX = AnthropicProvider(
     provider_variant="open_platform_intl",
 )
 
-PROVIDER_MINIMAX_CN = AnthropicProvider(
+PROVIDER_MINIMAX_CN = MiniMaxProvider(
     id="minimax-cn",
     name="MiniMax (China)",
-    base_url="https://api.minimaxi.com/anthropic",
+    base_url="https://api.minimaxi.com/v1",
     models=MINIMAX_MODELS,
-    chat_model="AnthropicChatModel",
     freeze_url=True,
     support_connection_check=False,
     provider_group="minimax",
