@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, patch
@@ -21,7 +22,11 @@ from qoder_agent_sdk import (
     TextBlock,
 )
 
-from qwenpaw.harnesses.events import HarnessEventKind
+from qwenpaw.harnesses.events import (
+    HarnessAttachment,
+    HarnessAttachmentKind,
+    HarnessEventKind,
+)
 from qwenpaw.harnesses.qoder.adapter import QoderAdapter
 from qwenpaw.harnesses.registry import create_adapter, get_provider
 from qwenpaw.security.tool_guard.approval import ApprovalDecision
@@ -36,7 +41,7 @@ class FakeQoderClient:
         self.connected = False
         self.disconnected = False
         self.interrupted = False
-        self.prompts: list[tuple[str, str]] = []
+        self.prompts: list[tuple[Any, str]] = []
         self.messages: list[Any] = [
             StreamEvent(
                 uuid="stream-1",
@@ -68,8 +73,10 @@ class FakeQoderClient:
         """Mark the client disconnected."""
         self.disconnected = True
 
-    async def query(self, prompt: str, session_id: str = "default") -> None:
+    async def query(self, prompt: Any, session_id: str = "default") -> None:
         """Capture user input."""
+        if not isinstance(prompt, str):
+            prompt = [message async for message in prompt]
         self.prompts.append((prompt, session_id))
 
     async def receive_response(self):
@@ -133,6 +140,7 @@ def test_registry_exposes_qoder_capabilities(tmp_path: Path) -> None:
     assert provider.capabilities.model_selection is True
     assert provider.capabilities.reasoning_stream is True
     assert provider.capabilities.tool_stream is True
+    assert provider.capabilities.attachments is True
     assert {command.name for command in provider.capabilities.commands} == {
         "agents",
         "compact",
@@ -234,6 +242,114 @@ async def test_models_and_turns_use_sdk_capabilities(tmp_path: Path) -> None:
     assert turn_client.options.include_partial_messages is True
     assert turn_client.prompts == [("Fix it", "default")]
     assert (tmp_path / "qoder_sessions.json").is_file()
+
+
+@pytest.mark.asyncio
+async def test_turn_sends_images_and_files_through_qoder_protocol(
+    tmp_path: Path,
+) -> None:
+    binary = _executable(tmp_path / "qodercli")
+    image = tmp_path / "media" / "mockup.png"
+    image.parent.mkdir()
+    image.write_bytes(b"image-bytes")
+    document = tmp_path / "media" / "product brief.pdf"
+    document.write_bytes(b"document-bytes")
+    client = FakeQoderClient(QoderAgentOptions())
+    adapter = QoderAdapter(
+        tmp_path,
+        binary=str(binary),
+        client_factory=lambda _options: client,
+    )
+
+    _ = [
+        event
+        async for event in adapter.run_turn(
+            session_id="chat-1",
+            prompt="Review both attachments",
+            cwd=tmp_path,
+            settings={},
+            attachments=[
+                HarnessAttachment(
+                    kind=HarnessAttachmentKind.IMAGE,
+                    path=image,
+                    name=image.name,
+                ),
+                HarnessAttachment(
+                    kind=HarnessAttachmentKind.FILE,
+                    path=document,
+                    name=document.name,
+                ),
+            ],
+        )
+    ]
+
+    messages, query_session_id = client.prompts[0]
+    assert query_session_id == "default"
+    assert messages == [
+        {
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            '@"media/product brief.pdf"\n'
+                            "Review both attachments"
+                        ),
+                    },
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/png",
+                            "data": base64.b64encode(
+                                b"image-bytes",
+                            ).decode("ascii"),
+                        },
+                    },
+                ],
+            },
+            "parent_tool_use_id": None,
+        },
+    ]
+
+
+@pytest.mark.asyncio
+async def test_turn_accepts_an_attachment_without_text(
+    tmp_path: Path,
+) -> None:
+    binary = _executable(tmp_path / "qodercli")
+    document = tmp_path / "notes.md"
+    document.write_text("notes", encoding="utf-8")
+    client = FakeQoderClient(QoderAgentOptions())
+    adapter = QoderAdapter(
+        tmp_path,
+        binary=str(binary),
+        client_factory=lambda _options: client,
+    )
+
+    _ = [
+        event
+        async for event in adapter.run_turn(
+            session_id="chat-1",
+            prompt="",
+            cwd=tmp_path,
+            settings={},
+            attachments=[
+                HarnessAttachment(
+                    kind=HarnessAttachmentKind.FILE,
+                    path=document,
+                    name=document.name,
+                ),
+            ],
+        )
+    ]
+
+    messages, _ = client.prompts[0]
+    assert messages[0]["message"]["content"] == [
+        {"type": "text", "text": "@notes.md"},
+    ]
 
 
 @pytest.mark.asyncio

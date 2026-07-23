@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
+import mimetypes
 import os
 import uuid
 from collections.abc import AsyncIterator, Callable
@@ -28,9 +30,15 @@ from ...app.approvals import (
     get_approval_service,
 )
 from ...security.tool_guard.approval import ApprovalDecision
-from ...utils.io_utils import read_json, write_json_atomic_async
+from ...utils.io_utils import (
+    read_bytes_async,
+    read_json,
+    write_json_atomic_async,
+)
 from ..base import HarnessAdapter
 from ..events import (
+    HarnessAttachment,
+    HarnessAttachmentKind,
     HarnessEvent,
     HarnessHistoryItem,
     HarnessModel,
@@ -205,6 +213,7 @@ class QoderAdapter(HarnessAdapter):
         prompt: str,
         cwd: Path,
         settings: dict[str, Any],
+        attachments: list[HarnessAttachment] | None = None,
     ) -> AsyncIterator[HarnessEvent]:
         """Send one turn to a persistent Qoder SDK client."""
         self._contexts[session_id] = {
@@ -219,13 +228,84 @@ class QoderAdapter(HarnessAdapter):
         )
         mapper = QoderEventMapper()
         try:
-            await client.query(prompt)
+            query_input: str | AsyncIterator[dict[str, Any]] = prompt
+            if attachments:
+                query_input = self._attachment_input(
+                    prompt,
+                    cwd,
+                    attachments,
+                )
+            await client.query(query_input)
             async for message in client.receive_response():
                 for event in mapper.convert(message):
                     yield event
         except asyncio.CancelledError:
             await asyncio.shield(client.interrupt())
             raise
+
+    async def _attachment_input(
+        self,
+        prompt: str,
+        cwd: Path,
+        attachments: list[HarnessAttachment],
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Build one Qoder SDK user message with images and file mentions."""
+        content: list[dict[str, Any]] = []
+        file_references: list[str] = []
+        for attachment in attachments:
+            if attachment.kind == HarnessAttachmentKind.IMAGE:
+                image_data = await read_bytes_async(attachment.path)
+                media_type = (
+                    mimetypes.guess_type(attachment.path.name)[0]
+                    or "image/png"
+                )
+                content.append(
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": media_type,
+                            "data": base64.b64encode(image_data).decode(
+                                "ascii",
+                            ),
+                        },
+                    },
+                )
+                continue
+            file_references.append(
+                self._file_reference(attachment.path, cwd),
+            )
+        text = "\n".join(
+            part for part in (" ".join(file_references), prompt) if part
+        )
+        if text:
+            content.insert(0, {"type": "text", "text": text})
+        yield {
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": content,
+            },
+            "parent_tool_use_id": None,
+        }
+
+    @staticmethod
+    def _file_reference(path: Path, cwd: Path) -> str:
+        """Return a Qoder @file reference portable across host platforms."""
+        resolved_path = path.expanduser().resolve(strict=False)
+        resolved_cwd = cwd.expanduser().resolve(strict=False)
+        try:
+            display_path = resolved_path.relative_to(resolved_cwd)
+        except ValueError:
+            display_path = resolved_path
+        path_text = display_path.as_posix()
+        if any(character.isspace() for character in path_text):
+            escaped_path = path_text.replace("\\", "\\\\").replace(
+                '"',
+                '\\"',
+            )
+            return f'@"{escaped_path}"'
+        return f"@{path_text}"
 
     async def run_command(
         self,
