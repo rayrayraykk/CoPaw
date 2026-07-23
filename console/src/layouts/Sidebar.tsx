@@ -34,6 +34,7 @@ import {
 } from "../stores/sessionListStore";
 import { useCodingMode } from "../stores/codingModeStore";
 import { useSidebarModeStore } from "../stores/sidebarModeStore";
+import { useAgentStore } from "../stores/agentStore";
 import { buildSessionPath, getSessionIdFromPath } from "../utils/sessionRoute";
 import sessionApi from "../pages/Chat/sessionApi";
 import styles from "./index.module.less";
@@ -49,6 +50,7 @@ import {
   toAntdItems,
 } from "./registry/adapter";
 import type { FlatMenuEntry } from "./registry/adapter";
+import { filterMenuForAgentCapabilities } from "./registry/capabilities";
 import type { MenuItem } from "../plugins/registry/types";
 import type { ReactNode } from "react";
 
@@ -134,6 +136,12 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
 
   // Sidebar mode: "simple" (only core items) or "full" (everything)
   const { mode: sidebarMode } = useSidebarModeStore();
+  const { selectedAgent, agents } = useAgentStore();
+  const currentAgent = agents.find((agent) => agent.id === selectedAgent);
+  const showNativeWorkspace = currentAgent
+    ? currentAgent.backend_capabilities?.workspace_ui ??
+      currentAgent.backend === "qwenpaw"
+    : true;
 
   // Menu + route snapshots from registry (builtin + plugin registrations merged).
   const rawAgentMenu = useMenuItems("primary.agentScoped");
@@ -141,13 +149,15 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   const routes = useRoutes();
 
   // Apply simple-mode filtering when enabled
-  const agentMenu = useMemo(
-    () =>
-      sidebarMode === "simple"
-        ? flattenMenuForSimpleMode(rawAgentMenu)
-        : rawAgentMenu,
-    [rawAgentMenu, sidebarMode],
-  );
+  const agentMenu = useMemo(() => {
+    const visibleMenu = filterMenuForAgentCapabilities(
+      rawAgentMenu,
+      showNativeWorkspace ? undefined : { workspace_ui: false },
+    );
+    return sidebarMode === "simple"
+      ? flattenMenuForSimpleMode(visibleMenu)
+      : visibleMenu;
+  }, [rawAgentMenu, showNativeWorkspace, sidebarMode]);
   const settingsMenu = useMemo(
     () =>
       sidebarMode === "simple"
