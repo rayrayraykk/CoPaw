@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 
+import en from "./en.json";
 import id from "./id.json";
 import ja from "./ja.json";
 import ptBR from "./pt-BR.json";
 import ru from "./ru.json";
 import vi from "./vi.json";
+import zh from "./zh.json";
 
-const locales = { id, ja, "pt-BR": ptBR, ru, vi };
+const locales = { en, id, ja, "pt-BR": ptBR, ru, vi, zh };
 
 const requiredPaths = [
   "common.saving",
@@ -105,6 +107,17 @@ const requiredPaths = [
   "chat.commands.status.description",
 ] as const;
 
+const thirdPartyAgentTerminologyPaths = [
+  "skills.providerManaged",
+  "skills.providerManagedHint",
+  "skills.providerOnly",
+  "skills.providerSkillDetails",
+  "skills.providerManagedDetailHint",
+  "skills.provider",
+  "mcp.providerManagedHint",
+  "mcp.providerOnly",
+] as const;
+
 function getTranslation(
   locale: Record<string, unknown>,
   path: string,
@@ -124,6 +137,17 @@ describe("third-party agent locale coverage", () => {
       for (const path of requiredPaths) {
         expect(getTranslation(locale, path), path).toBeTypeOf("string");
         expect(getTranslation(locale, path), path).not.toBe("");
+      }
+    },
+  );
+
+  it.each(Object.entries(locales))(
+    "%s avoids model Provider terminology for third-party agents",
+    (_localeName, locale) => {
+      for (const path of thirdPartyAgentTerminologyPaths) {
+        expect(String(getTranslation(locale, path)), path).not.toMatch(
+          /\bprovider\b/i,
+        );
       }
     },
   );

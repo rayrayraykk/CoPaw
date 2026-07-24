@@ -55,6 +55,8 @@
 - [x] Keep full Provider Skill names available through hover and details.
 - [x] Compact the empty state and cap the responsive Provider Skill grid.
 - [x] Keep the Skills page vertically scrollable across viewport sizes.
+- [x] Use third-party Agent terminology in user-facing Skills/MCP copy instead
+  of the model-oriented Provider term.
 
 ## Verification
 
