@@ -24,6 +24,7 @@ from acp import (
     LoadSessionResponse,
     NewSessionResponse,
     PromptResponse,
+    RequestError,
     SetSessionModelResponse,
     run_agent,
     start_tool_call,
@@ -83,11 +84,16 @@ from .meta import (
     ACP_CODING_PROJECT_META_KEY,
     ACP_EPHEMERAL_META_KEY,
 )
+from .runtime_provider import (
+    RUNTIME_OPENAI_PROVIDER_ID,
+    OpenAIRuntimeProviderConfig,
+)
 
 logger = logging.getLogger(__name__)
 
 ACP_ERROR_META_KEY = "qwenpaw.error"
 ACP_AGENT_META_KEY = "qwenpaw.agent"
+_ACP_RUNTIME_MODEL_SLOT_KEY = "qwenpaw.runtime_model_slot"
 
 _GENERIC_PROMPT_ERROR = (
     "QwenPaw failed to process the request. Check server logs for details."
@@ -246,12 +252,18 @@ class QwenPawACPAgent(Agent):
         agent_id: str | None = None,
         workspace_dir: Path | None = None,
         local_diagnostics: bool = False,
+        runtime_provider: OpenAIRuntimeProviderConfig | None = None,
     ):
         self._agent_id = agent_id
         self._workspace_dir = workspace_dir
         self._local_diagnostics = local_diagnostics
+        self._runtime_provider = runtime_provider
+        self._runtime_provider_manager: ProviderManager | None = None
+        self._runtime_provider_instance: Any | None = None
+        self._previous_active_model: ModelSlotConfig | None = None
         self._sessions: dict[str, dict[str, Any]] = {}
         self._cancel_events: dict[str, asyncio.Event] = {}
+        self._prompt_tasks: dict[str, asyncio.Task[Any]] = {}
         self._workspace: Any | None = None
         self._workspace_ready = False
         self._workspace_lock = asyncio.Lock()
@@ -289,8 +301,8 @@ class QwenPawACPAgent(Agent):
             return self._workspace_dir
         return WORKING_DIR / "workspaces" / agent_id
 
-    @staticmethod
     def _session_info(
+        self,
         *,
         cwd: str,
         session_id: str,
@@ -302,13 +314,61 @@ class QwenPawACPAgent(Agent):
             "mode": QwenPawACPAgent.MODE_DEFAULT,
         }
         project_dir = meta.get(ACP_CODING_PROJECT_META_KEY)
+        if project_dir is None:
+            project_dir = cwd
         if isinstance(project_dir, str):
             project_dir = project_dir.strip()
             if project_dir:
                 info[ACP_CODING_PROJECT_META_KEY] = project_dir
-        if meta.get(ACP_EPHEMERAL_META_KEY) is True:
+        if (
+            meta.get(ACP_EPHEMERAL_META_KEY) is True
+            or self._runtime_provider is not None
+        ):
             info[ACP_EPHEMERAL_META_KEY] = True
+        if self._runtime_provider is not None:
+            info[
+                _ACP_RUNTIME_MODEL_SLOT_KEY
+            ] = self._runtime_provider.model_slot
         return info
+
+    def _install_runtime_provider(self) -> None:
+        """Register the process-scoped provider without persisting it."""
+        if self._runtime_provider is None:
+            return
+        if self._runtime_provider_manager is not None:
+            return
+
+        manager = ProviderManager.get_instance()
+        if manager.get_provider(RUNTIME_OPENAI_PROVIDER_ID) is not None:
+            raise RuntimeError(
+                f"Provider {RUNTIME_OPENAI_PROVIDER_ID!r} already exists",
+            )
+
+        provider = self._runtime_provider.build_provider()
+        self._previous_active_model = manager.active_model
+        manager.custom_providers[RUNTIME_OPENAI_PROVIDER_ID] = provider
+        manager.active_model = self._runtime_provider.model_slot
+        self._runtime_provider_manager = manager
+        self._runtime_provider_instance = provider
+
+    def _remove_runtime_provider(self) -> None:
+        """Remove the process-scoped provider and its credentials."""
+        manager = self._runtime_provider_manager
+        if manager is None:
+            return
+
+        provider = manager.custom_providers.get(
+            RUNTIME_OPENAI_PROVIDER_ID,
+        )
+        if provider is self._runtime_provider_instance:
+            manager.custom_providers.pop(
+                RUNTIME_OPENAI_PROVIDER_ID,
+                None,
+            )
+        manager.active_model = self._previous_active_model
+        self._runtime_provider_manager = None
+        self._runtime_provider_instance = None
+        self._previous_active_model = None
 
     async def _ensure_app_services(self) -> Any:
         """Create and start ACP-local cross-workspace services."""
@@ -411,6 +471,7 @@ class QwenPawACPAgent(Agent):
             except Exception:
                 logger.exception("Error stopping ACP app services")
             self._app_services_started = False
+        self._remove_runtime_provider()
 
     # ------------------------------------------------------------------
     # ACP protocol methods
@@ -520,6 +581,9 @@ class QwenPawACPAgent(Agent):
 
         cancel_event = asyncio.Event()
         self._cancel_events[session_id] = cancel_event
+        prompt_task = asyncio.current_task()
+        if prompt_task is not None:
+            self._prompt_tasks[session_id] = prompt_task
         approval_bridge = asyncio.create_task(
             self._bridge_approval_requests(session_id),
         )
@@ -549,13 +613,18 @@ class QwenPawACPAgent(Agent):
             user_id=user_id,
             agent_id=self._resolve_agent_id(),
             request_context=request_context or None,
+            model_slot_override=session_info.get(
+                _ACP_RUNTIME_MODEL_SLOT_KEY,
+            ),
         )
 
         tracker = _EnvelopeTracker()
+        was_cancelled = False
 
         try:
             async for event in workspace.stream_query(request):
                 if cancel_event.is_set():
+                    was_cancelled = True
                     logger.info(
                         "ACP prompt cancelled: session=%s",
                         session_id,
@@ -570,19 +639,30 @@ class QwenPawACPAgent(Agent):
                     )
 
                 await self._emit_usage_if_available(session_id)
+        except asyncio.CancelledError:
+            was_cancelled = True
+            logger.info(
+                "ACP prompt task cancelled: session=%s",
+                session_id,
+            )
         except Exception as exc:
             logger.exception(
                 "ACP prompt error: session=%s",
                 session_id,
             )
             await self._report_prompt_error(session_id, exc)
+            raise RequestError.internal_error(
+                {"details": "QwenPaw runtime failed"},
+            ) from None
         finally:
             await self._stop_approval_bridge(approval_bridge)
             self._cancel_events.pop(session_id, None)
+            self._prompt_tasks.pop(session_id, None)
 
         await self._emit_usage_if_available(session_id)
 
-        return PromptResponse(stop_reason="end_turn")
+        stop_reason = "cancelled" if was_cancelled else "end_turn"
+        return PromptResponse(stop_reason=stop_reason)
 
     async def close_session(  # pylint: disable=unused-argument
         self,
@@ -590,9 +670,21 @@ class QwenPawACPAgent(Agent):
         **kwargs: Any,
     ) -> CloseSessionResponse | None:
         logger.info("ACP close_session: session=%s", session_id)
+        cancel_event = self._cancel_events.get(session_id)
+        if cancel_event is not None:
+            cancel_event.set()
+        prompt_task = self._prompt_tasks.get(session_id)
+        current_task = asyncio.current_task()
+        if (
+            prompt_task is not None
+            and prompt_task is not current_task
+            and not prompt_task.done()
+        ):
+            prompt_task.cancel()
         await self._cancel_pending_approvals(session_id)
         self._sessions.pop(session_id, None)
         self._cancel_events.pop(session_id, None)
+        self._prompt_tasks.pop(session_id, None)
         return CloseSessionResponse()
 
     async def list_sessions(  # pylint: disable=unused-argument
@@ -658,13 +750,21 @@ class QwenPawACPAgent(Agent):
             model_id,
         )
         try:
-            await self._switch_model(model_id)
-        except Exception:
+            model_slot = await self._switch_model(model_id)
+        except Exception as exc:
             logger.exception(
                 "Failed to switch model to %s",
                 model_id,
             )
-            return None
+            raise RequestError.invalid_params(
+                {
+                    "model_id": model_id,
+                    "details": str(exc),
+                },
+            ) from None
+        session_info = self._sessions.get(session_id)
+        if session_info is not None:
+            session_info[_ACP_RUNTIME_MODEL_SLOT_KEY] = model_slot
         logger.info(
             "Model switched to %s for agent %s",
             model_id,
@@ -718,6 +818,14 @@ class QwenPawACPAgent(Agent):
         event = self._cancel_events.get(session_id)
         if event is not None:
             event.set()
+        prompt_task = self._prompt_tasks.get(session_id)
+        current_task = asyncio.current_task()
+        if (
+            prompt_task is not None
+            and prompt_task is not current_task
+            and not prompt_task.done()
+        ):
+            prompt_task.cancel()
         await self._cancel_pending_approvals(session_id)
 
     # ------------------------------------------------------------------
@@ -1257,7 +1365,7 @@ class QwenPawACPAgent(Agent):
     async def _switch_model(
         self,
         model_spec: str,
-    ) -> None:
+    ) -> ModelSlotConfig:
         """Switch the active model for the current agent.
 
         Validates the provider/model pair exists, then writes the
@@ -1270,6 +1378,15 @@ class QwenPawACPAgent(Agent):
         Falls back to treating the whole string as *model_id* with
         an automatic provider search.
         """
+        if self._runtime_provider is not None:
+            expected = self._runtime_provider.model
+            qualified = f"{RUNTIME_OPENAI_PROVIDER_ID}:{expected}"
+            if model_spec not in {expected, qualified}:
+                raise ValueError(
+                    f"Runtime model must be {expected!r}",
+                )
+            return self._runtime_provider.model_slot
+
         if ":" in model_spec:
             provider_id, model_id = model_spec.split(":", 1)
         else:
@@ -1315,20 +1432,24 @@ class QwenPawACPAgent(Agent):
             model=model_id,
         )
         save_agent_config(agent_id, agent_config)
+        return agent_config.active_model
 
 
 async def run_qwenpaw_agent(
     agent_id: str | None = None,
     workspace_dir: Path | None = None,
     local_diagnostics: bool = False,
+    runtime_provider: OpenAIRuntimeProviderConfig | None = None,
 ) -> None:
     """Entry point: run QwenPaw as an ACP agent over stdio."""
     agent = QwenPawACPAgent(
         agent_id=agent_id,
         workspace_dir=workspace_dir,
         local_diagnostics=local_diagnostics,
+        runtime_provider=runtime_provider,
     )
     try:
+        agent._install_runtime_provider()  # pylint: disable=protected-access
         await run_agent(agent, use_unstable_protocol=True)
     finally:
         await agent._shutdown_workspace()  # pylint: disable=protected-access
