@@ -593,7 +593,7 @@ class QwenPawACPAgent(Agent):
         if isinstance(project_dir, str):
             project_dir = project_dir.strip()
             if project_dir:
-                request_context[ACP_CODING_PROJECT_META_KEY] = project_dir
+                request_context["project_dir"] = project_dir
         if session_info.get(ACP_EPHEMERAL_META_KEY) is True:
             request_context[ACP_EPHEMERAL_META_KEY] = True
 
