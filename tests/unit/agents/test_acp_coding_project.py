@@ -54,10 +54,7 @@ async def test_acp_project_metadata_flows_to_request_context(tmp_path):
     )
 
     assert workspace.requests
-    assert (
-        workspace.requests[0].request_context[ACP_CODING_PROJECT_META_KEY]
-        == project_dir
-    )
+    assert workspace.requests[0].request_context["project_dir"] == project_dir
 
 
 async def test_acp_cwd_defaults_to_coding_project(tmp_path):
@@ -73,10 +70,7 @@ async def test_acp_cwd_defaults_to_coding_project(tmp_path):
         session_id=response.session_id,
     )
 
-    assert (
-        workspace.requests[0].request_context[ACP_CODING_PROJECT_META_KEY]
-        == project_dir
-    )
+    assert workspace.requests[0].request_context["project_dir"] == project_dir
 
 
 async def test_acp_project_metadata_is_stripped(tmp_path):
@@ -95,10 +89,7 @@ async def test_acp_project_metadata_is_stripped(tmp_path):
         session_id=response.session_id,
     )
 
-    assert (
-        workspace.requests[0].request_context[ACP_CODING_PROJECT_META_KEY]
-        == project_dir
-    )
+    assert workspace.requests[0].request_context["project_dir"] == project_dir
 
 
 async def test_acp_resume_project_metadata_is_stripped(tmp_path):
@@ -119,10 +110,7 @@ async def test_acp_resume_project_metadata_is_stripped(tmp_path):
         session_id=response.session_id,
     )
 
-    assert (
-        workspace.requests[0].request_context[ACP_CODING_PROJECT_META_KEY]
-        == project_dir
-    )
+    assert workspace.requests[0].request_context["project_dir"] == project_dir
 
 
 async def test_acp_ephemeral_metadata_flows_to_request_context(tmp_path):
