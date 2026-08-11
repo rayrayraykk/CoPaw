@@ -17,6 +17,45 @@ export default defineConfig(({ mode }) => {
     base: env.VITE_BASE_PATH || "/",
     build: {
       rollupOptions: {
+        input: {
+          main: fileURLToPath(new URL("./index.html", import.meta.url)),
+          "llm-wiki-graph": fileURLToPath(
+            new URL(
+              "./prototypes/llm-wiki-graph/index.html",
+              import.meta.url,
+            ),
+          ),
+          "llm-wiki-nebula": fileURLToPath(
+            new URL(
+              "./prototypes/llm-wiki-graph/nebula.html",
+              import.meta.url,
+            ),
+          ),
+          "llm-wiki-galaxy": fileURLToPath(
+            new URL(
+              "./prototypes/llm-wiki-graph/galaxy.html",
+              import.meta.url,
+            ),
+          ),
+          "llm-wiki-inference": fileURLToPath(
+            new URL(
+              "./prototypes/llm-wiki-graph/inference.html",
+              import.meta.url,
+            ),
+          ),
+          "llm-wiki-temporal": fileURLToPath(
+            new URL(
+              "./prototypes/llm-wiki-graph/temporal.html",
+              import.meta.url,
+            ),
+          ),
+          "llm-wiki-focus": fileURLToPath(
+            new URL(
+              "./prototypes/llm-wiki-graph/focus.html",
+              import.meta.url,
+            ),
+          ),
+        },
         output: {
           manualChunks: {
             markdown: [

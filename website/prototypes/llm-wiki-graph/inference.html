@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="zh-CN" data-concept="inference">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Inference Constellation · LLM Wiki</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body class="graph-demo">
+    <div id="graph" aria-label="Interactive inference graph"></div><div class="grain" aria-hidden="true"></div>
+    <header class="graph-header"><a href="./index.html" class="icon-button" aria-label="Back to concepts"><i data-lucide="arrow-left"></i></a><div class="brand-lockup"><span>QWENPAW</span><small>LLM WIKI</small></div><div class="live-indicator"><span></span>Inference Constellation</div><button class="icon-button" data-action="help" aria-label="Show controls"><i data-lucide="circle-help"></i></button></header>
+    <aside class="graph-copy"><p class="eyebrow">Concept 03 / Explainable</p><h1>Inference<br />Constellation</h1><p>把来源、证据、推论和结论放入可解释的空间路径。每一次回答都能看见它从哪里来。</p></aside>
+    <div class="graph-tools" role="toolbar" aria-label="Graph controls"><label class="search-box"><i data-lucide="search"></i><input data-search placeholder="搜索推理节点" autocomplete="off" /></label><button class="tool-button" data-action="reset"><i data-lucide="scan"></i><span>复位</span></button><button class="tool-button is-active" data-action="rotate" aria-pressed="true"><i data-lucide="orbit"></i><span>旋转</span></button></div>
+    <div class="filter-row" data-filters></div><aside class="node-panel" data-node-panel aria-live="polite"></aside>
+    <div class="graph-hint"><i data-lucide="move-3d"></i><span>拖拽旋转 · 滚轮缩放 · 点击聚焦</span></div>
+    <script type="module" src="./demo.js"></script>
+  </body>
+</html>

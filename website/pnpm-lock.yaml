@@ -7,6 +7,9 @@ settings:
 importers:
   .:
     dependencies:
+      3d-force-graph:
+        specifier: ^1.80.0
+        version: 1.80.0
       "@fontsource-variable/geist":
         specifier: ^5.2.8
         version: 5.2.8
@@ -34,6 +37,9 @@ importers:
       js-yaml:
         specifier: ^4.3.0
         version: 4.3.0
+      lucide:
+        specifier: ^1.31.0
+        version: 1.31.0
       lucide-react:
         specifier: ^0.468.0
         version: 0.468.0(react@18.3.1)
@@ -118,6 +124,13 @@ importers:
         version: 6.4.1(@types/node@25.5.0)(jiti@2.6.1)(lightningcss@1.32.0)
 
 packages:
+  3d-force-graph@1.80.0:
+    resolution:
+      {
+        integrity: sha512-tzI353gW1nXPpnC7VTa3JjMg+3cp77qOLUFO0vucPTfF+q5R6sQsNsIqVTbRIb7RSypn14nBa4yfkOe9ThxASw==,
+      }
+    engines: { node: ">=12" }
+
   "@antfu/install-pkg@1.1.0":
     resolution:
       {
@@ -1800,6 +1813,7 @@ packages:
       }
     cpu: [arm]
     os: [linux]
+    libc: [glibc]
 
   "@rollup/rollup-linux-arm-musleabihf@4.57.1":
     resolution:
@@ -1808,6 +1822,7 @@ packages:
       }
     cpu: [arm]
     os: [linux]
+    libc: [musl]
 
   "@rollup/rollup-linux-arm64-gnu@4.57.1":
     resolution:
@@ -1816,6 +1831,7 @@ packages:
       }
     cpu: [arm64]
     os: [linux]
+    libc: [glibc]
 
   "@rollup/rollup-linux-arm64-musl@4.57.1":
     resolution:
@@ -1824,6 +1840,7 @@ packages:
       }
     cpu: [arm64]
     os: [linux]
+    libc: [musl]
 
   "@rollup/rollup-linux-loong64-gnu@4.57.1":
     resolution:
@@ -1832,6 +1849,7 @@ packages:
       }
     cpu: [loong64]
     os: [linux]
+    libc: [glibc]
 
   "@rollup/rollup-linux-loong64-musl@4.57.1":
     resolution:
@@ -1840,6 +1858,7 @@ packages:
       }
     cpu: [loong64]
     os: [linux]
+    libc: [musl]
 
   "@rollup/rollup-linux-ppc64-gnu@4.57.1":
     resolution:
@@ -1848,6 +1867,7 @@ packages:
       }
     cpu: [ppc64]
     os: [linux]
+    libc: [glibc]
 
   "@rollup/rollup-linux-ppc64-musl@4.57.1":
     resolution:
@@ -1856,6 +1876,7 @@ packages:
       }
     cpu: [ppc64]
     os: [linux]
+    libc: [musl]
 
   "@rollup/rollup-linux-riscv64-gnu@4.57.1":
     resolution:
@@ -1864,6 +1885,7 @@ packages:
       }
     cpu: [riscv64]
     os: [linux]
+    libc: [glibc]
 
   "@rollup/rollup-linux-riscv64-musl@4.57.1":
     resolution:
@@ -1872,6 +1894,7 @@ packages:
       }
     cpu: [riscv64]
     os: [linux]
+    libc: [musl]
 
   "@rollup/rollup-linux-s390x-gnu@4.57.1":
     resolution:
@@ -1880,6 +1903,7 @@ packages:
       }
     cpu: [s390x]
     os: [linux]
+    libc: [glibc]
 
   "@rollup/rollup-linux-x64-gnu@4.57.1":
     resolution:
@@ -1888,6 +1912,7 @@ packages:
       }
     cpu: [x64]
     os: [linux]
+    libc: [glibc]
 
   "@rollup/rollup-linux-x64-musl@4.57.1":
     resolution:
@@ -1896,6 +1921,7 @@ packages:
       }
     cpu: [x64]
     os: [linux]
+    libc: [musl]
 
   "@rollup/rollup-openbsd-x64@4.57.1":
     resolution:
@@ -2065,6 +2091,7 @@ packages:
     engines: { node: ">= 20" }
     cpu: [arm64]
     os: [linux]
+    libc: [glibc]
 
   "@tailwindcss/oxide-linux-arm64-musl@4.2.2":
     resolution:
@@ -2074,6 +2101,7 @@ packages:
     engines: { node: ">= 20" }
     cpu: [arm64]
     os: [linux]
+    libc: [musl]
 
   "@tailwindcss/oxide-linux-x64-gnu@4.2.2":
     resolution:
@@ -2083,6 +2111,7 @@ packages:
     engines: { node: ">= 20" }
     cpu: [x64]
     os: [linux]
+    libc: [glibc]
 
   "@tailwindcss/oxide-linux-x64-musl@4.2.2":
     resolution:
@@ -2092,6 +2121,7 @@ packages:
     engines: { node: ">= 20" }
     cpu: [x64]
     os: [linux]
+    libc: [musl]
 
   "@tailwindcss/oxide-wasm32-wasi@4.2.2":
     resolution:
@@ -2145,6 +2175,12 @@ packages:
     resolution:
       {
         integrity: sha512-Wf29UqxWDpc+i61k3oIOzcUfQt79PIT9y/MWfAGlrkjg6lBC1hwDECLXPVJAhWjiGbfBCxZd65F/LIZF3+jeJQ==,
+      }
+
+  "@tweenjs/tween.js@25.0.0":
+    resolution:
+      {
+        integrity: sha512-XKLA6syeBUaPzx4j3qwMqzzq+V4uo72BnlbOjmuljLrRqdsd3qnzvZZoxvMHZ23ndsRS4aufU6JOZYpCbU6T1A==,
       }
 
   "@types/babel__core@7.20.5":
@@ -2478,6 +2514,7 @@ packages:
       {
         integrity: sha512-WmoN8qaIAo7WTYWbAZuG8PYEhn5fkz7dZrqTBZ7dtt//lL2Gwms1IcnQ5yHqjDfX8Ft5j4YzDM23f87zBfDe9g==,
       }
+    deprecated: Potential CWE-502 - Update to 1.3.1 or higher
 
   "@vitejs/plugin-react@4.7.0":
     resolution:
@@ -2494,6 +2531,13 @@ packages:
         integrity: sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng==,
       }
     engines: { node: ">= 0.6" }
+
+  accessor-fn@1.5.3:
+    resolution:
+      {
+        integrity: sha512-rkAofCwe/FvYFUlMB0v0gWmhqtfAtV1IUkdPbfhTUyYniu5LrC0A0UJkTH0Jv3S8SvwkmfuAlY+mQIJATdocMA==,
+      }
+    engines: { node: ">=12" }
 
   acorn@8.15.0:
     resolution:
@@ -2945,6 +2989,12 @@ packages:
       }
     engines: { node: ">=12" }
 
+  d3-binarytree@1.0.2:
+    resolution:
+      {
+        integrity: sha512-cElUNH+sHu95L04m92pG73t2MEJXKu+GeKUN1TJkFsu93E5W8E9Sc3kHEGJKgenGvj19m6upSn2EunvMgMD2Yw==,
+      }
+
   d3-brush@3.0.0:
     resolution:
       {
@@ -3016,6 +3066,13 @@ packages:
       }
     engines: { node: ">=12" }
 
+  d3-force-3d@3.0.6:
+    resolution:
+      {
+        integrity: sha512-4tsKHUPLOVkyfEffZo1v6sFHvGFwAIIjt/W8IThbp08DYAsXZck+2pSHEG5W1+gQgEvFLdZkYvmJAbRM2EzMnA==,
+      }
+    engines: { node: ">=12" }
+
   d3-force@3.0.0:
     resolution:
       {
@@ -3050,6 +3107,12 @@ packages:
         integrity: sha512-3bYs1rOD33uo8aqJfKP3JWPAibgw8Zm2+L9vBKEHJ2Rg+viTR7o5Mmv5mZcieN+FRYaAOWX5SJATX6k1PWz72g==,
       }
     engines: { node: ">=12" }
+
+  d3-octree@1.1.0:
+    resolution:
+      {
+        integrity: sha512-F8gPlqpP+HwRPMO/8uOu5wjH110+6q4cgJvgJT6vlpy3BEaDIKlTZrgHKZSp/i1InRpVfh4puY/kvL6MxK930A==,
+      }
 
   d3-path@1.0.9:
     resolution:
@@ -3174,6 +3237,13 @@ packages:
       {
         integrity: sha512-efEhnxpSuwpYOKRm/L5KbqoZmNNukHa/Flty4Wp62JRvgH2ojwVgPgdYyr4twpieZnyRDdIH7PY2mopX26+j2Q==,
       }
+
+  data-bind-mapper@1.0.3:
+    resolution:
+      {
+        integrity: sha512-QmU3lyEnbENQPo0M1F9BMu4s6cqNNp8iJA+b/HP2sSb7pf3dxwF3+EP1eO69rwBfH9kFJ1apmzrtogAmVt2/Xw==,
+      }
+    engines: { node: ">=12" }
 
   data-uri-to-buffer@4.0.1:
     resolution:
@@ -3566,6 +3636,13 @@ packages:
         integrity: sha512-S8KoZgRZN+a5rNwqTxlZZePjT/4cnm0ROV70LedRHZ0p8u9fRID0hJUZQpkKLzro8LfmC8sx23bY6tVNxv8pQA==,
       }
     engines: { node: ">= 18.0.0" }
+
+  float-tooltip@1.7.5:
+    resolution:
+      {
+        integrity: sha512-/kXzuDnnBqyyWyhDMH7+PfP8J/oXiAavGzcRxASOMRHFuReDtofizLLJsf7nnDLAfEaMW4pVWaXrAjtnglpEkg==,
+      }
+    engines: { node: ">=12" }
 
   format@0.2.2:
     resolution:
@@ -4208,6 +4285,13 @@ packages:
         integrity: sha512-FGuPw30AdOIUTRMC2OMRtQV+jkVj2cfPqSeWXv1NEAJ1qZ5zb1X6z1mFhbfOB/iy3ssJCD+3KuZ8r8C3uVFlAg==,
       }
 
+  kapsule@1.16.3:
+    resolution:
+      {
+        integrity: sha512-4+5mNNf4vZDSwPhKprKwz3330iisPrb08JyMgbsdFrimBCKNHecua/WBwvVg3n7vwx0C1ARjfhwIpbrbd9n5wg==,
+      }
+    engines: { node: ">=12" }
+
   katex@0.16.28:
     resolution:
       {
@@ -4307,6 +4391,7 @@ packages:
     engines: { node: ">= 12.0.0" }
     cpu: [arm64]
     os: [linux]
+    libc: [glibc]
 
   lightningcss-linux-arm64-musl@1.32.0:
     resolution:
@@ -4316,6 +4401,7 @@ packages:
     engines: { node: ">= 12.0.0" }
     cpu: [arm64]
     os: [linux]
+    libc: [musl]
 
   lightningcss-linux-x64-gnu@1.32.0:
     resolution:
@@ -4325,6 +4411,7 @@ packages:
     engines: { node: ">= 12.0.0" }
     cpu: [x64]
     os: [linux]
+    libc: [glibc]
 
   lightningcss-linux-x64-musl@1.32.0:
     resolution:
@@ -4334,6 +4421,7 @@ packages:
     engines: { node: ">= 12.0.0" }
     cpu: [x64]
     os: [linux]
+    libc: [musl]
 
   lightningcss-win32-arm64-msvc@1.32.0:
     resolution:
@@ -4423,6 +4511,12 @@ packages:
       }
     peerDependencies:
       react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0-rc
+
+  lucide@1.31.0:
+    resolution:
+      {
+        integrity: sha512-iPJC7py8o990ZSmvFZlS+4+bNasP+ANDkD0IeDOGgQZjTm3p85F2Ldut7leM1yhYavr1pmoPfigm9MDHyyCOrw==,
+      }
 
   magic-string@0.30.21:
     resolution:
@@ -4866,6 +4960,36 @@ packages:
       }
     engines: { node: ">= 0.6" }
 
+  ngraph.events@1.4.0:
+    resolution:
+      {
+        integrity: sha512-NeDGI4DSyjBNBRtA86222JoYietsmCXbs8CEB0dZ51Xeh4lhVl1y3wpWLumczvnha8sFQIW4E0vvVWwgmX2mGw==,
+      }
+
+  ngraph.forcelayout@3.3.1:
+    resolution:
+      {
+        integrity: sha512-MKBuEh1wujyQHFTW57y5vd/uuEOK0XfXYxm3lC7kktjJLRdt/KEKEknyOlc6tjXflqBKEuYBBcu7Ax5VY+S6aw==,
+      }
+
+  ngraph.graph@20.1.2:
+    resolution:
+      {
+        integrity: sha512-W/G3GBR3Y5UxMLHTUCPP9v+pbtpzwuAEIqP5oZV+9IwgxAIEZwh+Foc60iPc1idlnK7Zxu0p3puxAyNmDvBd0Q==,
+      }
+
+  ngraph.merge@1.0.0:
+    resolution:
+      {
+        integrity: sha512-5J8YjGITUJeapsomtTALYsw7rFveYkM+lBj3QiYZ79EymQcuri65Nw3knQtFxQBU1r5iOaVRXrSwMENUPK62Vg==,
+      }
+
+  ngraph.random@1.2.0:
+    resolution:
+      {
+        integrity: sha512-4EUeAGbB2HWX9njd6bP6tciN6ByJfoaAvmVL9QTaZSeXrW46eNGA9GajiXiPBbvFqxUWFkEbyo6x5qsACUuVfA==,
+      }
+
   node-domexception@1.0.0:
     resolution:
       {
@@ -5110,6 +5234,13 @@ packages:
         integrity: sha512-25ClnWWuw7JbWZcgqY/gJ4FQWadKxGWk+3kR/7kD0tCaDtPPMj7oHu2ToLaVhfpnHrZzYby2w6tUA0eOIuUg8g==,
       }
 
+  polished@4.3.1:
+    resolution:
+      {
+        integrity: sha512-OBatVyC/N7SCW/FaDHrSd+vn0o5cS855TOmYi4OkdWUMSJCET/xip//ch8xGUvtr3i44X9LVyWwQlRMTN3pwSA==,
+      }
+    engines: { node: ">=10" }
+
   postcss-selector-parser@7.1.1:
     resolution:
       {
@@ -5130,6 +5261,17 @@ packages:
         integrity: sha512-dM0jVuXJPsDN6DvRpea484tCUaMiXWjuCn++HGTqUWzGDjv5tZkEZldAJ/UMlqRYGFrD/etByo4/xOuC/snX2A==,
       }
     engines: { node: ">=20" }
+
+  preact@10.29.8:
+    resolution:
+      {
+        integrity: sha512-ej2aVZ+vZ8WO7tvlQWRM9N63A0KzF9q4mWJfDUHgYaIofWY9hu74QdnQrjoPMmZi2/nZ5gN0bJCQF49xQqx09Q==,
+      }
+    peerDependencies:
+      preact-render-to-string: ">=5"
+    peerDependenciesMeta:
+      preact-render-to-string:
+        optional: true
 
   prettier@3.0.0:
     resolution:
@@ -5732,10 +5874,40 @@ packages:
       }
     engines: { node: ">=6" }
 
+  three-forcegraph@1.43.4:
+    resolution:
+      {
+        integrity: sha512-FtmiZP/T16ZQaHza3JDaDn0YTXFtg9e7pGnTeU8nzu0NNkx7MpWbF/GvmpbQsWHx3rukHtkRv1fTorLPB3FDEA==,
+      }
+    engines: { node: ">=12" }
+    peerDependencies:
+      three: ">=0.118.3"
+
+  three-render-objects@1.42.0:
+    resolution:
+      {
+        integrity: sha512-KYfkPrYGEbIK8ChFocWqOF1aAN80FBUBWVYB8mB2oBpVuVN+52FvvngVYB5ieFANQu7Rt21rPYZ/xKaAgVWWRQ==,
+      }
+    engines: { node: ">=12" }
+    peerDependencies:
+      three: ">=0.179"
+
+  three@0.185.1:
+    resolution:
+      {
+        integrity: sha512-5aojFCXKwnjBRZvUnt3WFfEcvUJgkN5LlijRFN95hMy8WVkG4I0QNcJE+OuWvuJ0bOdStrbfXn0pkd6/QyiAlg==,
+      }
+
   tiny-invariant@1.3.3:
     resolution:
       {
         integrity: sha512-+FbBPE1o9QAYvviau/qC5SE3caw21q3xkvWKBtja5vgqOWIHHJ3ioaq1VPfn/Szqctz2bU/oYeKd9/z5BL+PVg==,
+      }
+
+  tinycolor2@1.6.0:
+    resolution:
+      {
+        integrity: sha512-XPaBkWQJdsf3pLKJV9p4qN/S+fm2Oj8AIPo1BTUhg5oxkvm9+SVEGFdhyOz7tTdUTfvxMiAs4sp6/eZO2Ew+pw==,
       }
 
   tinyexec@1.0.2:
@@ -6227,6 +6399,16 @@ packages:
       }
 
 snapshots:
+  3d-force-graph@1.80.0:
+    dependencies:
+      accessor-fn: 1.5.3
+      kapsule: 1.16.3
+      three: 0.185.1
+      three-forcegraph: 1.43.4(three@0.185.1)
+      three-render-objects: 1.42.0(three@0.185.1)
+    transitivePeerDependencies:
+      - preact-render-to-string
+
   "@antfu/install-pkg@1.1.0":
     dependencies:
       package-manager-detector: 1.6.0
@@ -7619,6 +7801,8 @@ snapshots:
       minimatch: 10.2.4
       path-browserify: 1.0.1
 
+  "@tweenjs/tween.js@25.0.0": {}
+
   "@types/babel__core@7.20.5":
     dependencies:
       "@babel/parser": 7.29.0
@@ -7831,6 +8015,8 @@ snapshots:
     dependencies:
       mime-types: 3.0.2
       negotiator: 1.0.0
+
+  accessor-fn@1.5.3: {}
 
   acorn@8.15.0: {}
 
@@ -8053,6 +8239,8 @@ snapshots:
 
   d3-axis@3.0.0: {}
 
+  d3-binarytree@1.0.2: {}
+
   d3-brush@3.0.0:
     dependencies:
       d3-dispatch: 3.0.1
@@ -8094,6 +8282,14 @@ snapshots:
     dependencies:
       d3-dsv: 3.0.1
 
+  d3-force-3d@3.0.6:
+    dependencies:
+      d3-binarytree: 1.0.2
+      d3-dispatch: 3.0.1
+      d3-octree: 1.1.0
+      d3-quadtree: 3.0.1
+      d3-timer: 3.0.1
+
   d3-force@3.0.0:
     dependencies:
       d3-dispatch: 3.0.1
@@ -8111,6 +8307,8 @@ snapshots:
   d3-interpolate@3.0.1:
     dependencies:
       d3-color: 3.1.0
+
+  d3-octree@1.1.0: {}
 
   d3-path@1.0.9: {}
 
@@ -8214,6 +8412,10 @@ snapshots:
     dependencies:
       d3: 7.9.0
       lodash-es: 4.17.23
+
+  data-bind-mapper@1.0.3:
+    dependencies:
+      accessor-fn: 1.5.3
 
   data-uri-to-buffer@4.0.1: {}
 
@@ -8469,6 +8671,14 @@ snapshots:
       statuses: 2.0.2
     transitivePeerDependencies:
       - supports-color
+
+  float-tooltip@1.7.5:
+    dependencies:
+      d3-selection: 3.0.0
+      kapsule: 1.16.3
+      preact: 10.29.8
+    transitivePeerDependencies:
+      - preact-render-to-string
 
   format@0.2.2: {}
 
@@ -8798,6 +9008,10 @@ snapshots:
     optionalDependencies:
       graceful-fs: 4.2.11
 
+  kapsule@1.16.3:
+    dependencies:
+      lodash-es: 4.17.23
+
   katex@0.16.28:
     dependencies:
       commander: 8.3.0
@@ -8904,6 +9118,8 @@ snapshots:
   lucide-react@0.468.0(react@18.3.1):
     dependencies:
       react: 18.3.1
+
+  lucide@1.31.0: {}
 
   magic-string@0.30.21:
     dependencies:
@@ -9365,6 +9581,22 @@ snapshots:
 
   negotiator@1.0.0: {}
 
+  ngraph.events@1.4.0: {}
+
+  ngraph.forcelayout@3.3.1:
+    dependencies:
+      ngraph.events: 1.4.0
+      ngraph.merge: 1.0.0
+      ngraph.random: 1.2.0
+
+  ngraph.graph@20.1.2:
+    dependencies:
+      ngraph.events: 1.4.0
+
+  ngraph.merge@1.0.0: {}
+
+  ngraph.random@1.2.0: {}
+
   node-domexception@1.0.0: {}
 
   node-fetch@3.3.2:
@@ -9497,6 +9729,10 @@ snapshots:
       path-data-parser: 0.1.0
       points-on-curve: 0.2.0
 
+  polished@4.3.1:
+    dependencies:
+      "@babel/runtime": 7.29.2
+
   postcss-selector-parser@7.1.1:
     dependencies:
       cssesc: 3.0.0
@@ -9509,6 +9745,8 @@ snapshots:
       source-map-js: 1.2.1
 
   powershell-utils@0.1.0: {}
+
+  preact@10.29.8: {}
 
   prettier@3.0.0: {}
 
@@ -10023,7 +10261,36 @@ snapshots:
 
   tapable@2.3.2: {}
 
+  three-forcegraph@1.43.4(three@0.185.1):
+    dependencies:
+      accessor-fn: 1.5.3
+      d3-array: 3.2.4
+      d3-force-3d: 3.0.6
+      d3-scale: 4.0.2
+      d3-scale-chromatic: 3.1.0
+      data-bind-mapper: 1.0.3
+      kapsule: 1.16.3
+      ngraph.forcelayout: 3.3.1
+      ngraph.graph: 20.1.2
+      three: 0.185.1
+      tinycolor2: 1.6.0
+
+  three-render-objects@1.42.0(three@0.185.1):
+    dependencies:
+      "@tweenjs/tween.js": 25.0.0
+      accessor-fn: 1.5.3
+      float-tooltip: 1.7.5
+      kapsule: 1.16.3
+      polished: 4.3.1
+      three: 0.185.1
+    transitivePeerDependencies:
+      - preact-render-to-string
+
+  three@0.185.1: {}
+
   tiny-invariant@1.3.3: {}
+
+  tinycolor2@1.6.0: {}
 
   tinyexec@1.0.2: {}
 

@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="zh-CN" data-concept="galaxy">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Semantic Galaxy · LLM Wiki</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body class="graph-demo">
+    <div id="graph" aria-label="Interactive semantic galaxy"></div><div class="grain" aria-hidden="true"></div>
+    <header class="graph-header"><a href="./index.html" class="icon-button" aria-label="Back to concepts"><i data-lucide="arrow-left"></i></a><div class="brand-lockup"><span>QWENPAW</span><small>LLM WIKI</small></div><div class="live-indicator"><span></span>Semantic Galaxy</div><button class="icon-button" data-action="help" aria-label="Show controls"><i data-lucide="circle-help"></i></button></header>
+    <aside class="graph-copy"><p class="eyebrow">Concept 02 / Editorial</p><h1>Semantic<br />Galaxy</h1><p>以核心主题为恒星，相关知识沿语义轨道运行。秩序清晰，适合建立 Wiki 的全局认知地图。</p></aside>
+    <div class="graph-tools" role="toolbar" aria-label="Graph controls"><label class="search-box"><i data-lucide="search"></i><input data-search placeholder="搜索主题、文档或实体" autocomplete="off" /></label><button class="tool-button" data-action="reset"><i data-lucide="scan"></i><span>复位</span></button><button class="tool-button is-active" data-action="rotate" aria-pressed="true"><i data-lucide="orbit"></i><span>旋转</span></button></div>
+    <div class="filter-row" data-filters></div><aside class="node-panel" data-node-panel aria-live="polite"></aside>
+    <div class="graph-hint"><i data-lucide="move-3d"></i><span>拖拽旋转 · 滚轮缩放 · 点击聚焦</span></div>
+    <script type="module" src="./demo.js"></script>
+  </body>
+</html>

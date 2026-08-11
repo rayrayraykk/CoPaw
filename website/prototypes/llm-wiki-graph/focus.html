@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN" data-concept="focus">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="A large-scale adaptive 3D knowledge graph for QwenPaw LLM Wiki" />
+    <title>Focus Graph · LLM Wiki</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body class="graph-demo focus-demo">
+    <div id="graph" aria-label="Interactive large-scale focus graph"></div>
+    <div class="grain" aria-hidden="true"></div>
+    <div class="space-labels" data-label-layer aria-label="Visible graph labels"></div>
+    <header class="graph-header">
+      <a href="./index.html" class="icon-button" aria-label="Back to concepts"><i data-lucide="arrow-left"></i></a>
+      <div class="brand-lockup"><span>QWENPAW</span><small>LLM WIKI</small></div>
+      <div class="live-indicator"><span></span>Adaptive Focus Graph</div>
+      <button class="icon-button" data-action="help" aria-label="Show controls"><i data-lucide="circle-help"></i></button>
+    </header>
+    <aside class="graph-copy">
+      <p class="eyebrow">Concept 05 / Adaptive clarity</p>
+      <h1>Focus<br />Graph</h1>
+      <p>远看结构，近看细节。系统根据镜头距离与当前焦点，主动控制节点、连线和标签密度。</p>
+      <nav class="scope-path" data-scope-path aria-label="Knowledge hierarchy"></nav>
+      <div class="clarity-status" data-clarity-status aria-live="polite"></div>
+    </aside>
+    <div class="graph-tools" role="toolbar" aria-label="Graph controls">
+      <label class="search-box"><i data-lucide="search"></i><input data-search placeholder="搜索 1,000 个知识节点" autocomplete="off" /></label>
+      <button class="tool-button" data-action="reset"><i data-lucide="scan"></i><span>复位</span></button>
+      <button class="tool-button is-active" data-action="rotate" aria-pressed="true"><i data-lucide="orbit"></i><span>旋转</span></button>
+    </div>
+    <section class="focus-console" aria-label="Clarity controls">
+      <header><i data-lucide="sliders-horizontal"></i><span>Clarity Engine</span><output data-visible-count></output></header>
+      <label class="density-control">
+        <span>连线密度</span>
+        <input data-density type="range" min="8" max="92" value="30" aria-label="Link density" />
+      </label>
+      <div class="depth-control" aria-label="Focus depth">
+        <span>聚焦范围</span>
+        <div>
+          <button class="is-active" data-depth="1">一跳</button>
+          <button data-depth="2">两跳</button>
+          <button data-depth="all">全图</button>
+        </div>
+      </div>
+    </section>
+    <aside class="node-panel" data-node-panel aria-live="polite"></aside>
+    <div class="graph-hint"><i data-lucide="move-3d"></i><span>悬停预览 · 点击锁定 · 滚轮控制信息密度</span></div>
+    <script type="module" src="./focus-demo.js"></script>
+  </body>
+</html>
