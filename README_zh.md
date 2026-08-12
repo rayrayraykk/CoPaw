@@ -58,9 +58,66 @@
 
 ---
 
+## QwenPaw 2.1 Snowline（雪线）
+
+<p align="center">
+  <img src="artifacts/posters/qwenpaw-v2.1.0/web/01-brand.webp" alt="QwenPaw 2.1 Snowline — 让灵感开始行动" width="520">
+</p>
+
+<p align="center"><b>让灵感开始行动。</b></p>
+
+QwenPaw 2.1 将对话、文件、应用与执行能力带进同一个可见、可恢复、可持续推进的 Agent 工作现场。从 OS Shell 和统一文件工作区，到 Creator、Browser-use、Computer-use 与跨 Harness Agent，想法不再停留在对话里，而是开始真正行动。
+
+<table>
+  <tr>
+    <td width="25%" align="center">
+      <img src="artifacts/posters/qwenpaw-v2.1.0/web/02-os-shell.webp" alt="QwenPaw OS Shell — 一张桌面，多种现场" width="220"><br>
+      <sub><b>QwenPaw OS Shell</b><br>用窗口、任务栏与 Agent Space 组织多任务现场。</sub>
+    </td>
+    <td width="25%" align="center">
+      <img src="artifacts/posters/qwenpaw-v2.1.0/web/03-files-workspace.webp" alt="统一文件工作区 — 文件，就在对话旁边" width="220"><br>
+      <sub><b>统一文件工作区</b><br>浏览、预览、编辑、Diff、上传与下载，无需离开对话。</sub>
+    </td>
+    <td width="25%" align="center">
+      <img src="artifacts/posters/qwenpaw-v2.1.0/web/04-creator.webp" alt="QwenPaw Creator — 从创意到成片" width="220"><br>
+      <sub><b>QwenPaw Creator</b><br>由专业 Agent 团队完成策划、生成、剪辑与合成。</sub>
+    </td>
+    <td width="25%" align="center">
+      <img src="artifacts/posters/qwenpaw-v2.1.0/web/05-cross-harness.webp" alt="Codex 与 Qoder Agent — 选择最合适的 Agent" width="220"><br>
+      <sub><b>Codex / Qoder Agent</b><br>在统一工作区中选择更适合任务的执行 Harness。</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="25%" align="center">
+      <img src="artifacts/posters/qwenpaw-v2.1.0/web/06-browser-use.webp" alt="Browser-use — 看见网页，再行动" width="220"><br>
+      <sub><b>Browser-use</b><br>在隔离浏览器或已登录 Chrome 中感知、行动并验证。</sub>
+    </td>
+    <td width="25%" align="center">
+      <img src="artifacts/posters/qwenpaw-v2.1.0/web/07-computer-use.webp" alt="Computer-use — 操作桌面，始终可控" width="220"><br>
+      <sub><b>Computer-use</b><br>通过逐应用审批执行桌面操作，用户接管时立即停止。</sub>
+    </td>
+    <td width="25%" align="center">
+      <img src="artifacts/posters/qwenpaw-v2.1.0/web/08-long-running.webp" alt="长任务与检查点 — 任务很长，进度不丢" width="220"><br>
+      <sub><b>长任务与检查点</b><br>后台持续推进，并可查看进度、恢复现场或取消任务。</sub>
+    </td>
+    <td width="25%" align="center">
+      <img src="artifacts/posters/qwenpaw-v2.1.0/web/09-memory.webp" alt="ReMe 自进化记忆 — 记忆会生长" width="220"><br>
+      <sub><b>ReMe 自进化记忆</b><br>让对话与资料成为可读、可编辑、可检索的关联记忆。</sub>
+    </td>
+  </tr>
+</table>
+
+<p align="center">
+  <a href="https://qwenpaw.agentscope.io/release-notes#v2.1.0"><b>查看 QwenPaw 2.1 完整发布说明 →</b></a>
+</p>
+
+> **版本命名**：从 2.1 开始，QwenPaw 的重要版本将使用高山地貌作为名称。`Snowline（雪线）` 代表想法跨过边界、开始行动；补丁版本继承所属版本名称。
+
+---
+
 ## 新闻
 
-- [2026-08-12] **v2.1.0** | QwenPaw OS Shell、统一文件工作区、QwenPaw Creator、Codex/Qoder 智能体接入、Browser-use、Computer-use、工作区检查点和长对话任务续接等。[v2.1.0 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.1.0)
+- [2026-08-12] **v2.1.0 Snowline（雪线）— 让灵感开始行动** | QwenPaw OS Shell、统一文件工作区、QwenPaw Creator、Codex/Qoder 智能体接入、Browser-use、Computer-use、工作区检查点和长对话任务续接等。[v2.1.0 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.1.0)
 
 - [2026-07-24] **v2.0.1** | PawApp 小程序平台、用户可编辑 Agent Mode、Oh-My-Paw plugins、[ReMe](https://github.com/agentscope-ai/ReMe) 记忆增强、桌面端用户体验增强等。[v2.0.1 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
 
@@ -89,6 +146,7 @@
 
 ## 目录
 
+- [QwenPaw 2.1 Snowline（雪线）](#qwenpaw-21-snowline雪线)
 - [新闻](#新闻)
 - [快速开始](#快速开始)
 - [API Key](#api-key)
