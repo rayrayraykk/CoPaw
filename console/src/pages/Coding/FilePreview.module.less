@@ -325,19 +325,24 @@
   }
 
   .htmlToolbar {
-    background: #1a1d1b;
-    border-bottom-color: rgba(255, 255, 255, 0.08);
-  }
+    background: #1a1d1b !important;
+    border-bottom-color: rgba(255, 255, 255, 0.08) !important;
 
-  .htmlOpenButton {
-    color: rgba(255, 255, 255, 0.76);
-    background: #24211f;
-    border-color: rgba(255, 255, 255, 0.16);
+    .htmlOpenButton {
+      color: rgba(255, 255, 255, 0.82) !important;
+      background: #24211f !important;
+      border-color: rgba(255, 255, 255, 0.2) !important;
 
-    &:hover {
-      color: #ff9b5c;
-      background: rgba(243, 107, 33, 0.14);
-      border-color: rgba(255, 145, 77, 0.7);
+      svg {
+        color: currentcolor;
+        stroke: currentcolor;
+      }
+
+      &:hover {
+        color: #ff9b5c !important;
+        background: rgba(243, 107, 33, 0.14) !important;
+        border-color: rgba(255, 145, 77, 0.7) !important;
+      }
     }
   }
 
