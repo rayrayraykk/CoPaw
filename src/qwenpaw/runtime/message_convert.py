@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Message conversion between AgentRequest and agentscope Msg."""
+
 from __future__ import annotations
 
 import logging
@@ -72,7 +73,7 @@ def _ensure_url_scheme(url: str) -> str:
     return "file://" + resolved
 
 
-# pylint: disable=too-many-branches
+# pylint: disable=too-many-branches,too-many-statements
 def _request_input_to_msgs(
     input_list: List[Any],
 ) -> List[Any]:
@@ -82,7 +83,7 @@ def _request_input_to_msgs(
     Handles text, image, audio, video, and file content blocks.
     """
     try:
-        from agentscope.message import Msg, TextBlock, DataBlock
+        from agentscope.message import Base64Source, DataBlock, Msg, TextBlock
         from agentscope.message._block import URLSource
     except Exception:
         logger.error(
@@ -118,6 +119,29 @@ def _request_input_to_msgs(
                     blocks.append(TextBlock(type="text", text=text))
 
             elif ctype in _MEDIA_TYPES:
+                data = getattr(c, "data", None)
+                configured_media_type = getattr(c, "mime_type", None)
+                if data:
+                    media_type = configured_media_type
+                    if not media_type:
+                        fallback_ext = "jpeg" if ctype == "image" else "mpeg"
+                        media_type = f"{_MEDIA_TYPES[ctype]}/{fallback_ext}"
+                    try:
+                        blocks.append(
+                            DataBlock(
+                                source=Base64Source(
+                                    data=str(data),
+                                    media_type=str(media_type),
+                                ),
+                            ),
+                        )
+                    except Exception:
+                        logger.debug(
+                            "Failed to create DataBlock for %s base64 data",
+                            ctype,
+                        )
+                    continue
+
                 url = (
                     getattr(c, "image_url", None)
                     or getattr(c, "audio_url", None)
@@ -128,7 +152,9 @@ def _request_input_to_msgs(
                     url = _ensure_url_scheme(str(url))
                     url_path = urlparse(url).path
                     guessed, _ = mimetypes.guess_type(url_path)
-                    if guessed and guessed.startswith(
+                    if configured_media_type:
+                        media_type = str(configured_media_type)
+                    elif guessed and guessed.startswith(
                         f"{_MEDIA_TYPES[ctype]}/",
                     ):
                         media_type = guessed
@@ -152,6 +178,27 @@ def _request_input_to_msgs(
                         )
 
             elif ctype == "file":
+                data = getattr(c, "data", None)
+                if data:
+                    try:
+                        blocks.append(
+                            DataBlock(
+                                source=Base64Source(
+                                    data=str(data),
+                                    media_type=str(
+                                        getattr(c, "mime_type", None)
+                                        or "application/octet-stream",
+                                    ),
+                                ),
+                                name=getattr(c, "filename", None),
+                            ),
+                        )
+                    except Exception:
+                        logger.debug(
+                            "Failed to create DataBlock for base64 file",
+                        )
+                    continue
+
                 url = getattr(c, "file_url", None) or getattr(c, "url", None)
                 if url:
                     url = _ensure_url_scheme(str(url))
@@ -162,7 +209,10 @@ def _request_input_to_msgs(
                                     url=url,
                                     media_type="application/octet-stream",
                                 ),
-                                name=getattr(c, "file_name", None),
+                                name=(
+                                    getattr(c, "filename", None)
+                                    or getattr(c, "file_name", None)
+                                ),
                             ),
                         )
                     except Exception:

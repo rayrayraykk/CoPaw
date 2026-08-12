@@ -110,21 +110,110 @@ PromptBlocks = list[
 ]
 
 
-def _extract_text(
-    blocks: PromptBlocks,
-) -> str:
-    """Pull plain text from ACP prompt content blocks."""
-    parts: list[str] = []
+def _block_value(block: Any, name: str, alias: str | None = None) -> Any:
+    """Read one field from an ACP model or its raw dictionary shape."""
+    if isinstance(block, dict):
+        value = block.get(name)
+        if value is None and alias is not None:
+            value = block.get(alias)
+        return value
+    return getattr(block, name, None)
+
+
+def _media_content(
+    *,
+    data: Any,
+    media_type: Any,
+    uri: Any = None,
+) -> dict[str, Any]:
+    """Convert ACP media fields to one QwenPaw content block."""
+    normalized_type = str(media_type or "application/octet-stream")
+    major_type = normalized_type.split("/", maxsplit=1)[0]
+    if major_type == "image":
+        content_type = "image"
+        url_key = "image_url"
+    elif major_type == "audio":
+        content_type = "audio"
+        url_key = "audio_url"
+    else:
+        content_type = "file"
+        url_key = "file_url"
+
+    content: dict[str, Any] = {
+        "type": content_type,
+        "mime_type": normalized_type,
+    }
+    if data:
+        content["data"] = str(data)
+    elif uri:
+        content[url_key] = str(uri)
+    return content
+
+
+def _embedded_resource_content(block: Any) -> dict[str, Any] | None:
+    """Convert one ACP embedded resource to QwenPaw content."""
+    resource = _block_value(block, "resource")
+    if resource is None:
+        return None
+    text = _block_value(resource, "text")
+    if text is not None:
+        return {"type": "text", "text": str(text)}
+    return _media_content(
+        data=_block_value(resource, "blob"),
+        media_type=_block_value(resource, "mime_type", "mimeType"),
+        uri=_block_value(resource, "uri"),
+    )
+
+
+def _prompt_content(blocks: PromptBlocks) -> list[dict[str, Any]]:
+    """Convert ACP prompt blocks without discarding media or resources."""
+    content: list[dict[str, Any]] = []
     for block in blocks:
-        if isinstance(block, dict):
-            text = block.get("text", "")
-        elif isinstance(block, TextContentBlock):
-            text = block.text
-        else:
-            text = getattr(block, "text", "")
-        if text:
-            parts.append(str(text))
-    return "\n".join(parts)
+        block_type = _block_value(block, "type")
+        if block_type == "text":
+            text = _block_value(block, "text")
+            if text:
+                content.append({"type": "text", "text": str(text)})
+        elif block_type in {"image", "audio"}:
+            media = _media_content(
+                data=_block_value(block, "data"),
+                media_type=_block_value(block, "mime_type", "mimeType"),
+                uri=_block_value(block, "uri"),
+            )
+            if (
+                media.get("data")
+                or media.get("image_url")
+                or media.get(
+                    "audio_url",
+                )
+            ):
+                content.append(media)
+        elif block_type == "resource_link":
+            media = _media_content(
+                data=None,
+                media_type=_block_value(
+                    block,
+                    "mime_type",
+                    "mimeType",
+                ),
+                uri=_block_value(block, "uri"),
+            )
+            name = _block_value(block, "name")
+            if name and media["type"] == "file":
+                media["filename"] = str(name)
+            if (
+                media.get("file_url")
+                or media.get("image_url")
+                or media.get(
+                    "audio_url",
+                )
+            ):
+                content.append(media)
+        elif block_type == "resource":
+            embedded = _embedded_resource_content(block)
+            if embedded is not None:
+                content.append(embedded)
+    return content
 
 
 class _EnvelopeTracker:
@@ -463,8 +552,8 @@ class QwenPawACPAgent(Agent):
             self._workspace = workspace
             self._workspace_ready = True
             logger.info(
-                "QwenPaw ACP Agent workspace started:"
-                " agent_id=%s workspace=%s",
+                "QwenPaw ACP Agent workspace started: "
+                "agent_id=%s workspace=%s",
                 agent_id,
                 workspace_dir,
             )
@@ -593,8 +682,8 @@ class QwenPawACPAgent(Agent):
             session_id,
         )
 
-        text = _extract_text(prompt)
-        if not text:
+        content = _prompt_content(prompt)
+        if not content:
             return PromptResponse(stop_reason="end_turn")
 
         workspace = await self._ensure_workspace()
@@ -622,9 +711,7 @@ class QwenPawACPAgent(Agent):
             input=[
                 Message(
                     role="user",
-                    content=[
-                        {"type": "text", "text": text},
-                    ],
+                    content=content,
                 ),
             ],
             session_id=session_id,

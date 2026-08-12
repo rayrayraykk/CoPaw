@@ -6,6 +6,7 @@ types that ``stream_query`` produces and all channels consume.  These are
 qwenpaw's own envelope protocol — independent of agentscope's internal
 event types.
 """
+
 from __future__ import annotations
 
 from enum import Enum
@@ -91,12 +92,16 @@ class TextContent(_ContentBase):
 class ImageContent(_ContentBase):
     type: ContentType = ContentType.IMAGE
     image_url: Optional[str] = None
+    data: Optional[str] = None
+    mime_type: Optional[str] = None
 
 
 class AudioContent(_ContentBase):
     type: ContentType = ContentType.AUDIO
     data: Optional[str] = None
     format: Optional[str] = None
+    audio_url: Optional[str] = None
+    mime_type: Optional[str] = None
 
 
 class VideoContent(_ContentBase):
@@ -108,6 +113,8 @@ class FileContent(_ContentBase):
     type: ContentType = ContentType.FILE
     filename: Optional[str] = None
     file_url: Optional[str] = None
+    data: Optional[str] = None
+    mime_type: Optional[str] = None
 
 
 class DataContent(_ContentBase):
