@@ -111,8 +111,6 @@ QwenPaw 2.1 将对话、文件、应用与执行能力带进同一个可见、�
   <a href="https://qwenpaw.agentscope.io/release-notes#v2.1.0"><b>查看 QwenPaw 2.1 完整发布说明 →</b></a>
 </p>
 
-> **版本命名**：从 2.1 开始，QwenPaw 的重要版本将使用高山地貌作为名称。`Snowline（雪线）` 代表想法跨过边界、开始行动；补丁版本继承所属版本名称。
-
 ---
 
 ## 新闻
@@ -121,18 +119,7 @@ QwenPaw 2.1 将对话、文件、应用与执行能力带进同一个可见、�
 
 - [2026-07-24] **v2.0.1** | PawApp 小程序平台、用户可编辑 Agent Mode、Oh-My-Paw plugins、[ReMe](https://github.com/agentscope-ai/ReMe) 记忆增强、桌面端用户体验增强等。[v2.0.1 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
 
-- [2026-07-10] **v2.0.0 — QwenPaw 2.0 正式发布** 🎉 | 基于 AgentScope 2.0 全面重构，带来 Agent OS 架构、Loop Engineering、Scroll 上下文、[ReMe](https://github.com/agentscope-ai/ReMe) v0.4 自进化个人知识库与内置终端界面。
-
-  | 亮点 | 更新内容 |
-  |------|----------|
-  | **Agent OS — 工作区** | 每个智能体三大支柱：**资源**（透明落盘）、**治理**（allow/deny/ask/sandbox）、**沙箱**（macOS / Linux / Windows）。 |
-  | **Agent OS — 驱动** | 协议中立的 MCP / A2A / ACP 连接器层，带加密凭据与逐次调用策略门控。 |
-  | **Loop Engineering** | 高级智能体循环模板（Coding Mode、Mission Mode，更多模板持续推出），配合可组合审批门控。 |
-  | **Scroll 上下文** | 每一轮都持久化；滚出窗口的轮次带索引，按需回放——不摘要、不丢失。 |
-  | **[ReMe](https://github.com/agentscope-ai/ReMe) v0.4 自进化个人知识库** | 持续将对话与资料转化为可读、可编辑、可检索、相互链接的 Markdown 记忆。 |
-  | **终端界面（TUI）** | 全屏终端对话——与控制台和频道共享同一智能体、记忆与会话。 |
-
-  基于 Agent OS，我们将陆续推出开箱即用的 QwenPaw 应用小程序——如 **QwenPaw Creator**、**QwenPaw Insight** 等，敬请期待。 [v2.0.0 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
+- [2026-07-10] **v2.0.0 Basecamp（大本营）— Agent OS 的全新起点** | 基于 AgentScope 2.0 全面重构，带来 Agent OS 架构、Loop Engineering、Scroll 上下文、[ReMe](https://github.com/agentscope-ai/ReMe) v0.4 自进化个人知识库与内置终端界面。[v2.0.0 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
 
 - [2026-06-17] **v1.1.12 — 模型页面大改版 & 简洁模式** | 全新模型页面 Provider 聚合设计；新增简洁模式，扁平化导航。[v1.1.12 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v1.1.12)
 
