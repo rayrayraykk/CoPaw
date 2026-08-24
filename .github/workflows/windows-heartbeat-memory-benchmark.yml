@@ -1,0 +1,25 @@
+name: Windows heartbeat memory benchmark
+
+on:
+  push:
+    branches:
+      - bench/windows-heartbeat-memory
+
+jobs:
+  benchmark:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install benchmark dependencies
+        run: python -m pip install pydantic psutil
+
+      - name: Measure old cumulative-response heartbeats
+        run: python .github/scripts/windows_heartbeat_memory.py full
+
+      - name: Measure lightweight heartbeats
+        run: python .github/scripts/windows_heartbeat_memory.py light
