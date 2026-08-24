@@ -1,0 +1,31 @@
+name: Windows same-session memory benchmark
+
+on:
+  push:
+    branches:
+      - bench/windows-single-session-memory
+
+jobs:
+  benchmark:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install benchmark dependencies
+        run: python -m pip install psutil
+
+      - name: Growing screenshot history
+        run: python .github/scripts/windows_single_session_memory.py media-multimodal
+
+      - name: Text-only model strips screenshot history
+        run: python .github/scripts/windows_single_session_memory.py media-text-only
+
+      - name: Repeated string concatenation
+        run: python .github/scripts/windows_single_session_memory.py thinking-concat
+
+      - name: Fragment list
+        run: python .github/scripts/windows_single_session_memory.py thinking-fragments
