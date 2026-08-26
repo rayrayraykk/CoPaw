@@ -1,0 +1,889 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <meta name="color-scheme" content="light dark" />
+    <title>QwenPaw Mobile · 工作台 Mock</title>
+    <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+    <style>
+      :root {
+        color-scheme: light;
+        --stage: #e8e7e4;
+        --canvas: #f5f5f3;
+        --surface: #ffffff;
+        --surface-raised: #ffffff;
+        --surface-pressed: #ececea;
+        --text: #171714;
+        --text-secondary: #686862;
+        --text-tertiary: #989891;
+        --line: rgba(31, 31, 27, 0.1);
+        --icon-surface: #efefec;
+        --accent: #f57926;
+        --accent-strong: #d95e10;
+        --accent-soft: #fff0e5;
+        --success: #36a269;
+        --scrim: rgba(24, 24, 20, 0.36);
+        --shadow: 0 24px 70px rgba(36, 34, 28, 0.16);
+        --radius-group: 18px;
+        --ease: cubic-bezier(0.22, 1, 0.36, 1);
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text",
+          "PingFang SC", "Helvetica Neue", sans-serif;
+      }
+
+      :root[data-theme="dark"] {
+        color-scheme: dark;
+        --stage: #171716;
+        --canvas: #000000;
+        --surface: #1c1c1e;
+        --surface-raised: #29292c;
+        --surface-pressed: #343438;
+        --text: #f5f5f7;
+        --text-secondary: #aaa9af;
+        --text-tertiary: #74747b;
+        --line: rgba(255, 255, 255, 0.1);
+        --icon-surface: #303034;
+        --accent: #ff8a3d;
+        --accent-strong: #ff9d5e;
+        --accent-soft: #3a271c;
+        --success: #55bd7d;
+        --scrim: rgba(0, 0, 0, 0.62);
+        --shadow: 0 24px 70px rgba(0, 0, 0, 0.48);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        min-height: 100%;
+        margin: 0;
+        background: var(--stage);
+        color: var(--text);
+      }
+
+      body {
+        -webkit-font-smoothing: antialiased;
+        transition: background-color 220ms ease;
+      }
+
+      button,
+      input {
+        font: inherit;
+      }
+
+      button {
+        color: inherit;
+      }
+
+      .device {
+        position: relative;
+        width: min(100%, 680px);
+        min-height: 100dvh;
+        margin: 0 auto;
+        overflow: hidden;
+        background: var(--canvas);
+        box-shadow: var(--shadow);
+        transition: background-color 220ms ease;
+      }
+
+      .screen {
+        min-height: 100dvh;
+        padding: max(14px, env(safe-area-inset-top)) 16px
+          max(48px, calc(env(safe-area-inset-bottom) + 28px));
+      }
+
+      .navigation {
+        display: flex;
+        min-height: 44px;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .back-button,
+      .icon-button,
+      .text-button {
+        min-width: 44px;
+        min-height: 44px;
+        border: 0;
+        background: transparent;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .back-button {
+        display: inline-flex;
+        align-items: center;
+        gap: 1px;
+        margin-left: -10px;
+        padding: 0 8px;
+        color: var(--accent-strong);
+        font-size: 16px;
+      }
+
+      .icon-button {
+        display: grid;
+        place-items: center;
+        margin-right: -4px;
+        border-radius: 50%;
+        color: var(--text-secondary);
+      }
+
+      .back-button:active,
+      .icon-button:active,
+      .text-button:active {
+        opacity: 0.55;
+      }
+
+      .title-row {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 13px 2px 18px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(32px, 8vw, 38px);
+        font-weight: 720;
+        letter-spacing: -1.25px;
+        line-height: 1.05;
+      }
+
+      .title-meta {
+        margin: 0 0 2px;
+        color: var(--text-tertiary);
+        font-size: 13px;
+        white-space: nowrap;
+      }
+
+      .search-wrap {
+        position: relative;
+        display: flex;
+        height: 40px;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 20px;
+        padding: 0 12px;
+        border-radius: 12px;
+        background: var(--icon-surface);
+        color: var(--text-tertiary);
+      }
+
+      .search-wrap:focus-within {
+        outline: 2px solid color-mix(in srgb, var(--accent) 54%, transparent);
+        outline-offset: 1px;
+      }
+
+      .search-wrap input {
+        width: 100%;
+        min-width: 0;
+        border: 0;
+        outline: 0;
+        background: transparent;
+        color: var(--text);
+        font-size: 16px;
+      }
+
+      .search-wrap input::placeholder {
+        color: var(--text-tertiary);
+      }
+
+      .scope-card {
+        display: flex;
+        min-height: 76px;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 25px;
+        padding: 12px 14px;
+        border: 0;
+        border-radius: var(--radius-group);
+        background: var(--surface);
+        text-align: left;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .scope-card:active {
+        background: var(--surface-pressed);
+      }
+
+      .brand-mark {
+        display: grid;
+        width: 46px;
+        height: 46px;
+        flex: 0 0 auto;
+        place-items: center;
+        border-radius: 14px;
+        background: var(--accent-soft);
+        color: var(--accent-strong);
+      }
+
+      .scope-copy {
+        min-width: 0;
+        flex: 1;
+      }
+
+      .scope-name {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        margin: 0 0 4px;
+        font-size: 16px;
+        font-weight: 650;
+      }
+
+      .status-dot {
+        width: 7px;
+        height: 7px;
+        flex: 0 0 auto;
+        border-radius: 50%;
+        background: var(--success);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 15%, transparent);
+      }
+
+      .scope-detail {
+        overflow: hidden;
+        margin: 0;
+        color: var(--text-secondary);
+        font-size: 13px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .section {
+        margin-bottom: 25px;
+      }
+
+      .section-heading {
+        display: flex;
+        min-height: 28px;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 12px 6px;
+      }
+
+      .section-heading h2 {
+        margin: 0;
+        color: var(--text-secondary);
+        font-size: 13px;
+        font-weight: 500;
+        letter-spacing: 0.01em;
+      }
+
+      .text-button {
+        min-height: 28px;
+        min-width: 44px;
+        padding: 0;
+        color: var(--accent-strong);
+        font-size: 13px;
+      }
+
+      .list-group {
+        overflow: hidden;
+        border-radius: var(--radius-group);
+        background: var(--surface);
+      }
+
+      .list-row {
+        position: relative;
+        display: flex;
+        width: 100%;
+        min-height: 58px;
+        align-items: center;
+        gap: 12px;
+        padding: 8px 12px 8px 14px;
+        border: 0;
+        background: transparent;
+        text-align: left;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .list-row::after {
+        position: absolute;
+        right: 12px;
+        bottom: 0;
+        left: 58px;
+        height: 1px;
+        background: var(--line);
+        content: "";
+        transform: scaleY(0.5);
+        transform-origin: bottom;
+      }
+
+      .list-row:last-child::after {
+        display: none;
+      }
+
+      .list-row:active {
+        background: var(--surface-pressed);
+      }
+
+      .row-icon {
+        display: grid;
+        width: 32px;
+        height: 32px;
+        flex: 0 0 auto;
+        place-items: center;
+        border-radius: 9px;
+        background: var(--icon-surface);
+        color: var(--text-secondary);
+      }
+
+      .favorites .row-icon {
+        background: var(--accent-soft);
+        color: var(--accent-strong);
+      }
+
+      .row-copy {
+        min-width: 0;
+        flex: 1;
+      }
+
+      .row-title {
+        display: block;
+        overflow: hidden;
+        font-size: 16px;
+        font-weight: 500;
+        line-height: 1.25;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .row-subtitle {
+        display: block;
+        overflow: hidden;
+        margin-top: 3px;
+        color: var(--text-secondary);
+        font-size: 12px;
+        line-height: 1.25;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .row-value {
+        flex: 0 0 auto;
+        color: var(--text-tertiary);
+        font-size: 13px;
+        white-space: nowrap;
+      }
+
+      .chevron {
+        flex: 0 0 auto;
+        color: var(--text-tertiary);
+      }
+
+      .page {
+        animation: page-in 260ms var(--ease) both;
+      }
+
+      .page[hidden] {
+        display: none;
+      }
+
+      .category-summary {
+        margin: -7px 12px 18px;
+        color: var(--text-secondary);
+        font-size: 14px;
+        line-height: 1.5;
+      }
+
+      .empty-state {
+        display: grid;
+        min-height: 220px;
+        place-items: center;
+        padding: 30px;
+        color: var(--text-secondary);
+        text-align: center;
+      }
+
+      .empty-state strong {
+        display: block;
+        margin-bottom: 6px;
+        color: var(--text);
+        font-size: 16px;
+      }
+
+      .sheet-backdrop {
+        position: fixed;
+        z-index: 10;
+        inset: 0;
+        display: grid;
+        align-items: end;
+        background: var(--scrim);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 180ms ease;
+      }
+
+      .sheet-backdrop.open {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      .sheet {
+        width: min(100%, 680px);
+        margin: 0 auto;
+        padding: 10px 16px max(18px, env(safe-area-inset-bottom));
+        border-radius: 24px 24px 0 0;
+        background: var(--surface-raised);
+        transform: translateY(102%);
+        transition: transform 280ms var(--ease);
+      }
+
+      .sheet-backdrop.open .sheet {
+        transform: translateY(0);
+      }
+
+      .grabber {
+        width: 38px;
+        height: 5px;
+        margin: 0 auto 14px;
+        border-radius: 999px;
+        background: var(--text-tertiary);
+        opacity: 0.42;
+      }
+
+      .sheet h2 {
+        margin: 0 2px 14px;
+        font-size: 20px;
+        letter-spacing: -0.3px;
+      }
+
+      .theme-options {
+        overflow: hidden;
+        border-radius: 16px;
+        background: var(--surface);
+      }
+
+      .theme-option {
+        display: flex;
+        width: 100%;
+        min-height: 54px;
+        align-items: center;
+        gap: 12px;
+        padding: 0 14px;
+        border: 0;
+        border-bottom: 1px solid var(--line);
+        background: transparent;
+        cursor: pointer;
+      }
+
+      .theme-option:last-child {
+        border-bottom: 0;
+      }
+
+      .theme-option span {
+        flex: 1;
+        text-align: left;
+      }
+
+      .theme-option .check {
+        color: var(--accent-strong);
+        opacity: 0;
+      }
+
+      .theme-option.active .check {
+        opacity: 1;
+      }
+
+      .prototype-note {
+        padding: 3px 12px 0;
+        color: var(--text-tertiary);
+        font-size: 11px;
+        line-height: 1.45;
+        text-align: center;
+      }
+
+      @keyframes page-in {
+        from {
+          opacity: 0;
+          transform: translateX(10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateX(0);
+        }
+      }
+
+      @media (min-width: 720px) {
+        body {
+          padding: 24px;
+        }
+
+        .device {
+          min-height: calc(100dvh - 48px);
+          border: 1px solid var(--line);
+          border-radius: 36px;
+        }
+
+        .screen {
+          min-height: calc(100dvh - 48px);
+          padding: 24px 28px 56px;
+        }
+
+        .sheet {
+          margin-bottom: 24px;
+          border-radius: 24px;
+        }
+      }
+
+      @media (orientation: landscape) and (max-height: 540px) {
+        .screen {
+          padding-top: 8px;
+        }
+
+        .title-row {
+          padding: 5px 2px 12px;
+        }
+
+        h1 {
+          font-size: 30px;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          scroll-behavior: auto !important;
+          transition-duration: 0.01ms !important;
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="device">
+      <div class="screen">
+        <nav class="navigation" aria-label="页面导航">
+          <button class="back-button" type="button" aria-label="返回我的">
+            <i data-lucide="chevron-left" width="23" height="23"></i>
+            <span>我的</span>
+          </button>
+          <button
+            class="icon-button"
+            id="themeButton"
+            type="button"
+            aria-label="选择外观模式"
+            aria-expanded="false"
+          >
+            <i data-lucide="sun-moon" width="21" height="21"></i>
+          </button>
+        </nav>
+
+        <section class="page" id="homePage">
+          <div class="title-row">
+            <h1>工作台</h1>
+            <p class="title-meta">20 项能力</p>
+          </div>
+
+          <label class="search-wrap" for="settingsSearch">
+            <i data-lucide="search" width="18" height="18"></i>
+            <input
+              id="settingsSearch"
+              type="search"
+              placeholder="搜索设置"
+              autocomplete="off"
+            />
+          </label>
+
+          <button class="scope-card" type="button">
+            <span class="brand-mark" aria-hidden="true">
+              <i data-lucide="paw-print" width="23" height="23"></i>
+            </span>
+            <span class="scope-copy">
+              <span class="scope-name">
+                QwenPaw Cloud
+                <span class="status-dot" aria-label="已连接"></span>
+              </span>
+              <span class="scope-detail">通义灵码 · 所有设置仅作用于当前智能体</span>
+            </span>
+            <i class="chevron" data-lucide="chevron-right" width="18" height="18"></i>
+          </button>
+
+          <div id="defaultContent">
+            <section class="section favorites">
+              <div class="section-heading">
+                <h2>常用</h2>
+                <button class="text-button" type="button">编辑</button>
+              </div>
+              <div class="list-group" id="favoriteList"></div>
+            </section>
+
+            <section class="section">
+              <div class="section-heading">
+                <h2>全部设置</h2>
+              </div>
+              <div class="list-group" id="categoryList"></div>
+            </section>
+          </div>
+
+          <section class="section" id="searchResults" hidden>
+            <div class="section-heading">
+              <h2>搜索结果</h2>
+            </div>
+            <div class="list-group" id="resultList"></div>
+          </section>
+
+          <p class="prototype-note">交互原型 · 点击分类、搜索设置或切换明暗模式</p>
+        </section>
+
+        <section class="page" id="categoryPage" hidden>
+          <div class="title-row">
+            <h1 id="categoryTitle">分类</h1>
+            <p class="title-meta" id="categoryCount"></p>
+          </div>
+          <p class="category-summary" id="categorySummary"></p>
+          <section class="section">
+            <div class="list-group" id="moduleList"></div>
+          </section>
+        </section>
+      </div>
+    </main>
+
+    <div class="sheet-backdrop" id="themeSheet" aria-hidden="true">
+      <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="themeTitle">
+        <div class="grabber"></div>
+        <h2 id="themeTitle">外观</h2>
+        <div class="theme-options">
+          <button class="theme-option" data-theme-option="system" type="button">
+            <i data-lucide="monitor" width="20" height="20"></i>
+            <span>跟随系统</span>
+            <i class="check" data-lucide="check" width="20" height="20"></i>
+          </button>
+          <button class="theme-option" data-theme-option="light" type="button">
+            <i data-lucide="sun" width="20" height="20"></i>
+            <span>浅色</span>
+            <i class="check" data-lucide="check" width="20" height="20"></i>
+          </button>
+          <button class="theme-option" data-theme-option="dark" type="button">
+            <i data-lucide="moon" width="20" height="20"></i>
+            <span>深色</span>
+            <i class="check" data-lucide="check" width="20" height="20"></i>
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <script>
+      const categories = [
+        {
+          key: "agent",
+          title: "Agent 与工作空间",
+          summary: "智能体行为、模型、文件与能力扩展",
+          icon: "bot",
+          modules: [
+            ["Agent 配置", "当前智能体的身份与行为", "bot", "已配置"],
+            ["模型与服务商", "默认模型、Provider 与本地模型", "cpu", "4 个"],
+            ["文件与项目", "工作区文件、Coding 项目与 Git", "folder-git-2", ""],
+            ["Skills", "安装、启用与配置技能", "sparkles", "12 个"],
+            ["Skill Pool", "跨智能体复用技能", "library", ""],
+          ],
+        },
+        {
+          key: "connections",
+          title: "连接与自动化",
+          summary: "外部工具、消息渠道与定时任务",
+          icon: "blocks",
+          modules: [
+            ["Tools", "内置工具与执行权限", "wrench", "18 个"],
+            ["MCP 与 ACP", "外部服务和智能体协议", "blocks", "3 个"],
+            ["Channels", "消息渠道与访问控制", "radio", "2 个"],
+            ["Cron 与 Heartbeat", "定时任务和主动唤醒", "clock-3", "已开启"],
+            ["扩展与 App Center", "Plugins、Marketplace 与 PawApps", "app-window", ""],
+          ],
+        },
+        {
+          key: "runtime",
+          title: "运行与安全",
+          summary: "运行状态、凭据、安全策略与后台任务",
+          icon: "shield-check",
+          modules: [
+            ["会话与运行状态", "查看全部会话和任务状态", "messages-square", "3 个运行中"],
+            ["环境与凭据", "环境变量、密钥与凭据", "key-round", ""],
+            ["沙箱与守卫", "Sandbox、Tool Guard 与扫描", "shield-check", "已开启"],
+            ["Tool Offload", "长任务前后台策略", "timer-off", "自动"],
+            ["语音与转写", "音频处理和 Whisper", "audio-lines", "未配置"],
+          ],
+        },
+        {
+          key: "data",
+          title: "数据与诊断",
+          summary: "版本恢复、备份、用量与故障排查",
+          icon: "chart-no-axes-column-increasing",
+          modules: [
+            ["Checkpoints", "智能体工作区版本", "file-clock", "8 个"],
+            ["备份与恢复", "保护 QwenPaw 配置与数据", "archive", "今天"],
+            ["Token 与运行统计", "用量、趋势与智能体状态", "chart-no-axes-column-increasing", ""],
+            ["诊断日志", "后端日志与运行诊断", "terminal", ""],
+            ["高级设置", "低频实验性设置", "sliders-horizontal", ""],
+          ],
+        },
+      ];
+
+      const favorites = [
+        ["Agent 配置", "bot", "通义灵码"],
+        ["模型与服务商", "cpu", "Qwen Max"],
+        ["Skills", "sparkles", "12 个"],
+        ["Channels", "radio", "2 个"],
+      ];
+
+      const homePage = document.querySelector("#homePage");
+      const categoryPage = document.querySelector("#categoryPage");
+      const backButton = document.querySelector(".back-button");
+      const backLabel = backButton.querySelector("span");
+      const themeButton = document.querySelector("#themeButton");
+      const themeSheet = document.querySelector("#themeSheet");
+      const searchInput = document.querySelector("#settingsSearch");
+      const defaultContent = document.querySelector("#defaultContent");
+      const searchResults = document.querySelector("#searchResults");
+
+      function iconMarkup(name, size = 18) {
+        return `<i data-lucide="${name}" width="${size}" height="${size}"></i>`;
+      }
+
+      function rowMarkup({ title, subtitle = "", icon, value = "", category = "" }) {
+        return `
+          <button class="list-row" type="button" ${category ? `data-category="${category}"` : ""}>
+            <span class="row-icon" aria-hidden="true">${iconMarkup(icon)}</span>
+            <span class="row-copy">
+              <span class="row-title">${title}</span>
+              ${subtitle ? `<span class="row-subtitle">${subtitle}</span>` : ""}
+            </span>
+            ${value ? `<span class="row-value">${value}</span>` : ""}
+            ${iconMarkup("chevron-right", 17)}
+          </button>`;
+      }
+
+      function drawHome() {
+        document.querySelector("#favoriteList").innerHTML = favorites
+          .map(([title, icon, value]) => rowMarkup({ title, icon, value }))
+          .join("");
+
+        document.querySelector("#categoryList").innerHTML = categories
+          .map((category) => rowMarkup({
+            title: category.title,
+            subtitle: category.summary,
+            icon: category.icon,
+            value: `${category.modules.length} 项`,
+            category: category.key,
+          }))
+          .join("");
+
+        document.querySelectorAll("[data-category]").forEach((button) => {
+          button.addEventListener("click", () => openCategory(button.dataset.category));
+        });
+        lucide.createIcons();
+      }
+
+      function openCategory(key) {
+        const category = categories.find((item) => item.key === key);
+        if (!category) return;
+        document.querySelector("#categoryTitle").textContent = category.title;
+        document.querySelector("#categoryCount").textContent = `${category.modules.length} 项`;
+        document.querySelector("#categorySummary").textContent = category.summary;
+        document.querySelector("#moduleList").innerHTML = category.modules
+          .map(([title, subtitle, icon, value]) => rowMarkup({
+            title,
+            subtitle,
+            icon,
+            value,
+          }))
+          .join("");
+        homePage.hidden = true;
+        categoryPage.hidden = false;
+        backLabel.textContent = "工作台";
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        lucide.createIcons();
+      }
+
+      function showHome() {
+        categoryPage.hidden = true;
+        homePage.hidden = false;
+        backLabel.textContent = "我的";
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+
+      function handleSearch(event) {
+        const query = event.target.value.trim().toLocaleLowerCase();
+        if (!query) {
+          defaultContent.hidden = false;
+          searchResults.hidden = true;
+          return;
+        }
+        const matches = categories.flatMap((category) => category.modules)
+          .filter(([title, subtitle]) => `${title} ${subtitle}`.toLocaleLowerCase().includes(query));
+        defaultContent.hidden = true;
+        searchResults.hidden = false;
+        document.querySelector("#resultList").innerHTML = matches.length
+          ? matches.map(([title, subtitle, icon, value]) => rowMarkup({
+            title,
+            subtitle,
+            icon,
+            value,
+          })).join("")
+          : `<div class="empty-state"><div><strong>没有找到相关设置</strong>试试“模型”“安全”或“备份”</div></div>`;
+        lucide.createIcons();
+      }
+
+      function resolvedSystemTheme() {
+        return window.matchMedia("(prefers-color-scheme: dark)").matches
+          ? "dark"
+          : "light";
+      }
+
+      function applyTheme(mode) {
+        const resolved = mode === "system" ? resolvedSystemTheme() : mode;
+        document.documentElement.dataset.theme = resolved;
+        document.querySelectorAll("[data-theme-option]").forEach((option) => {
+          option.classList.toggle("active", option.dataset.themeOption === mode);
+        });
+        localStorage.setItem("qwenpaw-mock-theme", mode);
+      }
+
+      function openThemeSheet() {
+        themeSheet.classList.add("open");
+        themeSheet.setAttribute("aria-hidden", "false");
+        themeButton.setAttribute("aria-expanded", "true");
+      }
+
+      function closeThemeSheet() {
+        themeSheet.classList.remove("open");
+        themeSheet.setAttribute("aria-hidden", "true");
+        themeButton.setAttribute("aria-expanded", "false");
+      }
+
+      backButton.addEventListener("click", () => {
+        if (!categoryPage.hidden) showHome();
+      });
+      searchInput.addEventListener("input", handleSearch);
+      themeButton.addEventListener("click", openThemeSheet);
+      themeSheet.addEventListener("click", (event) => {
+        if (event.target === themeSheet) closeThemeSheet();
+      });
+      document.querySelectorAll("[data-theme-option]").forEach((option) => {
+        option.addEventListener("click", () => {
+          applyTheme(option.dataset.themeOption);
+          closeThemeSheet();
+        });
+      });
+      window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+        if ((localStorage.getItem("qwenpaw-mock-theme") || "system") === "system") {
+          applyTheme("system");
+        }
+      });
+
+      drawHome();
+      applyTheme(localStorage.getItem("qwenpaw-mock-theme") || "system");
+      lucide.createIcons();
+    </script>
+  </body>
+</html>
