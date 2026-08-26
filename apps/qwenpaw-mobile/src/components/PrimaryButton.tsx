@@ -58,7 +58,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     borderWidth: 1,
   },
-  dark: { backgroundColor: colors.black, borderColor: colors.black },
+  dark: { backgroundColor: colors.accent, borderColor: colors.accent },
   light: { backgroundColor: colors.surfaceStrong, borderColor: colors.line },
   label: { fontSize: 16, fontWeight: "600", letterSpacing: -0.2 },
   darkLabel: { color: colors.white },

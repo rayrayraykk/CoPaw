@@ -3,6 +3,57 @@ export interface SseEvent {
   data: string;
 }
 
+export interface StreamDelta {
+  messageId: string;
+  kind: "message" | "reasoning" | "tool";
+  text: string;
+}
+
+export function streamError(event: SseEvent): string | null {
+  const payload = jsonPayload(event.data);
+  if (!payload) return null;
+  if (typeof payload.error === "string") {
+    return payload.error.trim() || "模型调用失败";
+  }
+  if (payload.object !== "response" || payload.status !== "failed") {
+    return null;
+  }
+  const error = payload.error;
+  if (error && typeof error === "object" && !Array.isArray(error)) {
+    const detail = error as Record<string, unknown>;
+    const message = detail.message ?? detail.detail ?? detail.code;
+    if (typeof message === "string" && message.trim()) return message.trim();
+  }
+  return "模型调用失败";
+}
+
+export class StreamEventClassifier {
+  private readonly messageTypes = new Map<string, StreamDelta["kind"]>();
+
+  consume(event: SseEvent): StreamDelta | null {
+    const payload = jsonPayload(event.data);
+    if (!payload) return null;
+    if (payload.object === "message") {
+      const id = typeof payload.id === "string" ? payload.id : "";
+      const kind = messageKind(payload.type);
+      if (id) this.messageTypes.set(id, kind);
+      const text = messageDeltaText(payload.content);
+      return text ? { messageId: id || "stream", kind, text } : null;
+    }
+    if (payload.object !== "content" || payload.delta !== true) return null;
+    const messageId = typeof payload.msg_id === "string"
+      ? payload.msg_id
+      : "stream";
+    const text = typeof payload.text === "string" ? payload.text : "";
+    if (!text) return null;
+    return {
+      messageId,
+      kind: this.messageTypes.get(messageId) ?? "message",
+      text,
+    };
+  }
+}
+
 export class SseParser {
   private buffer = "";
 
@@ -50,6 +101,27 @@ export function eventText(event: SseEvent): string {
   } catch {
     return event.data;
   }
+}
+
+function jsonPayload(value: string): Record<string, unknown> | null {
+  if (value === "[DONE]") return null;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function messageKind(value: unknown): StreamDelta["kind"] {
+  if (value === "reasoning") return "reasoning";
+  if (
+    typeof value === "string" &&
+    (value.includes("call") || value.includes("tool") || value.includes("plugin"))
+  ) return "tool";
+  return "message";
 }
 
 function messageDeltaText(content: unknown): string {

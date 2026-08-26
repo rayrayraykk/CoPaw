@@ -1,41 +1,286 @@
 import { fetch as expoFetch } from "expo/fetch";
 
-import { eventText, SseParser } from "./sse";
+import {
+  SseParser,
+  StreamEventClassifier,
+  streamError,
+  type StreamDelta,
+} from "./sse";
+import { requestWithPlatformGateway } from "./platformGateway";
+import {
+  requiresQwenPawCredentials,
+  type QwenPawAuthStatus,
+} from "./qwenPawAuthModel";
+import { availableAgents } from "./compatibility";
 import type {
+  ActiveModelInfo,
   AgentSummary,
+  ApprovalLevel,
+  ChatGroup,
   ChatHistory,
   ChatSpec,
   Connection,
   ContentItem,
+  LoopModeInfo,
+  LoopStatus,
+  ModelSlotOverride,
+  PendingApproval,
+  ProviderInfo,
+  RunningConfig,
   UploadResult,
 } from "./types";
-
-interface PlatformTokens {
-  accessToken: string;
-  refreshToken: string;
-  expiresIn: number;
-}
-
-interface JsonObject {
-  [key: string]: unknown;
-}
 
 export class QwenPawClient {
   constructor(private readonly connection: Connection) {}
 
   async verify(): Promise<void> {
+    if (!this.connection.token) {
+      const status = await qwenPawAuthStatus(
+        this.connection.baseUrl,
+        this.connection.source,
+      );
+      if (status && !requiresQwenPawCredentials(status)) return;
+    }
     await this.request("/auth/verify");
+  }
+
+  async revokeToken(): Promise<void> {
+    if (!this.connection.token) return;
+    await this.request("/auth/revoke-token", {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
   }
 
   async listAgents(): Promise<AgentSummary[]> {
     const response = await this.request<{ agents: AgentSummary[] }>("/agents");
-    return response.agents.filter(
-      (agent) => agent.enabled && agent.available_in_chat,
+    return availableAgents(response.agents ?? []);
+  }
+
+  async listChats(archived = false): Promise<ChatSpec[]> {
+    return this.request<ChatSpec[]>(`/chats?archived=${String(archived)}`);
+  }
+
+  async listChatGroups(): Promise<ChatGroup[]> {
+    return this.request<ChatGroup[]>("/chats/groups");
+  }
+
+  async createChatGroup(name: string): Promise<ChatGroup> {
+    return this.request<ChatGroup>("/chats/groups", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    });
+  }
+
+  async updateChatGroup(groupId: string, name: string): Promise<ChatGroup> {
+    return this.request<ChatGroup>(
+      `/chats/groups/${encodeURIComponent(groupId)}`,
+      { method: "PUT", body: JSON.stringify({ name }) },
     );
   }
 
-  async listChats(): Promise<ChatSpec[]> {
-    return this.request<ChatSpec[]>("/chats?archived=false");
+  async deleteChatGroup(groupId: string): Promise<void> {
+    await this.request(`/chats/groups/${encodeURIComponent(groupId)}`, {
+      method: "DELETE",
+    });
+  }
+
+  async updateChat(
+    chatId: string,
+    update: { name?: string; pinned?: boolean; group_id?: string | null },
+  ): Promise<ChatSpec> {
+    return this.request<ChatSpec>(`/chats/${encodeURIComponent(chatId)}`, {
+      method: "PUT",
+      body: JSON.stringify(update),
+    });
+  }
+
+  async archiveChat(chatId: string): Promise<ChatSpec> {
+    return this.request<ChatSpec>(
+      `/chats/${encodeURIComponent(chatId)}/archive`,
+      { method: "POST" },
+    );
+  }
+
+  async unarchiveChat(chatId: string): Promise<ChatSpec> {
+    return this.request<ChatSpec>(
+      `/chats/${encodeURIComponent(chatId)}/unarchive`,
+      { method: "POST" },
+    );
+  }
+
+  async inspectModule(path: string): Promise<unknown> {
+    return this.request(path);
+  }
+
+  async mutateModule<T = unknown>(
+    path: string,
+    method: "POST" | "PUT" | "PATCH" | "DELETE",
+    body?: unknown,
+  ): Promise<T> {
+    return this.request<T>(path, {
+      method,
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+  }
+
+  async uploadModule<T = unknown>(
+    path: string,
+    files: { field: string; uri: string; name: string; mimeType?: string | null }[],
+  ): Promise<T> {
+    const form = new FormData();
+    files.forEach((file) => {
+      form.append(file.field, {
+        uri: file.uri,
+        name: file.name,
+        type: file.mimeType ?? "application/octet-stream",
+      } as unknown as Blob);
+    });
+    return this.request<T>(path, { method: "POST", body: form });
+  }
+
+  async downloadModule(path: string): Promise<{
+    bytes: Uint8Array;
+    contentType: string;
+  }> {
+    const request = () => fetch(this.url(path), {
+      headers: this.headers(),
+      credentials: "include",
+    });
+    const response = await requestWithPlatformGateway(
+      this.connection.baseUrl,
+      this.connection.source,
+      request,
+      false,
+      this.connection.platformAccessPath,
+    );
+    if (!response.ok) throw await responseError(response);
+    return {
+      bytes: new Uint8Array(await response.arrayBuffer()),
+      contentType: response.headers.get("content-type") || "application/octet-stream",
+    };
+  }
+
+  async createBackup(
+    body: Record<string, unknown>,
+    onProgress?: (percent: number) => void,
+  ): Promise<Record<string, unknown>> {
+    const headers = this.headers();
+    headers.set("Content-Type", "application/json");
+    const request = () => fetch(this.url("/backups/stream"), {
+      method: "POST",
+      body: JSON.stringify(body),
+      headers,
+      credentials: "include",
+    });
+    const response = await requestWithPlatformGateway(
+      this.connection.baseUrl,
+      this.connection.source,
+      request,
+      false,
+      this.connection.platformAccessPath,
+    );
+    if (!response.ok || !response.body) throw await responseError(response);
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    const parser = new SseParser();
+    let backup: Record<string, unknown> | null = null;
+    const consume = (event: { data: string }) => {
+      const payload = JSON.parse(event.data) as Record<string, unknown>;
+      if (typeof payload.percent === "number") onProgress?.(payload.percent);
+      if (payload.type === "error") {
+        throw new Error(String(payload.message || "创建备份失败"));
+      }
+      if (payload.type === "done" && payload.meta &&
+          typeof payload.meta === "object") {
+        backup = payload.meta as Record<string, unknown>;
+      }
+    };
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      parser.push(decoder.decode(value, { stream: true })).forEach(consume);
+    }
+    parser.finish().forEach(consume);
+    if (!backup) throw new Error("QwenPaw 没有返回已完成的备份。");
+    return backup;
+  }
+
+  async getRunningConfig(): Promise<RunningConfig> {
+    return this.request<RunningConfig>("/workspace/running-config");
+  }
+
+  async listProviders(): Promise<ProviderInfo[]> {
+    return this.request<ProviderInfo[]>("/models");
+  }
+
+  async getActiveModel(agentId: string): Promise<ActiveModelInfo> {
+    const query = new URLSearchParams({
+      scope: "effective",
+      agent_id: agentId,
+    });
+    return this.request<ActiveModelInfo>(`/models/active?${query.toString()}`);
+  }
+
+  async setAgentActiveModel(
+    agentId: string,
+    model: ModelSlotOverride,
+  ): Promise<ActiveModelInfo> {
+    return this.request<ActiveModelInfo>("/models/active", {
+      method: "PUT",
+      body: JSON.stringify({
+        ...model,
+        scope: "agent",
+        agent_id: agentId,
+      }),
+    });
+  }
+
+  async listLoopModes(): Promise<LoopModeInfo[]> {
+    return this.request<LoopModeInfo[]>("/loops");
+  }
+
+  async getLoopStatus(chatId: string, sessionId: string): Promise<LoopStatus> {
+    const query = new URLSearchParams({
+      chat_id: chatId,
+      session_id: sessionId,
+    });
+    return this.request<LoopStatus>(`/loops/status?${query.toString()}`);
+  }
+
+  async listApprovals(): Promise<PendingApproval[]> {
+    const response = await this.request<{
+      pending_approvals: PendingApproval[];
+    }>("/console/push-messages");
+    return response.pending_approvals;
+  }
+
+  async approve(
+    approval: PendingApproval,
+    scope: "exact" | "similar" = "exact",
+  ): Promise<void> {
+    await this.request("/approval/approve", {
+      method: "POST",
+      body: JSON.stringify({
+        request_id: approval.request_id,
+        session_id: approval.root_session_id,
+        user_id: "mobile",
+        scope,
+      }),
+    });
+  }
+
+  async deny(approval: PendingApproval, reason = "User denied"): Promise<void> {
+    await this.request("/approval/deny", {
+      method: "POST",
+      body: JSON.stringify({
+        request_id: approval.request_id,
+        session_id: approval.root_session_id,
+        user_id: "mobile",
+        reason,
+      }),
+    });
   }
 
   async getChat(chatId: string): Promise<ChatHistory> {
@@ -85,17 +330,19 @@ export class QwenPawClient {
     sessionId: string;
     text: string;
     attachments?: ContentItem[];
+    approvalLevel?: ApprovalLevel;
+    modelSlotOverride?: ModelSlotOverride | null;
     signal: AbortSignal;
-    onText: (text: string) => void;
+    onDelta: (delta: StreamDelta) => void;
   }): Promise<void> {
-    const response = await expoFetch(this.url("/console/chat"), {
+    const request = () => expoFetch(this.url("/console/chat"), {
       method: "POST",
       headers: this.headers({ "Content-Type": "application/json" }),
       body: JSON.stringify({
         input: [{
           role: "user",
           content: [
-            { type: "text", text: options.text },
+            ...(options.text ? [{ type: "text", text: options.text }] : []),
             ...(options.attachments ?? []),
           ],
         }],
@@ -103,26 +350,45 @@ export class QwenPawClient {
         user_id: "mobile",
         channel: "console",
         stream: true,
+        ...(options.modelSlotOverride
+          ? { model_slot_override: options.modelSlotOverride }
+          : {}),
+        ...(options.approvalLevel
+          ? { request_context: { approval_level: options.approvalLevel } }
+          : {}),
       }),
+      credentials: "include",
       signal: options.signal,
     });
+    const response = await requestWithPlatformGateway(
+      this.connection.baseUrl,
+      this.connection.source,
+      request,
+      false,
+      this.connection.platformAccessPath,
+    );
     if (!response.ok || !response.body) {
       throw await responseError(response);
     }
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     const parser = new SseParser();
+    const classifier = new StreamEventClassifier();
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       for (const event of parser.push(decoder.decode(value, { stream: true }))) {
-        const text = eventText(event);
-        if (text) options.onText(text);
+        const failure = streamError(event);
+        if (failure) throw new Error(failure);
+        const delta = classifier.consume(event);
+        if (delta) options.onDelta(delta);
       }
     }
     for (const event of parser.finish()) {
-      const text = eventText(event);
-      if (text) options.onText(text);
+      const failure = streamError(event);
+      if (failure) throw new Error(failure);
+      const delta = classifier.consume(event);
+      if (delta) options.onDelta(delta);
     }
   }
 
@@ -134,7 +400,18 @@ export class QwenPawClient {
     if (init.body && !(init.body instanceof FormData)) {
       headers.set("Content-Type", "application/json");
     }
-    const response = await fetch(this.url(path), { ...init, headers });
+    const request = () => fetch(this.url(path), {
+      ...init,
+      headers,
+      credentials: "include",
+    });
+    const response = await requestWithPlatformGateway(
+      this.connection.baseUrl,
+      this.connection.source,
+      request,
+      false,
+      this.connection.platformAccessPath,
+    );
     if (!response.ok) throw await responseError(response);
     if (response.status === 204) return undefined as T;
     return response.json() as Promise<T>;
@@ -158,15 +435,84 @@ export async function loginQwenPaw(
   baseUrl: string,
   username: string,
   password: string,
+  source: Connection["source"] = "private",
+  platformAccessPath?: string,
 ): Promise<Connection> {
-  const response = await fetch(`${baseUrl}/api/auth/login`, {
+  const status = await qwenPawAuthStatus(
+    baseUrl,
+    source,
+    true,
+    platformAccessPath,
+  );
+  if (status && !requiresQwenPawCredentials(status)) {
+    return {
+      baseUrl,
+      token: "",
+      username: "",
+      agentId: "default",
+      source,
+      platformAccessPath,
+    };
+  }
+  if (status && requiresQwenPawCredentials(status) &&
+      (!username.trim() || !password)) {
+    throw new QwenPawCredentialsRequiredError();
+  }
+  const request = () => fetch(`${baseUrl}/api/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password, expires_in: 30 * 24 * 3600 }),
+    body: JSON.stringify({ username, password, expires_in: 0 }),
+    credentials: "include",
   });
+  const response = await requestWithPlatformGateway(
+    baseUrl,
+    source,
+    request,
+    false,
+    platformAccessPath,
+  );
   if (!response.ok) throw await responseError(response);
   const data = await response.json() as { token: string; username: string };
-  return { baseUrl, token: data.token, username: data.username, agentId: "default" };
+  return {
+    baseUrl,
+    token: data.token,
+    username: data.username,
+    agentId: "default",
+    source,
+    platformAccessPath,
+  };
+}
+
+export class QwenPawCredentialsRequiredError extends Error {
+  constructor() {
+    super("检测到 QwenPaw 独立认证状态，需要额外处理。");
+    this.name = "QwenPawCredentialsRequiredError";
+  }
+}
+
+async function qwenPawAuthStatus(
+  baseUrl: string,
+  source: Connection["source"],
+  forceGateway = false,
+  platformAccessPath?: string,
+): Promise<QwenPawAuthStatus | null> {
+  const request = () => fetch(`${baseUrl}/api/auth/status`, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+    credentials: "include",
+  });
+  const response = await requestWithPlatformGateway(
+    baseUrl,
+    source,
+    request,
+    forceGateway && source === "platform",
+    platformAccessPath,
+  );
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined);
+    return null;
+  }
+  return response.json() as Promise<QwenPawAuthStatus>;
 }
 
 export async function redeemPairing(
@@ -180,89 +526,34 @@ export async function redeemPairing(
   });
   if (!response.ok) throw await responseError(response);
   const data = await response.json() as { token: string; username: string };
-  return { baseUrl, token: data.token, username: data.username, agentId: "default" };
-}
-
-export async function discoverPlatformQwenPaw(
-  account: string,
-  password: string,
-): Promise<string> {
-  const loginResponse = await fetch(
-    "https://platform.agentscope.io/api/v1/auth/login",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ account, password }),
-    },
-  );
-  if (!loginResponse.ok) throw await responseError(loginResponse);
-  const loginBody = await loginResponse.json() as JsonObject;
-  const tokens = extractPlatformTokens(loginBody);
-  const headers = { Authorization: `Bearer ${tokens.accessToken}` };
-  const listResponse = await fetch(
-    "https://platform.agentscope.io/api/v1/app/list",
-    { headers },
-  );
-  if (!listResponse.ok) throw await responseError(listResponse);
-  const listBody = await listResponse.json() as JsonObject;
-  const apps = extractApps(listBody);
-  if (!apps.length) throw new Error("No QwenPaw deployment was found.");
-  const appId = String(apps[0].appId ?? apps[0].id ?? "");
-  const statusUrl = "https://platform.agentscope.io/api/v1/app/get" +
-    `?appId=${encodeURIComponent(appId)}`;
-  let status = await platformJson(statusUrl, headers);
-  let state = String(status.status ?? "");
-  if (state === "sleeping" || state === "stopped") {
-    await platformJson("https://platform.agentscope.io/api/v1/app/start", headers,
-      { method: "POST", body: JSON.stringify({ appId }) });
-    for (let attempt = 0; attempt < 12; attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 2500));
-      status = await platformJson(statusUrl, headers);
-      state = String(status.status ?? "");
-      if (state === "running") break;
-    }
-  }
-  const accessUrl = String(status.accessUrl ?? "").replace(/\/$/, "");
-  if (!accessUrl) throw new Error("The QwenPaw deployment is not ready yet.");
-  return accessUrl;
-}
-
-function extractPlatformTokens(payload: JsonObject): PlatformTokens {
-  const first = objectValue(payload.data) ?? payload;
-  const data = objectValue(first.data) ?? first;
-  const accessToken = String(data.accessToken ?? "");
-  if (!accessToken) throw new Error("AgentScope Platform login did not return a token.");
   return {
-    accessToken,
-    refreshToken: String(data.refreshToken ?? ""),
-    expiresIn: Number(data.expiresIn ?? 0),
+    baseUrl,
+    token: data.token,
+    username: data.username,
+    agentId: "default",
+    source: "private",
   };
 }
 
-function extractApps(payload: JsonObject): JsonObject[] {
-  const first = objectValue(payload.data) ?? payload;
-  const data = objectValue(first.data) ?? first;
-  const value = data.apps ?? data.list ?? first.apps ?? first.list ?? data;
-  return Array.isArray(value)
-    ? value.filter((item): item is JsonObject => Boolean(objectValue(item)))
-    : [];
-}
-
-async function platformJson(
-  url: string,
-  headers: HeadersInit,
-  init: RequestInit = {},
-): Promise<JsonObject> {
-  const response = await fetch(url, { ...init, headers: { ...headers, ...init.headers } });
-  if (!response.ok) throw await responseError(response);
-  const payload = await response.json() as JsonObject;
-  return objectValue(payload.data) ?? payload;
-}
-
-function objectValue(value: unknown): JsonObject | null {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? value as JsonObject
-    : null;
+export function mediaSource(
+  connection: Connection,
+  rawUrl: string,
+): { uri: string; headers?: Record<string, string> } {
+  if (
+    rawUrl.startsWith("http://") ||
+    rawUrl.startsWith("https://") ||
+    rawUrl.startsWith("data:")
+  ) return { uri: rawUrl };
+  const path = rawUrl.startsWith("file://") ? rawUrl.slice(7) : rawUrl;
+  const previewPath = path.startsWith("/") ? path : `/${path}`;
+  const headers: Record<string, string> = {
+    "X-Agent-Id": connection.agentId || "default",
+  };
+  if (connection.token) headers.Authorization = `Bearer ${connection.token}`;
+  return {
+    uri: encodeURI(`${connection.baseUrl}/api/files/preview${previewPath}`),
+    headers,
+  };
 }
 
 async function responseError(response: Response): Promise<Error> {

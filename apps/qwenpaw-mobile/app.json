@@ -11,6 +11,11 @@
       "icon": "./assets/expo.icon",
       "bundleIdentifier": "io.agentscope.qwenpaw.mobile",
       "supportsTablet": true,
+      "entitlements": {
+        "keychain-access-groups": [
+          "$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)"
+        ]
+      },
       "config": {
         "usesNonExemptEncryption": false
       }
@@ -53,7 +58,16 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 88
         }
-      ]
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow QwenPaw to view media you choose.",
+          "savePhotosPermission": "Allow QwenPaw to save chat images to your photo library."
+        }
+      ],
+      "expo-sharing",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true

@@ -1,6 +1,16 @@
-import { LinearGradient } from "expo-linear-gradient";
-import { router } from "expo-router";
-import { ArrowRight, QrCode, Server, Sparkles } from "lucide-react-native";
+import { router, useLocalSearchParams } from "expo-router";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Bug,
+  ChevronRight,
+  Cloud,
+  Link2,
+  QrCode,
+  RefreshCw,
+  Server,
+  Sparkles,
+} from "lucide-react-native";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -15,252 +25,365 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import {
-  discoverPlatformQwenPaw,
   loginQwenPaw,
 } from "../api/client";
+import {
+  getPlatformAccessToken,
+  loginAgentScopePlatform,
+  loginAgentScopePlatformWithGitHub,
+} from "../api/platform";
+import { isPlatformRateLimitError } from "../api/platformError";
+import {
+  buildDebugBaseUrl,
+  DEFAULT_DEBUG_HOST,
+  DEFAULT_DEBUG_PORT,
+} from "../api/debug";
 import { normalizeBaseUrl } from "../api/pairing";
+import type { Connection } from "../api/types";
 import { Field } from "../components/Field";
 import { PrimaryButton } from "../components/PrimaryButton";
+import { PlatformAuthForm } from "../features/platform/PlatformAuthForm";
 import { useAppStore } from "../store/app";
 import { colors, radius, spacing } from "../theme/tokens";
 
-type Mode = "pair" | "direct" | "platform";
+type Mode = "choice" | "self" | "direct" | "platform" | "debug";
 
 export default function ConnectScreen() {
+  const { add, platformLogin } = useLocalSearchParams<{
+    add?: string;
+    platformLogin?: string;
+  }>();
+  const adding = add === "1";
   const status = useAppStore((state) => state.status);
+  const connection = useAppStore((state) => state.connection);
   const connect = useAppStore((state) => state.connect);
+  const disconnect = useAppStore((state) => state.disconnect);
   const storeError = useAppStore((state) => state.error);
-  const [mode, setMode] = useState<Mode>("pair");
+  const [mode, setMode] = useState<Mode>(
+    platformLogin === "1" ? "platform" : "choice",
+  );
   const [baseUrl, setBaseUrl] = useState("");
+  const [debugHost, setDebugHost] = useState(DEFAULT_DEBUG_HOST);
+  const [debugPort, setDebugPort] = useState(String(DEFAULT_DEBUG_PORT));
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [platformAccount, setPlatformAccount] = useState("");
-  const [platformPassword, setPlatformPassword] = useState("");
   const [busy, setBusy] = useState(false);
+  const [platformChecking, setPlatformChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (status === "ready") router.replace("/chats");
-  }, [status]);
+    if (status === "ready" && !adding) router.replace("/chats");
+  }, [adding, status]);
 
   if (status === "booting") {
+    return <View style={styles.loading}><ActivityIndicator color={colors.accent} /></View>;
+  }
+
+  if (!adding && connection && status !== "ready") {
     return (
-      <View style={styles.loading}>
-        <ActivityIndicator color={colors.accentDark} />
-      </View>
+      <SafeAreaView style={styles.reconnectRoot}>
+        <View style={styles.reconnectCard}>
+          <View style={styles.reconnectIcon}><RefreshCw color={colors.accent} size={25} /></View>
+          <Text style={styles.reconnectTitle}>正在连接 QwenPaw</Text>
+          <Text style={styles.sourceLabel}>{connection.source === "platform" ? "AgentScope Platform" : "私人部署"}</Text>
+          <Text numberOfLines={2} style={styles.reconnectCopy}>{connection.baseUrl}</Text>
+          <PrimaryButton icon={RefreshCw} label="立即重连" loading={status === "connecting"} onPress={() => void connect(connection).catch(() => undefined)} />
+          <Pressable onPress={() => void disconnect()} style={styles.textButton}><Text style={styles.textButtonLabel}>移除这只 QwenPaw</Text></Pressable>
+        </View>
+      </SafeAreaView>
     );
   }
+
+  const connectResolved = async (
+    rawUrl: string,
+    account: string,
+    secret: string,
+    source: Connection["source"],
+  ) => {
+    const url = normalizeBaseUrl(rawUrl);
+    const nextConnection = await loginQwenPaw(url, account, secret, source);
+    await connect(nextConnection);
+    router.replace("/chats");
+  };
 
   const submitDirect = async (resolvedUrl?: string) => {
     setBusy(true);
     setError(null);
     try {
-      const url = normalizeBaseUrl(resolvedUrl ?? baseUrl);
-      const connection = await loginQwenPaw(url, username, password);
-      await connect(connection);
-      router.replace("/chats");
+      await connectResolved(
+        resolvedUrl ?? baseUrl,
+        username,
+        password,
+        "private",
+      );
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Connection failed.");
+      setError(errorMessage(caught, "连接失败，请检查服务器地址。"));
     } finally {
       setBusy(false);
     }
   };
 
-  const submitPlatform = async () => {
-    setBusy(true);
+  const submitPlatform = async (account: string, platformPassword: string) => {
+    await loginAgentScopePlatform(account, platformPassword);
+    openPlatformDeploy();
+  };
+
+  const submitPlatformGitHub = async () => {
+    await loginAgentScopePlatformWithGitHub();
+    openPlatformDeploy();
+  };
+
+  const choosePlatform = async () => {
+    setPlatformChecking(true);
     setError(null);
     try {
-      const url = await discoverPlatformQwenPaw(
-        platformAccount,
-        platformPassword,
-      );
-      setBaseUrl(url);
-      await submitDirect(url);
+      if (await getPlatformAccessToken()) {
+        openPlatformDeploy();
+      } else {
+        setMode("platform");
+      }
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Platform login failed.");
-      setBusy(false);
+      setError(isPlatformRateLimitError(caught)
+        ? "Platform 请求较多，登录态仍已保留，请稍后再试。"
+        : errorMessage(caught, "暂时无法连接 Platform，请稍后再试。"));
+    } finally {
+      setPlatformChecking(false);
     }
   };
 
+  const openPlatformDeploy = () => {
+    router.replace({
+      pathname: "/platform/deploy",
+      params: { add: adding ? "1" : "0" },
+    });
+  };
+
+  const goBack = () => {
+    setError(null);
+    if (mode === "direct" || mode === "debug") setMode("self");
+    else setMode("choice");
+  };
+
   return (
-    <LinearGradient colors={["#F8F5EF", colors.canvas]} style={styles.root}>
-      <SafeAreaView style={styles.safe}>
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-          style={styles.flex}
-        >
-          <ScrollView
-            contentContainerStyle={styles.content}
-            keyboardShouldPersistTaps="handled"
-          >
-            <View style={styles.brandRow}>
-              <View style={styles.mark}><Sparkles size={18} color={colors.white} /></View>
-              <Text style={styles.brand}>QwenPaw</Text>
-            </View>
-            <View style={styles.intro}>
-              <Text style={styles.eyebrow}>PRIVATE AI, WITH YOU</Text>
-              <Text style={styles.title}>Your QwenPaw,{"\n"}within reach.</Text>
-              <Text style={styles.subtitle}>
-                Link your private workspace and continue every conversation
-                across Android and iOS.
-              </Text>
-            </View>
-
-            <View style={styles.card}>
-              <View style={styles.modes}>
-                <ModeButton active={mode === "pair"} label="Scan" onPress={() => setMode("pair")} />
-                <ModeButton active={mode === "direct"} label="Direct" onPress={() => setMode("direct")} />
-                <ModeButton active={mode === "platform"} label="Platform" onPress={() => setMode("platform")} />
+    <SafeAreaView style={styles.root}>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.flex}>
+        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+          <BrandHeader adding={adding} mode={mode} onBack={goBack} />
+          {mode === "choice" ? (
+            <ChoicePanel
+              adding={adding}
+              onMode={setMode}
+              onPlatform={() => void choosePlatform()}
+              platformChecking={platformChecking}
+            />
+          ) : null}
+          {mode === "choice" && error ? (
+            <Text style={styles.choiceError}>{error}</Text>
+          ) : null}
+          {mode === "self" ? <SelfPanel onMode={setMode} /> : null}
+          {mode === "direct" || mode === "platform" || mode === "debug" ? (
+            <View style={styles.formCard}>
+              <View style={styles.formHeading}>
+                <Text style={styles.formTitle}>{modeTitle(mode)}</Text>
+                <Text style={styles.formCopy}>{modeCopy(mode)}</Text>
               </View>
-
-              {mode === "pair" ? (
-                <View style={styles.modeBody}>
-                  <View style={styles.scanArt}>
-                    <QrCode size={48} color={colors.accentDark} strokeWidth={1.4} />
-                  </View>
-                  <Text style={styles.cardTitle}>Pair in one scan</Text>
-                  <Text style={styles.cardCopy}>
-                    Open QwenPaw Console, choose Pair mobile, then scan its
-                    short-lived code. No password is copied to your phone.
-                  </Text>
-                  <PrimaryButton
-                    label="Scan pairing code"
-                    icon={QrCode}
-                    onPress={() => router.push("/scan")}
-                  />
-                </View>
-              ) : null}
-
               {mode === "direct" ? (
-                <View style={styles.modeBody}>
-                  <Field
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    keyboardType="url"
-                    label="QwenPaw address"
-                    onChangeText={setBaseUrl}
-                    placeholder="https://paw.example.com"
-                    value={baseUrl}
-                  />
-                  <Field
-                    autoCapitalize="none"
-                    label="Username"
-                    onChangeText={setUsername}
-                    placeholder="Your QwenPaw username"
-                    value={username}
-                  />
-                  <Field
-                    label="Password"
-                    onChangeText={setPassword}
-                    placeholder="Your QwenPaw password"
-                    secureTextEntry
-                    value={password}
-                  />
-                  <PrimaryButton
-                    disabled={!baseUrl}
-                    icon={ArrowRight}
-                    label="Connect securely"
-                    loading={busy}
-                    onPress={() => void submitDirect()}
-                  />
-                </View>
+                <>
+                  <Field autoCapitalize="none" autoCorrect={false} keyboardType="url" label="QwenPaw 地址" onChangeText={setBaseUrl} placeholder="http://192.168.1.20:8088" value={baseUrl} />
+                  <Credentials password={password} setPassword={setPassword} setUsername={setUsername} username={username} />
+                  <PrimaryButton disabled={!baseUrl} icon={ArrowRight} label="配对并连接" loading={busy} onPress={() => void submitDirect()} />
+                </>
               ) : null}
-
               {mode === "platform" ? (
-                <View style={styles.modeBody}>
-                  <Field
-                    autoCapitalize="none"
-                    label="AgentScope account"
-                    onChangeText={setPlatformAccount}
-                    placeholder="Email or account"
-                    value={platformAccount}
-                  />
-                  <Field
-                    label="Platform password"
-                    onChangeText={setPlatformPassword}
-                    placeholder="Password"
-                    secureTextEntry
-                    value={platformPassword}
-                  />
-                  <View style={styles.divider} />
-                  <Text style={styles.helper}>
-                    If QwenPaw web login is enabled, enter those credentials below.
-                  </Text>
-                  <Field
-                    autoCapitalize="none"
-                    label="QwenPaw username"
-                    onChangeText={setUsername}
-                    placeholder="Optional when web login is off"
-                    value={username}
-                  />
-                  <Field
-                    label="QwenPaw password"
-                    onChangeText={setPassword}
-                    placeholder="Optional when web login is off"
-                    secureTextEntry
-                    value={password}
-                  />
-                  <PrimaryButton
-                    disabled={!platformAccount || !platformPassword}
-                    icon={Server}
-                    label="Find my deployment"
-                    loading={busy}
-                    onPress={() => void submitPlatform()}
-                  />
-                </View>
+                <PlatformAuthForm
+                  loginLabel="登录并查找 QwenPaw"
+                  onGitHubLogin={submitPlatformGitHub}
+                  onPasswordLogin={submitPlatform}
+                >
+                  <Text style={styles.platformHint}>此登录态也会用于社区；浏览社区不需要登录。</Text>
+                </PlatformAuthForm>
               ) : null}
-
-              {error || storeError ? (
-                <Text style={styles.error}>{error || storeError}</Text>
+              {__DEV__ && mode === "debug" ? (
+                <>
+                  <Field autoCapitalize="none" autoCorrect={false} label="Host" onChangeText={setDebugHost} placeholder={DEFAULT_DEBUG_HOST} value={debugHost} />
+                  <Field keyboardType="number-pad" label="Port" onChangeText={setDebugPort} placeholder={String(DEFAULT_DEBUG_PORT)} value={debugPort} />
+                  <Credentials password={password} setPassword={setPassword} setUsername={setUsername} username={username} />
+                  <PrimaryButton icon={Bug} label="连接本机服务" loading={busy} onPress={() => void submitDirect(buildDebugBaseUrl(debugHost, debugPort))} />
+                </>
               ) : null}
+              {error || storeError ? <Text style={styles.error}>{error || storeError}</Text> : null}
             </View>
-          </ScrollView>
-        </KeyboardAvoidingView>
-      </SafeAreaView>
-    </LinearGradient>
+          ) : null}
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
-function ModeButton({
-  active,
-  label,
-  onPress,
+function BrandHeader({ adding, mode, onBack }: { adding: boolean; mode: Mode; onBack: () => void }) {
+  return (
+    <View style={styles.brandHeader}>
+      {mode === "choice" && !adding ? (
+        <View style={styles.brandMark}><Sparkles color={colors.white} size={18} /></View>
+      ) : (
+        <Pressable accessibilityLabel="返回" onPress={() => mode === "choice" ? router.back() : onBack()} style={styles.back}><ArrowLeft color={colors.ink} size={22} /></Pressable>
+      )}
+      <Text style={styles.brand}>{adding ? "再配对一只 QwenPaw" : "QwenPaw"}</Text>
+    </View>
+  );
+}
+
+function ChoicePanel({
+  adding,
+  onMode,
+  onPlatform,
+  platformChecking,
 }: {
-  active: boolean;
-  label: string;
-  onPress: () => void;
+  adding: boolean;
+  onMode: (mode: Mode) => void;
+  onPlatform: () => void;
+  platformChecking: boolean;
 }) {
   return (
-    <Pressable onPress={onPress} style={[styles.mode, active && styles.modeActive]}>
-      <Text style={[styles.modeLabel, active && styles.modeLabelActive]}>{label}</Text>
+    <View style={styles.choicePanel}>
+      <View style={styles.intro}>
+        <Text style={styles.title}>{adding ? "再配对一只 QwenPaw" : "选择你的 QwenPaw"}</Text>
+        <Text style={styles.subtitle}>{adding ? "配对时不会断开当前 QwenPaw，完成后可以随时切换。" : "使用 Platform 云端 QwenPaw，或安全连接你自己的部署。"}</Text>
+      </View>
+      <ConnectionChoice
+        copy="复用已登录的 Platform 账号并打开云端 QwenPaw"
+        icon={Cloud}
+        label="使用 AgentScope Platform"
+        loading={platformChecking}
+        onPress={onPlatform}
+        primary
+      />
+      <ConnectionChoice icon={Link2} label="配对自己的 QwenPaw" copy="扫码配对，或连接局域网与私有服务" onPress={() => onMode("self")} />
+      <Text style={styles.persistence}>QwenPaw 配对与 Platform 社区账号彼此独立，可在“我的”中管理。</Text>
+    </View>
+  );
+}
+
+function ConnectionChoice({
+  icon: Icon,
+  label,
+  copy,
+  onPress,
+  primary = false,
+  loading = false,
+}: {
+  icon: typeof Cloud;
+  label: string;
+  copy: string;
+  onPress: () => void;
+  primary?: boolean;
+  loading?: boolean;
+}) {
+  return (
+    <Pressable
+      disabled={loading}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.choice,
+        primary && styles.primaryChoice,
+        pressed && styles.pressed,
+      ]}
+    >
+      <View style={styles.choiceIcon}><Icon color={colors.accentDark} size={23} /></View>
+      <View style={styles.choiceBody}><Text style={styles.choiceTitle}>{label}</Text><Text style={styles.choiceCopy}>{copy}</Text></View>
+      {loading ? (
+        <ActivityIndicator color={colors.accent} size="small" />
+      ) : (
+        <ChevronRight color={colors.faint} size={20} />
+      )}
     </Pressable>
   );
 }
 
+function SelfPanel({ onMode }: { onMode: (mode: Mode) => void }) {
+  return (
+    <View style={styles.selfPanel}>
+      <View style={styles.intro}><Text style={styles.formTitle}>配对自己的 QwenPaw</Text><Text style={styles.formCopy}>推荐从已登录 Console 扫码；配对后，除非你主动移除，否则会一直保持连接。</Text></View>
+      <View style={styles.scanArt}><QrCode color={colors.accent} size={58} strokeWidth={1.35} /></View>
+      <PrimaryButton icon={QrCode} label="扫码配对" onPress={() => router.push("/scan")} />
+      <Pressable onPress={() => onMode("direct")} style={styles.manualLink}><Server color={colors.muted} size={17} /><Text style={styles.manualText}>手动输入服务地址</Text></Pressable>
+      {__DEV__ ? <Pressable onPress={() => onMode("debug")} style={styles.debugLink}><Bug color={colors.faint} size={14} /><Text style={styles.debugText}>本机 Debug 连接</Text></Pressable> : null}
+      <Text style={styles.persistence}>凭据保存在设备安全存储中，不主动移除就会保持配对。</Text>
+    </View>
+  );
+}
+
+function Credentials({ password, setPassword, setUsername, username }: { password: string; setPassword: (value: string) => void; setUsername: (value: string) => void; username: string }) {
+  return (
+    <>
+      <Field autoCapitalize="none" label="用户名" onChangeText={setUsername} placeholder="未开启登录时可留空" value={username} />
+      <Field label="密码" onChangeText={setPassword} placeholder="未开启登录时可留空" secureTextEntry value={password} />
+    </>
+  );
+}
+
+function modeTitle(mode: Mode): string {
+  if (mode === "direct") return "手动连接";
+  if (mode === "platform") return "AgentScope Platform";
+  return "本机 Debug";
+}
+
+function modeCopy(mode: Mode): string {
+  if (mode === "direct") return "输入手机或模拟器能够访问的 QwenPaw 地址。";
+  if (mode === "platform") return "登录后自动查找并启动你的云端 QwenPaw。";
+  return "无效 Host 或 Port 会回退到 127.0.0.1:8088。";
+}
+
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}
+
 const styles = StyleSheet.create({
-  root: { flex: 1 },
-  safe: { flex: 1 },
+  root: { flex: 1, backgroundColor: colors.canvas },
   flex: { flex: 1 },
   loading: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.canvas },
-  content: { width: "100%", maxWidth: 560, alignSelf: "center", padding: spacing.lg, paddingBottom: spacing.xxl },
-  brandRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  mark: { width: 36, height: 36, borderRadius: 12, backgroundColor: colors.black, alignItems: "center", justifyContent: "center" },
-  brand: { fontSize: 18, color: colors.ink, fontWeight: "700", letterSpacing: -0.5 },
-  intro: { paddingVertical: spacing.xxl, gap: spacing.md },
-  eyebrow: { fontSize: 11, color: colors.accentDark, letterSpacing: 2, fontWeight: "700" },
-  title: { fontSize: 46, lineHeight: 49, color: colors.ink, letterSpacing: -2.4, fontWeight: "600" },
-  subtitle: { fontSize: 17, lineHeight: 26, color: colors.muted, maxWidth: 440 },
-  card: { backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.line, padding: spacing.sm, shadowColor: colors.black, shadowOpacity: 0.06, shadowRadius: 30, shadowOffset: { width: 0, height: 12 }, elevation: 3 },
-  modes: { flexDirection: "row", padding: 4, borderRadius: radius.md, backgroundColor: "#ECE8E1" },
-  mode: { flex: 1, minHeight: 38, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  modeActive: { backgroundColor: colors.surfaceStrong },
-  modeLabel: { color: colors.muted, fontSize: 13, fontWeight: "600" },
-  modeLabelActive: { color: colors.ink },
-  modeBody: { padding: spacing.md, paddingTop: spacing.lg, gap: spacing.md },
-  scanArt: { width: 92, height: 92, borderRadius: 28, backgroundColor: colors.accentSoft, alignItems: "center", justifyContent: "center", marginBottom: spacing.sm },
-  cardTitle: { color: colors.ink, fontSize: 25, fontWeight: "600", letterSpacing: -0.8 },
-  cardCopy: { color: colors.muted, fontSize: 15, lineHeight: 23, marginBottom: spacing.sm },
-  helper: { color: colors.muted, fontSize: 13, lineHeight: 19 },
-  divider: { height: 1, backgroundColor: colors.line, marginVertical: spacing.xs },
-  error: { color: colors.danger, fontSize: 13, lineHeight: 19, paddingHorizontal: spacing.md, paddingBottom: spacing.md },
+  content: { width: "100%", maxWidth: 520, minHeight: "100%", alignSelf: "center", paddingHorizontal: spacing.lg, paddingBottom: spacing.xl },
+  brandHeader: { height: 62, flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  brandMark: { width: 34, height: 34, borderRadius: 11, alignItems: "center", justifyContent: "center", backgroundColor: colors.accent },
+  back: { width: 34, height: 34, alignItems: "center", justifyContent: "center" },
+  brand: { color: colors.ink, fontSize: 18, fontWeight: "700" },
+  choicePanel: { flex: 1, gap: 12, paddingTop: spacing.xl },
+  intro: { gap: spacing.sm, marginBottom: spacing.md },
+  title: { color: colors.ink, fontSize: 34, lineHeight: 41, fontWeight: "700", letterSpacing: -1.1 },
+  subtitle: { color: colors.muted, fontSize: 16, lineHeight: 24 },
+  choice: { minHeight: 108, flexDirection: "row", alignItems: "center", gap: 13, padding: spacing.md, borderWidth: 1, borderColor: colors.line, borderRadius: 21, backgroundColor: colors.surface },
+  primaryChoice: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
+  choiceIcon: { width: 46, height: 46, alignItems: "center", justifyContent: "center", borderRadius: 14, backgroundColor: colors.surfaceStrong },
+  choiceBody: { flex: 1, minWidth: 0, gap: 5 },
+  choiceTitle: { color: colors.ink, fontSize: 16, fontWeight: "700" },
+  choiceCopy: { color: colors.muted, fontSize: 12, lineHeight: 18 },
+  selfPanel: { flex: 1, gap: spacing.md, paddingTop: spacing.xl },
+  scanArt: { width: 126, height: 126, alignSelf: "center", alignItems: "center", justifyContent: "center", marginVertical: spacing.md, borderRadius: 36, backgroundColor: colors.accentSoft },
+  manualLink: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+  manualText: { color: colors.muted, fontSize: 14, fontWeight: "600" },
+  debugLink: { alignSelf: "center", flexDirection: "row", alignItems: "center", gap: spacing.xs, padding: spacing.sm },
+  debugText: { color: colors.faint, fontSize: 12 },
+  persistence: { color: colors.faint, fontSize: 11, lineHeight: 17, textAlign: "center", marginTop: "auto" },
+  formCard: { gap: spacing.md, padding: spacing.md, marginTop: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.surface },
+  formHeading: { gap: spacing.xs, paddingBottom: spacing.sm },
+  formTitle: { color: colors.ink, fontSize: 25, fontWeight: "700" },
+  formCopy: { color: colors.muted, fontSize: 14, lineHeight: 20 },
+  platformHint: { color: colors.faint, fontSize: 11, lineHeight: 17, textAlign: "center" },
+  error: { color: colors.danger, fontSize: 13, lineHeight: 19 },
+  choiceError: {
+    marginTop: spacing.md,
+    color: colors.danger,
+    fontSize: 13,
+    lineHeight: 19,
+    textAlign: "center",
+  },
+  pressed: { opacity: 0.72 },
+  reconnectRoot: { flex: 1, justifyContent: "center", padding: spacing.lg, backgroundColor: colors.canvas },
+  reconnectCard: { width: "100%", maxWidth: 430, alignSelf: "center", gap: spacing.md, padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.surface },
+  reconnectIcon: { width: 54, height: 54, borderRadius: 17, alignItems: "center", justifyContent: "center", backgroundColor: colors.accentSoft },
+  reconnectTitle: { color: colors.ink, fontSize: 25, fontWeight: "700" },
+  sourceLabel: { color: colors.accentDark, fontSize: 12, fontWeight: "600" },
+  reconnectCopy: { color: colors.muted, fontSize: 14, lineHeight: 20 },
+  textButton: { minHeight: 42, alignItems: "center", justifyContent: "center" },
+  textButtonLabel: { color: colors.muted, fontSize: 14, fontWeight: "600" },
 });

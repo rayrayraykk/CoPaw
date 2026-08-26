@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { eventText, SseParser } from "./sse";
+import {
+  eventText,
+  SseParser,
+  StreamEventClassifier,
+  streamError,
+} from "./sse";
 
 test("parses events split across network chunks", () => {
   const parser = new SseParser();
@@ -36,4 +41,44 @@ test("returns only incremental AgentScope text", () => {
       output: [{ content: [{ text: "complete answer" }] }],
     }),
   }), "");
+});
+
+test("classifies content deltas from their message envelope", () => {
+  const classifier = new StreamEventClassifier();
+  assert.deepEqual(classifier.consume({ data: JSON.stringify({
+    object: "message",
+    id: "reasoning-1",
+    type: "reasoning",
+    content: [{ type: "text", text: "first", delta: true }],
+  }) }), {
+    messageId: "reasoning-1",
+    kind: "reasoning",
+    text: "first",
+  });
+  assert.deepEqual(classifier.consume({ data: JSON.stringify({
+    object: "content",
+    msg_id: "reasoning-1",
+    delta: true,
+    text: "hidden",
+  }) }), {
+    messageId: "reasoning-1",
+    kind: "reasoning",
+    text: "hidden",
+  });
+});
+
+test("surfaces structured errors carried by a successful SSE response", () => {
+  assert.equal(streamError({
+    data: JSON.stringify({ error: "Provider is not configured" }),
+  }), "Provider is not configured");
+  assert.equal(streamError({
+    data: JSON.stringify({ object: "content", text: "ok" }),
+  }), null);
+  assert.equal(streamError({
+    data: JSON.stringify({
+      object: "response",
+      status: "failed",
+      error: { message: "Unauthorized model" },
+    }),
+  }), "Unauthorized model");
 });
