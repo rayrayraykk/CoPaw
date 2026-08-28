@@ -93,3 +93,22 @@ def test_summarize_runs_ignores_failures() -> None:
             "max": 200.0,
         },
     }
+
+
+def test_parse_args_accepts_repeated_backend_arguments(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "benchmark",
+            "--executable",
+            "python",
+            "--output",
+            "report.json",
+            "--argument=-m",
+            "--argument=qwenpaw.tauri.entry",
+        ],
+    )
+
+    args = getattr(benchmark, "_parse_args")()
+
+    assert args.argument == ["-m", "qwenpaw.tauri.entry"]

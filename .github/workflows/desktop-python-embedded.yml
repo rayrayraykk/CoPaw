@@ -1,0 +1,83 @@
+name: Desktop Python Embedded Runtime Experiment
+
+on:
+  push:
+    branches:
+      - experiment/desktop-embedded-python
+  workflow_dispatch:
+
+jobs:
+  benchmark-embedded-python:
+    name: benchmark-embedded-python-${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows
+            runner: windows-latest
+            python: python/python.exe
+          - platform: macos
+            runner: macos-14
+            python: python/bin/python3
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up build Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.17"
+          enable-cache: true
+
+      - name: Stage standalone CPython
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python scripts/pack-tauri/stage_python_runtime.py \
+            --dest console/src-tauri/binaries/python-runtime
+
+      - name: Install QwenPaw into standalone CPython
+        shell: bash
+        run: |
+          RUNTIME="console/src-tauri/binaries/python-runtime/${{ matrix.python }}"
+          uv pip install --python "${RUNTIME}" ".[full]" "setuptools<82"
+          uv pip uninstall --python "${RUNTIME}" acp || true
+          uv pip install --python "${RUNTIME}" \
+            "agent-client-protocol>=0.9.0,<0.11.0"
+          "${RUNTIME}" -c \
+            "import qwenpaw.app._app; import qwenpaw.tauri.entry"
+          mkdir -p dist
+          "${RUNTIME}" -m pip freeze > \
+            "dist/embedded-python-packages-${{ matrix.platform }}.txt"
+
+      - name: Benchmark direct CPython backend startup
+        shell: bash
+        run: |
+          python scripts/benchmarks/desktop_startup/run_backend_benchmark.py \
+            --executable "console/src-tauri/binaries/python-runtime/${{ matrix.python }}" \
+            --argument=-m \
+            --argument=qwenpaw.tauri.entry \
+            --runs 10 \
+            --warmup-runs 1 \
+            --timeout 60 \
+            --output "dist/startup-benchmark-embedded-${{ matrix.platform }}.json"
+
+      - name: Upload embedded Python benchmark
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-startup-embedded-${{ matrix.platform }}-${{ github.sha }}
+          path: |
+            dist/startup-benchmark-embedded-${{ matrix.platform }}.json
+            dist/embedded-python-packages-${{ matrix.platform }}.txt
+          if-no-files-found: warn
+          retention-days: 14

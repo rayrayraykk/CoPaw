@@ -101,6 +101,19 @@ in an application archive. Native extensions remain filesystem resources. It
 must preserve `sys.executable`, multiprocessing, plugin dependency paths, and
 the Tauri sidecar contract.
 
+The first CI gate runs the application directly from the same relocatable
+python-build-standalone CPython distribution already shipped for desktop
+plugin dependencies. It installs the unchanged full QwenPaw package into that
+runtime and invokes `python -m qwenpaw.tauri.entry`, using the same structured
+milestones and ten-sample benchmark. This isolates the cost of CPython plus
+normal imports from PyInstaller and Nuitka bootloaders.
+
+This gate does not yet add the final native executable shim required by the
+Tauri `qwenpaw-backend` path contract. If direct CPython is competitive, the
+next gate will add the thin native launcher, bytecode archive layout, complete
+Tauri verification, and signing checks. If it is already slower, that
+integration work has no expected startup payoff.
+
 ## Local and CI responsibilities
 
 Local work is limited to source changes, import profiling, unit tests, type

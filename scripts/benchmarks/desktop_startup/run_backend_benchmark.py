@@ -14,7 +14,7 @@ import subprocess
 import tempfile
 import threading
 import time
-from typing import Any, TextIO
+from typing import Any, Sequence, TextIO
 import urllib.error
 import urllib.request
 from uuid import uuid4
@@ -144,6 +144,7 @@ def run_once(
     working_dir: Path,
     target_event: str,
     timeout_seconds: float,
+    arguments: Sequence[str] = (),
 ) -> dict[str, Any]:
     """Launch the backend once and wait for the requested startup event."""
     shutdown_token = uuid4().hex
@@ -164,7 +165,7 @@ def run_once(
         creation_flags = subprocess.CREATE_NO_WINDOW
     started_ns = time.perf_counter_ns()
     process = subprocess.Popen(  # pylint: disable=consider-using-with
-        [str(executable)],
+        [str(executable), *arguments],
         cwd=str(executable.parent),
         env=environment,
         stdout=subprocess.PIPE,
@@ -264,6 +265,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--warmup-runs", type=int, default=1)
     parser.add_argument("--timeout", type=float, default=120.0)
     parser.add_argument(
+        "--argument",
+        action="append",
+        default=[],
+        help="Argument passed to the backend executable; may be repeated",
+    )
+    parser.add_argument(
         "--target-event",
         default="default_agent_ready",
     )
@@ -291,6 +298,7 @@ def main() -> int:
                 working_dir,
                 args.target_event,
                 args.timeout,
+                args.argument,
             )
             for _ in range(args.warmup_runs)
         ]
@@ -300,6 +308,7 @@ def main() -> int:
                 working_dir,
                 args.target_event,
                 args.timeout,
+                args.argument,
             )
             for _ in range(args.runs)
         ]
@@ -307,6 +316,7 @@ def main() -> int:
     report = {
         "schema_version": 1,
         "executable": str(executable),
+        "arguments": args.argument,
         "platform": os.name,
         "target_event": args.target_event,
         "warmups": warmups,
