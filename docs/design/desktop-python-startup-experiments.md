@@ -76,6 +76,27 @@ GitHub-hosted runners provide useful relative comparisons, not a consumer
 hardware guarantee. A final Windows target must also be verified on a stable
 reference machine with Microsoft Defender enabled.
 
+## PyInstaller baseline
+
+CI run [33151097882](https://github.com/rayrayraykk/CoPaw/actions/runs/33151097882)
+produced ten successful startup samples per platform:
+
+| Platform | Wall P50 | Wall P95 | Python P50 | Python P95 |
+| --- | ---: | ---: | ---: | ---: |
+| macOS 14 arm64 | 4704 ms | 5611 ms | 4342 ms | 5171 ms |
+| Windows latest x64 | 9470 ms | 15239 ms | 8925 ms | 14679 ms |
+
+The P50 milestone split was:
+
+| Platform | FastAPI import | Core ready | Default agent ready |
+| --- | ---: | ---: | ---: |
+| macOS 14 arm64 | 1820 ms | 2232 ms | 4342 ms |
+| Windows latest x64 | 3877 ms | 4364 ms | 8925 ms |
+
+Windows direct CPython measured 9635 ms P50 in the independent embedded
+runtime experiment, effectively matching PyInstaller within runner noise.
+This rules out the PyInstaller bootloader as the dominant Windows bottleneck.
+
 ## Experiment boundaries
 
 ### Import graph
@@ -120,8 +141,8 @@ a pull request without separate approval.
 - [x] Add Windows and macOS benchmark artifact collection to CI.
 - [x] Run local lightweight validation.
 - [x] Push the benchmark branch to `origin`.
-- [ ] Run the PyInstaller baseline workflow.
-- [ ] Analyze and record baseline artifacts.
+- [x] Run the PyInstaller baseline workflow.
+- [x] Analyze and record baseline artifacts.
 - [ ] Create and run the import experiment.
 - [ ] Create and run the Nuitka experiment.
 - [ ] Create and run the embedded CPython experiment.
