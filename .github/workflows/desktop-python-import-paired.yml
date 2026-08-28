@@ -1,6 +1,11 @@
 name: Desktop Python Import Paired Benchmark
 
 on:
+  push:
+    branches:
+      - perf/desktop-python-benchmark
+    paths:
+      - .github/workflows/desktop-python-import-paired.yml
   workflow_dispatch:
     inputs:
       baseline_ref:
@@ -31,14 +36,14 @@ jobs:
       - name: Checkout baseline
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.baseline_ref }}
+          ref: ${{ inputs.baseline_ref || '32baca295a91e75ce9b82c233887490ffca1dd70' }}
           path: baseline
           submodules: recursive
 
       - name: Checkout import candidate
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.candidate_ref }}
+          ref: ${{ inputs.candidate_ref || 'be2ceab36f856f87ee0c048173151755192508cc' }}
           path: candidate
           submodules: recursive
 
