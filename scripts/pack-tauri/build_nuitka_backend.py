@@ -14,7 +14,10 @@ from typing import Sequence
 
 
 _DYNAMIC_PACKAGES = (
-    "qwenpaw",
+    "qwenpaw.agents.acp",
+    "qwenpaw.app.channels",
+    "qwenpaw.backup",
+    "qwenpaw.pawapp",
     "qwenpawmail_mcp",
 )
 
