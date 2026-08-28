@@ -135,6 +135,13 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     app: FastAPI,
 ):
     startup_start_time = time.time()
+    desktop_startup_metric = getattr(
+        app.state,
+        "desktop_startup_metric",
+        None,
+    )
+    if desktop_startup_metric is not None:
+        desktop_startup_metric("lifespan_started")
     add_project_file_handler(LOG_FILE_PATH)
 
     # ================================================================
@@ -363,6 +370,11 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     logger.info(
         f"Server ready in {fast_elapsed:.3f}s (agents loading in background)",
     )
+    if desktop_startup_metric is not None:
+        desktop_startup_metric(
+            "core_ready",
+            lifespan_elapsed_ms=round(fast_elapsed * 1000, 3),
+        )
 
     # ================================================================
     # Background heavy initialization
@@ -416,6 +428,14 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 core_elapsed = time.time() - startup_start_time
                 startup_display.mark_core_ready(core_elapsed)
                 app.state.startup_ready.set()
+                if desktop_startup_metric is not None:
+                    desktop_startup_metric(
+                        "default_agent_ready",
+                        lifespan_elapsed_ms=round(
+                            core_elapsed * 1000,
+                            3,
+                        ),
+                    )
 
             startup_results = (
                 await workspace_registry.start_all_configured_agents(
