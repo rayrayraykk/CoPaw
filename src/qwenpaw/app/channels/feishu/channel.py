@@ -2663,11 +2663,10 @@ class FeishuChannel(BaseChannel):
                                     "feishu ws disconnect failed",
                                     exc_info=True,
                                 )
-                        pending = [
-                            t
-                            for t in asyncio.all_tasks(self._ws_loop)
-                            if not t.done()
-                        ]
+                        pending = []
+                        for task in asyncio.all_tasks(self._ws_loop):
+                            if not task.done():
+                                pending.append(task)
                         for task in pending:
                             task.cancel()
                         if pending:
