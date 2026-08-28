@@ -40,12 +40,8 @@ def test_build_command_uses_standalone_mode(tmp_path, monkeypatch) -> None:
     )
 
     assert "--mode=standalone" in command
-    assert "--include-package=qwenpaw.app.channels" in command
-    assert "--include-package=qwenpaw.agents.acp" in command
-    assert "--include-package=qwenpaw.backup" in command
-    assert "--include-package=qwenpaw.pawapp" in command
+    assert "--include-package=qwenpaw" in command
     assert "--include-package=qwenpawmail_mcp" in command
-    assert "--include-package=qwenpaw" not in command
     assert "--include-distribution-metadata=qwenpaw" in command
     assert "--include-distribution-metadata=agentscope" not in command
     assert (
