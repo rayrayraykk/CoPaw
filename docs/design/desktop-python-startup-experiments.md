@@ -99,6 +99,21 @@ The cumulative import metric isolates import execution. The process wall time
 also includes interpreter shutdown and registered exit handlers, so the
 packaged `default_agent_ready` CI result remains the decision metric.
 
+A second local source-process probe exercised the complete desktop entry point
+with a temporary initialized working directory and five measured launches:
+
+| P50 milestone | Baseline | Import experiment | Change |
+| --- | ---: | ---: | ---: |
+| FastAPI import duration | 2700 ms | 1487 ms | -44.9% |
+| Core ready | 3075 ms | 1655 ms | -46.2% |
+| Default agent ready | 6322 ms | 3166 ms | -49.9% |
+| External wall time | 6710 ms | 3364 ms | -49.9% |
+
+This confirms that the lazy provider boundary also removes work from agent
+construction, rather than merely moving every import later in the same
+startup. It still does not meet the one-second target, so further work must
+address configured-agent initialization after the packaging comparison.
+
 ### Nuitka
 
 The Nuitka experiment changes packaging only. It must preserve dynamic plugin
