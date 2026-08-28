@@ -8,6 +8,7 @@ import importlib.util
 import shutil
 import subprocess
 import sys
+from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 from typing import Sequence
 
@@ -51,6 +52,15 @@ _METADATA_PACKAGES = (
 )
 
 
+def _distribution_is_installed(distribution_name: str) -> bool:
+    """Return whether optional runtime metadata exists in the build env."""
+    try:
+        distribution(distribution_name)
+    except PackageNotFoundError:
+        return False
+    return True
+
+
 def build_command(
     python_executable: Path,
     repo_root: Path,
@@ -82,9 +92,10 @@ def build_command(
     for package_name in _DATA_PACKAGES:
         command.append(f"--include-package-data={package_name}")
     for package_name in _METADATA_PACKAGES:
-        command.append(
-            f"--include-distribution-metadata={package_name}",
-        )
+        if _distribution_is_installed(package_name):
+            command.append(
+                f"--include-distribution-metadata={package_name}",
+            )
     command.append(str(repo_root / "src" / "qwenpaw" / "tauri" / "entry.py"))
     return command
 

@@ -24,9 +24,14 @@ _MODULE = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(_MODULE)
 
 
-def test_build_command_uses_standalone_mode(tmp_path) -> None:
+def test_build_command_uses_standalone_mode(tmp_path, monkeypatch) -> None:
     repo_root = tmp_path / "repo"
     output_root = tmp_path / "output"
+    monkeypatch.setattr(
+        _MODULE,
+        "_distribution_is_installed",
+        lambda name: name == "qwenpaw",
+    )
 
     command = _MODULE.build_command(
         Path(sys.executable),
@@ -37,6 +42,8 @@ def test_build_command_uses_standalone_mode(tmp_path) -> None:
     assert "--mode=standalone" in command
     assert "--include-package=qwenpaw" in command
     assert "--include-package=qwenpawmail_mcp" in command
+    assert "--include-distribution-metadata=qwenpaw" in command
+    assert "--include-distribution-metadata=agentscope" not in command
     assert (
         f"--include-data-dir={repo_root / 'console' / 'dist'}="
         "qwenpaw/console"
