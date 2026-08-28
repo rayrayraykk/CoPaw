@@ -47,6 +47,8 @@ jobs:
       - name: Build console assets
         working-directory: console
         shell: bash
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
         run: |
           npm ci
           npm run build:prod
