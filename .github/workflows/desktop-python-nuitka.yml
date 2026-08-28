@@ -1,0 +1,95 @@
+name: Desktop Python Nuitka Experiment
+
+on:
+  push:
+    branches:
+      - experiment/desktop-nuitka
+  workflow_dispatch:
+
+jobs:
+  benchmark-nuitka:
+    name: benchmark-nuitka-${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows
+            runner: windows-latest
+            executable: qwenpaw-backend.exe
+          - platform: macos
+            runner: macos-14
+            executable: qwenpaw-backend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.17"
+          enable-cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: console/package-lock.json
+
+      - name: Build console assets
+        working-directory: console
+        shell: bash
+        run: |
+          npm ci
+          npm run build:prod
+
+      - name: Install Python build environment
+        shell: bash
+        run: |
+          uv venv .venv --python 3.12
+          uv pip install --python .venv -e ".[full]" "setuptools<82"
+          uv pip install --python .venv "Nuitka>=2.8,<5"
+          uv pip uninstall --python .venv acp || true
+          uv pip install --python .venv "agent-client-protocol>=0.9.0,<0.11.0"
+
+      - name: Build standalone backend with Nuitka
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            PYTHON_BIN=".venv/Scripts/python.exe"
+          else
+            PYTHON_BIN=".venv/bin/python"
+          fi
+          "${PYTHON_BIN}" scripts/pack-tauri/build_nuitka_backend.py \
+            --repo-root . \
+            --output-root dist/nuitka \
+            --destination console/src-tauri/binaries/qwenpaw-backend
+
+      - name: Benchmark packaged backend startup
+        shell: bash
+        run: |
+          python scripts/benchmarks/desktop_startup/run_backend_benchmark.py \
+            --executable "console/src-tauri/binaries/qwenpaw-backend/${{ matrix.executable }}" \
+            --runs 10 \
+            --warmup-runs 1 \
+            --timeout 60 \
+            --output "dist/startup-benchmark-nuitka-${{ matrix.platform }}.json"
+
+      - name: Upload Nuitka benchmark and report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-startup-nuitka-${{ matrix.platform }}-${{ github.sha }}
+          path: |
+            dist/startup-benchmark-nuitka-${{ matrix.platform }}.json
+            dist/nuitka/nuitka-compilation-report.xml
+          if-no-files-found: warn
+          retention-days: 14

@@ -94,6 +94,19 @@ The Nuitka experiment changes packaging only. It must preserve dynamic plugin
 imports, subprocess behavior, bundled Python behavior for plugin dependencies,
 certificates, package data, and the Tauri sidecar contract.
 
+The first CI gate compiles the backend in standalone mode, stages it at the
+existing Tauri sidecar resource path, checks required console and provider
+data, copies the Qoder and Codex SDK executables, and runs the same ten-sample
+backend benchmark. It intentionally does not build the installer or companion
+CLI yet. A result that does not beat PyInstaller stops here; a faster result
+must pass the complete Tauri, CLI, plugin-runtime, and signing workflow before
+it can be selected.
+
+This follows Nuitka's [standalone guidance](https://nuitka.net/user-documentation/use-cases.html)
+and [data-file rules](https://nuitka.net/user-documentation/user-manual.html#data-files):
+imports are followed by default, package data must be requested explicitly,
+and SDK-owned executables must be treated separately from Python data files.
+
 ### Embedded CPython
 
 The embedded experiment changes packaging only. Pure Python bytecode may live
