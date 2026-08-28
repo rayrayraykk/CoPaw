@@ -1,4 +1,4 @@
-name: Desktop Python Import Paired Benchmark
+name: Desktop Python Import Reverse Paired Benchmark
 
 on:
   push:
@@ -94,22 +94,6 @@ jobs:
           fi
 
           mkdir -p "${RUNNER_TEMP}/paired-results"
-          (
-            cd baseline
-            "${python_path}" -m PyInstaller \
-              scripts/pack-tauri/qwenpaw.spec \
-              --distpath "${RUNNER_TEMP}/baseline-dist" \
-              --workpath "${RUNNER_TEMP}/baseline-work" \
-              --clean --noconfirm
-          )
-          "${python_path}" \
-            baseline/scripts/benchmarks/desktop_startup/run_backend_benchmark.py \
-            --executable \
-            "${RUNNER_TEMP}/baseline-dist/qwenpaw-backend/qwenpaw-backend" \
-            --runs 10 --warmup-runs 1 --timeout 60 \
-            --output \
-            "${RUNNER_TEMP}/paired-results/baseline-macos.json"
-
           uv pip install --python "${python_path}" -e "./candidate[full]"
           (
             cd candidate
@@ -126,6 +110,23 @@ jobs:
             --runs 10 --warmup-runs 1 --timeout 60 \
             --output \
             "${RUNNER_TEMP}/paired-results/candidate-macos.json"
+
+          uv pip install --python "${python_path}" -e "./baseline[full]"
+          (
+            cd baseline
+            "${python_path}" -m PyInstaller \
+              scripts/pack-tauri/qwenpaw.spec \
+              --distpath "${RUNNER_TEMP}/baseline-dist" \
+              --workpath "${RUNNER_TEMP}/baseline-work" \
+              --clean --noconfirm
+          )
+          "${python_path}" \
+            baseline/scripts/benchmarks/desktop_startup/run_backend_benchmark.py \
+            --executable \
+            "${RUNNER_TEMP}/baseline-dist/qwenpaw-backend/qwenpaw-backend" \
+            --runs 10 --warmup-runs 1 --timeout 60 \
+            --output \
+            "${RUNNER_TEMP}/paired-results/baseline-macos.json"
 
       - name: Build and benchmark both backends (Windows)
         if: runner.os == 'Windows'
@@ -147,29 +148,6 @@ jobs:
           }
 
           New-Item -ItemType Directory -Force -Path $results | Out-Null
-          Push-Location baseline
-          try {
-            & $python -m PyInstaller scripts\pack-tauri\qwenpaw.spec `
-              --distpath (Join-Path $env:RUNNER_TEMP "baseline-dist") `
-              --workpath (Join-Path $env:RUNNER_TEMP "baseline-work") `
-              --clean --noconfirm
-            if ($LASTEXITCODE -ne 0) {
-              throw "Baseline PyInstaller build failed"
-            }
-          } finally {
-            Pop-Location
-          }
-          & $python `
-            baseline\scripts\benchmarks\desktop_startup\run_backend_benchmark.py `
-            --executable `
-            (Join-Path $env:RUNNER_TEMP `
-              "baseline-dist\qwenpaw-backend\qwenpaw-backend.exe") `
-            --runs 10 --warmup-runs 1 --timeout 60 `
-            --output (Join-Path $results "baseline-windows.json")
-          if ($LASTEXITCODE -ne 0) {
-            throw "Baseline startup benchmark failed"
-          }
-
           uv pip install --python $python -e ".\candidate[full]"
           Push-Location candidate
           try {
@@ -192,6 +170,30 @@ jobs:
             --output (Join-Path $results "candidate-windows.json")
           if ($LASTEXITCODE -ne 0) {
             throw "Candidate startup benchmark failed"
+          }
+
+          uv pip install --python $python -e ".\baseline[full]"
+          Push-Location baseline
+          try {
+            & $python -m PyInstaller scripts\pack-tauri\qwenpaw.spec `
+              --distpath (Join-Path $env:RUNNER_TEMP "baseline-dist") `
+              --workpath (Join-Path $env:RUNNER_TEMP "baseline-work") `
+              --clean --noconfirm
+            if ($LASTEXITCODE -ne 0) {
+              throw "Baseline PyInstaller build failed"
+            }
+          } finally {
+            Pop-Location
+          }
+          & $python `
+            baseline\scripts\benchmarks\desktop_startup\run_backend_benchmark.py `
+            --executable `
+            (Join-Path $env:RUNNER_TEMP `
+              "baseline-dist\qwenpaw-backend\qwenpaw-backend.exe") `
+            --runs 10 --warmup-runs 1 --timeout 60 `
+            --output (Join-Path $results "baseline-windows.json")
+          if ($LASTEXITCODE -ne 0) {
+            throw "Baseline startup benchmark failed"
           }
 
       - name: Upload paired benchmark
