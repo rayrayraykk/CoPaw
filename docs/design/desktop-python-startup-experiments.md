@@ -119,7 +119,7 @@ a pull request without separate approval.
 - [x] Add unit tests for metrics and benchmark aggregation.
 - [x] Add Windows and macOS benchmark artifact collection to CI.
 - [x] Run local lightweight validation.
-- [ ] Push the benchmark branch to `origin`.
+- [x] Push the benchmark branch to `origin`.
 - [ ] Run the PyInstaller baseline workflow.
 - [ ] Analyze and record baseline artifacts.
 - [ ] Create and run the import experiment.
