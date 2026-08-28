@@ -88,6 +88,17 @@ Primary candidates identified by the initial profile are local-model imports,
 provider SDK imports, provider catalog construction, router imports, browser
 runtime imports, and package-level re-exports.
 
+The local import probe on the `QwenPaw` Conda environment showed:
+
+| Measurement | Baseline | Import experiment | Change |
+| --- | ---: | ---: | ---: |
+| `_app` cumulative import time | 3103 ms | 457 ms | -85.3% |
+| Five-process wall-time P50 | 2430 ms | 2050 ms | -15.6% |
+
+The cumulative import metric isolates import execution. The process wall time
+also includes interpreter shutdown and registered exit handlers, so the
+packaged `default_agent_ready` CI result remains the decision metric.
+
 ### Nuitka
 
 The Nuitka experiment changes packaging only. It must preserve dynamic plugin
