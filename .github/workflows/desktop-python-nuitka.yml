@@ -17,10 +17,8 @@ jobs:
         include:
           - platform: windows
             runner: windows-latest
-            executable: qwenpaw-backend.exe
           - platform: macos
             runner: macos-14
-            executable: qwenpaw-backend
 
     steps:
       - name: Checkout
@@ -62,7 +60,7 @@ jobs:
           uv pip uninstall --python .venv acp || true
           uv pip install --python .venv "agent-client-protocol>=0.9.0,<0.11.0"
 
-      - name: Build standalone backend with Nuitka
+      - name: Build backend and CLI with Nuitka multidist
         shell: bash
         run: |
           if [ "${{ runner.os }}" = "Windows" ]; then
@@ -78,12 +76,19 @@ jobs:
       - name: Benchmark packaged backend startup
         shell: bash
         run: |
+          BACKEND=$(python -c "import json; print(json.load(open('dist/nuitka/staged-bundle.json', encoding='utf-8'))['backend'])")
           python scripts/benchmarks/desktop_startup/run_backend_benchmark.py \
-            --executable "console/src-tauri/binaries/qwenpaw-backend/${{ matrix.executable }}" \
+            --executable "${BACKEND}" \
             --runs 10 \
             --warmup-runs 1 \
             --timeout 60 \
             --output "dist/startup-benchmark-nuitka-${{ matrix.platform }}.json"
+
+      - name: Validate packaged CLI
+        shell: bash
+        run: |
+          CLI=$(python -c "import json; print(json.load(open('dist/nuitka/staged-bundle.json', encoding='utf-8'))['cli'])")
+          "${CLI}" --help
 
       - name: Upload Nuitka benchmark and report
         if: always()
@@ -93,5 +98,6 @@ jobs:
           path: |
             dist/startup-benchmark-nuitka-${{ matrix.platform }}.json
             dist/nuitka/nuitka-compilation-report.xml
+            dist/nuitka/staged-bundle.json
           if-no-files-found: warn
           retention-days: 14

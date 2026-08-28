@@ -7,7 +7,7 @@ the default agent becoming ready. The experiments compare three independent
 approaches before any larger desktop architecture change:
 
 1. Reduce the Python import graph while retaining PyInstaller onedir.
-2. Compile the unchanged application with Nuitka standalone.
+2. Compile the unchanged application with Nuitka multidist.
 3. Run the unchanged application with an embedded CPython distribution.
 
 The target is `process start -> default_agent_ready` at or below 1000 ms. A
@@ -94,15 +94,21 @@ The Nuitka experiment changes packaging only. It must preserve dynamic plugin
 imports, subprocess behavior, bundled Python behavior for plugin dependencies,
 certificates, package data, and the Tauri sidecar contract.
 
-The first CI gate compiles the backend in standalone mode, stages it at the
-existing Tauri sidecar resource path, checks required console and provider
-data, copies the Qoder and Codex SDK executables, and runs the same ten-sample
-backend benchmark. It intentionally does not build the installer or companion
-CLI yet. A result that does not beat PyInstaller stops here; a faster result
-must pass the complete Tauri, CLI, plugin-runtime, and signing workflow before
-it can be selected.
+The CI gate compiles the desktop backend and the existing `qwenpaw` CLI as a
+single Nuitka multidist bundle. Windows uses standalone mode. macOS uses app
+mode because the complete CLI dependency graph reaches PyObjC/Foundation.
+The two entry points share packaged modules but dispatch independently from
+their executable names. The gate stages both executables at the experimental
+Tauri resource path, checks required console and provider data, copies the
+Qoder and Codex SDK executables, runs the same ten-sample backend benchmark,
+and executes `qwenpaw --help`.
 
-This follows Nuitka's [standalone guidance](https://nuitka.net/user-documentation/use-cases.html)
+The CLI is part of the product contract, not an optional follow-up. A build
+that excludes `qwenpaw.cli`, fails CLI validation, or does not beat PyInstaller
+stops here. A faster valid result must still pass the complete Tauri,
+plugin-runtime, and signing workflow before it can be selected.
+
+This follows Nuitka's [multidist guidance](https://nuitka.net/user-documentation/use-cases.html#multidist)
 and [data-file rules](https://nuitka.net/user-documentation/user-manual.html#data-files):
 imports are followed by default, package data must be requested explicitly,
 and SDK-owned executables must be treated separately from Python data files.
@@ -133,10 +139,11 @@ a pull request without separate approval.
 - [x] Add Windows and macOS benchmark artifact collection to CI.
 - [x] Run local lightweight validation.
 - [x] Push the benchmark branch to `origin`.
-- [ ] Run the PyInstaller baseline workflow.
-- [ ] Analyze and record baseline artifacts.
-- [ ] Create and run the import experiment.
-- [ ] Create and run the Nuitka experiment.
-- [ ] Create and run the embedded CPython experiment.
+- [x] Run the PyInstaller baseline workflow.
+- [x] Analyze and record baseline artifacts.
+- [x] Create and run the import experiment.
+- [ ] Run reverse-order paired import validation.
+- [ ] Run the full backend and CLI Nuitka experiment.
+- [x] Create and run the embedded CPython experiment.
 - [ ] Compare all independent results.
 - [ ] Combine the winning packaging approach with import optimization.

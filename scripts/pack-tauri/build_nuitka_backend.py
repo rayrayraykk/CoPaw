@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import json
 import shutil
 import subprocess
 import sys
@@ -66,13 +67,14 @@ def build_command(
     repo_root: Path,
     output_root: Path,
 ) -> list[str]:
-    """Return the standalone Nuitka command for the desktop backend."""
+    """Return the Nuitka command for the backend and CLI multidist."""
     report_path = output_root / "nuitka-compilation-report.xml"
+    mode = "app" if sys.platform == "darwin" else "standalone"
     command = [
         str(python_executable),
         "-m",
         "nuitka",
-        "--mode=standalone",
+        f"--mode={mode}",
         "--assume-yes-for-downloads",
         "--remove-output",
         "--jobs=2",
@@ -96,19 +98,48 @@ def build_command(
             command.append(
                 f"--include-distribution-metadata={package_name}",
             )
-    command.append(str(repo_root / "src" / "qwenpaw" / "tauri" / "entry.py"))
+    entries_dir = repo_root / "scripts" / "pack-tauri" / "nuitka_entries"
+    command.extend(
+        (
+            f"--main={entries_dir / 'qwenpaw-backend.py'}",
+            f"--main={entries_dir / 'qwenpaw.py'}",
+        ),
+    )
     return command
 
 
-def find_standalone_dir(output_root: Path) -> Path:
-    """Return the single standalone directory produced by Nuitka."""
-    candidates = sorted(output_root.glob("*.dist"))
+def find_bundle_dir(output_root: Path) -> Path:
+    """Return the single platform bundle produced by Nuitka."""
+    pattern = "*.app" if sys.platform == "darwin" else "*.dist"
+    candidates = sorted(output_root.glob(pattern))
     if len(candidates) != 1:
         rendered = ", ".join(str(path) for path in candidates)
         raise RuntimeError(
-            f"Expected one Nuitka standalone directory, found: {rendered}",
+            f"Expected one Nuitka {pattern} bundle, found: {rendered}",
         )
     return candidates[0]
+
+
+def bundle_content_dir(bundle_dir: Path) -> Path:
+    """Return the directory containing executables and packaged modules."""
+    if bundle_dir.suffix == ".app":
+        return bundle_dir / "Contents" / "MacOS"
+    return bundle_dir
+
+
+def ensure_multidist_entrypoints(content_dir: Path) -> tuple[Path, Path]:
+    """Create the CLI alias used by Nuitka multidist dispatch."""
+    suffix = ".exe" if sys.platform == "win32" else ""
+    backend = content_dir / f"qwenpaw-backend{suffix}"
+    cli = content_dir / f"qwenpaw{suffix}"
+    if not backend.is_file():
+        raise RuntimeError(f"Nuitka backend executable is missing: {backend}")
+    if not cli.exists():
+        shutil.copy2(backend, cli)
+    if sys.platform != "win32":
+        for executable in (backend, cli):
+            executable.chmod(executable.stat().st_mode | 0o111)
+    return backend, cli
 
 
 def _package_dir(package_name: str) -> Path:
@@ -143,24 +174,47 @@ def stage_external_tools(bundle_dir: Path) -> None:
     )
 
 
-def stage_bundle(bundle_dir: Path, destination: Path) -> None:
-    """Stage the Nuitka directory under the existing Tauri resource path."""
+def stage_bundle(
+    bundle_dir: Path,
+    destination: Path,
+) -> tuple[Path, Path]:
+    """Stage the Nuitka bundle and return both executable paths."""
     if destination.exists():
         shutil.rmtree(destination)
-    shutil.copytree(bundle_dir, destination)
-    executable_name = (
-        "qwenpaw-backend.exe" if sys.platform == "win32" else "qwenpaw-backend"
+    if bundle_dir.suffix == ".app":
+        staged_bundle = destination / bundle_dir.name
+        destination.mkdir(parents=True)
+        shutil.copytree(bundle_dir, staged_bundle)
+    else:
+        staged_bundle = destination
+        shutil.copytree(bundle_dir, staged_bundle)
+    content_dir = bundle_content_dir(staged_bundle)
+    backend, cli = ensure_multidist_entrypoints(content_dir)
+    required_names = ("model_catalog.json", "index.html")
+    for required_name in required_names:
+        if not any(destination.rglob(required_name)):
+            raise RuntimeError(
+                f"Nuitka output is missing required data: {required_name}",
+            )
+    return backend, cli
+
+
+def write_manifest(
+    repo_root: Path,
+    output_root: Path,
+    backend: Path,
+    cli: Path,
+) -> None:
+    """Write stable repo-relative executable paths for CI consumers."""
+    payload = {
+        "backend": backend.relative_to(repo_root).as_posix(),
+        "cli": cli.relative_to(repo_root).as_posix(),
+    }
+    manifest_path = output_root / "staged-bundle.json"
+    manifest_path.write_text(
+        f"{json.dumps(payload, indent=2, sort_keys=True)}\n",
+        encoding="utf-8",
     )
-    executable = destination / executable_name
-    model_catalog = (
-        destination / "qwenpaw" / "providers" / "data" / "model_catalog.json"
-    )
-    console_index = destination / "qwenpaw" / "console" / "index.html"
-    for required_path in (executable, model_catalog, console_index):
-        if not required_path.exists():
-            raise RuntimeError(f"Nuitka output is missing: {required_path}")
-    if sys.platform != "win32":
-        executable.chmod(executable.stat().st_mode | 0o111)
 
 
 def build(
@@ -168,7 +222,7 @@ def build(
     output_root: Path,
     destination: Path,
 ) -> None:
-    """Compile, validate, and stage the standalone backend."""
+    """Compile, validate, and stage the backend and CLI multidist."""
     console_index = repo_root / "console" / "dist" / "index.html"
     if not console_index.is_file():
         raise RuntimeError(f"Console build not found: {console_index}")
@@ -179,9 +233,12 @@ def build(
         output_root,
     )
     subprocess.run(command, cwd=repo_root, check=True)
-    bundle_dir = find_standalone_dir(output_root)
-    stage_external_tools(bundle_dir)
-    stage_bundle(bundle_dir, destination)
+    bundle_dir = find_bundle_dir(output_root)
+    content_dir = bundle_content_dir(bundle_dir)
+    ensure_multidist_entrypoints(content_dir)
+    stage_external_tools(content_dir)
+    backend, cli = stage_bundle(bundle_dir, destination)
+    write_manifest(repo_root, output_root, backend, cli)
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
