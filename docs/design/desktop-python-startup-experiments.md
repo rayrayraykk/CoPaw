@@ -144,6 +144,7 @@ a pull request without separate approval.
 - [x] Run the PyInstaller baseline workflow.
 - [x] Analyze and record baseline artifacts.
 - [ ] Create and run the import experiment.
+- [ ] Run baseline and import builds sequentially on the same CI runner.
 - [ ] Create and run the Nuitka experiment.
 - [ ] Create and run the embedded CPython experiment.
 - [ ] Compare all independent results.

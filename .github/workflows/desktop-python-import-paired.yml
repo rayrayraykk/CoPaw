@@ -1,0 +1,199 @@
+name: Desktop Python Import Paired Benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      baseline_ref:
+        description: "Baseline commit or ref"
+        required: true
+        default: "32baca295a91e75ce9b82c233887490ffca1dd70"
+      candidate_ref:
+        description: "Import candidate commit or ref"
+        required: true
+        default: "be2ceab36f856f87ee0c048173151755192508cc"
+
+permissions:
+  contents: read
+
+jobs:
+  paired-benchmark:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            platform: windows
+          - runner: macos-15
+            platform: macos
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    steps:
+      - name: Checkout baseline
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.baseline_ref }}
+          path: baseline
+          submodules: recursive
+
+      - name: Checkout import candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.candidate_ref }}
+          path: candidate
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: baseline/console/package-lock.json
+
+      - name: Build baseline console assets
+        working-directory: baseline/console
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+        run: |
+          npm ci
+          npm run build:prod
+
+      - name: Build candidate console assets
+        working-directory: candidate/console
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+        run: |
+          npm ci
+          npm run build:prod
+
+      - name: Build and benchmark both backends (macOS)
+        if: runner.os == 'macOS'
+        env:
+          QWENPAW_DESKTOP_STARTUP_METRICS: "1"
+        run: |
+          python_path="${RUNNER_TEMP}/paired-venv/bin/python"
+          uv venv "${RUNNER_TEMP}/paired-venv"
+          uv pip install --python "${python_path}" \
+            "pyinstaller>=6.0.0" "setuptools<82" -e "./baseline[full]"
+          if ! "${python_path}" -c "from acp import Agent"; then
+            uv pip uninstall --python "${python_path}" -y acp || true
+            uv pip install --python "${python_path}" \
+              "agent-client-protocol>=0.9.0,<0.11.0"
+          fi
+
+          mkdir -p "${RUNNER_TEMP}/paired-results"
+          (
+            cd baseline
+            "${python_path}" -m PyInstaller \
+              scripts/pack-tauri/qwenpaw.spec \
+              --distpath "${RUNNER_TEMP}/baseline-dist" \
+              --workpath "${RUNNER_TEMP}/baseline-work" \
+              --clean --noconfirm
+          )
+          "${python_path}" \
+            baseline/scripts/benchmarks/desktop_startup/run_backend_benchmark.py \
+            --executable \
+            "${RUNNER_TEMP}/baseline-dist/qwenpaw-backend/qwenpaw-backend" \
+            --runs 10 --warmup-runs 1 --timeout 60 \
+            --output \
+            "${RUNNER_TEMP}/paired-results/baseline-macos.json"
+
+          uv pip install --python "${python_path}" -e "./candidate[full]"
+          (
+            cd candidate
+            "${python_path}" -m PyInstaller \
+              scripts/pack-tauri/qwenpaw.spec \
+              --distpath "${RUNNER_TEMP}/candidate-dist" \
+              --workpath "${RUNNER_TEMP}/candidate-work" \
+              --clean --noconfirm
+          )
+          "${python_path}" \
+            candidate/scripts/benchmarks/desktop_startup/run_backend_benchmark.py \
+            --executable \
+            "${RUNNER_TEMP}/candidate-dist/qwenpaw-backend/qwenpaw-backend" \
+            --runs 10 --warmup-runs 1 --timeout 60 \
+            --output \
+            "${RUNNER_TEMP}/paired-results/candidate-macos.json"
+
+      - name: Build and benchmark both backends (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          QWENPAW_DESKTOP_STARTUP_METRICS: "1"
+        run: |
+          $venv = Join-Path $env:RUNNER_TEMP "paired-venv"
+          $python = Join-Path $venv "Scripts/python.exe"
+          $results = Join-Path $env:RUNNER_TEMP "paired-results"
+          uv venv $venv
+          uv pip install --python $python `
+            "pyinstaller>=6.0.0" "setuptools<82" -e ".\baseline[full]"
+          & $python -c "from acp import Agent"
+          if ($LASTEXITCODE -ne 0) {
+            uv pip uninstall --python $python -y acp
+            uv pip install --python $python `
+              "agent-client-protocol>=0.9.0,<0.11.0"
+          }
+
+          New-Item -ItemType Directory -Force -Path $results | Out-Null
+          Push-Location baseline
+          try {
+            & $python -m PyInstaller scripts\pack-tauri\qwenpaw.spec `
+              --distpath (Join-Path $env:RUNNER_TEMP "baseline-dist") `
+              --workpath (Join-Path $env:RUNNER_TEMP "baseline-work") `
+              --clean --noconfirm
+            if ($LASTEXITCODE -ne 0) {
+              throw "Baseline PyInstaller build failed"
+            }
+          } finally {
+            Pop-Location
+          }
+          & $python `
+            baseline\scripts\benchmarks\desktop_startup\run_backend_benchmark.py `
+            --executable `
+            (Join-Path $env:RUNNER_TEMP `
+              "baseline-dist\qwenpaw-backend\qwenpaw-backend.exe") `
+            --runs 10 --warmup-runs 1 --timeout 60 `
+            --output (Join-Path $results "baseline-windows.json")
+          if ($LASTEXITCODE -ne 0) {
+            throw "Baseline startup benchmark failed"
+          }
+
+          uv pip install --python $python -e ".\candidate[full]"
+          Push-Location candidate
+          try {
+            & $python -m PyInstaller scripts\pack-tauri\qwenpaw.spec `
+              --distpath (Join-Path $env:RUNNER_TEMP "candidate-dist") `
+              --workpath (Join-Path $env:RUNNER_TEMP "candidate-work") `
+              --clean --noconfirm
+            if ($LASTEXITCODE -ne 0) {
+              throw "Candidate PyInstaller build failed"
+            }
+          } finally {
+            Pop-Location
+          }
+          & $python `
+            candidate\scripts\benchmarks\desktop_startup\run_backend_benchmark.py `
+            --executable `
+            (Join-Path $env:RUNNER_TEMP `
+              "candidate-dist\qwenpaw-backend\qwenpaw-backend.exe") `
+            --runs 10 --warmup-runs 1 --timeout 60 `
+            --output (Join-Path $results "candidate-windows.json")
+          if ($LASTEXITCODE -ne 0) {
+            throw "Candidate startup benchmark failed"
+          }
+
+      - name: Upload paired benchmark
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-python-import-paired-${{ matrix.platform }}
+          path: ${{ runner.temp }}/paired-results/*.json
+          if-no-files-found: warn
+          retention-days: 14
