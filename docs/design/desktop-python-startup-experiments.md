@@ -114,6 +114,19 @@ next gate will add the thin native launcher, bytecode archive layout, complete
 Tauri verification, and signing checks. If it is already slower, that
 integration work has no expected startup payoff.
 
+CI run [33152173356](https://github.com/rayrayraykk/CoPaw/actions/runs/33152173356)
+completed with ten successful samples per platform:
+
+| Platform | Wall P50 | Wall P95 | Python P50 | Python P95 |
+| --- | ---: | ---: | ---: | ---: |
+| macOS 14 arm64 | 3716 ms | 3886 ms | 3511 ms | 3676 ms |
+| Windows latest x64 | 9635 ms | 10009 ms | 9144 ms | 9516 ms |
+
+The direct-runtime path is therefore stopped before native-launcher work. On
+Windows, the full FastAPI import alone took about four seconds and configured
+agent startup added roughly another five and a half seconds. Removing a thin
+launcher cannot recover that gap.
+
 ## Local and CI responsibilities
 
 Local work is limited to source changes, import profiling, unit tests, type
@@ -137,6 +150,6 @@ a pull request without separate approval.
 - [ ] Analyze and record baseline artifacts.
 - [ ] Create and run the import experiment.
 - [ ] Create and run the Nuitka experiment.
-- [ ] Create and run the embedded CPython experiment.
+- [x] Create and run the embedded CPython experiment.
 - [ ] Compare all independent results.
 - [ ] Combine the winning packaging approach with import optimization.
