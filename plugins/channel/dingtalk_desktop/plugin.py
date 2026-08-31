@@ -31,25 +31,7 @@ class DingTalkDesktopPlugin:
                     "type": "select",
                     "required": True,
                     "default": "draft",
-                    "options": [
-                        {"label": "Draft", "value": "draft"},
-                        {"label": "Automatic", "value": "automatic"},
-                    ],
-                },
-                {
-                    "name": "allowed_conversations",
-                    "label": {
-                        "zh-CN": "会话白名单",
-                        "en-US": "Conversation Allowlist",
-                    },
-                    "type": "text",
-                    "required": True,
-                    "help": {
-                        "zh-CN": ("多个会话名称使用英文逗号分隔。"),
-                        "en-US": (
-                            "Separate exact conversation names with commas."
-                        ),
-                    },
+                    "options": ["draft", "automatic"],
                 },
                 {
                     "name": "poll_sec",

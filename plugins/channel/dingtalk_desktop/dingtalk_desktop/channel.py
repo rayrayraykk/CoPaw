@@ -42,7 +42,6 @@ class DingTalkDesktopChannel(BaseChannel):
         process: ProcessHandler,
         enabled: bool,
         reply_mode: str,
-        allowed_conversations: list[str],
         poll_sec: float,
         bundle_id: str,
         context_messages: int,
@@ -57,10 +56,11 @@ class DingTalkDesktopChannel(BaseChannel):
             on_reply_sent=on_reply_sent,
             display_config=display_config,
             no_text_debounce=no_text_debounce,
+            access_control_dm=True,
+            access_control_group=False,
         )
         self.enabled = enabled
         self.reply_mode = reply_mode
-        self.allowed_conversations = frozenset(allowed_conversations)
         self.poll_sec = max(0.5, poll_sec)
         self.workspace_dir = workspace_dir
         self.context_messages = max(4, min(context_messages, 30))
@@ -70,6 +70,8 @@ class DingTalkDesktopChannel(BaseChannel):
         self._thread: threading.Thread | None = None
         self._last_database_mtime = 0
         self._last_message_fingerprint = ""
+        self._desktop_ready = False
+        self._desktop_detail = ""
 
     @classmethod
     def from_config(
@@ -82,20 +84,10 @@ class DingTalkDesktopChannel(BaseChannel):
         workspace_dir: Path | None = None,
     ) -> "DingTalkDesktopChannel":
         """Build a channel from a plugin-owned extra config object."""
-        raw_allowlist = getattr(config, "allowed_conversations", "") or ""
-        if isinstance(raw_allowlist, list):
-            allowlist = [str(item).strip() for item in raw_allowlist]
-        else:
-            allowlist = [
-                item.strip()
-                for item in str(raw_allowlist).split(",")
-                if item.strip()
-            ]
         return cls(
             process=process,
             enabled=bool(getattr(config, "enabled", False)),
             reply_mode=str(getattr(config, "reply_mode", "draft")),
-            allowed_conversations=allowlist,
             poll_sec=float(getattr(config, "poll_sec", 1.0)),
             bundle_id=str(
                 getattr(
@@ -188,7 +180,7 @@ class DingTalkDesktopChannel(BaseChannel):
 
     def _observe_once(self, emit: bool) -> None:
         conversation = self.driver.current_conversation()
-        if conversation not in self.allowed_conversations:
+        if not conversation:
             return
         history = self.driver.read_context(
             conversation,
@@ -218,19 +210,43 @@ class DingTalkDesktopChannel(BaseChannel):
             "content_parts": [
                 TextContent(type=ContentType.TEXT, text=message.text),
             ],
-            "meta": {"conversation": conversation},
+            "meta": {
+                "conversation": conversation,
+                "is_group": False,
+                "user_name": conversation,
+            },
             "history": history,
         }
         if self._enqueue is not None:
-            self._enqueue(self.build_agent_request_from_native(native))
+            self._enqueue(native)
+
+    def _refresh_desktop_status(self) -> bool:
+        """Refresh readiness without treating a signed-out app as fatal."""
+        status = self.driver.status()
+        self._desktop_ready = status.logged_in and status.accessibility
+        self._desktop_detail = status.detail
+        return self._desktop_ready
 
     def _watcher_loop(self) -> None:
-        self._last_database_mtime = self._database_mtime()
-        try:
-            self._observe_once(emit=False)
-        except Exception:
-            logger.warning("Initial DingTalk observation failed")
-        while not self._stop_event.wait(self.poll_sec):
+        if self._desktop_ready:
+            self._last_database_mtime = self._database_mtime()
+            try:
+                self._observe_once(emit=False)
+            except Exception:
+                logger.warning("Initial DingTalk observation failed")
+        while not self._stop_event.wait(
+            self.poll_sec if self._desktop_ready else max(5.0, self.poll_sec),
+        ):
+            if not self._desktop_ready:
+                try:
+                    if not self._refresh_desktop_status():
+                        continue
+                    self._last_database_mtime = self._database_mtime()
+                    self._observe_once(emit=False)
+                    logger.info("DingTalk Desktop became ready")
+                except Exception:
+                    logger.warning("DingTalk readiness check failed")
+                continue
             current_mtime = self._database_mtime()
             if current_mtime == self._last_database_mtime:
                 continue
@@ -246,8 +262,13 @@ class DingTalkDesktopChannel(BaseChannel):
         if not self.enabled:
             return
         status = await asyncio.to_thread(self.driver.status)
-        if not status.logged_in or not status.accessibility:
-            raise RuntimeError("DingTalk Desktop is not ready")
+        self._desktop_ready = status.logged_in and status.accessibility
+        self._desktop_detail = status.detail
+        if not self._desktop_ready:
+            logger.warning(
+                "DingTalk Desktop is not ready; watcher will retry: %s",
+                status.detail,
+            )
         self._stop_event.clear()
         self._thread = threading.Thread(
             target=self._watcher_loop,
@@ -271,7 +292,12 @@ class DingTalkDesktopChannel(BaseChannel):
     ) -> None:
         """Create a draft by default or send after explicit opt-in."""
         del meta
-        if not self.enabled or to_handle not in self.allowed_conversations:
+        if not self.enabled:
+            return
+        if not self._get_acl_store().is_whitelisted(
+            self.channel,
+            to_handle,
+        ):
             return
         if file_path:
             raise RuntimeError("DingTalk Desktop attachments are unsupported")
@@ -288,6 +314,8 @@ class DingTalkDesktopChannel(BaseChannel):
     async def health_check(self) -> dict[str, Any]:
         """Return runtime and watcher health without exposing chat content."""
         status = await asyncio.to_thread(self.driver.status)
+        self._desktop_ready = status.logged_in and status.accessibility
+        self._desktop_detail = status.detail
         running = self._thread is not None and self._thread.is_alive()
         healthy = status.logged_in and status.accessibility and running
         return {

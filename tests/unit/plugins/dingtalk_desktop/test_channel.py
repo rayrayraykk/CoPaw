@@ -4,22 +4,37 @@
 
 from __future__ import annotations
 
+import threading
 from types import SimpleNamespace
 
 import pytest
 
 from dingtalk_desktop.channel import DingTalkDesktopChannel
-from dingtalk_desktop.models import DialogueMessage
+from dingtalk_desktop.models import DesktopStatus, DialogueMessage
 from dingtalk_desktop.state import DraftStore
+from qwenpaw.app.channels.access_control import AccessControlStore
 
 
 class FakeDriver:
     """Minimal semantic driver used by channel tests."""
 
-    def __init__(self, conversation="allowed", message=None):
+    def __init__(self, conversation="allowed", message=None, ready=True):
         self.conversation = conversation
         self.message = message
         self.sent = []
+        self.ready = ready
+
+    def status(self):
+        """Return configurable desktop readiness."""
+        return DesktopStatus(
+            supported=True,
+            installed=True,
+            running=self.ready,
+            accessibility=self.ready,
+            logged_in=self.ready,
+            bundle_id="bundle",
+            detail="ready" if self.ready else "open DingTalk",
+        )
 
     def current_conversation(self):
         """Return the currently visible title."""
@@ -47,16 +62,29 @@ def bare_channel(tmp_path, driver):
     channel.channel = "dingtalk_desktop"
     channel.enabled = True
     channel.reply_mode = "draft"
-    channel.allowed_conversations = frozenset({"allowed"})
     channel.driver = driver
+    channel.poll_sec = 1.0
     channel.context_messages = 16
     channel.drafts = DraftStore(tmp_path / "drafts.json")
     channel._last_message_fingerprint = ""
     channel._enqueue = None
+    channel._stop_event = threading.Event()
+    channel._thread = None
+    channel._desktop_ready = False
+    channel._desktop_detail = ""
+    channel.access_control_dm = True
+    channel.access_control_group = False
+    channel._language = "zh"
+    access_store = AccessControlStore(tmp_path / "access_control.json")
+    access_store.add_to_whitelist(
+        channel="dingtalk_desktop",
+        user_id="allowed",
+    )
+    channel._get_acl_store = lambda: access_store
     return channel
 
 
-def test_observe_emits_only_new_allowed_incoming_message(tmp_path):
+def test_observe_emits_only_new_visible_incoming_message(tmp_path):
     """One verified incoming message is enqueued once."""
     driver = FakeDriver(
         message=DialogueMessage("question", True),
@@ -64,7 +92,6 @@ def test_observe_emits_only_new_allowed_incoming_message(tmp_path):
     channel = bare_channel(tmp_path, driver)
     emitted = []
     channel._enqueue = emitted.append
-    channel.build_agent_request_from_native = lambda payload: payload
 
     channel._observe_once(emit=True)
     channel._observe_once(emit=True)
@@ -73,16 +100,24 @@ def test_observe_emits_only_new_allowed_incoming_message(tmp_path):
     assert emitted[0]["sender_id"] == "allowed"
 
 
-def test_observe_ignores_non_allowlisted_conversation(tmp_path):
-    """A visible title outside the exact allowlist is never read."""
+@pytest.mark.asyncio
+async def test_unapproved_conversation_enters_shared_pending_queue(tmp_path):
+    """A new visible conversation uses the shared channel ACL gate."""
     driver = FakeDriver(
         conversation="other",
         message=DialogueMessage("question", True),
     )
     channel = bare_channel(tmp_path, driver)
-    channel._enqueue = pytest.fail
+    emitted = []
+    channel._enqueue = emitted.append
 
     channel._observe_once(emit=True)
+    blocked = await channel._access_control_gate(emitted[0])
+
+    assert blocked is True
+    pending = channel._get_acl_store().get_acl(channel.channel)["pending"]
+    assert pending[0]["user_id"] == "other"
+    assert pending[0]["first_message"] == "question"
 
 
 @pytest.mark.asyncio
@@ -130,8 +165,20 @@ async def test_automatic_send_delivers_observable_steps_in_order(tmp_path):
     ]
 
 
-def test_from_config_accepts_structured_allowlist(monkeypatch, tmp_path):
-    """One-click setup preserves titles containing punctuation."""
+@pytest.mark.asyncio
+async def test_send_drops_conversation_removed_from_shared_acl(tmp_path):
+    """Draft creation stops immediately after unified access is revoked."""
+    driver = FakeDriver(conversation="other")
+    channel = bare_channel(tmp_path, driver)
+
+    await channel.send("other", "reply")
+
+    assert channel.drafts.list() == []
+    assert not driver.sent
+
+
+def test_from_config_enables_shared_dm_access_control(monkeypatch, tmp_path):
+    """The desktop channel always delegates authorization to shared ACL."""
     monkeypatch.setattr(
         "qwenpaw.app.channels.base.load_config",
         lambda: SimpleNamespace(
@@ -141,7 +188,6 @@ def test_from_config_accepts_structured_allowlist(monkeypatch, tmp_path):
     config = SimpleNamespace(
         enabled=True,
         reply_mode="draft",
-        allowed_conversations=["A, B"],
         poll_sec=1.0,
         bundle_id="bundle",
         context_messages=16,
@@ -153,7 +199,22 @@ def test_from_config_accepts_structured_allowlist(monkeypatch, tmp_path):
         workspace_dir=tmp_path,
     )
 
-    assert channel.allowed_conversations == {"A, B"}
+    assert channel.access_control_dm is True
+    assert channel.access_control_group is False
+
+
+@pytest.mark.asyncio
+async def test_start_retries_when_desktop_is_not_ready(tmp_path):
+    """A signed-out desktop starts in recoverable degraded mode."""
+    channel = bare_channel(tmp_path, FakeDriver(ready=False))
+    channel._watcher_loop = lambda: None
+
+    await channel.start()
+
+    assert channel._desktop_ready is False
+    assert channel._desktop_detail == "open DingTalk"
+    assert channel._thread is not None
+    channel._thread.join()
 
 
 def test_persona_prompt_uses_outgoing_style_and_requires_progress_blocks():

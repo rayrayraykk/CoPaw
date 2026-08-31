@@ -4,12 +4,17 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from qwenpaw.app.agent_context import get_agent_for_request
+from qwenpaw.app.channels.access_control import (
+    AccessControlStore,
+    get_access_control_store,
+)
 from qwenpaw.app.utils import schedule_agent_reload
 from qwenpaw.config.config import ChannelConfig
 from qwenpaw.config.config import load_agent_config, save_agent_config
@@ -22,6 +27,32 @@ class SetupRequest(BaseModel):
     """Safe one-click setup options."""
 
     reply_mode: Literal["draft", "automatic"] = "draft"
+
+
+def _access_store(workspace: object) -> AccessControlStore:
+    """Return the existing per-agent channel access-control store."""
+    workspace_dir = Path(getattr(workspace, "workspace_dir"))
+    return get_access_control_store(workspace_dir)
+
+
+def _access_summary(workspace: object) -> dict[str, int]:
+    """Return counts without exposing conversation titles."""
+    access_control = _access_store(workspace).get_acl("dingtalk_desktop")
+    return {
+        "whitelist_count": len(access_control["whitelist"]),
+        "blacklist_count": len(access_control["blacklist"]),
+        "pending_count": len(access_control["pending"]),
+    }
+
+
+def _authorize_conversation(workspace: object, conversation: str) -> None:
+    """Authorize setup through the shared channel whitelist."""
+    _access_store(workspace).add_to_whitelist(
+        channel="dingtalk_desktop",
+        user_id=conversation,
+        username=conversation,
+        remark="Authorized during desktop setup",
+    )
 
 
 def _driver_for_config(config: object) -> DingTalkDesktopDriver:
@@ -45,6 +76,29 @@ async def _codex_status(workspace: object) -> dict:
     adapter = await workspace.harness_runtime.adapter("codex", settings)
     status = await adapter.status()
     return status.model_dump()
+
+
+async def _ready_conversation(
+    config: object,
+) -> tuple[DingTalkDesktopDriver, str]:
+    """Require a ready desktop and return its current conversation."""
+    driver = _driver_for_config(config)
+    desktop = await asyncio.to_thread(driver.status)
+    if not desktop.logged_in or not desktop.accessibility:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Open and sign in to DingTalk, then grant macOS "
+                "Accessibility access."
+            ),
+        )
+    conversation = await asyncio.to_thread(driver.current_conversation)
+    if not conversation:
+        raise HTTPException(
+            status_code=409,
+            detail="Open the DingTalk conversation to bind.",
+        )
+    return driver, conversation
 
 
 def build_router() -> APIRouter:
@@ -76,6 +130,7 @@ def build_router() -> APIRouter:
             "desktop": desktop.as_dict(),
             "codex": codex,
             "draft_count": len(drafts.list()),
+            "access_control": _access_summary(workspace),
         }
 
     @router.post("/setup")
@@ -98,35 +153,19 @@ def build_router() -> APIRouter:
                 status_code=401,
                 detail="Complete Codex ChatGPT OAuth before setup.",
             )
-        driver = _driver_for_config(config)
-        desktop = await asyncio.to_thread(driver.status)
-        if not desktop.logged_in or not desktop.accessibility:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "Open and sign in to DingTalk, then grant macOS "
-                    "Accessibility access."
-                ),
-            )
-        conversation = await asyncio.to_thread(
-            driver.current_conversation,
-        )
-        if not conversation:
-            raise HTTPException(
-                status_code=409,
-                detail="Open the DingTalk conversation to bind.",
-            )
+        driver, conversation = await _ready_conversation(config)
         if config.channels is None:
             config.channels = ChannelConfig()
         config.channels.dingtalk_desktop = {
             "enabled": True,
             "reply_mode": body.reply_mode,
-            "allowed_conversations": [conversation],
+            "access_control_dm": True,
             "poll_sec": 1.0,
             "bundle_id": driver.bundle_id,
             "context_messages": 16,
         }
         save_agent_config(workspace.agent_id, config)
+        _authorize_conversation(workspace, conversation)
         schedule_agent_reload(request, workspace.agent_id)
         return {
             "configured": True,
@@ -149,6 +188,14 @@ def build_router() -> APIRouter:
         draft = store.get(draft_id)
         if draft is None:
             raise HTTPException(status_code=404, detail="Draft not found.")
+        if not _access_store(workspace).is_whitelisted(
+            "dingtalk_desktop",
+            draft.conversation,
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="The conversation is not approved for this channel.",
+            )
         driver = _driver_for_config(config)
         try:
             await asyncio.to_thread(

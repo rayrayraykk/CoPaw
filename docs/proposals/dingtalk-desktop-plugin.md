@@ -48,9 +48,10 @@ from semantic Accessibility attributes after a change.
 
 DingTalk 8.0.10 does not expose the left conversation list as semantic AX
 rows. The first release therefore observes only the currently visible exact
-allowlisted conversation. It never uses coordinates, OCR, synthesized mouse
-clicks, or automatic conversation switching. Unknown Accessibility structures
-fail closed.
+conversation. Authorization is delegated to QwenPaw's existing per-channel
+access-control store. It never uses coordinates, OCR, synthesized mouse clicks,
+or automatic conversation switching. Unknown Accessibility structures fail
+closed.
 
 Recent context is read with the native macOS AX API. The helper caps reads at
 30 rows and sets a per-application messaging timeout so stale UI nodes cannot
@@ -74,8 +75,9 @@ session, writes the channel config, and requests an agent hot reload.
 - Default reply mode is `draft`; generated text is stored for review and is
   not inserted into DingTalk.
 - Automatic mode is an explicit opt-in.
-- An allowlist limits monitored conversations. Initial setup captures only the
-  currently open conversation.
+- QwenPaw's unified channel access control limits monitored conversations.
+  Initial setup authorizes the currently open conversation; other visible
+  conversations enter the existing pending approval flow.
 - A content fingerprint prevents duplicate replies and self-reply loops.
 - The driver refuses to act if the expected bundle id, window structure, or
   conversation title does not match.
@@ -95,7 +97,7 @@ session, writes the channel config, and requests an agent hot reload.
 - [x] Implement draft-first replies and explicit draft approval.
 - [x] Implement an agent-scoped one-click setup page.
 - [x] Enforce Codex backend and OAuth readiness during setup.
-- [x] Add allowlist and explicit automatic-reply opt-in.
+- [x] Reuse unified channel access control and add automatic-reply opt-in.
 - [x] Add recent semantic context and signed-in-user style grounding.
 - [x] Add style-matched clarification and observable progress messages.
 - [x] Add unit and contract tests with 100% pass rate for touched suites.

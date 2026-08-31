@@ -1,7 +1,7 @@
 {
   "id": "dingtalk-desktop",
   "name": "DingTalk Desktop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "channel",
   "description": "Connect a Codex agent to the locally signed-in DingTalk desktop app.",
   "description_i18n": {

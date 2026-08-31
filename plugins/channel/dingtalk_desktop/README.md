@@ -18,15 +18,17 @@ four checks shown on the page:
 4. Grant Accessibility access to the QwenPaw desktop host in macOS.
 
 Open the exact DingTalk conversation you want to bind, then choose **一键连接并使用草稿**.
-The plugin records that title as the only initial allowlist entry. It will
-reject reads and sends whenever another conversation is visible.
+The plugin authorizes that title through QwenPaw's existing channel access
+control. Messages from another visible conversation enter the same pending
+approval flow used by other protected channels. Removing a conversation from
+that whitelist immediately prevents new drafts and sends.
 
 ## Reply modes
 
 - `draft` is the default. Agent replies are written to an agent-scoped file
   with owner-only permissions and appear on the plugin page for approval.
 - `automatic` must be selected explicitly. It sends only when the exact
-  allowlisted conversation remains visible.
+  authorized conversation remains visible.
 
 Only rows carrying DingTalk's semantic `session msg receiving` Accessibility
 description are treated as inbound. Sending rows and unknown UI structures

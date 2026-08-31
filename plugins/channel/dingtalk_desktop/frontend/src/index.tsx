@@ -40,6 +40,11 @@ type Status = {
   desktop: DesktopStatus;
   codex: CodexStatus;
   draft_count: number;
+  access_control: {
+    whitelist_count: number;
+    blacklist_count: number;
+    pending_count: number;
+  };
 };
 
 type Draft = {
@@ -246,7 +251,7 @@ function DingTalkDesktopPage() {
             <p>
               {status?.desktop.version
                 ? `版本 ${status.desktop.version} · 本机登录态`
-                : "请打开阿里钉并完成登录"}
+                : status?.desktop.detail || "请打开阿里钉并完成登录"}
             </p>
           </article>
 
@@ -257,13 +262,13 @@ function DingTalkDesktopPage() {
               </div>
               <State
                 ok={Boolean(status?.configured)}
-                text={status?.configured ? "已绑定" : "等待绑定"}
+                text={status?.configured ? "访问控制已启用" : "等待连接"}
               />
             </div>
-            <h2>绑定当前打开的会话</h2>
+            <h2>连接当前会话并授权</h2>
             <p>
-              插件只读取当前可见且标题完全匹配的白名单会话，不使用坐标，
-              不自动点击或切换会话。发送前会再次验证会话标题。
+              插件不使用坐标，也不会自动点击或切换会话。连接时，当前会话会 加入
+              QwenPaw 现有的渠道访问控制；其他会话会进入统一的待审批列表。
             </p>
             <div className="dt-actions">
               <button
@@ -289,7 +294,10 @@ function DingTalkDesktopPage() {
             <div className="dt-notice">
               <CircleAlert size={18} />
               <span>
-                建议先使用草稿模式。自动回复只对绑定时当前打开的会话生效。
+                建议先使用草稿模式。已授权{" "}
+                {status?.access_control.whitelist_count ?? 0} 个 会话，待审批{" "}
+                {status?.access_control.pending_count ?? 0} 个；请在渠道页顶部的
+                待审批入口统一处理。
               </span>
             </div>
           </article>

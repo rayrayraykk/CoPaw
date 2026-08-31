@@ -1,4 +1,4 @@
-import { forwardRef as $, createElement as b } from "react";
+import { forwardRef as $, createElement as w } from "react";
 /**
  * @license lucide-react v0.562.0 - ISC
  *
@@ -11,7 +11,7 @@ const T = (t) => t.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase(), j = (t)
 ), N = (t) => {
   const n = j(t);
   return n.charAt(0).toUpperCase() + n.slice(1);
-}, A = (...t) => t.filter((n, o, c) => !!n && n.trim() !== "" && c.indexOf(n) === o).join(" ").trim(), L = (t) => {
+}, A = (...t) => t.filter((n, o, c) => !!n && n.trim() !== "" && c.indexOf(n) === o).join(" ").trim(), P = (t) => {
   for (const n in t)
     if (n.startsWith("aria-") || n === "role" || n === "title")
       return !0;
@@ -22,7 +22,7 @@ const T = (t) => t.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase(), j = (t)
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
-var P = {
+var L = {
   xmlns: "http://www.w3.org/2000/svg",
   width: 24,
   height: 24,
@@ -49,21 +49,21 @@ const q = $(
     children: s,
     iconNode: g,
     ...l
-  }, p) => b(
+  }, p) => w(
     "svg",
     {
       ref: p,
-      ...P,
+      ...L,
       width: n,
       height: n,
       stroke: t,
       strokeWidth: c ? Number(o) * 24 / Number(n) : o,
       className: A("lucide", i),
-      ...!s && !L(l) && { "aria-hidden": "true" },
+      ...!s && !P(l) && { "aria-hidden": "true" },
       ...l
     },
     [
-      ...g.map(([k, x]) => b(k, x)),
+      ...g.map(([u, x]) => w(u, x)),
       ...Array.isArray(s) ? s : [s]
     ]
   )
@@ -76,7 +76,7 @@ const q = $(
  */
 const d = (t, n) => {
   const o = $(
-    ({ className: c, ...i }, s) => b(q, {
+    ({ className: c, ...i }, s) => w(q, {
       ref: s,
       iconNode: n,
       className: A(
@@ -147,14 +147,14 @@ const I = [
     }
   ],
   ["path", { d: "M20.054 15.987H3.946", key: "14rxg9" }]
-], J = d("laptop", I);
+], Q = d("laptop", I);
 /**
  * @license lucide-react v0.562.0 - ISC
  *
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
-const Q = [["path", { d: "M21 12a9 9 0 1 1-6.219-8.56", key: "13zald" }]], z = d("loader-circle", Q);
+const J = [["path", { d: "M21 12a9 9 0 1 1-6.219-8.56", key: "13zald" }]], _ = d("loader-circle", J);
 /**
  * @license lucide-react v0.562.0 - ISC
  *
@@ -211,7 +211,7 @@ const X = [
     }
   ],
   ["path", { d: "m21.854 2.147-10.94 10.939", key: "12cjpa" }]
-], C = d("send", X);
+], z = d("send", X);
 /**
  * @license lucide-react v0.562.0 - ISC
  *
@@ -240,7 +240,7 @@ const ae = [
   ["path", { d: "M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6", key: "miytrc" }],
   ["path", { d: "M3 6h18", key: "d0wm0j" }],
   ["path", { d: "M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2", key: "e791ji" }]
-], ne = d("trash-2", ae), m = window.QwenPaw.host, e = m.React, { useEffect: oe, useState: u } = e, re = `
+], ne = d("trash-2", ae), m = window.QwenPaw.host, e = m.React, { useEffect: oe, useState: k } = e, re = `
 .dt-shell{min-height:100%;background:#f5f4ef;color:#17211d;padding:clamp(20px,4vw,56px);font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
 .dt-wrap{max-width:1080px;margin:0 auto}.dt-hero{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:32px}
 .dt-kicker{display:flex;align-items:center;gap:8px;color:#547064;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
@@ -270,7 +270,7 @@ function E({ ok: t, text: n }) {
   return /* @__PURE__ */ e.createElement("span", { className: `dt-state ${t ? "ok" : ""}` }, t ? /* @__PURE__ */ e.createElement(U, { size: 14 }) : /* @__PURE__ */ e.createElement(S, { size: 14 }), n);
 }
 function ce() {
-  const [t, n] = u(null), [o, c] = u([]), [i, s] = u(""), [g, l] = u(""), p = async () => {
+  const [t, n] = k(null), [o, c] = k([]), [i, s] = k(""), [g, l] = k(""), p = async () => {
     l("");
     try {
       const [a, r] = await Promise.all([
@@ -285,7 +285,7 @@ function ce() {
   oe(() => {
     p();
   }, []);
-  const k = async () => {
+  const u = async () => {
     s("login"), l("");
     const a = window.open("about:blank", "_blank");
     try {
@@ -316,7 +316,7 @@ function ce() {
     } finally {
       s("");
     }
-  }, w = async (a, r) => {
+  }, b = async (a, r) => {
     s(a.id), l("");
     try {
       await h(
@@ -329,26 +329,26 @@ function ce() {
       s("");
     }
   }, f = !!((t == null ? void 0 : t.backend) === "codex" && t.codex.authenticated), y = !!(t != null && t.desktop.logged_in && t.desktop.accessibility);
-  return /* @__PURE__ */ e.createElement("div", { className: "dt-shell" }, /* @__PURE__ */ e.createElement("style", null, re), /* @__PURE__ */ e.createElement("main", { className: "dt-wrap" }, /* @__PURE__ */ e.createElement("header", { className: "dt-hero" }, /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement("div", { className: "dt-kicker" }, /* @__PURE__ */ e.createElement(te, { size: 15 }), " Personal channel"), /* @__PURE__ */ e.createElement("h1", { className: "dt-title" }, "Codex，接管当前阿里钉会话"), /* @__PURE__ */ e.createElement("p", { className: "dt-sub" }, "使用 QwenPaw 已有的 Codex OAuth 与本机阿里钉登录态。没有机器人、 没有 webhook，也不读取或保存任何账号凭证。")), /* @__PURE__ */ e.createElement("button", { className: "dt-button", onClick: () => void p() }, /* @__PURE__ */ e.createElement(Y, { size: 16 }), " 刷新状态")), /* @__PURE__ */ e.createElement("section", { className: "dt-grid" }, /* @__PURE__ */ e.createElement("article", { className: "dt-card" }, /* @__PURE__ */ e.createElement("div", { className: "dt-card-head" }, /* @__PURE__ */ e.createElement("div", { className: "dt-icon" }, /* @__PURE__ */ e.createElement(O, { size: 20 })), /* @__PURE__ */ e.createElement(E, { ok: f, text: f ? "已认证" : "未就绪" })), /* @__PURE__ */ e.createElement("h2", null, "当前 Codex Agent"), /* @__PURE__ */ e.createElement("p", null, t ? `${t.agent_id} · ${t.backend}` : "正在检查"), !(t != null && t.codex.authenticated) && /* @__PURE__ */ e.createElement("div", { className: "dt-actions" }, /* @__PURE__ */ e.createElement("button", { className: "dt-button", onClick: () => void k() }, i === "login" ? /* @__PURE__ */ e.createElement(z, { size: 16 }) : /* @__PURE__ */ e.createElement(R, { size: 16 }), "通过 ChatGPT OAuth 登录"))), /* @__PURE__ */ e.createElement("article", { className: "dt-card" }, /* @__PURE__ */ e.createElement("div", { className: "dt-card-head" }, /* @__PURE__ */ e.createElement("div", { className: "dt-icon" }, /* @__PURE__ */ e.createElement(J, { size: 20 })), /* @__PURE__ */ e.createElement(
+  return /* @__PURE__ */ e.createElement("div", { className: "dt-shell" }, /* @__PURE__ */ e.createElement("style", null, re), /* @__PURE__ */ e.createElement("main", { className: "dt-wrap" }, /* @__PURE__ */ e.createElement("header", { className: "dt-hero" }, /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement("div", { className: "dt-kicker" }, /* @__PURE__ */ e.createElement(te, { size: 15 }), " Personal channel"), /* @__PURE__ */ e.createElement("h1", { className: "dt-title" }, "Codex，接管当前阿里钉会话"), /* @__PURE__ */ e.createElement("p", { className: "dt-sub" }, "使用 QwenPaw 已有的 Codex OAuth 与本机阿里钉登录态。没有机器人、 没有 webhook，也不读取或保存任何账号凭证。")), /* @__PURE__ */ e.createElement("button", { className: "dt-button", onClick: () => void p() }, /* @__PURE__ */ e.createElement(Y, { size: 16 }), " 刷新状态")), /* @__PURE__ */ e.createElement("section", { className: "dt-grid" }, /* @__PURE__ */ e.createElement("article", { className: "dt-card" }, /* @__PURE__ */ e.createElement("div", { className: "dt-card-head" }, /* @__PURE__ */ e.createElement("div", { className: "dt-icon" }, /* @__PURE__ */ e.createElement(O, { size: 20 })), /* @__PURE__ */ e.createElement(E, { ok: f, text: f ? "已认证" : "未就绪" })), /* @__PURE__ */ e.createElement("h2", null, "当前 Codex Agent"), /* @__PURE__ */ e.createElement("p", null, t ? `${t.agent_id} · ${t.backend}` : "正在检查"), !(t != null && t.codex.authenticated) && /* @__PURE__ */ e.createElement("div", { className: "dt-actions" }, /* @__PURE__ */ e.createElement("button", { className: "dt-button", onClick: () => void u() }, i === "login" ? /* @__PURE__ */ e.createElement(_, { size: 16 }) : /* @__PURE__ */ e.createElement(R, { size: 16 }), "通过 ChatGPT OAuth 登录"))), /* @__PURE__ */ e.createElement("article", { className: "dt-card" }, /* @__PURE__ */ e.createElement("div", { className: "dt-card-head" }, /* @__PURE__ */ e.createElement("div", { className: "dt-icon" }, /* @__PURE__ */ e.createElement(Q, { size: 20 })), /* @__PURE__ */ e.createElement(
     E,
     {
       ok: y,
       text: y ? "本机已连接" : "需要检查"
     }
-  )), /* @__PURE__ */ e.createElement("h2", null, "阿里钉桌面端"), /* @__PURE__ */ e.createElement("p", null, t != null && t.desktop.version ? `版本 ${t.desktop.version} · 本机登录态` : "请打开阿里钉并完成登录")), /* @__PURE__ */ e.createElement("article", { className: "dt-card dt-wide" }, /* @__PURE__ */ e.createElement("div", { className: "dt-card-head" }, /* @__PURE__ */ e.createElement("div", { className: "dt-icon" }, /* @__PURE__ */ e.createElement(W, { size: 20 })), /* @__PURE__ */ e.createElement(
+  )), /* @__PURE__ */ e.createElement("h2", null, "阿里钉桌面端"), /* @__PURE__ */ e.createElement("p", null, t != null && t.desktop.version ? `版本 ${t.desktop.version} · 本机登录态` : (t == null ? void 0 : t.desktop.detail) || "请打开阿里钉并完成登录")), /* @__PURE__ */ e.createElement("article", { className: "dt-card dt-wide" }, /* @__PURE__ */ e.createElement("div", { className: "dt-card-head" }, /* @__PURE__ */ e.createElement("div", { className: "dt-icon" }, /* @__PURE__ */ e.createElement(W, { size: 20 })), /* @__PURE__ */ e.createElement(
     E,
     {
       ok: !!(t != null && t.configured),
-      text: t != null && t.configured ? "已绑定" : "等待绑定"
+      text: t != null && t.configured ? "访问控制已启用" : "等待连接"
     }
-  )), /* @__PURE__ */ e.createElement("h2", null, "绑定当前打开的会话"), /* @__PURE__ */ e.createElement("p", null, "插件只读取当前可见且标题完全匹配的白名单会话，不使用坐标， 不自动点击或切换会话。发送前会再次验证会话标题。"), /* @__PURE__ */ e.createElement("div", { className: "dt-actions" }, /* @__PURE__ */ e.createElement(
+  )), /* @__PURE__ */ e.createElement("h2", null, "连接当前会话并授权"), /* @__PURE__ */ e.createElement("p", null, "插件不使用坐标，也不会自动点击或切换会话。连接时，当前会话会 加入 QwenPaw 现有的渠道访问控制；其他会话会进入统一的待审批列表。"), /* @__PURE__ */ e.createElement("div", { className: "dt-actions" }, /* @__PURE__ */ e.createElement(
     "button",
     {
       className: "dt-button dt-primary",
       disabled: !f || !y || !!i,
       onClick: () => void x("draft")
     },
-    i === "draft" ? /* @__PURE__ */ e.createElement(z, { size: 16 }) : /* @__PURE__ */ e.createElement(F, { size: 16 }),
+    i === "draft" ? /* @__PURE__ */ e.createElement(_, { size: 16 }) : /* @__PURE__ */ e.createElement(F, { size: 16 }),
     "一键连接并使用草稿"
   ), /* @__PURE__ */ e.createElement(
     "button",
@@ -357,30 +357,30 @@ function ce() {
       disabled: !f || !y || !!i,
       onClick: () => void x("automatic")
     },
-    /* @__PURE__ */ e.createElement(C, { size: 16 }),
+    /* @__PURE__ */ e.createElement(z, { size: 16 }),
     " 明确启用自动回复"
-  )), /* @__PURE__ */ e.createElement("div", { className: "dt-notice" }, /* @__PURE__ */ e.createElement(S, { size: 18 }), /* @__PURE__ */ e.createElement("span", null, "建议先使用草稿模式。自动回复只对绑定时当前打开的会话生效。")))), /* @__PURE__ */ e.createElement("section", { className: "dt-section" }, /* @__PURE__ */ e.createElement("div", { className: "dt-section-top" }, /* @__PURE__ */ e.createElement("h2", null, "待审批草稿"), /* @__PURE__ */ e.createElement("span", { className: "dt-meta" }, o.length, " 条")), o.length === 0 ? /* @__PURE__ */ e.createElement("div", { className: "dt-card dt-empty" }, "暂无待审批草稿") : o.map((a) => /* @__PURE__ */ e.createElement("article", { className: "dt-card dt-draft", key: a.id }, /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement("div", { className: "dt-conversation" }, a.conversation), /* @__PURE__ */ e.createElement("div", { className: "dt-meta" }, new Date(a.created_at * 1e3).toLocaleString())), /* @__PURE__ */ e.createElement("div", { className: "dt-copy" }, a.text), /* @__PURE__ */ e.createElement("div", { className: "dt-actions" }, /* @__PURE__ */ e.createElement(
+  )), /* @__PURE__ */ e.createElement("div", { className: "dt-notice" }, /* @__PURE__ */ e.createElement(S, { size: 18 }), /* @__PURE__ */ e.createElement("span", null, "建议先使用草稿模式。已授权", " ", (t == null ? void 0 : t.access_control.whitelist_count) ?? 0, " 个 会话，待审批", " ", (t == null ? void 0 : t.access_control.pending_count) ?? 0, " 个；请在渠道页顶部的 待审批入口统一处理。")))), /* @__PURE__ */ e.createElement("section", { className: "dt-section" }, /* @__PURE__ */ e.createElement("div", { className: "dt-section-top" }, /* @__PURE__ */ e.createElement("h2", null, "待审批草稿"), /* @__PURE__ */ e.createElement("span", { className: "dt-meta" }, o.length, " 条")), o.length === 0 ? /* @__PURE__ */ e.createElement("div", { className: "dt-card dt-empty" }, "暂无待审批草稿") : o.map((a) => /* @__PURE__ */ e.createElement("article", { className: "dt-card dt-draft", key: a.id }, /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement("div", { className: "dt-conversation" }, a.conversation), /* @__PURE__ */ e.createElement("div", { className: "dt-meta" }, new Date(a.created_at * 1e3).toLocaleString())), /* @__PURE__ */ e.createElement("div", { className: "dt-copy" }, a.text), /* @__PURE__ */ e.createElement("div", { className: "dt-actions" }, /* @__PURE__ */ e.createElement(
     "button",
     {
       className: "dt-button dt-primary",
       disabled: i === a.id,
-      onClick: () => void w(a, "send")
+      onClick: () => void b(a, "send")
     },
-    /* @__PURE__ */ e.createElement(C, { size: 15 }),
+    /* @__PURE__ */ e.createElement(z, { size: 15 }),
     " 发送"
   ), /* @__PURE__ */ e.createElement(
     "button",
     {
       className: "dt-button dt-danger",
       disabled: i === a.id,
-      onClick: () => void w(a, "delete")
+      onClick: () => void b(a, "delete")
     },
     /* @__PURE__ */ e.createElement(ne, { size: 15 }),
     " 删除"
   ))))), g && /* @__PURE__ */ e.createElement("div", { className: "dt-error" }, g)));
 }
-var _, M;
-(M = (_ = window.QwenPaw).registerRoutes) == null || M.call(_, "dingtalk-desktop", [
+var C, M;
+(M = (C = window.QwenPaw).registerRoutes) == null || M.call(C, "dingtalk-desktop", [
   {
     path: "/plugin/dingtalk-desktop",
     component: ce,
