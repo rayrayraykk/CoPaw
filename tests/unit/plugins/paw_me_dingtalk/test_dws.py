@@ -1,13 +1,46 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 """Tests for official DWS OAuth event and send contracts."""
 
 from __future__ import annotations
 
+import os
 from unittest.mock import AsyncMock
 
 import pytest
 
-from backend.dws import DwsClient
+from backend.dws import DwsClient, DwsStatus
+
+
+def test_managed_runtime_does_not_fall_back_to_global_path(
+    monkeypatch,
+    tmp_path,
+):
+    """A PawApp install is isolated from any user-global DWS binary."""
+    monkeypatch.setattr("backend.dws.shutil.which", lambda _name: "/bin/dws")
+    client = DwsClient(tmp_path / "runtime")
+
+    assert client.executable() == ""
+
+    binary = (
+        client.runtime_dir / "bin" / ("dws.exe" if os.name == "nt" else "dws")
+    )
+    binary.parent.mkdir(parents=True)
+    binary.write_text("runtime", encoding="utf-8")
+    binary.chmod(0o755)
+
+    assert client.executable() == str(binary)
+
+
+def test_managed_runtime_uses_an_isolated_config_directory(tmp_path):
+    """OAuth metadata belongs to Paw Me instead of a global CLI setup."""
+    client = DwsClient(tmp_path / "runtime")
+
+    environment = client._environment()
+
+    assert environment["DWS_CONFIG_DIR"] == str(
+        tmp_path / "runtime" / "config",
+    )
 
 
 def test_parse_direct_event_uses_real_open_dingtalk_id():
@@ -96,4 +129,27 @@ async def test_send_uses_exact_target_and_idempotency_key(monkeypatch):
         "--format",
         "json",
         timeout=60.0,
+    )
+
+
+@pytest.mark.asyncio
+async def test_login_is_tracked_and_times_out_quickly(monkeypatch):
+    """Browser OAuth can be cancelled and never spins for ten minutes."""
+    client = DwsClient()
+    run_json = AsyncMock(return_value={"authenticated": True})
+    status = AsyncMock(
+        return_value=DwsStatus(available=True, authenticated=True),
+    )
+    monkeypatch.setattr(client, "_run_json", run_json)
+    monkeypatch.setattr(client, "status", status)
+
+    await client.login()
+
+    run_json.assert_awaited_once_with(
+        "auth",
+        "login",
+        "--format",
+        "json",
+        timeout=120.0,
+        integration=True,
     )

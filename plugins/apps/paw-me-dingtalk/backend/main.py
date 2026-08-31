@@ -28,7 +28,7 @@ APP_ID = "paw-me-dingtalk"
 CHANNEL = "paw-me-dingtalk"
 DATA_DIR = Path(WORKING_DIR) / "apps" / APP_ID
 STORE = PawMeStore(DATA_DIR / "paw-me-v3.sqlite3")
-DWS = DwsClient()
+DWS = DwsClient(DATA_DIR / "runtime")
 
 
 class SettingsPayload(BaseModel):
@@ -65,6 +65,7 @@ class PawMeRuntime:
         self.integration_task: asyncio.Task[Any] | None = None
         self.integration_stage = "idle"
         self.integration_detail = ""
+        self.integration_progress: int | None = None
         self.running = False
         self.stage = "stopped"
         self.detail = "数字人分身未启动"
@@ -72,7 +73,11 @@ class PawMeRuntime:
         self.last_error = ""
         self.heartbeat_at = 0.0
         self.version = 0
-        self.dws_status = DwsStatus(False, False, detail="尚未检查 DWS")
+        self.dws_status = DwsStatus(
+            False,
+            False,
+            detail="尚未检查钉钉连接组件",
+        )
         self.dws_checked_at = 0.0
 
     def remember_context(self, ctx: Any) -> None:
@@ -99,6 +104,7 @@ class PawMeRuntime:
             "version": self.version,
             "integration_stage": self.integration_stage,
             "integration_detail": self.integration_detail,
+            "integration_progress": self.integration_progress,
         }
 
     def start(self) -> None:
@@ -140,10 +146,11 @@ class PawMeRuntime:
     def begin_integration(self, action: Literal["install", "login"]) -> None:
         """Start one explicit DWS setup operation without blocking the UI."""
         if self.integration_task and not self.integration_task.done():
-            raise DwsError("已有 DWS 配置任务正在进行")
+            raise DwsError("已有钉钉连接任务正在进行")
         self.integration_stage = action
+        self.integration_progress = None
         self.integration_detail = (
-            "正在安装钉钉官方 DWS" if action == "install" else "已打开浏览器，请完成钉钉 OAuth 授权"
+            "正在准备钉钉连接组件" if action == "install" else "已打开浏览器，请完成钉钉 OAuth 授权"
         )
         self.publish("integration", self.integration_detail)
         self.integration_task = asyncio.create_task(
@@ -156,21 +163,54 @@ class PawMeRuntime:
     ) -> None:
         try:
             if action == "install":
-                await DWS.install()
+                await DWS.install(self._publish_integration)
                 self.dws_checked_at = 0.0
                 self.integration_stage = "install_complete"
-                self.integration_detail = "DWS 安装完成，请继续 OAuth 登录"
+                self.integration_progress = 100
+                self.integration_detail = "连接组件已就绪，请继续连接钉钉"
             else:
                 self.dws_status = await DWS.login()
                 self.dws_checked_at = time.monotonic()
                 self.integration_stage = "ready"
+                self.integration_progress = 100
                 self.integration_detail = "钉钉 OAuth 已连接"
             self.publish("integration_ready", self.integration_detail)
+        except asyncio.CancelledError:
+            self.integration_stage = "cancelled"
+            self.integration_progress = None
+            self.integration_detail = "操作已取消，可以随时重新开始"
+            self.publish("integration_cancelled", self.integration_detail)
+            raise
         except Exception as exc:  # noqa: BLE001
             logger.exception("Paw Me DingTalk integration failed")
             self.integration_stage = "failed"
+            self.integration_progress = None
             self.integration_detail = str(exc)
-            self.publish("integration_failed", "DWS 配置失败", str(exc))
+            self.publish("integration_failed", "钉钉连接失败", str(exc))
+
+    async def _publish_integration(
+        self,
+        stage: str,
+        detail: str,
+        progress: int | None,
+    ) -> None:
+        """Publish one observable installation milestone."""
+        self.integration_stage = stage
+        self.integration_detail = detail
+        self.integration_progress = progress
+        self.publish("integration", detail)
+
+    async def cancel_integration(self) -> None:
+        """Cancel one active setup operation and reset its visible state."""
+        task = self.integration_task
+        if task is None or task.done():
+            self.integration_stage = "idle"
+            self.integration_progress = None
+            self.integration_detail = ""
+            return
+        task.cancel()
+        await DWS.cancel_integration()
+        await asyncio.gather(task, return_exceptions=True)
 
     async def _supervise(self) -> None:
         next_status_at = 0.0
@@ -183,7 +223,7 @@ class PawMeRuntime:
                 if not self.dws_status.available:
                     self.publish(
                         "dws_missing",
-                        "请在本页一键安装钉钉官方 DWS",
+                        "请在本页安装钉钉连接组件",
                     )
                 elif not self.dws_status.authenticated:
                     self.publish(
@@ -674,7 +714,7 @@ class PawMeRuntime:
             str(outbox["work_item_id"]),
         )
         if not item.get("subject_id") or not item.get("id_source"):
-            raise DwsError("发送目标没有可验证的 DWS 身份")
+            raise DwsError("发送目标没有可验证的钉钉身份")
         await asyncio.to_thread(
             STORE.update_outbox,
             outbox_id,
@@ -765,17 +805,19 @@ async def update_settings(
             detail="最长等待时间不能短于静默窗口",
         )
     RUNTIME.remember_context(ctx)
+    settings = payload.model_dump()
     if payload.enabled:
         status = await RUNTIME.refresh_dws_status(force=True)
         if not status.authenticated:
-            raise HTTPException(
-                status_code=409,
-                detail=status.detail or "请先完成钉钉 OAuth 登录",
+            settings["enabled"] = False
+            RUNTIME.publish(
+                "setup_required",
+                "完成钉钉连接后才能启用数字人分身",
             )
-    for key, value in payload.model_dump().items():
+    for key, value in settings.items():
         stored = str(value).lower() if isinstance(value, bool) else str(value)
         STORE.set_setting(key, stored)
-    if payload.enabled:
+    if settings["enabled"]:
         RUNTIME.start()
     else:
         await RUNTIME.stop()
@@ -784,7 +826,7 @@ async def update_settings(
 
 @router.post("/dws/install")
 async def install_dws() -> dict[str, Any]:
-    """Start the official DWS installer after an explicit user click."""
+    """Start the managed DingTalk connector installation."""
     try:
         RUNTIME.begin_integration("install")
     except DwsError as exc:
@@ -797,11 +839,21 @@ async def login_dws() -> dict[str, Any]:
     """Start the official browser OAuth flow after an explicit click."""
     status = await RUNTIME.refresh_dws_status(force=True)
     if not status.available:
-        raise HTTPException(status_code=409, detail="请先安装钉钉 DWS")
+        raise HTTPException(
+            status_code=409,
+            detail="请先安装钉钉连接组件",
+        )
     try:
         RUNTIME.begin_integration("login")
     except DwsError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return RUNTIME.status()
+
+
+@router.post("/dws/cancel")
+async def cancel_dws() -> dict[str, Any]:
+    """Cancel an in-progress connector install or OAuth login."""
+    await RUNTIME.cancel_integration()
     return RUNTIME.status()
 
 
@@ -821,7 +873,7 @@ async def authorize_work_item(
     ):
         raise HTTPException(
             status_code=409,
-            detail="该消息没有 DWS 返回的真实身份，不能授权",
+            detail="该消息没有钉钉 OAuth 返回的真实身份，不能授权",
         )
     principal = await asyncio.to_thread(
         STORE.add_principal,
@@ -837,7 +889,7 @@ async def authorize_work_item(
         kind="identity",
         status="verified",
         title=f"已授权 {principal['display_name']}",
-        detail=f"真实 ID 来自 DWS OAuth，恢复 {bound} 个待处理批次",
+        detail=f"真实 ID 来自钉钉 OAuth，恢复 {bound} 个待处理批次",
     )
     return principal
 

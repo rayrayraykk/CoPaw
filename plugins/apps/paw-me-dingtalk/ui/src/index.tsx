@@ -1,7 +1,9 @@
 import type * as ReactNS from "react";
 import {
   Activity,
+  Check,
   Clock3,
+  Circle,
   Download,
   ExternalLink,
   Inbox,
@@ -14,6 +16,7 @@ import {
   ShieldCheck,
   Trash2,
   UserCheck,
+  X,
 } from "lucide-react";
 
 const APP_ID = "paw-me-dingtalk";
@@ -35,6 +38,7 @@ const {
   List,
   Modal,
   Popconfirm,
+  Progress,
   Row,
   Select,
   Space,
@@ -141,6 +145,7 @@ type Snapshot = {
     heartbeat_at: number;
     integration_stage: string;
     integration_detail: string;
+    integration_progress: number | null;
   };
 };
 
@@ -154,7 +159,8 @@ const styles = `
 .pm-metric{height:100%}.pm-metric .ant-card-body{display:flex;align-items:center;gap:14px;padding:18px}.pm-metric-icon{display:grid;place-items:center;width:38px;height:38px;border-radius:10px;background:var(--ant-color-fill-secondary);color:var(--ant-color-primary);flex:none}.pm-metric-value{font-size:20px;font-weight:650;line-height:1.2}.pm-metric-label{color:var(--ant-color-text-secondary);font-size:12px;margin-top:3px}
 .pm-panel{margin-top:16px}.pm-panel .ant-card-head{min-height:52px}.pm-item-title{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.pm-message-stack{display:grid;gap:8px;margin-top:12px}.pm-message{padding:9px 11px;border-radius:8px;background:var(--ant-color-fill-tertiary);white-space:pre-wrap}.pm-meta{font-size:12px;color:var(--ant-color-text-secondary)}
 .pm-policy-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.pm-subtle{color:var(--ant-color-text-secondary)}.pm-pre{white-space:pre-wrap;line-height:1.65;margin:0}.pm-error{color:var(--ant-color-error)}.pm-id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere;font-size:12px}.pm-setup{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:16px;border:1px solid var(--ant-color-border-secondary);border-radius:10px;margin-bottom:16px}.pm-setup-copy{min-width:0}.pm-setup-title{font-weight:650;margin-bottom:4px}
-@media(max-width:760px){.pm-page{padding:16px 12px 32px}.pm-header{flex-direction:column}.pm-actions{justify-content:flex-start}.pm-status-inner{align-items:flex-start;flex-direction:column}.pm-status-detail{white-space:normal}.pm-policy-grid{grid-template-columns:1fr}}
+.pm-onboarding{max-width:880px;margin:42px auto 0}.pm-onboarding .ant-card-body{padding:32px}.pm-onboarding-head{max-width:650px;margin-bottom:30px}.pm-onboarding-head h2{margin:0 0 8px!important;font-size:26px!important;letter-spacing:-.025em}.pm-steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:24px}.pm-step{display:flex;align-items:center;gap:10px;padding:12px;border:1px solid var(--ant-color-border-secondary);border-radius:10px;color:var(--ant-color-text-secondary)}.pm-step-current{border-color:var(--ant-color-primary);color:var(--ant-color-text);background:var(--ant-color-primary-bg)}.pm-step-done{color:var(--ant-color-success)}.pm-step-icon{display:grid;place-items:center;flex:none}.pm-onboarding-action{padding:22px;border-radius:12px;background:var(--ant-color-fill-quaternary)}.pm-onboarding-action h3{margin:0 0 6px;font-size:18px}.pm-progress{margin:18px 0 6px}.pm-onboarding-buttons{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:20px}.pm-agent-select{width:100%;max-width:420px;margin-top:16px}
+@media(max-width:760px){.pm-page{padding:16px 12px 32px}.pm-header{flex-direction:column}.pm-actions{justify-content:flex-start}.pm-status-inner{align-items:flex-start;flex-direction:column}.pm-status-detail{white-space:normal}.pm-policy-grid{grid-template-columns:1fr}.pm-onboarding{margin-top:18px}.pm-onboarding .ant-card-body{padding:20px}.pm-steps{grid-template-columns:1fr}}
 `;
 
 const statusLabel: Record<string, string> = {
@@ -173,6 +179,12 @@ const statusLabel: Record<string, string> = {
 
 function time(value?: number) {
   return value ? new Date(value * 1000).toLocaleString() : "—";
+}
+
+function sourceLabel(value?: string) {
+  return value === "oauth:dws-event"
+    ? "钉钉 OAuth 事件"
+    : value || "无可信来源";
 }
 
 function StatusTag({ status }: { status: string }) {
@@ -331,7 +343,20 @@ function PawMePage() {
       await api.post(`/dws/${action}`);
       await refresh(agentId, true);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "DWS 配置失败");
+      setError(reason instanceof Error ? reason.message : "钉钉连接失败");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const cancelIntegration = async () => {
+    if (!api) return;
+    setSaving(true);
+    try {
+      await api.post("/dws/cancel");
+      await refresh(agentId, true);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "取消操作失败");
     } finally {
       setSaving(false);
     }
@@ -406,6 +431,187 @@ function PawMePage() {
   const pendingDrafts =
     data?.outbox.filter((item) => item.status !== "sent") || [];
   const oauthReady = Boolean(data?.identity_provider.authenticated);
+  const connectorReady = Boolean(data?.identity_provider.available);
+  const integrationStage = data?.runtime.integration_stage || "idle";
+  const integrationBusy = [
+    "install",
+    "downloading",
+    "preparing",
+    "installing",
+    "verifying",
+    "login",
+  ].includes(integrationStage);
+
+  if (!oauthReady || !data?.settings.enabled) {
+    const currentStep = !connectorReady ? 0 : !oauthReady ? 1 : 2;
+    const stepIcon = (index: number) => {
+      if (index < currentStep) return <Check size={17} />;
+      return <Circle size={17} />;
+    };
+    const setupTitle = !connectorReady
+      ? "准备钉钉连接组件"
+      : !oauthReady
+      ? "连接你的钉钉账号"
+      : "选择负责回复的 Agent";
+    const setupDetail =
+      data?.runtime.integration_detail ||
+      (!connectorReady
+        ? "组件安装在 Paw Me 的独立目录，不修改系统 PATH。"
+        : !oauthReady
+        ? "浏览器将打开钉钉官方 OAuth；插件不会读取或保存账号密码。"
+        : "任意已启用 Agent 都可以负责回复，认证由 Agent 自己管理。");
+
+    return (
+      <div className="pm-page">
+        <style>{styles}</style>
+        <header className="pm-header">
+          <div className="pm-header-copy">
+            <div className="pm-eyebrow">
+              <ShieldCheck size={15} />
+              Paw Me · Digital Twin
+            </div>
+            <Title level={1}>钉钉数字人分身</Title>
+            <Text type="secondary">
+              首次配置只需要安装连接组件、完成钉钉授权并选择 Agent。
+            </Text>
+          </div>
+        </header>
+
+        {error ? (
+          <Alert
+            closable
+            type="error"
+            message="操作未完成"
+            description={error}
+            onClose={() => setError("")}
+            style={{ marginBottom: 16 }}
+          />
+        ) : null}
+
+        <Card className="pm-onboarding">
+          <div className="pm-onboarding-head">
+            <Title level={2}>开始设置 Paw Me</Title>
+            <Text type="secondary">
+              完成下面三个步骤后，消息监听、会话授权、草稿与发送会在同一页面运行。
+            </Text>
+          </div>
+          <div className="pm-steps">
+            {["安装连接组件", "钉钉 OAuth", "选择并启用 Agent"].map(
+              (label, index) => (
+                <div
+                  className={`pm-step ${
+                    index === currentStep ? "pm-step-current" : ""
+                  } ${index < currentStep ? "pm-step-done" : ""}`}
+                  key={label}
+                >
+                  <span className="pm-step-icon">{stepIcon(index)}</span>
+                  <span>{label}</span>
+                </div>
+              ),
+            )}
+          </div>
+          <div className="pm-onboarding-action">
+            <h3>{setupTitle}</h3>
+            <Text type="secondary">{setupDetail}</Text>
+
+            {integrationBusy ? (
+              <div className="pm-progress">
+                <Progress
+                  percent={data?.runtime.integration_progress ?? 0}
+                  showInfo={data?.runtime.integration_progress != null}
+                  status="active"
+                />
+                {data?.runtime.integration_progress == null ? (
+                  <Space size={8}>
+                    <Spin size="small" />
+                    <Text type="secondary">正在执行当前阶段</Text>
+                  </Space>
+                ) : null}
+              </div>
+            ) : null}
+
+            {oauthReady ? (
+              <Select
+                className="pm-agent-select"
+                value={agentId}
+                options={agents.map((agent) => ({
+                  value: agent.id,
+                  label: `${agent.name || agent.id} · ${
+                    agent.backend || "agent"
+                  }`,
+                }))}
+                onChange={(value: string) => setAgentId(value)}
+              />
+            ) : null}
+
+            <div className="pm-onboarding-buttons">
+              {!connectorReady ? (
+                <Button
+                  type="primary"
+                  size="large"
+                  icon={<Download size={17} />}
+                  disabled={integrationBusy}
+                  onClick={() => void runIntegration("install")}
+                >
+                  安装并继续
+                </Button>
+              ) : !oauthReady ? (
+                <Button
+                  type="primary"
+                  size="large"
+                  icon={<ExternalLink size={17} />}
+                  disabled={integrationBusy}
+                  onClick={() => void runIntegration("login")}
+                >
+                  连接钉钉
+                </Button>
+              ) : (
+                <Button
+                  type="primary"
+                  size="large"
+                  icon={<Check size={17} />}
+                  loading={saving}
+                  disabled={!agentId}
+                  onClick={() =>
+                    void saveSettings({
+                      enabled: true,
+                      agent_id: agentId,
+                      default_policy: data?.settings.default_policy || "draft",
+                      quiet_seconds: data?.settings.quiet_seconds ?? 4,
+                      max_wait_seconds: data?.settings.max_wait_seconds ?? 20,
+                    })
+                  }
+                >
+                  启用数字人分身
+                </Button>
+              )}
+              {integrationBusy ? (
+                <Button
+                  size="large"
+                  icon={<X size={17} />}
+                  loading={saving}
+                  onClick={() => void cancelIntegration()}
+                >
+                  取消当前操作
+                </Button>
+              ) : integrationStage === "failed" ||
+                integrationStage === "cancelled" ? (
+                <Button
+                  size="large"
+                  icon={<RefreshCw size={17} />}
+                  onClick={() =>
+                    void runIntegration(connectorReady ? "login" : "install")
+                  }
+                >
+                  重新尝试
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        </Card>
+      </div>
+    );
+  }
 
   const inbox = (
     <Card
@@ -448,7 +654,7 @@ function PawMePage() {
                   <div className="pm-id">
                     {item.subject_type === "person" ? "人员" : "群聊"} ·{" "}
                     {item.subject_id || "未获得真实 ID"} ·{" "}
-                    {item.id_source || "无可信来源"}
+                    {sourceLabel(item.id_source)}
                   </div>
                   {item.error ? (
                     <div className="pm-error">{item.error}</div>
@@ -477,13 +683,13 @@ function PawMePage() {
             {oauthReady
               ? `${data?.identity_provider.user_name || "钉钉账号"} 已连接`
               : data?.identity_provider.available
-              ? "DWS 已安装，等待 OAuth 登录"
-              : "安装钉钉官方 DWS"}
+              ? "连接组件已就绪，等待 OAuth 登录"
+              : "安装钉钉连接组件"}
           </div>
           <Text type="secondary">
             {data?.runtime.integration_detail ||
               data?.identity_provider.detail ||
-              "OAuth 由钉钉官方 DWS 管理，插件不读取或保存令牌。"}
+              "OAuth 由钉钉官方能力管理，插件不读取或保存令牌。"}
           </Text>
           {oauthReady ? (
             <div className="pm-id">
@@ -499,7 +705,7 @@ function PawMePage() {
             loading={saving || data?.runtime.integration_stage === "install"}
             onClick={() => void runIntegration("install")}
           >
-            一键安装 DWS
+            安装连接组件
           </Button>
         ) : !oauthReady ? (
           <Button
@@ -523,7 +729,7 @@ function PawMePage() {
         showIcon
         type="info"
         message="授权只来自收到的真实事件"
-        description="人员 openDingTalkId 或群 openConversationId 由 DWS OAuth 事件写入，界面不可手填。未授权会话统一进入待审核，不会调用 Agent。"
+        description="人员 openDingTalkId 或群 openConversationId 由钉钉 OAuth 事件写入，界面不可手填。未授权会话统一进入待审核，不会调用 Agent。"
         style={{ marginBottom: 16 }}
       />
       {identityRequired.length ? (
@@ -580,7 +786,7 @@ function PawMePage() {
             render: (_: unknown, row: Principal) => (
               <>
                 <div>{row.subject_id}</div>
-                <Text type="secondary">{row.id_source}</Text>
+                <Text type="secondary">{sourceLabel(row.id_source)}</Text>
               </>
             ),
           },
@@ -793,7 +999,7 @@ function PawMePage() {
               icon={<ShieldCheck size={13} />}
               color={oauthReady ? "success" : "warning"}
             >
-              {oauthReady ? "DWS OAuth 已连接" : "等待 DWS OAuth"}
+              {oauthReady ? "钉钉 OAuth 已连接" : "等待钉钉 OAuth"}
             </Tag>
             <Tag icon={<Clock3 size={13} />}>
               静默 {data?.settings.quiet_seconds ?? 4} 秒
@@ -989,7 +1195,7 @@ function PawMePage() {
         <Alert
           type="info"
           showIcon
-          message="ID 已由 DWS OAuth 事件验证"
+          message="ID 已由钉钉 OAuth 事件验证"
           description="下列 ID 为只读值，不能手填或修改。授权后，相同真实 ID 的后续消息会按所选策略处理。"
           style={{ marginBottom: 16 }}
         />
@@ -1025,7 +1231,7 @@ function PawMePage() {
             {
               key: "source",
               label: "来源",
-              children: authorizationItem?.id_source || "—",
+              children: sourceLabel(authorizationItem?.id_source),
             },
           ]}
         />

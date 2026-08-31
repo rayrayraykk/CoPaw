@@ -2,14 +2,16 @@
 
 Paw Me is a QwenPaw PawApp that lets the selected Agent act as the user's
 governed DingTalk digital twin. It receives and sends messages as the current
-OAuth user through DingTalk's official DWS CLI. It is not a robot, webhook, or
-QwenPaw Channel, and it performs no coordinate or desktop UI automation.
+OAuth user through an app-managed DingTalk Workspace runtime. The runtime is
+an implementation detail: Paw Me installs it into its own data directory and
+never changes the system PATH. Paw Me is not a robot, webhook, or QwenPaw
+Channel, and it performs no coordinate or desktop UI automation.
 
 ## Single-page workflow
 
 Open `/apps/paw-me-dingtalk` from QwenPaw. The page provides the complete loop:
 
-1. one-click official DWS installation and browser OAuth login;
+1. first-screen connector installation with progress and browser OAuth login;
 2. arbitrary enabled QwenPaw Agent selection;
 3. real-time direct and group message capture while DingTalk is in the
    background;
@@ -39,14 +41,15 @@ Recent DingTalk history is persisted separately for tone and factual context.
 It is refreshed again immediately before every Agent turn, so messages seen
 during a temporary stream reconnect still participate in the reply context.
 Outgoing messages sent by Paw Me are appended to the same context. OAuth
-tokens remain in DWS-managed secure storage and are never read or stored by
-the plugin.
+tokens remain in the official runtime's secure storage and are never read by
+the plugin. Installation and OAuth tasks can be cancelled and retried; browser
+OAuth is bounded to two minutes instead of leaving the page spinning.
 
 ## Local requirements
 
 - the selected QwenPaw Agent must already be ready;
-- the DingTalk organization must allow DWS CLI access;
-- OAuth login is completed in the browser opened by DWS.
+- the DingTalk organization must allow personal OAuth message access;
+- OAuth login is completed in the official browser authorization page.
 
 Build the frontend with `npm ci && npm run build` from `ui`, then install the
 plugin ZIP through QwenPaw's plugin installer.

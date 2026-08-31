@@ -15,6 +15,7 @@ def test_manifest_registers_a_single_page_pawapp():
     )
 
     assert manifest["id"] == "paw-me-dingtalk"
+    assert manifest["version"] == "0.4.0"
     assert manifest["type"] == "app"
     assert manifest["entry"]["backend"] == "backend/main.py"
     assert manifest["meta"]["pawapp"]["entry_page"] == (
@@ -41,3 +42,6 @@ def test_frontend_bundle_uses_pawapp_route_and_host_react():
     assert 'from "react"' not in bundle
     assert "/apps/paw-me-dingtalk" in bundle
     assert "forApp" in bundle
+    assert "安装并继续" in bundle
+    assert "/dws/cancel" in bundle
+    assert "一键安装 DWS" not in bundle
