@@ -7,12 +7,13 @@ from __future__ import annotations
 import asyncio
 import importlib
 import sys
+from dataclasses import dataclass, field
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
-from backend.dws import DwsStatus
+from backend.dws import DwsMessageEvent, DwsStatus
 from backend.store import PawMeStore
 
 
@@ -179,3 +180,159 @@ async def test_unauthenticated_enable_is_normalized_without_conflict(
     result = await module.update_settings(payload, ctx)
 
     assert result["settings"]["enabled"] is False
+
+
+@pytest.mark.asyncio
+async def test_authenticated_account_must_be_confirmed_before_enable(
+    monkeypatch,
+    tmp_path,
+):
+    """An OAuth login alone cannot authorize the digital twin to speak."""
+    module = load_runtime(monkeypatch, tmp_path)
+    status = DwsStatus(
+        available=True,
+        authenticated=True,
+        corp_id="corp-a",
+        user_id="user-a",
+        user_name="本人",
+    )
+    monkeypatch.setattr(
+        module.RUNTIME,
+        "refresh_dws_status",
+        AsyncMock(return_value=status),
+    )
+    ctx = SimpleNamespace(agent_id="default")
+    payload = module.SettingsPayload(
+        enabled=True,
+        agent_id="default",
+        default_policy="draft",
+        quiet_seconds=4,
+        max_wait_seconds=20,
+    )
+
+    result = await module.update_settings(payload, ctx)
+
+    assert result["settings"]["enabled"] is False
+    assert result["identity_provider"]["confirmed"] is False
+
+
+@pytest.mark.asyncio
+async def test_group_event_from_oauth_owner_is_ignored(monkeypatch, tmp_path):
+    """A sent group message cannot re-enter Paw Me as peer input."""
+    module = load_runtime(monkeypatch, tmp_path)
+    store = PawMeStore(tmp_path / "self-filter.sqlite3")
+    module.STORE = store
+    runtime = module.PawMeRuntime()
+    runtime.dws_status = DwsStatus(
+        available=True,
+        authenticated=True,
+        user_id="owner-user-id",
+        user_name="hello",
+    )
+    monkeypatch.setattr(
+        module.DWS,
+        "group_members",
+        AsyncMock(
+            return_value={
+                "result": {
+                    "list": [
+                        {
+                            "memberEmpName": "hello",
+                            "openDingtalkId": "owner-open-id",
+                        },
+                    ],
+                },
+            },
+        ),
+    )
+    event = DwsMessageEvent(
+        event_id="event-self",
+        event_type="user_im_message_receive_group_all",
+        message_id="message-self",
+        conversation_id="group-real-id",
+        sender="本人",
+        sender_open_dingtalk_id="owner-open-id",
+        content="刚发出的回复",
+        create_time="",
+        timestamp=100,
+        raw={},
+    )
+
+    await runtime._append_event(event)
+
+    assert store.list_work_items() == []
+    assert store.list_activity()[0]["status"] == "ignored_self"
+
+
+@dataclass
+class _ReplyWorkspace:
+    requests: list = field(default_factory=list)
+
+    async def stream_query(self, request):
+        self.requests.append(request)
+        yield "我是大白，你的个人 AI 助手，可以帮你处理任务。"
+
+
+@dataclass
+class _ReplyContext:
+    agent_id: str
+    workspace: _ReplyWorkspace
+
+    async def _get_workspace(self):
+        return self.workspace
+
+
+@pytest.mark.asyncio
+async def test_agent_identity_leak_is_never_auto_sent(monkeypatch, tmp_path):
+    """Agent persona leakage fails closed even under automatic policy."""
+    module = load_runtime(monkeypatch, tmp_path)
+    store = PawMeStore(tmp_path / "identity-gate.sqlite3")
+    module.STORE = store
+    store.add_principal(
+        subject_type="person",
+        subject_id="peer-real-id",
+        id_source="oauth:dws-event",
+        display_name="用户 09",
+        conversation_alias="用户 09",
+        policy="automatic",
+    )
+    item, _ = store.observe(
+        source_key="event-identity",
+        conversation_alias="用户 09",
+        subject_type="person",
+        subject_id="peer-real-id",
+        id_source="oauth:dws-event",
+        display_name="用户 09",
+        text="你是谁",
+        agent_id="agent-a",
+        quiet_seconds=4,
+        max_wait_seconds=20,
+        received_at=100,
+    )
+    runtime = module.PawMeRuntime()
+    runtime.dws_status = DwsStatus(
+        available=True,
+        authenticated=True,
+        user_name="账号主人",
+    )
+    monkeypatch.setattr(runtime, "_refresh_history", AsyncMock())
+    send = AsyncMock()
+    monkeypatch.setattr(runtime, "send_outbox", send)
+    workspace = _ReplyWorkspace()
+    context = _ReplyContext(agent_id="agent-a", workspace=workspace)
+
+    await runtime._run_agent(context, item["id"])
+
+    assert len(workspace.requests) == 1
+    request = workspace.requests[0]
+    assert [message.role.value for message in request.input] == [
+        "system",
+        "user",
+    ]
+    instructions = request.input[0].content[0].text
+    assert "执行引擎" in instructions
+    assert "账号主人" in instructions
+    outbox = store.list_outbox()[0]
+    assert outbox["status"] == "needs_review"
+    assert "身份" in outbox["error"]
+    send.assert_not_awaited()

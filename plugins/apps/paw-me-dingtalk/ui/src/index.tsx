@@ -102,6 +102,9 @@ type Outbox = {
   status: string;
   error: string;
   updated_at: number;
+  source_display_name: string;
+  source_subject_type: "person" | "group";
+  source_messages: Message[];
 };
 
 type ActivityItem = {
@@ -118,6 +121,7 @@ type Snapshot = {
     enabled: boolean;
     agent_id: string;
     default_policy: string;
+    access_mode: "approval" | "allow_all" | "block_all";
     quiet_seconds: number;
     max_wait_seconds: number;
   };
@@ -135,6 +139,7 @@ type Snapshot = {
     user_id: string;
     user_name: string;
     detail: string;
+    confirmed: boolean;
   };
   runtime: {
     running: boolean;
@@ -158,9 +163,10 @@ const styles = `
 .pm-statusbar{margin-bottom:18px}.pm-status-inner{display:flex;align-items:center;justify-content:space-between;gap:18px}.pm-status-main{display:flex;align-items:center;gap:12px;min-width:0}.pm-status-text{min-width:0}.pm-status-title{font-weight:600}.pm-status-detail{display:block;max-width:720px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pm-metric{height:100%}.pm-metric .ant-card-body{display:flex;align-items:center;gap:14px;padding:18px}.pm-metric-icon{display:grid;place-items:center;width:38px;height:38px;border-radius:10px;background:var(--ant-color-fill-secondary);color:var(--ant-color-primary);flex:none}.pm-metric-value{font-size:20px;font-weight:650;line-height:1.2}.pm-metric-label{color:var(--ant-color-text-secondary);font-size:12px;margin-top:3px}
 .pm-panel{margin-top:16px}.pm-panel .ant-card-head{min-height:52px}.pm-item-title{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.pm-message-stack{display:grid;gap:8px;margin-top:12px}.pm-message{padding:9px 11px;border-radius:8px;background:var(--ant-color-fill-tertiary);white-space:pre-wrap}.pm-meta{font-size:12px;color:var(--ant-color-text-secondary)}
+.pm-global{margin-bottom:16px}.pm-global-grid{display:grid;grid-template-columns:minmax(220px,1fr) minmax(220px,1fr);gap:18px}.pm-global-field{display:grid;gap:7px}.pm-global-label{font-weight:650}.pm-source{margin:12px 0;padding:12px;border:1px solid var(--ant-color-border-secondary);border-radius:10px}.pm-source-head{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:8px}.pm-draft{padding:12px;border-radius:10px;background:var(--ant-color-fill-quaternary)}.pm-account{margin-top:18px;padding:16px;border:1px solid var(--ant-color-border-secondary);border-radius:10px;background:var(--ant-color-bg-container)}
 .pm-policy-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.pm-subtle{color:var(--ant-color-text-secondary)}.pm-pre{white-space:pre-wrap;line-height:1.65;margin:0}.pm-error{color:var(--ant-color-error)}.pm-id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere;font-size:12px}.pm-setup{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:16px;border:1px solid var(--ant-color-border-secondary);border-radius:10px;margin-bottom:16px}.pm-setup-copy{min-width:0}.pm-setup-title{font-weight:650;margin-bottom:4px}
 .pm-onboarding{max-width:880px;margin:42px auto 0}.pm-onboarding .ant-card-body{padding:32px}.pm-onboarding-head{max-width:650px;margin-bottom:30px}.pm-onboarding-head h2{margin:0 0 8px!important;font-size:26px!important;letter-spacing:-.025em}.pm-steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:24px}.pm-step{display:flex;align-items:center;gap:10px;padding:12px;border:1px solid var(--ant-color-border-secondary);border-radius:10px;color:var(--ant-color-text-secondary)}.pm-step-current{border-color:var(--ant-color-primary);color:var(--ant-color-text);background:var(--ant-color-primary-bg)}.pm-step-done{color:var(--ant-color-success)}.pm-step-icon{display:grid;place-items:center;flex:none}.pm-onboarding-action{padding:22px;border-radius:12px;background:var(--ant-color-fill-quaternary)}.pm-onboarding-action h3{margin:0 0 6px;font-size:18px}.pm-progress{margin:18px 0 6px}.pm-onboarding-buttons{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:20px}.pm-agent-select{width:100%;max-width:420px;margin-top:16px}
-@media(max-width:760px){.pm-page{padding:16px 12px 32px}.pm-header{flex-direction:column}.pm-actions{justify-content:flex-start}.pm-status-inner{align-items:flex-start;flex-direction:column}.pm-status-detail{white-space:normal}.pm-policy-grid{grid-template-columns:1fr}.pm-onboarding{margin-top:18px}.pm-onboarding .ant-card-body{padding:20px}.pm-steps{grid-template-columns:1fr}}
+@media(max-width:760px){.pm-page{padding:16px 12px 32px}.pm-header{flex-direction:column}.pm-actions{justify-content:flex-start}.pm-status-inner{align-items:flex-start;flex-direction:column}.pm-status-detail{white-space:normal}.pm-policy-grid,.pm-global-grid{grid-template-columns:1fr}.pm-onboarding{margin-top:18px}.pm-onboarding .ant-card-body{padding:20px}.pm-steps{grid-template-columns:1fr}.pm-source-head{align-items:flex-start;flex-direction:column}}
 `;
 
 const statusLabel: Record<string, string> = {
@@ -172,6 +178,7 @@ const statusLabel: Record<string, string> = {
   agent_running: "Agent 处理中",
   interrupt_requested: "正在停止旧回复并合并",
   draft_ready: "待发送",
+  needs_review: "需要人工确认",
   sending: "发送中",
   sent: "已发送",
   failed: "失败",
@@ -193,7 +200,9 @@ function StatusTag({ status }: { status: string }) {
       ? "success"
       : status === "failed" || status === "blocked"
       ? "error"
-      : status === "draft_ready" || status === "identity_required"
+      : status === "draft_ready" ||
+        status === "identity_required" ||
+        status === "needs_review"
       ? "warning"
       : "processing";
   return <Tag color={color}>{statusLabel[status] || status}</Tag>;
@@ -300,6 +309,18 @@ function PawMePage() {
     await saveSettings({ ...data.settings, enabled, agent_id: agentId });
   };
 
+  const saveGlobalSetting = async (
+    key: "access_mode" | "default_policy",
+    value: string,
+  ) => {
+    if (!data) return;
+    await saveSettings({
+      ...data.settings,
+      [key]: value,
+      agent_id: agentId,
+    });
+  };
+
   const selectAgent = async (selected: string) => {
     setAgentId(selected);
     if (!data) return;
@@ -357,6 +378,33 @@ function PawMePage() {
       await refresh(agentId, true);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "取消操作失败");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const confirmIdentity = async () => {
+    if (!api) return;
+    setSaving(true);
+    try {
+      const next = await api.post<Snapshot>("/identity/confirm");
+      setData(next);
+      await sdk?.host.toast("本人钉钉账号已确认", "success");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "账号确认失败");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const reconnectIdentity = async () => {
+    if (!api) return;
+    setSaving(true);
+    try {
+      const next = await api.post<Snapshot>("/identity/reconnect");
+      setData(next);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "重新连接失败");
     } finally {
       setSaving(false);
     }
@@ -431,6 +479,7 @@ function PawMePage() {
   const pendingDrafts =
     data?.outbox.filter((item) => item.status !== "sent") || [];
   const oauthReady = Boolean(data?.identity_provider.authenticated);
+  const identityConfirmed = Boolean(data?.identity_provider.confirmed);
   const connectorReady = Boolean(data?.identity_provider.available);
   const integrationStage = data?.runtime.integration_stage || "idle";
   const integrationBusy = [
@@ -442,8 +491,12 @@ function PawMePage() {
     "login",
   ].includes(integrationStage);
 
-  if (!oauthReady || !data?.settings.enabled) {
-    const currentStep = !connectorReady ? 0 : !oauthReady ? 1 : 2;
+  if (!oauthReady || !identityConfirmed) {
+    const currentStep = !connectorReady
+      ? 0
+      : !oauthReady || !identityConfirmed
+      ? 1
+      : 2;
     const stepIcon = (index: number) => {
       if (index < currentStep) return <Check size={17} />;
       return <Circle size={17} />;
@@ -452,6 +505,8 @@ function PawMePage() {
       ? "准备钉钉连接组件"
       : !oauthReady
       ? "连接你的钉钉账号"
+      : !identityConfirmed
+      ? "确认数字分身的本人账号"
       : "选择负责回复的 Agent";
     const setupDetail =
       data?.runtime.integration_detail ||
@@ -459,6 +514,8 @@ function PawMePage() {
         ? "组件安装在 Paw Me 的独立目录，不修改系统 PATH。"
         : !oauthReady
         ? "浏览器将打开钉钉官方 OAuth；插件不会读取或保存账号密码。"
+        : !identityConfirmed
+        ? "启用前核对组织与账号，避免数字分身以错误身份发言。"
         : "任意已启用 Agent 都可以负责回复，认证由 Agent 自己管理。");
 
     return (
@@ -530,7 +587,25 @@ function PawMePage() {
               </div>
             ) : null}
 
-            {oauthReady ? (
+            {oauthReady && !identityConfirmed ? (
+              <div className="pm-account">
+                <Descriptions column={1} size="small">
+                  <Descriptions.Item label="账号">
+                    {data?.identity_provider.user_name || "未返回显示名"}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="组织">
+                    {data?.identity_provider.corp_name || "未返回组织名"}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="真实 userId">
+                    <span className="pm-id">
+                      {data?.identity_provider.user_id || "—"}
+                    </span>
+                  </Descriptions.Item>
+                </Descriptions>
+              </div>
+            ) : null}
+
+            {identityConfirmed ? (
               <Select
                 className="pm-agent-select"
                 value={agentId}
@@ -565,6 +640,26 @@ function PawMePage() {
                 >
                   连接钉钉
                 </Button>
+              ) : !identityConfirmed ? (
+                <>
+                  <Button
+                    type="primary"
+                    size="large"
+                    icon={<UserCheck size={17} />}
+                    loading={saving}
+                    onClick={() => void confirmIdentity()}
+                  >
+                    确认这是我
+                  </Button>
+                  <Button
+                    size="large"
+                    icon={<RefreshCw size={17} />}
+                    disabled={saving}
+                    onClick={() => void reconnectIdentity()}
+                  >
+                    不是我，重新连接
+                  </Button>
+                </>
               ) : (
                 <Button
                   type="primary"
@@ -577,6 +672,7 @@ function PawMePage() {
                       enabled: true,
                       agent_id: agentId,
                       default_policy: data?.settings.default_policy || "draft",
+                      access_mode: data?.settings.access_mode || "approval",
                       quiet_seconds: data?.settings.quiet_seconds ?? 4,
                       max_wait_seconds: data?.settings.max_wait_seconds ?? 20,
                     })
@@ -717,19 +813,24 @@ function PawMePage() {
             使用钉钉 OAuth 登录
           </Button>
         ) : (
-          <Button
-            icon={<RefreshCw size={16} />}
-            onClick={() => void refresh(agentId)}
-          >
-            刷新登录状态
-          </Button>
+          <Space wrap>
+            <Button
+              icon={<RefreshCw size={16} />}
+              onClick={() => void refresh(agentId)}
+            >
+              刷新状态
+            </Button>
+            <Button onClick={() => void reconnectIdentity()} disabled={saving}>
+              更换账号
+            </Button>
+          </Space>
         )}
       </div>
       <Alert
         showIcon
         type="info"
-        message="授权只来自收到的真实事件"
-        description="人员 openDingTalkId 或群 openConversationId 由钉钉 OAuth 事件写入，界面不可手填。未授权会话统一进入待审核，不会调用 Agent。"
+        message="单会话规则只来自收到的真实事件"
+        description="人员 openDingTalkId 或群 openConversationId 由钉钉 OAuth 事件写入，界面不可手填。没有单会话规则时继承上方全局策略。"
         style={{ marginBottom: 16 }}
       />
       {identityRequired.length ? (
@@ -814,7 +915,7 @@ function PawMePage() {
             title: "操作",
             render: (_: unknown, row: Principal) => (
               <Popconfirm
-                title="删除此身份策略？后续消息将重新进入待授权。"
+                title="删除此会话规则？后续消息将继承全局策略。"
                 onConfirm={() => void removePrincipal(row.id)}
               >
                 <Button type="text" danger icon={<Trash2 size={15} />}>
@@ -880,7 +981,32 @@ function PawMePage() {
               }
               description={
                 <>
-                  <p className="pm-pre">{item.text}</p>
+                  <div className="pm-source">
+                    <div className="pm-source-head">
+                      <strong>
+                        {item.source_display_name || item.conversation_alias}
+                      </strong>
+                      <Text type="secondary">
+                        {item.source_subject_type === "group"
+                          ? "群聊消息"
+                          : "单聊消息"}
+                      </Text>
+                    </div>
+                    <div className="pm-message-stack">
+                      {(item.source_messages || []).map((message) => (
+                        <div className="pm-message" key={message.id}>
+                          {message.text}
+                          <div className="pm-meta">
+                            {time(message.received_at)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="pm-draft">
+                    <Text type="secondary">准备发送的回复</Text>
+                    <p className="pm-pre">{item.text}</p>
+                  </div>
                   {item.error ? (
                     <div className="pm-error">{item.error}</div>
                   ) : null}
@@ -1010,6 +1136,47 @@ function PawMePage() {
               </Tag>
             ) : null}
           </Space>
+        </div>
+      </Card>
+
+      <Card className="pm-global" title="全局访问与回复策略">
+        <div className="pm-global-grid">
+          <div className="pm-global-field">
+            <div className="pm-global-label">新会话默认访问规则</div>
+            <Select
+              value={data?.settings.access_mode || "approval"}
+              options={[
+                {
+                  value: "approval",
+                  label: "逐个审批（推荐）",
+                },
+                { value: "allow_all", label: "全白名单" },
+                { value: "block_all", label: "全黑名单" },
+              ]}
+              onChange={(value: string) =>
+                void saveGlobalSetting("access_mode", value)
+              }
+            />
+            <Text type="secondary">
+              单会话规则始终优先；删除单会话规则后恢复继承全局。
+            </Text>
+          </div>
+          <div className="pm-global-field">
+            <div className="pm-global-label">允许回复时的默认方式</div>
+            <Select
+              value={data?.settings.default_policy || "draft"}
+              options={[
+                { value: "draft", label: "先进入待发送" },
+                { value: "automatic", label: "生成后自动发送" },
+              ]}
+              onChange={(value: string) =>
+                void saveGlobalSetting("default_policy", value)
+              }
+            />
+            <Text type="secondary">
+              即使选择自动发送，身份泄漏或元分析也会强制留在草稿。
+            </Text>
+          </div>
         </div>
       </Card>
 
@@ -1158,6 +1325,15 @@ function PawMePage() {
               options={[
                 { value: "draft", label: "生成草稿，确认后发送" },
                 { value: "automatic", label: "按身份策略自动发送" },
+              ]}
+            />
+          </Form.Item>
+          <Form.Item name="access_mode" label="新会话默认访问规则">
+            <Select
+              options={[
+                { value: "approval", label: "逐个审批" },
+                { value: "allow_all", label: "全白名单" },
+                { value: "block_all", label: "全黑名单" },
               ]}
             />
           </Form.Item>

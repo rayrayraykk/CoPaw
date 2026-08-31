@@ -335,6 +335,7 @@ class PawMeStore:  # pylint: disable=too-many-public-methods
         agent_id: str,
         quiet_seconds: float,
         max_wait_seconds: float,
+        fallback_policy: str | None = None,
         received_at: float | None = None,
         raw_message: dict[str, Any] | None = None,
     ) -> tuple[dict[str, Any], bool]:
@@ -392,6 +393,7 @@ class PawMeStore:  # pylint: disable=too-many-public-methods
                 status, resolved_id = self._initial_status(
                     principal,
                     clean_subject_id,
+                    fallback_policy,
                 )
                 session_id = self._session_id(subject_type, resolved_id)
                 connection.execute(
@@ -486,15 +488,56 @@ class PawMeStore:  # pylint: disable=too-many-public-methods
     def _initial_status(
         principal: dict[str, Any] | None,
         verified_subject_id: str,
+        fallback_policy: str | None = None,
     ) -> tuple[str, str | None]:
-        if principal is None:
+        policy = (
+            str(principal["policy"])
+            if principal is not None
+            else fallback_policy
+        )
+        if policy is None:
             return "identity_required", verified_subject_id
-        subject_id = str(principal["subject_id"])
-        if principal["policy"] == "blocked":
+        subject_id = (
+            str(principal["subject_id"])
+            if principal is not None
+            else verified_subject_id
+        )
+        if policy == "blocked":
             return "blocked", subject_id
-        if principal["policy"] == "observe":
+        if policy == "observe":
             return "observed", subject_id
         return "collecting", subject_id
+
+    def apply_global_policy(
+        self,
+        access_mode: str,
+    ) -> int:
+        """Re-evaluate unresolved conversations after a global change."""
+        target = {
+            "approval": "identity_required",
+            "allow_all": "collecting",
+            "block_all": "blocked",
+        }.get(access_mode)
+        if target is None:
+            raise ValueError("Invalid global access mode")
+        now = time.time()
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE work_items SET status = ?, quiet_deadline = ?,
+                    updated_at = ?
+                WHERE status IN (
+                    'identity_required', 'collecting', 'blocked', 'observed'
+                )
+                  AND NOT EXISTS (
+                    SELECT 1 FROM principals
+                    WHERE principals.subject_type = work_items.subject_type
+                      AND principals.subject_id = work_items.subject_id
+                  )
+                """,
+                (target, now, now),
+            )
+        return cursor.rowcount
 
     @staticmethod
     def _get_work_item(
@@ -876,6 +919,10 @@ class PawMeStore:  # pylint: disable=too-many-public-methods
                 "default_policy": self.get_setting(
                     "default_policy",
                     "draft",
+                ),
+                "access_mode": self.get_setting(
+                    "access_mode",
+                    "approval",
                 ),
                 "quiet_seconds": float(
                     self.get_setting("quiet_seconds", "4.0"),

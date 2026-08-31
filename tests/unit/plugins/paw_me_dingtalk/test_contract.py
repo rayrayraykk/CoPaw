@@ -15,7 +15,7 @@ def test_manifest_registers_a_single_page_pawapp():
     )
 
     assert manifest["id"] == "paw-me-dingtalk"
-    assert manifest["version"] == "0.4.0"
+    assert manifest["version"] == "0.5.0"
     assert manifest["type"] == "app"
     assert manifest["entry"]["backend"] == "backend/main.py"
     assert manifest["meta"]["pawapp"]["entry_page"] == (

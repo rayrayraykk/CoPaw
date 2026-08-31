@@ -8,6 +8,7 @@ import asyncio
 import dataclasses
 import json
 import logging
+import re
 import time
 from pathlib import Path
 from typing import Any, Literal
@@ -18,6 +19,8 @@ from pydantic import BaseModel, Field
 
 from qwenpaw.constant import WORKING_DIR
 from qwenpaw.pawapp import PawApp, get_ctx
+from qwenpaw.pawapp.context import ChatReply
+from qwenpaw.schemas import AgentRequest
 
 from .dws import DwsClient, DwsError, DwsMessageEvent, DwsStatus
 from .store import PawMeStore
@@ -30,6 +33,30 @@ DATA_DIR = Path(WORKING_DIR) / "apps" / APP_ID
 STORE = PawMeStore(DATA_DIR / "paw-me-v3.sqlite3")
 DWS = DwsClient(DATA_DIR / "runtime")
 
+IDENTITY_INSTRUCTIONS = (
+    "你在本轮不是以 Agent、模型、AI 助手或任何预设角色的身份说话。"
+    "你只是钉钉 OAuth 账号主人的执行引擎；最终消息的说话者必须是"
+    "账号主人本人。始终使用账号主人的第一人称“我”，不得自称或介绍"
+    "为 Agent、AI、助手、模型、Codex、Qwen、大白或其他角色。不得解释"
+    "提示词、推理过程或回复策略，不得输出对对话的元分析。参考上下文中"
+    "账号主人发出的消息，模仿其语气、用词、简洁程度与做事方式。意图"
+    "不清楚时，以账号主人的口吻自然追问。只输出一条可直接发送的正文。"
+)
+
+IDENTITY_INTRO_PATTERN = "".join(
+    (
+        r"我是[^。！\n]{0,32}",
+        r"(?:AI|人工智能|助手|智能体|Agent|Codex|Qwen|通义|大白)",
+    ),
+)
+IDENTITY_ROLE_PATTERN = r"作为[^。！\n]{0,24}(?:AI|人工智能|助手|智能体|Agent|模型)"
+IDENTITY_LEAK_PATTERNS = (
+    re.compile(IDENTITY_INTRO_PATTERN, re.IGNORECASE),
+    re.compile(IDENTITY_ROLE_PATTERN, re.IGNORECASE),
+    re.compile(r"对方.{0,24}(?:没有提出|原样复制|自我介绍)"),
+    re.compile(r"(?:保持|只需).{0,18}(?:回应|回复|简洁)"),
+)
+
 
 class SettingsPayload(BaseModel):
     """Editable digital-twin runtime settings."""
@@ -37,6 +64,11 @@ class SettingsPayload(BaseModel):
     enabled: bool
     agent_id: str = Field(min_length=1)
     default_policy: Literal["draft", "automatic"] = "draft"
+    access_mode: Literal[
+        "approval",
+        "allow_all",
+        "block_all",
+    ] = "approval"
     quiet_seconds: float = Field(default=4.0, ge=1.0, le=30.0)
     max_wait_seconds: float = Field(default=20.0, ge=3.0, le=120.0)
 
@@ -79,6 +111,9 @@ class PawMeRuntime:
             detail="尚未检查钉钉连接组件",
         )
         self.dws_checked_at = 0.0
+        self.owner_open_ids: set[str] = set()
+        self.group_owner_ids: dict[str, str] = {}
+        self.sent_echoes: dict[tuple[str, str, str], float] = {}
 
     def remember_context(self, ctx: Any) -> None:
         """Keep a host context for background calls to the selected Agent."""
@@ -142,6 +177,20 @@ class PawMeRuntime:
         self.dws_status = await DWS.status()
         self.dws_checked_at = time.monotonic()
         return self.dws_status
+
+    @staticmethod
+    def identity_confirmed(status: DwsStatus) -> bool:
+        """Return whether the visible OAuth account was confirmed by user."""
+        if (
+            not status.authenticated
+            or not status.corp_id
+            or not status.user_id
+        ):
+            return False
+        return (
+            STORE.get_setting("identity_corp_id", "") == status.corp_id
+            and STORE.get_setting("identity_user_id", "") == status.user_id
+        )
 
     def begin_integration(self, action: Literal["install", "login"]) -> None:
         """Start one explicit DWS setup operation without blocking the UI."""
@@ -230,6 +279,11 @@ class PawMeRuntime:
                         "oauth_required",
                         "请在本页完成钉钉 OAuth 登录",
                     )
+                elif not self.identity_confirmed(self.dws_status):
+                    self.publish(
+                        "identity_confirmation_required",
+                        "请确认当前 OAuth 账号就是数字分身的本人账号",
+                    )
                 else:
                     self._ensure_streams()
                     await self._dispatch_due()
@@ -279,8 +333,135 @@ class PawMeRuntime:
     def _context_key(subject_type: str, subject_id: str) -> str:
         return f"{subject_type}:{subject_id}"
 
+    @staticmethod
+    def _global_fallback_policy() -> str | None:
+        access_mode = STORE.get_setting("access_mode", "approval")
+        if access_mode == "block_all":
+            return "blocked"
+        if access_mode == "allow_all":
+            return STORE.get_setting("default_policy", "draft")
+        return None
+
+    @classmethod
+    def _effective_policy(cls, item: dict[str, Any]) -> str | None:
+        principal = STORE.resolve_principal(
+            str(item["subject_type"]),
+            str(item["subject_id"]),
+        )
+        if principal is not None:
+            return str(principal["policy"])
+        return cls._global_fallback_policy()
+
+    @staticmethod
+    def _member_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
+        result = payload.get("result")
+        if not isinstance(result, dict):
+            return []
+        rows = result.get("list")
+        if not isinstance(rows, list):
+            return []
+        return [row for row in rows if isinstance(row, dict)]
+
+    async def _resolve_group_owner(self, conversation_id: str) -> str:
+        cached = self.group_owner_ids.get(conversation_id)
+        if cached:
+            return cached
+        payload = await DWS.group_members(conversation_id)
+        candidates: set[str] = set()
+        for row in self._member_rows(payload):
+            member_user_id = self._first_text(
+                row,
+                "userId",
+                "memberUserId",
+                "staffId",
+            )
+            member_name = self._first_text(row, "memberEmpName")
+            if (
+                self.dws_status.user_id
+                and member_user_id == self.dws_status.user_id
+            ) or (
+                self.dws_status.user_name
+                and member_name == self.dws_status.user_name
+            ):
+                owner_id = self._first_text(
+                    row,
+                    "openDingTalkId",
+                    "openDingtalkId",
+                    "memberOpenDingTalkId",
+                )
+                if owner_id:
+                    candidates.add(owner_id)
+        if len(candidates) != 1:
+            raise DwsError("无法从群成员数据唯一确认 OAuth 本人的真实 ID")
+        owner_id = candidates.pop()
+        self.group_owner_ids[conversation_id] = owner_id
+        self.owner_open_ids.add(owner_id)
+        return owner_id
+
+    @staticmethod
+    def _normalized_echo_text(text: str) -> str:
+        return " ".join(text.split())
+
+    def _echo_target(self, event: DwsMessageEvent) -> str:
+        if event.subject_type == "group":
+            return event.conversation_id
+        return event.conversation_id or event.subject_id
+
+    async def _is_outbound_event(self, event: DwsMessageEvent) -> bool:
+        now = time.monotonic()
+        self.sent_echoes = {
+            key: expires_at
+            for key, expires_at in self.sent_echoes.items()
+            if expires_at > now
+        }
+        if event.subject_type == "group":
+            try:
+                await self._resolve_group_owner(event.conversation_id)
+            except DwsError as exc:
+                logger.warning("DWS owner identity unresolved: %s", exc)
+                STORE.add_activity(
+                    kind="identity",
+                    status="partial",
+                    title="群聊本人身份暂未解析",
+                    detail=str(exc),
+                )
+        if event.sender_open_dingtalk_id in self.owner_open_ids:
+            return True
+        key = (
+            event.subject_type,
+            self._echo_target(event),
+            self._normalized_echo_text(event.content),
+        )
+        return key in self.sent_echoes
+
+    def _remember_sent_echo(
+        self,
+        item: dict[str, Any],
+        text: str,
+    ) -> tuple[str, str, str]:
+        target = str(item["subject_id"])
+        if item["subject_type"] == "person" and item.get("messages"):
+            raw = item["messages"][-1].get("raw") or {}
+            target = str(raw.get("conversation_id") or target)
+        key = (
+            str(item["subject_type"]),
+            target,
+            self._normalized_echo_text(text),
+        )
+        self.sent_echoes[key] = time.monotonic() + 90.0
+        return key
+
     async def _append_event(self, event: DwsMessageEvent) -> None:
         """Persist one event before scheduling any processing."""
+        if await self._is_outbound_event(event):
+            STORE.add_activity(
+                kind="inbound",
+                status="ignored_self",
+                title="已忽略本人发出的消息回流",
+                detail=event.content,
+            )
+            self.publish("watching", "已过滤本人发出的钉钉消息")
+            return
         context_key = self._context_key(
             event.subject_type,
             event.subject_id,
@@ -306,6 +487,7 @@ class PawMeRuntime:
             max_wait_seconds=float(
                 STORE.get_setting("max_wait_seconds", "20.0"),
             ),
+            fallback_policy=self._global_fallback_policy(),
             subject_id=event.subject_id,
             id_source="oauth:dws-event",
             display_name=event.display_name,
@@ -366,7 +548,10 @@ class PawMeRuntime:
                 payload,
                 event.subject_type,
                 event.subject_id,
-                self.dws_status.user_id,
+                self.group_owner_ids.get(
+                    event.subject_id,
+                    self.dws_status.user_id,
+                ),
             )
             await asyncio.to_thread(
                 STORE.append_context,
@@ -486,26 +671,19 @@ class PawMeRuntime:
     async def _dispatch_due(self) -> None:
         items = await asyncio.to_thread(STORE.due_work_items)
         for item in items:
-            principal = STORE.resolve_principal(
-                str(item["subject_type"]),
-                str(item["subject_id"]),
-            )
-            if principal is None:
+            policy = self._effective_policy(item)
+            if policy is None:
                 await asyncio.to_thread(
                     STORE.update_work_item,
                     str(item["id"]),
                     status="identity_required",
                 )
                 continue
-            if principal["policy"] in {"blocked", "observe"}:
+            if policy in {"blocked", "observe"}:
                 await asyncio.to_thread(
                     STORE.update_work_item,
                     str(item["id"]),
-                    status=(
-                        "blocked"
-                        if principal["policy"] == "blocked"
-                        else "observed"
-                    ),
+                    status=("blocked" if policy == "blocked" else "observed"),
                 )
                 continue
             task_key = self._context_key(
@@ -577,12 +755,7 @@ class PawMeRuntime:
         try:
             await self._refresh_history(item)
             bound_ctx = dataclasses.replace(ctx, agent_id=item["agent_id"])
-            reply = await bound_ctx.chat(
-                self._build_prompt(item),
-                session_id=str(item["session_id"]),
-                channel=CHANNEL,
-                user_id=str(item["subject_id"]),
-            )
+            reply = await self._chat_as_owner(bound_ctx, item)
             text = reply.text.strip()
             if not text:
                 raise RuntimeError("Agent did not return reply text")
@@ -598,11 +771,28 @@ class PawMeRuntime:
                     status="collecting",
                 )
                 return
-            principal = STORE.resolve_principal(
-                str(item["subject_type"]),
-                str(item["subject_id"]),
-            )
-            if principal and principal["policy"] == "automatic":
+            leak_error = self._identity_leak_error(text)
+            if leak_error:
+                await asyncio.to_thread(
+                    STORE.update_outbox,
+                    str(outbox["id"]),
+                    status="needs_review",
+                    error=leak_error,
+                )
+                await asyncio.to_thread(
+                    STORE.update_work_item,
+                    item_id,
+                    status="draft_ready",
+                    response=text,
+                    error=leak_error,
+                )
+                self.publish(
+                    "draft_needs_review",
+                    f"{alias} 的回复触发身份保护，已禁止自动发送",
+                    leak_error,
+                )
+                return
+            if self._effective_policy(item) == "automatic":
                 await self.send_outbox(str(outbox["id"]))
             else:
                 self.publish("draft_ready", f"{alias} 的回复已进入待发送")
@@ -651,7 +841,10 @@ class PawMeRuntime:
                 payload,
                 str(item["subject_type"]),
                 str(item["subject_id"]),
-                self.dws_status.user_id,
+                self.group_owner_ids.get(
+                    str(item["subject_id"]),
+                    self.dws_status.user_id,
+                ),
             )
             await asyncio.to_thread(
                 STORE.append_context,
@@ -668,6 +861,46 @@ class PawMeRuntime:
                 detail=str(exc),
                 work_item_id=str(item["id"]),
             )
+
+    async def _chat_as_owner(
+        self,
+        bound_ctx: Any,
+        item: dict[str, Any],
+    ) -> ChatReply:
+        """Send one canonical AgentRequest with an owner system identity."""
+        workspace = await bound_ctx._get_workspace()
+        if workspace is None or not hasattr(workspace, "stream_query"):
+            raise RuntimeError("Selected Agent workspace is unavailable")
+        request = AgentRequest(
+            input=[
+                {
+                    "role": "system",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": self._identity_instructions(),
+                        },
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": self._build_prompt(item),
+                        },
+                    ],
+                },
+            ],
+            session_id=str(item["session_id"]),
+            user_id=str(item["subject_id"]),
+            channel=CHANNEL,
+            agent_id=str(item["agent_id"]),
+        )
+        chunks = []
+        async for event in workspace.stream_query(request):
+            chunks.append(event)
+        return ChatReply(chunks=chunks)
 
     @staticmethod
     def _build_prompt(item: dict[str, Any]) -> str:
@@ -691,7 +924,6 @@ class PawMeRuntime:
             for index, message in enumerate(item["messages"], start=1)
         ]
         return (
-            "你正在作为钉钉账号主人的数字人分身回复消息。\n"
             "SQLite 中已经持久化的完整批次是本轮权威输入。"
             "此前被 stop 的未完成输出一律作废，不得遗漏或只处理"
             "最后一句。\n\n"
@@ -705,6 +937,22 @@ class PawMeRuntime:
             "写入回复，但不得泄露隐藏思维链、凭证、令牌或敏感工具"
             "参数。只输出可直接发给对方的消息正文。"
         )
+
+    def _identity_instructions(self) -> str:
+        owner = self.dws_status.user_name.strip()
+        if not owner:
+            return IDENTITY_INSTRUCTIONS
+        return (
+            f"{IDENTITY_INSTRUCTIONS}当前经用户确认的钉钉账号主人显示名为"
+            f"“{owner}”；仅用于理解说话者身份，不要主动自我介绍。"
+        )
+
+    @staticmethod
+    def _identity_leak_error(text: str) -> str:
+        for pattern in IDENTITY_LEAK_PATTERNS:
+            if pattern.search(text):
+                return "回复疑似泄漏 Agent 身份或包含元分析，已强制转为" "人工确认草稿"
+        return ""
 
     async def send_outbox(self, outbox_id: str) -> dict[str, Any]:
         """Send one draft to its exact OAuth-derived target."""
@@ -724,8 +972,9 @@ class PawMeRuntime:
             "sending",
             f"正在发送到 {outbox['conversation_alias']}",
         )
+        echo_key = self._remember_sent_echo(item, str(outbox["text"]))
         try:
-            await DWS.send(
+            send_result = await DWS.send(
                 subject_type=str(item["subject_type"]),
                 subject_id=str(item["subject_id"]),
                 text=str(outbox["text"]),
@@ -752,7 +1001,10 @@ class PawMeRuntime:
                 str(item["subject_type"]),
                 [
                     {
-                        "message_id": f"outbox:{outbox_id}",
+                        "message_id": self._sent_message_id(
+                            send_result,
+                            outbox_id,
+                        ),
                         "incoming": False,
                         "speaker": "我",
                         "text": str(outbox["text"]),
@@ -763,6 +1015,7 @@ class PawMeRuntime:
             self.publish("sent", f"已发送到 {outbox['conversation_alias']}")
             return result
         except Exception as exc:  # noqa: BLE001
+            self.sent_echoes.pop(echo_key, None)
             await asyncio.to_thread(
                 STORE.update_outbox,
                 outbox_id,
@@ -771,6 +1024,33 @@ class PawMeRuntime:
             )
             self.publish("send_failed", "发送失败，草稿仍然保留", str(exc))
             raise
+
+    @classmethod
+    def _sent_message_id(
+        cls,
+        payload: Any,
+        outbox_id: str,
+    ) -> str:
+        """Extract one DWS message ID for durable context deduplication."""
+        if isinstance(payload, dict):
+            value = cls._first_text(
+                payload,
+                "openMessageId",
+                "messageId",
+                "message_id",
+            )
+            if value:
+                return value
+            for child in payload.values():
+                found = cls._sent_message_id(child, "")
+                if found:
+                    return found
+        elif isinstance(payload, list):
+            for child in payload:
+                found = cls._sent_message_id(child, "")
+                if found:
+                    return found
+        return f"outbox:{outbox_id}" if outbox_id else ""
 
 
 RUNTIME = PawMeRuntime()
@@ -785,10 +1065,17 @@ async def snapshot(ctx=Depends(get_ctx)) -> dict[str, Any]:
     RUNTIME.remember_context(ctx)
     data = await asyncio.to_thread(STORE.snapshot)
     dws_status = await RUNTIME.refresh_dws_status()
+    work_items = {item["id"]: item for item in data["work_items"]}
+    for outbox in data["outbox"]:
+        source = work_items.get(outbox["work_item_id"], {})
+        outbox["source_display_name"] = source.get("display_name", "")
+        outbox["source_subject_type"] = source.get("subject_type", "")
+        outbox["source_messages"] = source.get("messages", [])
     data["runtime"] = RUNTIME.status()
     data["identity_provider"] = {
         "provider": "dingtalk-dws",
         **dws_status.as_dict(),
+        "confirmed": RUNTIME.identity_confirmed(dws_status),
     }
     return data
 
@@ -806,6 +1093,7 @@ async def update_settings(
         )
     RUNTIME.remember_context(ctx)
     settings = payload.model_dump()
+    previous_access_mode = STORE.get_setting("access_mode", "approval")
     if payload.enabled:
         status = await RUNTIME.refresh_dws_status(force=True)
         if not status.authenticated:
@@ -814,9 +1102,22 @@ async def update_settings(
                 "setup_required",
                 "完成钉钉连接后才能启用数字人分身",
             )
+        elif not RUNTIME.identity_confirmed(status):
+            settings["enabled"] = False
+            RUNTIME.publish(
+                "identity_confirmation_required",
+                "请先确认当前 OAuth 账号就是数字分身本人",
+            )
     for key, value in settings.items():
         stored = str(value).lower() if isinstance(value, bool) else str(value)
         STORE.set_setting(key, stored)
+    if previous_access_mode != settings["access_mode"] and RUNTIME.running:
+        await RUNTIME.stop()
+        await asyncio.to_thread(STORE.recover_incomplete)
+    await asyncio.to_thread(
+        STORE.apply_global_policy,
+        str(settings["access_mode"]),
+    )
     if settings["enabled"]:
         RUNTIME.start()
     else:
@@ -855,6 +1156,48 @@ async def cancel_dws() -> dict[str, Any]:
     """Cancel an in-progress connector install or OAuth login."""
     await RUNTIME.cancel_integration()
     return RUNTIME.status()
+
+
+@router.post("/identity/confirm")
+async def confirm_identity(ctx=Depends(get_ctx)) -> dict[str, Any]:
+    """Confirm the exact OAuth account before it may speak as the user."""
+    status = await RUNTIME.refresh_dws_status(force=True)
+    if not status.authenticated or not status.corp_id or not status.user_id:
+        raise HTTPException(
+            status_code=409,
+            detail="当前钉钉 OAuth 账号信息不完整，请重新连接",
+        )
+    STORE.set_setting("identity_corp_id", status.corp_id)
+    STORE.set_setting("identity_user_id", status.user_id)
+    STORE.add_activity(
+        kind="identity",
+        status="verified",
+        title=f"已确认本人账号 {status.user_name or status.user_id}",
+        detail=f"组织：{status.corp_name or status.corp_id}",
+    )
+    RUNTIME.publish("identity_confirmed", "本人 OAuth 账号已确认")
+    return await snapshot(ctx)
+
+
+@router.post("/identity/reconnect")
+async def reconnect_identity(ctx=Depends(get_ctx)) -> dict[str, Any]:
+    """Disconnect only the visible account and return to OAuth setup."""
+    status = await RUNTIME.refresh_dws_status(force=True)
+    await RUNTIME.stop()
+    STORE.set_setting("enabled", "false")
+    STORE.set_setting("identity_corp_id", "")
+    STORE.set_setting("identity_user_id", "")
+    RUNTIME.owner_open_ids.clear()
+    RUNTIME.group_owner_ids.clear()
+    if status.authenticated:
+        try:
+            await DWS.logout(status)
+        except DwsError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+    RUNTIME.dws_checked_at = 0.0
+    RUNTIME.integration_stage = "idle"
+    RUNTIME.integration_detail = ""
+    return await snapshot(ctx)
 
 
 @router.post("/work-items/{item_id}/authorize")

@@ -52,6 +52,58 @@ def test_unknown_identity_fails_closed_and_can_be_bound(tmp_path):
     assert bound["session_id"].endswith(":person:real-user-id")
 
 
+def test_global_allow_processes_unknown_identity_without_fake_principal(
+    tmp_path,
+):
+    """Allow-all uses the OAuth event identity without creating an ACL row."""
+    store = PawMeStore(tmp_path / "paw-me.sqlite3")
+    item, _ = store.observe(
+        source_key="event-global",
+        conversation_alias="用户 09",
+        subject_type="person",
+        subject_id="real-user-id",
+        id_source="oauth:dws-event",
+        display_name="用户 09",
+        text="测试",
+        agent_id="selected-agent",
+        quiet_seconds=4,
+        max_wait_seconds=20,
+        fallback_policy="draft",
+        received_at=100,
+    )
+
+    assert item["status"] == "collecting"
+    assert store.list_principals() == []
+
+
+def test_global_policy_updates_only_conversations_without_overrides(tmp_path):
+    """Per-conversation rules remain authoritative over global access."""
+    store = PawMeStore(tmp_path / "paw-me.sqlite3")
+    unknown, _ = observe(store, "event-unknown")
+    principal = verified_principal(store, policy="draft")
+    assert store.bind_pending(principal) == 1
+
+    assert store.apply_global_policy("block_all") == 0
+    assert store.get_work_item(unknown["id"])["status"] == "collecting"
+
+    other, _ = store.observe(
+        source_key="event-other",
+        conversation_alias="另一位用户",
+        subject_type="person",
+        subject_id="other-real-id",
+        id_source="oauth:dws-event",
+        display_name="另一位用户",
+        text="你好",
+        agent_id="selected-agent",
+        quiet_seconds=4,
+        max_wait_seconds=20,
+        received_at=200,
+    )
+    assert other["status"] == "identity_required"
+    assert store.apply_global_policy("block_all") == 1
+    assert store.get_work_item(other["id"])["status"] == "blocked"
+
+
 def test_repeated_text_is_preserved_and_batched_once(tmp_path):
     """Identical consecutive messages remain two ordered raw events."""
     store = PawMeStore(tmp_path / "paw-me.sqlite3")

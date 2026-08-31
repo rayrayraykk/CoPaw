@@ -1,7 +1,7 @@
 {
   "id": "paw-me-dingtalk",
   "name": "Paw Me · DingTalk",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "type": "app",
   "description": "A governed DingTalk digital twin powered by the QwenPaw Agent you select.",
   "description_i18n": {

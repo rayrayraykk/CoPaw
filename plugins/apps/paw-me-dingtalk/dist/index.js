@@ -1,19 +1,19 @@
-const Ae = window.QwenPaw.host.React, te = Ae.createElement, Me = Ae.forwardRef;
+const Se = window.QwenPaw.host.React, ne = Se.createElement, De = Se.forwardRef;
 /**
  * @license lucide-react v0.562.0 - ISC
  *
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
-const Ke = (a) => a.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase(), Ue = (a) => a.replace(
+const Je = (n) => n.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase(), Ye = (n) => n.replace(
   /^([A-Z])|[\s-_]+(\w)/g,
-  (i, y, t) => t ? t.toUpperCase() : y.toLowerCase()
-), se = (a) => {
-  const i = Ue(a);
-  return i.charAt(0).toUpperCase() + i.slice(1);
-}, $e = (...a) => a.filter((i, y, t) => !!i && i.trim() !== "" && t.indexOf(i) === y).join(" ").trim(), We = (a) => {
-  for (const i in a)
-    if (i.startsWith("aria-") || i === "role" || i === "title")
+  (s, v, t) => t ? t.toUpperCase() : v.toLowerCase()
+), pe = (n) => {
+  const s = Ye(n);
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}, qe = (...n) => n.filter((s, v, t) => !!s && s.trim() !== "" && t.indexOf(s) === v).join(" ").trim(), et = (n) => {
+  for (const s in n)
+    if (s.startsWith("aria-") || s === "role" || s === "title")
       return !0;
 };
 /**
@@ -22,7 +22,7 @@ const Ke = (a) => a.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase(), Ue = (
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
-var Ze = {
+var tt = {
   xmlns: "http://www.w3.org/2000/svg",
   width: 24,
   height: 24,
@@ -39,31 +39,31 @@ var Ze = {
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
-const Xe = Me(
+const at = De(
   ({
-    color: a = "currentColor",
-    size: i = 24,
-    strokeWidth: y = 2,
+    color: n = "currentColor",
+    size: s = 24,
+    strokeWidth: v = 2,
     absoluteStrokeWidth: t,
     className: N = "",
     children: l,
-    iconNode: C,
-    ...T
-  }, I) => te(
+    iconNode: A,
+    ...L
+  }, P) => ne(
     "svg",
     {
-      ref: I,
-      ...Ze,
-      width: i,
-      height: i,
-      stroke: a,
-      strokeWidth: t ? Number(y) * 24 / Number(i) : y,
-      className: $e("lucide", N),
-      ...!l && !We(T) && { "aria-hidden": "true" },
-      ...T
+      ref: P,
+      ...tt,
+      width: s,
+      height: s,
+      stroke: n,
+      strokeWidth: t ? Number(v) * 24 / Number(s) : v,
+      className: qe("lucide", N),
+      ...!l && !et(L) && { "aria-hidden": "true" },
+      ...L
     },
     [
-      ...C.map(([f, d]) => te(f, d)),
+      ...A.map(([y, o]) => ne(y, o)),
       ...Array.isArray(l) ? l : [l]
     ]
   )
@@ -74,20 +74,20 @@ const Xe = Me(
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
-const m = (a, i) => {
-  const y = Me(
-    ({ className: t, ...N }, l) => te(Xe, {
+const d = (n, s) => {
+  const v = De(
+    ({ className: t, ...N }, l) => ne(at, {
       ref: l,
-      iconNode: i,
-      className: $e(
-        `lucide-${Ke(se(a))}`,
-        `lucide-${a}`,
+      iconNode: s,
+      className: qe(
+        `lucide-${Je(pe(n))}`,
+        `lucide-${n}`,
         t
       ),
       ...N
     })
   );
-  return y.displayName = se(a), y;
+  return v.displayName = pe(n), v;
 };
 /**
  * @license lucide-react v0.562.0 - ISC
@@ -95,7 +95,7 @@ const m = (a, i) => {
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
-const Ge = [
+const nt = [
   [
     "path",
     {
@@ -103,42 +103,14 @@ const Ge = [
       key: "169zse"
     }
   ]
-], ce = m("activity", Ge);
+], de = d("activity", nt);
 /**
  * @license lucide-react v0.562.0 - ISC
  *
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
-const Je = [["path", { d: "M20 6 9 17l-5-5", key: "1gmf2c" }]], oe = m("check", Je);
-/**
- * @license lucide-react v0.562.0 - ISC
- *
- * This source code is licensed under the ISC license.
- * See the LICENSE file in the root directory of this source tree.
- */
-const Ye = [
-  ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
-  ["line", { x1: "10", x2: "10", y1: "15", y2: "9", key: "c1nkhi" }],
-  ["line", { x1: "14", x2: "14", y1: "15", y2: "9", key: "h65svq" }]
-], et = m("circle-pause", Ye);
-/**
- * @license lucide-react v0.562.0 - ISC
- *
- * This source code is licensed under the ISC license.
- * See the LICENSE file in the root directory of this source tree.
- */
-const tt = [["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }]], nt = m("circle", tt);
-/**
- * @license lucide-react v0.562.0 - ISC
- *
- * This source code is licensed under the ISC license.
- * See the LICENSE file in the root directory of this source tree.
- */
-const at = [
-  ["path", { d: "M12 6v6h4", key: "135r8i" }],
-  ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }]
-], rt = m("clock-3", at);
+const rt = [["path", { d: "M20 6 9 17l-5-5", key: "1gmf2c" }]], ue = d("check", rt);
 /**
  * @license lucide-react v0.562.0 - ISC
  *
@@ -146,28 +118,56 @@ const at = [
  * See the LICENSE file in the root directory of this source tree.
  */
 const lt = [
+  ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
+  ["line", { x1: "10", x2: "10", y1: "15", y2: "9", key: "c1nkhi" }],
+  ["line", { x1: "14", x2: "14", y1: "15", y2: "9", key: "h65svq" }]
+], it = d("circle-pause", lt);
+/**
+ * @license lucide-react v0.562.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const st = [["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }]], ct = d("circle", st);
+/**
+ * @license lucide-react v0.562.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const ot = [
+  ["path", { d: "M12 6v6h4", key: "135r8i" }],
+  ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }]
+], mt = d("clock-3", ot);
+/**
+ * @license lucide-react v0.562.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const pt = [
   ["path", { d: "M12 15V3", key: "m9g1x1" }],
   ["path", { d: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4", key: "ih7n3h" }],
   ["path", { d: "m7 10 5 5 5-5", key: "brsn70" }]
-], me = m("download", lt);
+], ge = d("download", pt);
 /**
  * @license lucide-react v0.562.0 - ISC
  *
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
-const it = [
+const dt = [
   ["path", { d: "M15 3h6v6", key: "1q9fwt" }],
   ["path", { d: "M10 14 21 3", key: "gplh6r" }],
   ["path", { d: "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6", key: "a6xqqp" }]
-], pe = m("external-link", it);
+], ye = d("external-link", dt);
 /**
  * @license lucide-react v0.562.0 - ISC
  *
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
-const st = [
+const ut = [
   ["polyline", { points: "22 12 16 12 14 15 10 15 8 12 2 12", key: "o97t9d" }],
   [
     "path",
@@ -176,25 +176,25 @@ const st = [
       key: "oot6mr"
     }
   ]
-], de = m("inbox", st);
+], Ee = d("inbox", ut);
 /**
  * @license lucide-react v0.562.0 - ISC
  *
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
-const ct = [
+const gt = [
   ["circle", { cx: "12", cy: "16", r: "1", key: "1au0dj" }],
   ["rect", { x: "3", y: "10", width: "18", height: "12", rx: "2", key: "6s8ecr" }],
   ["path", { d: "M7 10V7a5 5 0 0 1 10 0v3", key: "1pqi11" }]
-], ot = m("lock-keyhole", ct);
+], yt = d("lock-keyhole", gt);
 /**
  * @license lucide-react v0.562.0 - ISC
  *
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
-const mt = [
+const Et = [
   [
     "path",
     {
@@ -205,26 +205,26 @@ const mt = [
   ["path", { d: "M7 11h10", key: "1twpyw" }],
   ["path", { d: "M7 15h6", key: "d9of3u" }],
   ["path", { d: "M7 7h8", key: "af5zfr" }]
-], ue = m("message-square-text", mt);
+], ve = d("message-square-text", Et);
 /**
  * @license lucide-react v0.562.0 - ISC
  *
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
-const pt = [
+const vt = [
   ["path", { d: "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8", key: "v9h5vc" }],
   ["path", { d: "M21 3v5h-5", key: "1q7to0" }],
   ["path", { d: "M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16", key: "3uifl3" }],
   ["path", { d: "M8 16H3v5", key: "1cv678" }]
-], Z = m("refresh-cw", pt);
+], H = d("refresh-cw", vt);
 /**
  * @license lucide-react v0.562.0 - ISC
  *
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
-const dt = [
+const ht = [
   [
     "path",
     {
@@ -233,26 +233,26 @@ const dt = [
     }
   ],
   ["path", { d: "m21.854 2.147-10.94 10.939", key: "12cjpa" }]
-], X = m("send", dt);
+], Y = d("send", ht);
 /**
  * @license lucide-react v0.562.0 - ISC
  *
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
-const ut = [
+const ft = [
   ["path", { d: "M14 17H5", key: "gfn3mx" }],
   ["path", { d: "M19 7h-9", key: "6i9tg" }],
   ["circle", { cx: "17", cy: "17", r: "3", key: "18b49y" }],
   ["circle", { cx: "7", cy: "7", r: "3", key: "dfmy0x" }]
-], gt = m("settings-2", ut);
+], xt = d("settings-2", ft);
 /**
  * @license lucide-react v0.562.0 - ISC
  *
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
-const yt = [
+const bt = [
   [
     "path",
     {
@@ -261,67 +261,67 @@ const yt = [
     }
   ],
   ["path", { d: "m9 12 2 2 4-4", key: "dzmm74" }]
-], G = m("shield-check", yt);
+], ee = d("shield-check", bt);
 /**
  * @license lucide-react v0.562.0 - ISC
  *
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
-const Et = [
+const wt = [
   ["path", { d: "M10 11v6", key: "nco0om" }],
   ["path", { d: "M14 11v6", key: "outv1u" }],
   ["path", { d: "M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6", key: "miytrc" }],
   ["path", { d: "M3 6h18", key: "d0wm0j" }],
   ["path", { d: "M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2", key: "e791ji" }]
-], ge = m("trash-2", Et);
+], he = d("trash-2", wt);
 /**
  * @license lucide-react v0.562.0 - ISC
  *
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
-const ht = [
+const _t = [
   ["path", { d: "m16 11 2 2 4-4", key: "9rsbq5" }],
   ["path", { d: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2", key: "1yyitq" }],
   ["circle", { cx: "9", cy: "7", r: "4", key: "nufk8" }]
-], vt = m("user-check", ht);
+], fe = d("user-check", _t);
 /**
  * @license lucide-react v0.562.0 - ISC
  *
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
-const ft = [
+const kt = [
   ["path", { d: "M18 6 6 18", key: "1bl5f8" }],
   ["path", { d: "m6 6 12 12", key: "d8bk6v" }]
-], xt = m("x", ft), ne = "paw-me-dingtalk", q = window.QwenPaw.host, e = q.React, { useEffect: wt, useMemo: bt, useState: x } = e, {
-  Alert: D,
-  Badge: _t,
-  Button: o,
-  Card: w,
-  Col: B,
-  Descriptions: kt,
-  Drawer: Nt,
-  Empty: ye,
+], Nt = d("x", kt), re = "paw-me-dingtalk", O = window.QwenPaw.host, e = O.React, { useEffect: Ct, useMemo: zt, useState: w } = e, {
+  Alert: T,
+  Badge: At,
+  Button: c,
+  Card: x,
+  Col: V,
+  Descriptions: j,
+  Drawer: Mt,
+  Empty: xe,
   Form: b,
-  Input: Ct,
-  InputNumber: Ee,
+  Input: It,
+  InputNumber: be,
   List: _,
-  Modal: he,
-  Popconfirm: ve,
-  Progress: zt,
-  Row: At,
-  Select: M,
-  Space: k,
-  Spin: fe,
-  Switch: xe,
-  Table: Mt,
-  Tabs: $t,
+  Modal: we,
+  Popconfirm: _e,
+  Progress: $t,
+  Row: Pt,
+  Select: k,
+  Space: C,
+  Spin: ke,
+  Switch: Ne,
+  Table: St,
+  Tabs: Dt,
   Tag: $,
-  Timeline: It,
-  Typography: Pt
-} = q.antd, { Text: g, Title: J } = Pt, we = `
+  Timeline: qt,
+  Typography: Tt
+} = O.antd, { Text: p, Title: te } = Tt, Ce = `
 .pm-page{max-width:1440px;margin:0 auto;padding:24px 28px 48px}
 .pm-header{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;margin-bottom:22px}
 .pm-eyebrow{display:flex;align-items:center;gap:8px;margin-bottom:8px;color:var(--ant-color-text-secondary);font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase}
@@ -330,10 +330,11 @@ const ft = [
 .pm-statusbar{margin-bottom:18px}.pm-status-inner{display:flex;align-items:center;justify-content:space-between;gap:18px}.pm-status-main{display:flex;align-items:center;gap:12px;min-width:0}.pm-status-text{min-width:0}.pm-status-title{font-weight:600}.pm-status-detail{display:block;max-width:720px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pm-metric{height:100%}.pm-metric .ant-card-body{display:flex;align-items:center;gap:14px;padding:18px}.pm-metric-icon{display:grid;place-items:center;width:38px;height:38px;border-radius:10px;background:var(--ant-color-fill-secondary);color:var(--ant-color-primary);flex:none}.pm-metric-value{font-size:20px;font-weight:650;line-height:1.2}.pm-metric-label{color:var(--ant-color-text-secondary);font-size:12px;margin-top:3px}
 .pm-panel{margin-top:16px}.pm-panel .ant-card-head{min-height:52px}.pm-item-title{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.pm-message-stack{display:grid;gap:8px;margin-top:12px}.pm-message{padding:9px 11px;border-radius:8px;background:var(--ant-color-fill-tertiary);white-space:pre-wrap}.pm-meta{font-size:12px;color:var(--ant-color-text-secondary)}
+.pm-global{margin-bottom:16px}.pm-global-grid{display:grid;grid-template-columns:minmax(220px,1fr) minmax(220px,1fr);gap:18px}.pm-global-field{display:grid;gap:7px}.pm-global-label{font-weight:650}.pm-source{margin:12px 0;padding:12px;border:1px solid var(--ant-color-border-secondary);border-radius:10px}.pm-source-head{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:8px}.pm-draft{padding:12px;border-radius:10px;background:var(--ant-color-fill-quaternary)}.pm-account{margin-top:18px;padding:16px;border:1px solid var(--ant-color-border-secondary);border-radius:10px;background:var(--ant-color-bg-container)}
 .pm-policy-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.pm-subtle{color:var(--ant-color-text-secondary)}.pm-pre{white-space:pre-wrap;line-height:1.65;margin:0}.pm-error{color:var(--ant-color-error)}.pm-id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere;font-size:12px}.pm-setup{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:16px;border:1px solid var(--ant-color-border-secondary);border-radius:10px;margin-bottom:16px}.pm-setup-copy{min-width:0}.pm-setup-title{font-weight:650;margin-bottom:4px}
 .pm-onboarding{max-width:880px;margin:42px auto 0}.pm-onboarding .ant-card-body{padding:32px}.pm-onboarding-head{max-width:650px;margin-bottom:30px}.pm-onboarding-head h2{margin:0 0 8px!important;font-size:26px!important;letter-spacing:-.025em}.pm-steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:24px}.pm-step{display:flex;align-items:center;gap:10px;padding:12px;border:1px solid var(--ant-color-border-secondary);border-radius:10px;color:var(--ant-color-text-secondary)}.pm-step-current{border-color:var(--ant-color-primary);color:var(--ant-color-text);background:var(--ant-color-primary-bg)}.pm-step-done{color:var(--ant-color-success)}.pm-step-icon{display:grid;place-items:center;flex:none}.pm-onboarding-action{padding:22px;border-radius:12px;background:var(--ant-color-fill-quaternary)}.pm-onboarding-action h3{margin:0 0 6px;font-size:18px}.pm-progress{margin:18px 0 6px}.pm-onboarding-buttons{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:20px}.pm-agent-select{width:100%;max-width:420px;margin-top:16px}
-@media(max-width:760px){.pm-page{padding:16px 12px 32px}.pm-header{flex-direction:column}.pm-actions{justify-content:flex-start}.pm-status-inner{align-items:flex-start;flex-direction:column}.pm-status-detail{white-space:normal}.pm-policy-grid{grid-template-columns:1fr}.pm-onboarding{margin-top:18px}.pm-onboarding .ant-card-body{padding:20px}.pm-steps{grid-template-columns:1fr}}
-`, St = {
+@media(max-width:760px){.pm-page{padding:16px 12px 32px}.pm-header{flex-direction:column}.pm-actions{justify-content:flex-start}.pm-status-inner{align-items:flex-start;flex-direction:column}.pm-status-detail{white-space:normal}.pm-policy-grid,.pm-global-grid{grid-template-columns:1fr}.pm-onboarding{margin-top:18px}.pm-onboarding .ant-card-body{padding:20px}.pm-steps{grid-template-columns:1fr}.pm-source-head{align-items:flex-start;flex-direction:column}}
+`, jt = {
   identity_required: "待绑定真实身份",
   blocked: "已阻止",
   observed: "仅观察",
@@ -342,292 +343,343 @@ const ft = [
   agent_running: "Agent 处理中",
   interrupt_requested: "正在停止旧回复并合并",
   draft_ready: "待发送",
+  needs_review: "需要人工确认",
   sending: "发送中",
   sent: "已发送",
   failed: "失败"
 };
-function Y(a) {
-  return a ? new Date(a * 1e3).toLocaleString() : "—";
+function Q(n) {
+  return n ? new Date(n * 1e3).toLocaleString() : "—";
 }
-function ee(a) {
-  return a === "oauth:dws-event" ? "钉钉 OAuth 事件" : a || "无可信来源";
+function ae(n) {
+  return n === "oauth:dws-event" ? "钉钉 OAuth 事件" : n || "无可信来源";
 }
-function be({ status: a }) {
-  const i = a === "sent" ? "success" : a === "failed" || a === "blocked" ? "error" : a === "draft_ready" || a === "identity_required" ? "warning" : "processing";
-  return /* @__PURE__ */ e.createElement($, { color: i }, St[a] || a);
+function ze({ status: n }) {
+  const s = n === "sent" ? "success" : n === "failed" || n === "blocked" ? "error" : n === "draft_ready" || n === "identity_required" || n === "needs_review" ? "warning" : "processing";
+  return /* @__PURE__ */ e.createElement($, { color: s }, jt[n] || n);
 }
-function _e() {
-  const a = bt(() => {
-    var n;
-    return (n = window.QwenPaw.paw) == null ? void 0 : n.forApp(ne);
-  }, []), [i, y] = x([]), [t, N] = x(null), [l, C] = x(
-    (a == null ? void 0 : a.host.getSelectedAgentId()) || "default"
-  ), [T, I] = x(!0), [f, d] = x(!1), [O, E] = x(""), [Ie, F] = x(!1), [c, H] = x(
+function Ae() {
+  const n = zt(() => {
+    var a;
+    return (a = window.QwenPaw.paw) == null ? void 0 : a.forApp(re);
+  }, []), [s, v] = w([]), [t, N] = w(null), [l, A] = w(
+    (n == null ? void 0 : n.host.getSelectedAgentId()) || "default"
+  ), [L, P] = w(!0), [y, o] = w(!1), [B, g] = w(""), [Te, K] = w(!1), [m, U] = w(
     null
-  ), [z, V] = x(null), [j, ae] = x(""), [Q] = b.useForm(), [K] = b.useForm(), s = a == null ? void 0 : a.api, h = async (n = l, r = !1) => {
-    if (!s) {
-      E("当前 QwenPaw 版本未提供 PawApp SDK"), I(!1);
+  ), [M, W] = w(null), [R, le] = w(""), [Z] = b.useForm(), [G] = b.useForm(), i = n == null ? void 0 : n.api, h = async (a = l, r = !1) => {
+    if (!i) {
+      g("当前 QwenPaw 版本未提供 PawApp SDK"), P(!1);
       return;
     }
-    r || I(!0);
+    r || P(!0);
     try {
-      const p = await s.get("/snapshot", {
-        query: { agent_id: n }
+      const u = await i.get("/snapshot", {
+        query: { agent_id: a }
       });
-      N(p), p.settings.agent_id && p.settings.agent_id !== l && C(p.settings.agent_id), E("");
-    } catch (p) {
-      E(p instanceof Error ? p.message : "状态加载失败");
+      N(u), u.settings.agent_id && u.settings.agent_id !== l && A(u.settings.agent_id), g("");
+    } catch (u) {
+      g(u instanceof Error ? u.message : "状态加载失败");
     } finally {
-      r || I(!1);
+      r || P(!1);
     }
   };
-  wt(() => {
-    let n = !1;
+  Ct(() => {
+    let a = !1;
     (async () => {
       try {
-        const u = await (q.fetch ? await q.fetch("/agents") : await fetch(q.getApiUrl("/agents"))).json();
-        n || y(
-          (u.agents || []).filter(
-            (A) => A.enabled && A.available_in_chat !== !1
+        const E = await (O.fetch ? await O.fetch("/agents") : await fetch(O.getApiUrl("/agents"))).json();
+        a || v(
+          (E.agents || []).filter(
+            (I) => I.enabled && I.available_in_chat !== !1
           )
         );
       } catch {
-        n || y([]);
+        a || v([]);
       }
-      n || await h(l);
+      a || await h(l);
     })();
-    const p = window.setInterval(
+    const u = window.setInterval(
       () => void h(l, !0),
       2e3
     );
     return () => {
-      n = !0, window.clearInterval(p);
+      a = !0, window.clearInterval(u);
     };
   }, [l]);
-  const L = async (n) => {
-    if (s) {
-      d(!0);
+  const S = async (a) => {
+    if (i) {
+      o(!0);
       try {
-        const r = await s.put("/settings", n, {
-          query: { agent_id: String(n.agent_id) }
+        const r = await i.put("/settings", a, {
+          query: { agent_id: String(a.agent_id) }
         });
-        C(String(n.agent_id)), N(r), F(!1), await (a == null ? void 0 : a.host.toast("Paw Me 设置已保存", "success"));
+        A(String(a.agent_id)), N(r), K(!1), await (n == null ? void 0 : n.host.toast("Paw Me 设置已保存", "success"));
       } catch (r) {
-        E(r instanceof Error ? r.message : "设置保存失败");
+        g(r instanceof Error ? r.message : "设置保存失败");
       } finally {
-        d(!1);
+        o(!1);
       }
     }
-  }, Pe = async (n) => {
-    t && await L({ ...t.settings, enabled: n, agent_id: l });
-  }, Se = async (n) => {
-    C(n), t && await L({
+  }, je = async (a) => {
+    t && await S({ ...t.settings, enabled: a, agent_id: l });
+  }, ie = async (a, r) => {
+    t && await S({
       ...t.settings,
-      agent_id: n
+      [a]: r,
+      agent_id: l
     });
-  }, De = () => {
-    Q.setFieldsValue({ ...t == null ? void 0 : t.settings, agent_id: l }), F(!0);
-  }, re = (n) => {
-    K.setFieldsValue({
+  }, Oe = async (a) => {
+    A(a), t && await S({
+      ...t.settings,
+      agent_id: a
+    });
+  }, Le = () => {
+    Z.setFieldsValue({ ...t == null ? void 0 : t.settings, agent_id: l }), K(!0);
+  }, se = (a) => {
+    G.setFieldsValue({
       policy: (t == null ? void 0 : t.settings.default_policy) || "draft"
-    }), H(n);
-  }, qe = async (n) => {
-    if (!(!s || !c)) {
-      d(!0);
+    }), U(a);
+  }, Be = async (a) => {
+    if (!(!i || !m)) {
+      o(!0);
       try {
-        await s.post(`/work-items/${c.id}/authorize`, n), H(null), await h(l), await (a == null ? void 0 : a.host.toast("真实身份已授权", "success"));
+        await i.post(`/work-items/${m.id}/authorize`, a), U(null), await h(l), await (n == null ? void 0 : n.host.toast("真实身份已授权", "success"));
       } catch (r) {
-        E(r instanceof Error ? r.message : "身份授权失败");
+        g(r instanceof Error ? r.message : "身份授权失败");
       } finally {
-        d(!1);
+        o(!1);
       }
     }
-  }, P = async (n) => {
-    if (s) {
-      d(!0);
+  }, D = async (a) => {
+    if (i) {
+      o(!0);
       try {
-        await s.post(`/dws/${n}`), await h(l, !0);
+        await i.post(`/dws/${a}`), await h(l, !0);
       } catch (r) {
-        E(r instanceof Error ? r.message : "钉钉连接失败");
+        g(r instanceof Error ? r.message : "钉钉连接失败");
       } finally {
-        d(!1);
+        o(!1);
       }
     }
-  }, Te = async () => {
-    if (s) {
-      d(!0);
+  }, Re = async () => {
+    if (i) {
+      o(!0);
       try {
-        await s.post("/dws/cancel"), await h(l, !0);
-      } catch (n) {
-        E(n instanceof Error ? n.message : "取消操作失败");
+        await i.post("/dws/cancel"), await h(l, !0);
+      } catch (a) {
+        g(a instanceof Error ? a.message : "取消操作失败");
       } finally {
-        d(!1);
+        o(!1);
       }
     }
-  }, Oe = async (n) => {
-    s && (await s.delete(`/principals/${n}`), await h(l));
-  }, je = async (n, r) => {
-    if (s)
+  }, Fe = async () => {
+    if (i) {
+      o(!0);
       try {
-        await s.patch(`/principals/${n}/policy`, { policy: r }), await h(l, !0);
-      } catch (p) {
-        E(p instanceof Error ? p.message : "策略更新失败");
+        const a = await i.post("/identity/confirm");
+        N(a), await (n == null ? void 0 : n.host.toast("本人钉钉账号已确认", "success"));
+      } catch (a) {
+        g(a instanceof Error ? a.message : "账号确认失败");
+      } finally {
+        o(!1);
       }
-  }, Le = async (n) => {
-    if (s) {
-      d(!0);
+    }
+  }, ce = async () => {
+    if (i) {
+      o(!0);
       try {
-        await s.post(`/outbox/${n}/send`), await h(l);
+        const a = await i.post("/identity/reconnect");
+        N(a);
+      } catch (a) {
+        g(a instanceof Error ? a.message : "重新连接失败");
+      } finally {
+        o(!1);
+      }
+    }
+  }, He = async (a) => {
+    i && (await i.delete(`/principals/${a}`), await h(l));
+  }, Ve = async (a, r) => {
+    if (i)
+      try {
+        await i.patch(`/principals/${a}/policy`, { policy: r }), await h(l, !0);
+      } catch (u) {
+        g(u instanceof Error ? u.message : "策略更新失败");
+      }
+  }, Qe = async (a) => {
+    if (i) {
+      o(!0);
+      try {
+        await i.post(`/outbox/${a}/send`), await h(l);
       } catch (r) {
-        E(r instanceof Error ? r.message : "发送失败");
+        g(r instanceof Error ? r.message : "发送失败");
       } finally {
-        d(!1);
+        o(!1);
       }
     }
-  }, Re = async (n) => {
-    s && (await s.delete(`/outbox/${n}`), await h(l));
-  }, Be = async () => {
-    if (!(!s || !z || !j.trim())) {
-      d(!0);
+  }, Ke = async (a) => {
+    i && (await i.delete(`/outbox/${a}`), await h(l));
+  }, Ue = async () => {
+    if (!(!i || !M || !R.trim())) {
+      o(!0);
       try {
-        await s.patch(`/outbox/${z.id}`, {
-          text: j.trim()
-        }), V(null), await h(l), await (a == null ? void 0 : a.host.toast("草稿已保存", "success"));
-      } catch (n) {
-        E(n instanceof Error ? n.message : "草稿保存失败");
+        await i.patch(`/outbox/${M.id}`, {
+          text: R.trim()
+        }), W(null), await h(l), await (n == null ? void 0 : n.host.toast("草稿已保存", "success"));
+      } catch (a) {
+        g(a instanceof Error ? a.message : "草稿保存失败");
       } finally {
-        d(!1);
+        o(!1);
       }
     }
   };
-  if (T && !t)
-    return /* @__PURE__ */ e.createElement("div", { className: "pm-page" }, /* @__PURE__ */ e.createElement(fe, null));
-  const U = (t == null ? void 0 : t.work_items.filter((n) => n.status === "identity_required")) || [], le = (t == null ? void 0 : t.outbox.filter((n) => n.status !== "sent")) || [], v = !!(t != null && t.identity_provider.authenticated), S = !!(t != null && t.identity_provider.available), W = (t == null ? void 0 : t.runtime.integration_stage) || "idle", R = [
+  if (L && !t)
+    return /* @__PURE__ */ e.createElement("div", { className: "pm-page" }, /* @__PURE__ */ e.createElement(ke, null));
+  const X = (t == null ? void 0 : t.work_items.filter((a) => a.status === "identity_required")) || [], oe = (t == null ? void 0 : t.outbox.filter((a) => a.status !== "sent")) || [], f = !!(t != null && t.identity_provider.authenticated), z = !!(t != null && t.identity_provider.confirmed), q = !!(t != null && t.identity_provider.available), J = (t == null ? void 0 : t.runtime.integration_stage) || "idle", F = [
     "install",
     "downloading",
     "preparing",
     "installing",
     "verifying",
     "login"
-  ].includes(W);
-  if (!v || !(t != null && t.settings.enabled)) {
-    const n = S ? v ? 2 : 1 : 0, r = (u) => u < n ? /* @__PURE__ */ e.createElement(oe, { size: 17 }) : /* @__PURE__ */ e.createElement(nt, { size: 17 }), p = S ? v ? "选择负责回复的 Agent" : "连接你的钉钉账号" : "准备钉钉连接组件", ie = (t == null ? void 0 : t.runtime.integration_detail) || (S ? v ? "任意已启用 Agent 都可以负责回复，认证由 Agent 自己管理。" : "浏览器将打开钉钉官方 OAuth；插件不会读取或保存账号密码。" : "组件安装在 Paw Me 的独立目录，不修改系统 PATH。");
-    return /* @__PURE__ */ e.createElement("div", { className: "pm-page" }, /* @__PURE__ */ e.createElement("style", null, we), /* @__PURE__ */ e.createElement("header", { className: "pm-header" }, /* @__PURE__ */ e.createElement("div", { className: "pm-header-copy" }, /* @__PURE__ */ e.createElement("div", { className: "pm-eyebrow" }, /* @__PURE__ */ e.createElement(G, { size: 15 }), "Paw Me · Digital Twin"), /* @__PURE__ */ e.createElement(J, { level: 1 }, "钉钉数字人分身"), /* @__PURE__ */ e.createElement(g, { type: "secondary" }, "首次配置只需要安装连接组件、完成钉钉授权并选择 Agent。"))), O ? /* @__PURE__ */ e.createElement(
-      D,
+  ].includes(J);
+  if (!f || !z) {
+    const a = q ? !f || !z ? 1 : 2 : 0, r = (E) => E < a ? /* @__PURE__ */ e.createElement(ue, { size: 17 }) : /* @__PURE__ */ e.createElement(ct, { size: 17 }), u = q ? f ? z ? "选择负责回复的 Agent" : "确认数字分身的本人账号" : "连接你的钉钉账号" : "准备钉钉连接组件", me = (t == null ? void 0 : t.runtime.integration_detail) || (q ? f ? z ? "任意已启用 Agent 都可以负责回复，认证由 Agent 自己管理。" : "启用前核对组织与账号，避免数字分身以错误身份发言。" : "浏览器将打开钉钉官方 OAuth；插件不会读取或保存账号密码。" : "组件安装在 Paw Me 的独立目录，不修改系统 PATH。");
+    return /* @__PURE__ */ e.createElement("div", { className: "pm-page" }, /* @__PURE__ */ e.createElement("style", null, Ce), /* @__PURE__ */ e.createElement("header", { className: "pm-header" }, /* @__PURE__ */ e.createElement("div", { className: "pm-header-copy" }, /* @__PURE__ */ e.createElement("div", { className: "pm-eyebrow" }, /* @__PURE__ */ e.createElement(ee, { size: 15 }), "Paw Me · Digital Twin"), /* @__PURE__ */ e.createElement(te, { level: 1 }, "钉钉数字人分身"), /* @__PURE__ */ e.createElement(p, { type: "secondary" }, "首次配置只需要安装连接组件、完成钉钉授权并选择 Agent。"))), B ? /* @__PURE__ */ e.createElement(
+      T,
       {
         closable: !0,
         type: "error",
         message: "操作未完成",
-        description: O,
-        onClose: () => E(""),
+        description: B,
+        onClose: () => g(""),
         style: { marginBottom: 16 }
       }
-    ) : null, /* @__PURE__ */ e.createElement(w, { className: "pm-onboarding" }, /* @__PURE__ */ e.createElement("div", { className: "pm-onboarding-head" }, /* @__PURE__ */ e.createElement(J, { level: 2 }, "开始设置 Paw Me"), /* @__PURE__ */ e.createElement(g, { type: "secondary" }, "完成下面三个步骤后，消息监听、会话授权、草稿与发送会在同一页面运行。")), /* @__PURE__ */ e.createElement("div", { className: "pm-steps" }, ["安装连接组件", "钉钉 OAuth", "选择并启用 Agent"].map(
-      (u, A) => /* @__PURE__ */ e.createElement(
+    ) : null, /* @__PURE__ */ e.createElement(x, { className: "pm-onboarding" }, /* @__PURE__ */ e.createElement("div", { className: "pm-onboarding-head" }, /* @__PURE__ */ e.createElement(te, { level: 2 }, "开始设置 Paw Me"), /* @__PURE__ */ e.createElement(p, { type: "secondary" }, "完成下面三个步骤后，消息监听、会话授权、草稿与发送会在同一页面运行。")), /* @__PURE__ */ e.createElement("div", { className: "pm-steps" }, ["安装连接组件", "钉钉 OAuth", "选择并启用 Agent"].map(
+      (E, I) => /* @__PURE__ */ e.createElement(
         "div",
         {
-          className: `pm-step ${A === n ? "pm-step-current" : ""} ${A < n ? "pm-step-done" : ""}`,
-          key: u
+          className: `pm-step ${I === a ? "pm-step-current" : ""} ${I < a ? "pm-step-done" : ""}`,
+          key: E
         },
-        /* @__PURE__ */ e.createElement("span", { className: "pm-step-icon" }, r(A)),
-        /* @__PURE__ */ e.createElement("span", null, u)
+        /* @__PURE__ */ e.createElement("span", { className: "pm-step-icon" }, r(I)),
+        /* @__PURE__ */ e.createElement("span", null, E)
       )
-    )), /* @__PURE__ */ e.createElement("div", { className: "pm-onboarding-action" }, /* @__PURE__ */ e.createElement("h3", null, p), /* @__PURE__ */ e.createElement(g, { type: "secondary" }, ie), R ? /* @__PURE__ */ e.createElement("div", { className: "pm-progress" }, /* @__PURE__ */ e.createElement(
-      zt,
+    )), /* @__PURE__ */ e.createElement("div", { className: "pm-onboarding-action" }, /* @__PURE__ */ e.createElement("h3", null, u), /* @__PURE__ */ e.createElement(p, { type: "secondary" }, me), F ? /* @__PURE__ */ e.createElement("div", { className: "pm-progress" }, /* @__PURE__ */ e.createElement(
+      $t,
       {
         percent: (t == null ? void 0 : t.runtime.integration_progress) ?? 0,
         showInfo: (t == null ? void 0 : t.runtime.integration_progress) != null,
         status: "active"
       }
-    ), (t == null ? void 0 : t.runtime.integration_progress) == null ? /* @__PURE__ */ e.createElement(k, { size: 8 }, /* @__PURE__ */ e.createElement(fe, { size: "small" }), /* @__PURE__ */ e.createElement(g, { type: "secondary" }, "正在执行当前阶段")) : null) : null, v ? /* @__PURE__ */ e.createElement(
-      M,
+    ), (t == null ? void 0 : t.runtime.integration_progress) == null ? /* @__PURE__ */ e.createElement(C, { size: 8 }, /* @__PURE__ */ e.createElement(ke, { size: "small" }), /* @__PURE__ */ e.createElement(p, { type: "secondary" }, "正在执行当前阶段")) : null) : null, f && !z ? /* @__PURE__ */ e.createElement("div", { className: "pm-account" }, /* @__PURE__ */ e.createElement(j, { column: 1, size: "small" }, /* @__PURE__ */ e.createElement(j.Item, { label: "账号" }, (t == null ? void 0 : t.identity_provider.user_name) || "未返回显示名"), /* @__PURE__ */ e.createElement(j.Item, { label: "组织" }, (t == null ? void 0 : t.identity_provider.corp_name) || "未返回组织名"), /* @__PURE__ */ e.createElement(j.Item, { label: "真实 userId" }, /* @__PURE__ */ e.createElement("span", { className: "pm-id" }, (t == null ? void 0 : t.identity_provider.user_id) || "—")))) : null, z ? /* @__PURE__ */ e.createElement(
+      k,
       {
         className: "pm-agent-select",
         value: l,
-        options: i.map((u) => ({
-          value: u.id,
-          label: `${u.name || u.id} · ${u.backend || "agent"}`
+        options: s.map((E) => ({
+          value: E.id,
+          label: `${E.name || E.id} · ${E.backend || "agent"}`
         })),
-        onChange: (u) => C(u)
+        onChange: (E) => A(E)
       }
-    ) : null, /* @__PURE__ */ e.createElement("div", { className: "pm-onboarding-buttons" }, S ? v ? /* @__PURE__ */ e.createElement(
-      o,
+    ) : null, /* @__PURE__ */ e.createElement("div", { className: "pm-onboarding-buttons" }, q ? f ? z ? /* @__PURE__ */ e.createElement(
+      c,
       {
         type: "primary",
         size: "large",
-        icon: /* @__PURE__ */ e.createElement(oe, { size: 17 }),
-        loading: f,
+        icon: /* @__PURE__ */ e.createElement(ue, { size: 17 }),
+        loading: y,
         disabled: !l,
-        onClick: () => void L({
+        onClick: () => void S({
           enabled: !0,
           agent_id: l,
           default_policy: (t == null ? void 0 : t.settings.default_policy) || "draft",
+          access_mode: (t == null ? void 0 : t.settings.access_mode) || "approval",
           quiet_seconds: (t == null ? void 0 : t.settings.quiet_seconds) ?? 4,
           max_wait_seconds: (t == null ? void 0 : t.settings.max_wait_seconds) ?? 20
         })
       },
       "启用数字人分身"
-    ) : /* @__PURE__ */ e.createElement(
-      o,
+    ) : /* @__PURE__ */ e.createElement(e.Fragment, null, /* @__PURE__ */ e.createElement(
+      c,
       {
         type: "primary",
         size: "large",
-        icon: /* @__PURE__ */ e.createElement(pe, { size: 17 }),
-        disabled: R,
-        onClick: () => void P("login")
+        icon: /* @__PURE__ */ e.createElement(fe, { size: 17 }),
+        loading: y,
+        onClick: () => void Fe()
+      },
+      "确认这是我"
+    ), /* @__PURE__ */ e.createElement(
+      c,
+      {
+        size: "large",
+        icon: /* @__PURE__ */ e.createElement(H, { size: 17 }),
+        disabled: y,
+        onClick: () => void ce()
+      },
+      "不是我，重新连接"
+    )) : /* @__PURE__ */ e.createElement(
+      c,
+      {
+        type: "primary",
+        size: "large",
+        icon: /* @__PURE__ */ e.createElement(ye, { size: 17 }),
+        disabled: F,
+        onClick: () => void D("login")
       },
       "连接钉钉"
     ) : /* @__PURE__ */ e.createElement(
-      o,
+      c,
       {
         type: "primary",
         size: "large",
-        icon: /* @__PURE__ */ e.createElement(me, { size: 17 }),
-        disabled: R,
-        onClick: () => void P("install")
+        icon: /* @__PURE__ */ e.createElement(ge, { size: 17 }),
+        disabled: F,
+        onClick: () => void D("install")
       },
       "安装并继续"
-    ), R ? /* @__PURE__ */ e.createElement(
-      o,
+    ), F ? /* @__PURE__ */ e.createElement(
+      c,
       {
         size: "large",
-        icon: /* @__PURE__ */ e.createElement(xt, { size: 17 }),
-        loading: f,
-        onClick: () => void Te()
+        icon: /* @__PURE__ */ e.createElement(Nt, { size: 17 }),
+        loading: y,
+        onClick: () => void Re()
       },
       "取消当前操作"
-    ) : W === "failed" || W === "cancelled" ? /* @__PURE__ */ e.createElement(
-      o,
+    ) : J === "failed" || J === "cancelled" ? /* @__PURE__ */ e.createElement(
+      c,
       {
         size: "large",
-        icon: /* @__PURE__ */ e.createElement(Z, { size: 17 }),
-        onClick: () => void P(S ? "login" : "install")
+        icon: /* @__PURE__ */ e.createElement(H, { size: 17 }),
+        onClick: () => void D(q ? "login" : "install")
       },
       "重新尝试"
     ) : null))));
   }
-  const Fe = /* @__PURE__ */ e.createElement(
-    w,
+  const We = /* @__PURE__ */ e.createElement(
+    x,
     {
       className: "pm-panel",
       title: "消息批次",
-      extra: /* @__PURE__ */ e.createElement(g, { type: "secondary" }, "连续消息只回复一次")
+      extra: /* @__PURE__ */ e.createElement(p, { type: "secondary" }, "连续消息只回复一次")
     },
     /* @__PURE__ */ e.createElement(
       _,
       {
         dataSource: (t == null ? void 0 : t.work_items) || [],
-        locale: { emptyText: /* @__PURE__ */ e.createElement(ye, { description: "尚未捕获新消息" }) },
-        renderItem: (n) => /* @__PURE__ */ e.createElement(
+        locale: { emptyText: /* @__PURE__ */ e.createElement(xe, { description: "尚未捕获新消息" }) },
+        renderItem: (a) => /* @__PURE__ */ e.createElement(
           _.Item,
           {
-            actions: n.status === "identity_required" ? [
+            actions: a.status === "identity_required" ? [
               /* @__PURE__ */ e.createElement(
-                o,
+                c,
                 {
                   key: "authorize",
                   type: "primary",
-                  onClick: () => re(n)
+                  onClick: () => se(a)
                 },
                 "审核并授权"
               )
@@ -636,62 +688,62 @@ function _e() {
           /* @__PURE__ */ e.createElement(
             _.Item.Meta,
             {
-              title: /* @__PURE__ */ e.createElement("div", { className: "pm-item-title" }, /* @__PURE__ */ e.createElement("span", null, n.conversation_alias), /* @__PURE__ */ e.createElement(be, { status: n.status }), /* @__PURE__ */ e.createElement($, null, n.message_count, " 条已合并")),
-              description: /* @__PURE__ */ e.createElement(e.Fragment, null, /* @__PURE__ */ e.createElement("span", null, n.agent_id, " · ", Y(n.updated_at)), /* @__PURE__ */ e.createElement("div", { className: "pm-id" }, n.subject_type === "person" ? "人员" : "群聊", " ·", " ", n.subject_id || "未获得真实 ID", " ·", " ", ee(n.id_source)), n.error ? /* @__PURE__ */ e.createElement("div", { className: "pm-error" }, n.error) : null, /* @__PURE__ */ e.createElement("div", { className: "pm-message-stack" }, n.messages.map((r) => /* @__PURE__ */ e.createElement("div", { className: "pm-message", key: r.id }, r.text))))
+              title: /* @__PURE__ */ e.createElement("div", { className: "pm-item-title" }, /* @__PURE__ */ e.createElement("span", null, a.conversation_alias), /* @__PURE__ */ e.createElement(ze, { status: a.status }), /* @__PURE__ */ e.createElement($, null, a.message_count, " 条已合并")),
+              description: /* @__PURE__ */ e.createElement(e.Fragment, null, /* @__PURE__ */ e.createElement("span", null, a.agent_id, " · ", Q(a.updated_at)), /* @__PURE__ */ e.createElement("div", { className: "pm-id" }, a.subject_type === "person" ? "人员" : "群聊", " ·", " ", a.subject_id || "未获得真实 ID", " ·", " ", ae(a.id_source)), a.error ? /* @__PURE__ */ e.createElement("div", { className: "pm-error" }, a.error) : null, /* @__PURE__ */ e.createElement("div", { className: "pm-message-stack" }, a.messages.map((r) => /* @__PURE__ */ e.createElement("div", { className: "pm-message", key: r.id }, r.text))))
             }
           )
         )
       }
     )
-  ), He = /* @__PURE__ */ e.createElement(w, { className: "pm-panel", title: "OAuth、身份与权限" }, /* @__PURE__ */ e.createElement("div", { className: "pm-setup" }, /* @__PURE__ */ e.createElement("div", { className: "pm-setup-copy" }, /* @__PURE__ */ e.createElement("div", { className: "pm-setup-title" }, v ? `${(t == null ? void 0 : t.identity_provider.user_name) || "钉钉账号"} 已连接` : t != null && t.identity_provider.available ? "连接组件已就绪，等待 OAuth 登录" : "安装钉钉连接组件"), /* @__PURE__ */ e.createElement(g, { type: "secondary" }, (t == null ? void 0 : t.runtime.integration_detail) || (t == null ? void 0 : t.identity_provider.detail) || "OAuth 由钉钉官方能力管理，插件不读取或保存令牌。"), v ? /* @__PURE__ */ e.createElement("div", { className: "pm-id" }, (t == null ? void 0 : t.identity_provider.corp_name) || "当前组织", " · userId", " ", (t == null ? void 0 : t.identity_provider.user_id) || "—") : null), t != null && t.identity_provider.available ? v ? /* @__PURE__ */ e.createElement(
-    o,
+  ), Ze = /* @__PURE__ */ e.createElement(x, { className: "pm-panel", title: "OAuth、身份与权限" }, /* @__PURE__ */ e.createElement("div", { className: "pm-setup" }, /* @__PURE__ */ e.createElement("div", { className: "pm-setup-copy" }, /* @__PURE__ */ e.createElement("div", { className: "pm-setup-title" }, f ? `${(t == null ? void 0 : t.identity_provider.user_name) || "钉钉账号"} 已连接` : t != null && t.identity_provider.available ? "连接组件已就绪，等待 OAuth 登录" : "安装钉钉连接组件"), /* @__PURE__ */ e.createElement(p, { type: "secondary" }, (t == null ? void 0 : t.runtime.integration_detail) || (t == null ? void 0 : t.identity_provider.detail) || "OAuth 由钉钉官方能力管理，插件不读取或保存令牌。"), f ? /* @__PURE__ */ e.createElement("div", { className: "pm-id" }, (t == null ? void 0 : t.identity_provider.corp_name) || "当前组织", " · userId", " ", (t == null ? void 0 : t.identity_provider.user_id) || "—") : null), t != null && t.identity_provider.available ? f ? /* @__PURE__ */ e.createElement(C, { wrap: !0 }, /* @__PURE__ */ e.createElement(
+    c,
     {
-      icon: /* @__PURE__ */ e.createElement(Z, { size: 16 }),
+      icon: /* @__PURE__ */ e.createElement(H, { size: 16 }),
       onClick: () => void h(l)
     },
-    "刷新登录状态"
-  ) : /* @__PURE__ */ e.createElement(
-    o,
+    "刷新状态"
+  ), /* @__PURE__ */ e.createElement(c, { onClick: () => void ce(), disabled: y }, "更换账号")) : /* @__PURE__ */ e.createElement(
+    c,
     {
       type: "primary",
-      icon: /* @__PURE__ */ e.createElement(pe, { size: 16 }),
-      loading: f || (t == null ? void 0 : t.runtime.integration_stage) === "login",
-      onClick: () => void P("login")
+      icon: /* @__PURE__ */ e.createElement(ye, { size: 16 }),
+      loading: y || (t == null ? void 0 : t.runtime.integration_stage) === "login",
+      onClick: () => void D("login")
     },
     "使用钉钉 OAuth 登录"
   ) : /* @__PURE__ */ e.createElement(
-    o,
+    c,
     {
       type: "primary",
-      icon: /* @__PURE__ */ e.createElement(me, { size: 16 }),
-      loading: f || (t == null ? void 0 : t.runtime.integration_stage) === "install",
-      onClick: () => void P("install")
+      icon: /* @__PURE__ */ e.createElement(ge, { size: 16 }),
+      loading: y || (t == null ? void 0 : t.runtime.integration_stage) === "install",
+      onClick: () => void D("install")
     },
     "安装连接组件"
   )), /* @__PURE__ */ e.createElement(
-    D,
+    T,
     {
       showIcon: !0,
       type: "info",
-      message: "授权只来自收到的真实事件",
-      description: "人员 openDingTalkId 或群 openConversationId 由钉钉 OAuth 事件写入，界面不可手填。未授权会话统一进入待审核，不会调用 Agent。",
+      message: "单会话规则只来自收到的真实事件",
+      description: "人员 openDingTalkId 或群 openConversationId 由钉钉 OAuth 事件写入，界面不可手填。没有单会话规则时继承上方全局策略。",
       style: { marginBottom: 16 }
     }
-  ), U.length ? /* @__PURE__ */ e.createElement(
+  ), X.length ? /* @__PURE__ */ e.createElement(
     _,
     {
       header: /* @__PURE__ */ e.createElement("strong", null, "待授权会话"),
-      dataSource: U,
-      renderItem: (n) => /* @__PURE__ */ e.createElement(
+      dataSource: X,
+      renderItem: (a) => /* @__PURE__ */ e.createElement(
         _.Item,
         {
           actions: [
             /* @__PURE__ */ e.createElement(
-              o,
+              c,
               {
                 key: "authorize",
                 type: "primary",
-                onClick: () => re(n)
+                onClick: () => se(a)
               },
               "审核并授权"
             )
@@ -700,14 +752,14 @@ function _e() {
         /* @__PURE__ */ e.createElement(
           _.Item.Meta,
           {
-            title: n.display_name || n.conversation_alias,
-            description: /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement("div", { className: "pm-id" }, n.subject_id), /* @__PURE__ */ e.createElement(g, { type: "secondary" }, n.subject_type === "person" ? "人员" : "群聊", " ·", " ", n.id_source))
+            title: a.display_name || a.conversation_alias,
+            description: /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement("div", { className: "pm-id" }, a.subject_id), /* @__PURE__ */ e.createElement(p, { type: "secondary" }, a.subject_type === "person" ? "人员" : "群聊", " ·", " ", a.id_source))
           }
         )
       )
     }
   ) : null, /* @__PURE__ */ e.createElement(
-    Mt,
+    St,
     {
       rowKey: "id",
       pagination: !1,
@@ -716,17 +768,17 @@ function _e() {
       columns: [
         {
           title: "身份",
-          render: (n, r) => /* @__PURE__ */ e.createElement(e.Fragment, null, /* @__PURE__ */ e.createElement("div", null, r.display_name), /* @__PURE__ */ e.createElement(g, { type: "secondary" }, r.subject_type === "person" ? "人员" : "群聊"))
+          render: (a, r) => /* @__PURE__ */ e.createElement(e.Fragment, null, /* @__PURE__ */ e.createElement("div", null, r.display_name), /* @__PURE__ */ e.createElement(p, { type: "secondary" }, r.subject_type === "person" ? "人员" : "群聊"))
         },
         {
           title: "真实 ID",
-          render: (n, r) => /* @__PURE__ */ e.createElement(e.Fragment, null, /* @__PURE__ */ e.createElement("div", null, r.subject_id), /* @__PURE__ */ e.createElement(g, { type: "secondary" }, ee(r.id_source)))
+          render: (a, r) => /* @__PURE__ */ e.createElement(e.Fragment, null, /* @__PURE__ */ e.createElement("div", null, r.subject_id), /* @__PURE__ */ e.createElement(p, { type: "secondary" }, ae(r.id_source)))
         },
         { title: "会话", dataIndex: "conversation_alias" },
         {
           title: "策略",
-          render: (n, r) => /* @__PURE__ */ e.createElement(
-            M,
+          render: (a, r) => /* @__PURE__ */ e.createElement(
+            k,
             {
               size: "small",
               value: r.policy,
@@ -737,175 +789,199 @@ function _e() {
                 { value: "observe", label: "仅观察" },
                 { value: "blocked", label: "阻止" }
               ],
-              onChange: (p) => void je(r.id, p)
+              onChange: (u) => void Ve(r.id, u)
             }
           )
         },
         {
           title: "操作",
-          render: (n, r) => /* @__PURE__ */ e.createElement(
-            ve,
+          render: (a, r) => /* @__PURE__ */ e.createElement(
+            _e,
             {
-              title: "删除此身份策略？后续消息将重新进入待授权。",
-              onConfirm: () => void Oe(r.id)
+              title: "删除此会话规则？后续消息将继承全局策略。",
+              onConfirm: () => void He(r.id)
             },
-            /* @__PURE__ */ e.createElement(o, { type: "text", danger: !0, icon: /* @__PURE__ */ e.createElement(ge, { size: 15 }) }, "删除")
+            /* @__PURE__ */ e.createElement(c, { type: "text", danger: !0, icon: /* @__PURE__ */ e.createElement(he, { size: 15 }) }, "删除")
           )
         }
       ],
       scroll: { x: 760 }
     }
-  )), Ve = /* @__PURE__ */ e.createElement(
-    w,
+  )), Ge = /* @__PURE__ */ e.createElement(
+    x,
     {
       className: "pm-panel",
       title: "待发送",
-      extra: /* @__PURE__ */ e.createElement(g, { type: "secondary" }, "按 OAuth 真实 ID 精确发送")
+      extra: /* @__PURE__ */ e.createElement(p, { type: "secondary" }, "按 OAuth 真实 ID 精确发送")
     },
     /* @__PURE__ */ e.createElement(
       _,
       {
-        dataSource: le,
-        locale: { emptyText: /* @__PURE__ */ e.createElement(ye, { description: "暂无待发送回复" }) },
-        renderItem: (n) => /* @__PURE__ */ e.createElement(
+        dataSource: oe,
+        locale: { emptyText: /* @__PURE__ */ e.createElement(xe, { description: "暂无待发送回复" }) },
+        renderItem: (a) => /* @__PURE__ */ e.createElement(
           _.Item,
           {
             actions: [
               /* @__PURE__ */ e.createElement(
-                o,
+                c,
                 {
                   key: "edit",
-                  icon: /* @__PURE__ */ e.createElement(ue, { size: 15 }),
+                  icon: /* @__PURE__ */ e.createElement(ve, { size: 15 }),
                   onClick: () => {
-                    V(n), ae(n.text);
+                    W(a), le(a.text);
                   }
                 },
                 "编辑"
               ),
               /* @__PURE__ */ e.createElement(
-                o,
+                c,
                 {
                   key: "send",
                   type: "primary",
-                  icon: /* @__PURE__ */ e.createElement(X, { size: 15 }),
-                  loading: f,
-                  onClick: () => void Le(n.id)
+                  icon: /* @__PURE__ */ e.createElement(Y, { size: 15 }),
+                  loading: y,
+                  onClick: () => void Qe(a.id)
                 },
                 "发送"
               ),
               /* @__PURE__ */ e.createElement(
-                ve,
+                _e,
                 {
                   key: "delete",
                   title: "删除草稿？原始消息仍会保留。",
-                  onConfirm: () => void Re(n.id)
+                  onConfirm: () => void Ke(a.id)
                 },
-                /* @__PURE__ */ e.createElement(o, { danger: !0, type: "text", icon: /* @__PURE__ */ e.createElement(ge, { size: 15 }) }, "删除")
+                /* @__PURE__ */ e.createElement(c, { danger: !0, type: "text", icon: /* @__PURE__ */ e.createElement(he, { size: 15 }) }, "删除")
               )
             ]
           },
           /* @__PURE__ */ e.createElement(
             _.Item.Meta,
             {
-              title: /* @__PURE__ */ e.createElement("div", { className: "pm-item-title" }, /* @__PURE__ */ e.createElement("span", null, n.conversation_alias), /* @__PURE__ */ e.createElement(be, { status: n.status })),
-              description: /* @__PURE__ */ e.createElement(e.Fragment, null, /* @__PURE__ */ e.createElement("p", { className: "pm-pre" }, n.text), n.error ? /* @__PURE__ */ e.createElement("div", { className: "pm-error" }, n.error) : null, /* @__PURE__ */ e.createElement("div", { className: "pm-meta" }, Y(n.updated_at)))
+              title: /* @__PURE__ */ e.createElement("div", { className: "pm-item-title" }, /* @__PURE__ */ e.createElement("span", null, a.conversation_alias), /* @__PURE__ */ e.createElement(ze, { status: a.status })),
+              description: /* @__PURE__ */ e.createElement(e.Fragment, null, /* @__PURE__ */ e.createElement("div", { className: "pm-source" }, /* @__PURE__ */ e.createElement("div", { className: "pm-source-head" }, /* @__PURE__ */ e.createElement("strong", null, a.source_display_name || a.conversation_alias), /* @__PURE__ */ e.createElement(p, { type: "secondary" }, a.source_subject_type === "group" ? "群聊消息" : "单聊消息")), /* @__PURE__ */ e.createElement("div", { className: "pm-message-stack" }, (a.source_messages || []).map((r) => /* @__PURE__ */ e.createElement("div", { className: "pm-message", key: r.id }, r.text, /* @__PURE__ */ e.createElement("div", { className: "pm-meta" }, Q(r.received_at)))))), /* @__PURE__ */ e.createElement("div", { className: "pm-draft" }, /* @__PURE__ */ e.createElement(p, { type: "secondary" }, "准备发送的回复"), /* @__PURE__ */ e.createElement("p", { className: "pm-pre" }, a.text)), a.error ? /* @__PURE__ */ e.createElement("div", { className: "pm-error" }, a.error) : null, /* @__PURE__ */ e.createElement("div", { className: "pm-meta" }, Q(a.updated_at)))
             }
           )
         )
       }
     )
-  ), Qe = /* @__PURE__ */ e.createElement(w, { className: "pm-panel", title: "运行记录" }, /* @__PURE__ */ e.createElement(
-    It,
+  ), Xe = /* @__PURE__ */ e.createElement(x, { className: "pm-panel", title: "运行记录" }, /* @__PURE__ */ e.createElement(
+    qt,
     {
-      items: ((t == null ? void 0 : t.activity) || []).map((n) => ({
-        color: n.status === "failed" ? "red" : n.status === "sent" || n.status === "verified" ? "green" : "blue",
-        children: /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement("div", { className: "pm-item-title" }, /* @__PURE__ */ e.createElement("strong", null, n.title), /* @__PURE__ */ e.createElement($, null, n.status)), n.detail ? /* @__PURE__ */ e.createElement("div", { className: "pm-subtle" }, n.detail) : null, /* @__PURE__ */ e.createElement("div", { className: "pm-meta" }, Y(n.created_at)))
+      items: ((t == null ? void 0 : t.activity) || []).map((a) => ({
+        color: a.status === "failed" ? "red" : a.status === "sent" || a.status === "verified" ? "green" : "blue",
+        children: /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement("div", { className: "pm-item-title" }, /* @__PURE__ */ e.createElement("strong", null, a.title), /* @__PURE__ */ e.createElement($, null, a.status)), a.detail ? /* @__PURE__ */ e.createElement("div", { className: "pm-subtle" }, a.detail) : null, /* @__PURE__ */ e.createElement("div", { className: "pm-meta" }, Q(a.created_at)))
       }))
     }
   ));
-  return /* @__PURE__ */ e.createElement("div", { className: "pm-page" }, /* @__PURE__ */ e.createElement("style", null, we), /* @__PURE__ */ e.createElement("header", { className: "pm-header" }, /* @__PURE__ */ e.createElement("div", { className: "pm-header-copy" }, /* @__PURE__ */ e.createElement("div", { className: "pm-eyebrow" }, /* @__PURE__ */ e.createElement(G, { size: 15 }), "Paw Me · Digital Twin"), /* @__PURE__ */ e.createElement(J, { level: 1 }, "钉钉数字人分身"), /* @__PURE__ */ e.createElement(g, { type: "secondary" }, "使用所选 Agent 和本机钉钉 OAuth 登录态，在一个页面完成实时收件、 独立授权、上下文聚合、处理、草稿、发送与审计。")), /* @__PURE__ */ e.createElement("div", { className: "pm-actions" }, /* @__PURE__ */ e.createElement(
-    M,
+  return /* @__PURE__ */ e.createElement("div", { className: "pm-page" }, /* @__PURE__ */ e.createElement("style", null, Ce), /* @__PURE__ */ e.createElement("header", { className: "pm-header" }, /* @__PURE__ */ e.createElement("div", { className: "pm-header-copy" }, /* @__PURE__ */ e.createElement("div", { className: "pm-eyebrow" }, /* @__PURE__ */ e.createElement(ee, { size: 15 }), "Paw Me · Digital Twin"), /* @__PURE__ */ e.createElement(te, { level: 1 }, "钉钉数字人分身"), /* @__PURE__ */ e.createElement(p, { type: "secondary" }, "使用所选 Agent 和本机钉钉 OAuth 登录态，在一个页面完成实时收件、 独立授权、上下文聚合、处理、草稿、发送与审计。")), /* @__PURE__ */ e.createElement("div", { className: "pm-actions" }, /* @__PURE__ */ e.createElement(
+    k,
     {
       value: l,
       style: { minWidth: 190 },
-      options: i.map((n) => ({
-        value: n.id,
-        label: `${n.name || n.id} · ${n.backend || "agent"}`
+      options: s.map((a) => ({
+        value: a.id,
+        label: `${a.name || a.id} · ${a.backend || "agent"}`
       })),
-      onChange: (n) => void Se(n)
+      onChange: (a) => void Oe(a)
     }
-  ), /* @__PURE__ */ e.createElement(o, { icon: /* @__PURE__ */ e.createElement(gt, { size: 16 }), onClick: De }, "设置"), /* @__PURE__ */ e.createElement(
-    o,
+  ), /* @__PURE__ */ e.createElement(c, { icon: /* @__PURE__ */ e.createElement(xt, { size: 16 }), onClick: Le }, "设置"), /* @__PURE__ */ e.createElement(
+    c,
     {
-      icon: /* @__PURE__ */ e.createElement(Z, { size: 16 }),
+      icon: /* @__PURE__ */ e.createElement(H, { size: 16 }),
       onClick: () => void h(l)
     },
     "刷新"
-  ), /* @__PURE__ */ e.createElement(k, null, /* @__PURE__ */ e.createElement(
-    xe,
+  ), /* @__PURE__ */ e.createElement(C, null, /* @__PURE__ */ e.createElement(
+    Ne,
     {
       checked: t == null ? void 0 : t.settings.enabled,
-      disabled: !v,
-      onChange: (n) => void Pe(n)
+      disabled: !f,
+      onChange: (a) => void je(a)
     }
-  ), /* @__PURE__ */ e.createElement(g, null, t != null && t.settings.enabled ? "运行中" : "已停止")))), O ? /* @__PURE__ */ e.createElement(
-    D,
+  ), /* @__PURE__ */ e.createElement(p, null, t != null && t.settings.enabled ? "运行中" : "已停止")))), B ? /* @__PURE__ */ e.createElement(
+    T,
     {
       closable: !0,
       type: "error",
       message: "操作未完成",
-      description: O,
-      onClose: () => E(""),
+      description: B,
+      onClose: () => g(""),
       style: { marginBottom: 16 }
     }
-  ) : null, /* @__PURE__ */ e.createElement(w, { className: "pm-statusbar" }, /* @__PURE__ */ e.createElement("div", { className: "pm-status-inner" }, /* @__PURE__ */ e.createElement("div", { className: "pm-status-main" }, t != null && t.runtime.running ? /* @__PURE__ */ e.createElement(_t, { status: "processing" }) : /* @__PURE__ */ e.createElement(et, { size: 18 }), /* @__PURE__ */ e.createElement("div", { className: "pm-status-text" }, /* @__PURE__ */ e.createElement("div", { className: "pm-status-title" }, (t == null ? void 0 : t.runtime.stage) || "stopped"), /* @__PURE__ */ e.createElement(g, { className: "pm-status-detail", type: "secondary" }, (t == null ? void 0 : t.runtime.detail) || "等待启动"))), /* @__PURE__ */ e.createElement(k, { wrap: !0 }, /* @__PURE__ */ e.createElement(
+  ) : null, /* @__PURE__ */ e.createElement(x, { className: "pm-statusbar" }, /* @__PURE__ */ e.createElement("div", { className: "pm-status-inner" }, /* @__PURE__ */ e.createElement("div", { className: "pm-status-main" }, t != null && t.runtime.running ? /* @__PURE__ */ e.createElement(At, { status: "processing" }) : /* @__PURE__ */ e.createElement(it, { size: 18 }), /* @__PURE__ */ e.createElement("div", { className: "pm-status-text" }, /* @__PURE__ */ e.createElement("div", { className: "pm-status-title" }, (t == null ? void 0 : t.runtime.stage) || "stopped"), /* @__PURE__ */ e.createElement(p, { className: "pm-status-detail", type: "secondary" }, (t == null ? void 0 : t.runtime.detail) || "等待启动"))), /* @__PURE__ */ e.createElement(C, { wrap: !0 }, /* @__PURE__ */ e.createElement(
     $,
     {
-      icon: /* @__PURE__ */ e.createElement(G, { size: 13 }),
-      color: v ? "success" : "warning"
+      icon: /* @__PURE__ */ e.createElement(ee, { size: 13 }),
+      color: f ? "success" : "warning"
     },
-    v ? "钉钉 OAuth 已连接" : "等待钉钉 OAuth"
-  ), /* @__PURE__ */ e.createElement($, { icon: /* @__PURE__ */ e.createElement(rt, { size: 13 }) }, "静默 ", (t == null ? void 0 : t.settings.quiet_seconds) ?? 4, " 秒"), t != null && t.runtime.current_conversation ? /* @__PURE__ */ e.createElement($, { icon: /* @__PURE__ */ e.createElement(ue, { size: 13 }) }, t.runtime.current_conversation) : null))), /* @__PURE__ */ e.createElement(At, { gutter: [14, 14] }, /* @__PURE__ */ e.createElement(B, { xs: 12, lg: 6 }, /* @__PURE__ */ e.createElement(w, { className: "pm-metric" }, /* @__PURE__ */ e.createElement("div", { className: "pm-metric-icon" }, /* @__PURE__ */ e.createElement(de, { size: 18 })), /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement("div", { className: "pm-metric-value" }, (t == null ? void 0 : t.work_items.length) || 0), /* @__PURE__ */ e.createElement("div", { className: "pm-metric-label" }, "消息批次")))), /* @__PURE__ */ e.createElement(B, { xs: 12, lg: 6 }, /* @__PURE__ */ e.createElement(w, { className: "pm-metric" }, /* @__PURE__ */ e.createElement("div", { className: "pm-metric-icon" }, /* @__PURE__ */ e.createElement(ot, { size: 18 })), /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement("div", { className: "pm-metric-value" }, U.length), /* @__PURE__ */ e.createElement("div", { className: "pm-metric-label" }, "待绑定身份")))), /* @__PURE__ */ e.createElement(B, { xs: 12, lg: 6 }, /* @__PURE__ */ e.createElement(w, { className: "pm-metric" }, /* @__PURE__ */ e.createElement("div", { className: "pm-metric-icon" }, /* @__PURE__ */ e.createElement(X, { size: 18 })), /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement("div", { className: "pm-metric-value" }, le.length), /* @__PURE__ */ e.createElement("div", { className: "pm-metric-label" }, "待发送")))), /* @__PURE__ */ e.createElement(B, { xs: 12, lg: 6 }, /* @__PURE__ */ e.createElement(w, { className: "pm-metric" }, /* @__PURE__ */ e.createElement("div", { className: "pm-metric-icon" }, /* @__PURE__ */ e.createElement(ce, { size: 18 })), /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement("div", { className: "pm-metric-value" }, (t == null ? void 0 : t.principals.length) || 0), /* @__PURE__ */ e.createElement("div", { className: "pm-metric-label" }, "已验证身份"))))), /* @__PURE__ */ e.createElement(
-    $t,
+    f ? "钉钉 OAuth 已连接" : "等待钉钉 OAuth"
+  ), /* @__PURE__ */ e.createElement($, { icon: /* @__PURE__ */ e.createElement(mt, { size: 13 }) }, "静默 ", (t == null ? void 0 : t.settings.quiet_seconds) ?? 4, " 秒"), t != null && t.runtime.current_conversation ? /* @__PURE__ */ e.createElement($, { icon: /* @__PURE__ */ e.createElement(ve, { size: 13 }) }, t.runtime.current_conversation) : null))), /* @__PURE__ */ e.createElement(x, { className: "pm-global", title: "全局访问与回复策略" }, /* @__PURE__ */ e.createElement("div", { className: "pm-global-grid" }, /* @__PURE__ */ e.createElement("div", { className: "pm-global-field" }, /* @__PURE__ */ e.createElement("div", { className: "pm-global-label" }, "新会话默认访问规则"), /* @__PURE__ */ e.createElement(
+    k,
+    {
+      value: (t == null ? void 0 : t.settings.access_mode) || "approval",
+      options: [
+        {
+          value: "approval",
+          label: "逐个审批（推荐）"
+        },
+        { value: "allow_all", label: "全白名单" },
+        { value: "block_all", label: "全黑名单" }
+      ],
+      onChange: (a) => void ie("access_mode", a)
+    }
+  ), /* @__PURE__ */ e.createElement(p, { type: "secondary" }, "单会话规则始终优先；删除单会话规则后恢复继承全局。")), /* @__PURE__ */ e.createElement("div", { className: "pm-global-field" }, /* @__PURE__ */ e.createElement("div", { className: "pm-global-label" }, "允许回复时的默认方式"), /* @__PURE__ */ e.createElement(
+    k,
+    {
+      value: (t == null ? void 0 : t.settings.default_policy) || "draft",
+      options: [
+        { value: "draft", label: "先进入待发送" },
+        { value: "automatic", label: "生成后自动发送" }
+      ],
+      onChange: (a) => void ie("default_policy", a)
+    }
+  ), /* @__PURE__ */ e.createElement(p, { type: "secondary" }, "即使选择自动发送，身份泄漏或元分析也会强制留在草稿。")))), /* @__PURE__ */ e.createElement(Pt, { gutter: [14, 14] }, /* @__PURE__ */ e.createElement(V, { xs: 12, lg: 6 }, /* @__PURE__ */ e.createElement(x, { className: "pm-metric" }, /* @__PURE__ */ e.createElement("div", { className: "pm-metric-icon" }, /* @__PURE__ */ e.createElement(Ee, { size: 18 })), /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement("div", { className: "pm-metric-value" }, (t == null ? void 0 : t.work_items.length) || 0), /* @__PURE__ */ e.createElement("div", { className: "pm-metric-label" }, "消息批次")))), /* @__PURE__ */ e.createElement(V, { xs: 12, lg: 6 }, /* @__PURE__ */ e.createElement(x, { className: "pm-metric" }, /* @__PURE__ */ e.createElement("div", { className: "pm-metric-icon" }, /* @__PURE__ */ e.createElement(yt, { size: 18 })), /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement("div", { className: "pm-metric-value" }, X.length), /* @__PURE__ */ e.createElement("div", { className: "pm-metric-label" }, "待绑定身份")))), /* @__PURE__ */ e.createElement(V, { xs: 12, lg: 6 }, /* @__PURE__ */ e.createElement(x, { className: "pm-metric" }, /* @__PURE__ */ e.createElement("div", { className: "pm-metric-icon" }, /* @__PURE__ */ e.createElement(Y, { size: 18 })), /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement("div", { className: "pm-metric-value" }, oe.length), /* @__PURE__ */ e.createElement("div", { className: "pm-metric-label" }, "待发送")))), /* @__PURE__ */ e.createElement(V, { xs: 12, lg: 6 }, /* @__PURE__ */ e.createElement(x, { className: "pm-metric" }, /* @__PURE__ */ e.createElement("div", { className: "pm-metric-icon" }, /* @__PURE__ */ e.createElement(de, { size: 18 })), /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement("div", { className: "pm-metric-value" }, (t == null ? void 0 : t.principals.length) || 0), /* @__PURE__ */ e.createElement("div", { className: "pm-metric-label" }, "已验证身份"))))), /* @__PURE__ */ e.createElement(
+    Dt,
     {
       defaultActiveKey: "inbox",
       items: [
         {
           key: "inbox",
-          label: /* @__PURE__ */ e.createElement(k, null, /* @__PURE__ */ e.createElement(de, { size: 15 }), "收件与处理"),
-          children: Fe
+          label: /* @__PURE__ */ e.createElement(C, null, /* @__PURE__ */ e.createElement(Ee, { size: 15 }), "收件与处理"),
+          children: We
         },
         {
           key: "permissions",
-          label: /* @__PURE__ */ e.createElement(k, null, /* @__PURE__ */ e.createElement(vt, { size: 15 }), "身份与权限"),
-          children: He
+          label: /* @__PURE__ */ e.createElement(C, null, /* @__PURE__ */ e.createElement(fe, { size: 15 }), "身份与权限"),
+          children: Ze
         },
         {
           key: "outbox",
-          label: /* @__PURE__ */ e.createElement(k, null, /* @__PURE__ */ e.createElement(X, { size: 15 }), "待发送"),
-          children: Ve
+          label: /* @__PURE__ */ e.createElement(C, null, /* @__PURE__ */ e.createElement(Y, { size: 15 }), "待发送"),
+          children: Ge
         },
         {
           key: "activity",
-          label: /* @__PURE__ */ e.createElement(k, null, /* @__PURE__ */ e.createElement(ce, { size: 15 }), "运行记录"),
-          children: Qe
+          label: /* @__PURE__ */ e.createElement(C, null, /* @__PURE__ */ e.createElement(de, { size: 15 }), "运行记录"),
+          children: Xe
         }
       ]
     }
   ), /* @__PURE__ */ e.createElement(
-    Nt,
+    Mt,
     {
       title: "运行设置",
       width: 420,
-      open: Ie,
-      onClose: () => F(!1),
+      open: Te,
+      onClose: () => K(!1),
       destroyOnClose: !0,
       extra: /* @__PURE__ */ e.createElement(
-        o,
+        c,
         {
           type: "primary",
-          loading: f,
-          onClick: () => Q.submit()
+          loading: y,
+          onClick: () => Z.submit()
         },
         "保存"
       )
@@ -913,9 +989,9 @@ function _e() {
     /* @__PURE__ */ e.createElement(
       b,
       {
-        form: Q,
+        form: Z,
         layout: "vertical",
-        onFinish: L,
+        onFinish: S,
         initialValues: t == null ? void 0 : t.settings
       },
       /* @__PURE__ */ e.createElement(
@@ -926,11 +1002,11 @@ function _e() {
           rules: [{ required: !0 }]
         },
         /* @__PURE__ */ e.createElement(
-          M,
+          k,
           {
-            options: i.map((n) => ({
-              value: n.id,
-              label: `${n.name || n.id} · ${n.backend || "agent"}`
+            options: s.map((a) => ({
+              value: a.id,
+              label: `${a.name || a.id} · ${a.backend || "agent"}`
             }))
           }
         )
@@ -942,14 +1018,24 @@ function _e() {
           label: "数字人分身总开关",
           valuePropName: "checked"
         },
-        /* @__PURE__ */ e.createElement(xe, null)
+        /* @__PURE__ */ e.createElement(Ne, null)
       ),
       /* @__PURE__ */ e.createElement(b.Item, { name: "default_policy", label: "默认回复策略" }, /* @__PURE__ */ e.createElement(
-        M,
+        k,
         {
           options: [
             { value: "draft", label: "生成草稿，确认后发送" },
             { value: "automatic", label: "按身份策略自动发送" }
+          ]
+        }
+      )),
+      /* @__PURE__ */ e.createElement(b.Item, { name: "access_mode", label: "新会话默认访问规则" }, /* @__PURE__ */ e.createElement(
+        k,
+        {
+          options: [
+            { value: "approval", label: "逐个审批" },
+            { value: "allow_all", label: "全白名单" },
+            { value: "block_all", label: "全黑名单" }
           ]
         }
       )),
@@ -960,7 +1046,7 @@ function _e() {
           label: "连续消息静默窗口（秒）",
           extra: "对方停止输入达到这个时间后，才合并调用一次 Agent。"
         },
-        /* @__PURE__ */ e.createElement(Ee, { min: 1, max: 30, style: { width: "100%" } })
+        /* @__PURE__ */ e.createElement(be, { min: 1, max: 30, style: { width: "100%" } })
       ),
       /* @__PURE__ */ e.createElement(
         b.Item,
@@ -969,10 +1055,10 @@ function _e() {
           label: "最长聚合等待（秒）",
           extra: "持续聊天时也不会无限等待。"
         },
-        /* @__PURE__ */ e.createElement(Ee, { min: 3, max: 120, style: { width: "100%" } })
+        /* @__PURE__ */ e.createElement(be, { min: 3, max: 120, style: { width: "100%" } })
       ),
       /* @__PURE__ */ e.createElement(
-        D,
+        T,
         {
           type: "info",
           showIcon: !0,
@@ -982,17 +1068,17 @@ function _e() {
       )
     )
   ), /* @__PURE__ */ e.createElement(
-    he,
+    we,
     {
       title: "授权真实钉钉会话",
-      open: !!c,
-      confirmLoading: f,
-      onCancel: () => H(null),
-      onOk: () => K.submit(),
+      open: !!m,
+      confirmLoading: y,
+      onCancel: () => U(null),
+      onOk: () => G.submit(),
       destroyOnClose: !0
     },
     /* @__PURE__ */ e.createElement(
-      D,
+      T,
       {
         type: "info",
         showIcon: !0,
@@ -1002,7 +1088,7 @@ function _e() {
       }
     ),
     /* @__PURE__ */ e.createElement(
-      kt,
+      j,
       {
         size: "small",
         column: 1,
@@ -1012,22 +1098,22 @@ function _e() {
           {
             key: "name",
             label: "会话",
-            children: (c == null ? void 0 : c.display_name) || (c == null ? void 0 : c.conversation_alias) || "—"
+            children: (m == null ? void 0 : m.display_name) || (m == null ? void 0 : m.conversation_alias) || "—"
           },
           {
             key: "type",
             label: "类型",
-            children: (c == null ? void 0 : c.subject_type) === "group" ? "群聊" : "人员"
+            children: (m == null ? void 0 : m.subject_type) === "group" ? "群聊" : "人员"
           },
           {
             key: "id",
             label: "真实 ID",
-            children: /* @__PURE__ */ e.createElement("span", { className: "pm-id" }, (c == null ? void 0 : c.subject_id) || "—")
+            children: /* @__PURE__ */ e.createElement("span", { className: "pm-id" }, (m == null ? void 0 : m.subject_id) || "—")
           },
           {
             key: "source",
             label: "来源",
-            children: ee(c == null ? void 0 : c.id_source)
+            children: ae(m == null ? void 0 : m.id_source)
           }
         ]
       }
@@ -1035,9 +1121,9 @@ function _e() {
     /* @__PURE__ */ e.createElement(
       b,
       {
-        form: K,
+        form: G,
         layout: "vertical",
-        onFinish: qe
+        onFinish: Be
       },
       /* @__PURE__ */ e.createElement(
         b.Item,
@@ -1047,7 +1133,7 @@ function _e() {
           rules: [{ required: !0 }]
         },
         /* @__PURE__ */ e.createElement(
-          M,
+          k,
           {
             options: [
               { value: "draft", label: "允许处理，生成草稿" },
@@ -1060,37 +1146,37 @@ function _e() {
       )
     )
   ), /* @__PURE__ */ e.createElement(
-    he,
+    we,
     {
-      title: `编辑发给 ${(z == null ? void 0 : z.conversation_alias) || ""} 的草稿`,
-      open: !!z,
-      confirmLoading: f,
-      okButtonProps: { disabled: !j.trim() },
-      onCancel: () => V(null),
-      onOk: () => void Be(),
+      title: `编辑发给 ${(M == null ? void 0 : M.conversation_alias) || ""} 的草稿`,
+      open: !!M,
+      confirmLoading: y,
+      okButtonProps: { disabled: !R.trim() },
+      onCancel: () => W(null),
+      onOk: () => void Ue(),
       destroyOnClose: !0
     },
     /* @__PURE__ */ e.createElement(
-      Ct.TextArea,
+      It.TextArea,
       {
         autoSize: { minRows: 6, maxRows: 16 },
-        value: j,
-        onChange: (n) => ae(n.target.value)
+        value: R,
+        onChange: (a) => le(a.target.value)
       }
     )
   ));
 }
-var Ne;
-const ke = (Ne = window.QwenPaw.paw) == null ? void 0 : Ne.forApp(ne);
-var Ce, ze;
-ke ? ke.ui.registerPage({
+var Ie;
+const Me = (Ie = window.QwenPaw.paw) == null ? void 0 : Ie.forApp(re);
+var $e, Pe;
+Me ? Me.ui.registerPage({
   path: "/apps/paw-me-dingtalk",
   label: "Paw Me · DingTalk",
-  component: _e
-}) : (ze = (Ce = window.QwenPaw).registerRoutes) == null || ze.call(Ce, ne, [
+  component: Ae
+}) : (Pe = ($e = window.QwenPaw).registerRoutes) == null || Pe.call($e, re, [
   {
     path: "/apps/paw-me-dingtalk",
-    component: _e,
+    component: Ae,
     label: "Paw Me · DingTalk"
   }
 ]);

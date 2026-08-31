@@ -153,3 +153,49 @@ async def test_login_is_tracked_and_times_out_quickly(monkeypatch):
         timeout=120.0,
         integration=True,
     )
+
+
+@pytest.mark.asyncio
+async def test_logout_targets_only_the_confirmed_oauth_account(monkeypatch):
+    """Reconnect never clears another organization or account."""
+    client = DwsClient()
+    run_json = AsyncMock(return_value={"success": True})
+    monkeypatch.setattr(client, "_run_json", run_json)
+    status = DwsStatus(
+        available=True,
+        authenticated=True,
+        corp_id="corp-a",
+        user_id="user-a",
+    )
+
+    await client.logout(status)
+
+    run_json.assert_awaited_once_with(
+        "auth",
+        "logout",
+        "--profile",
+        "corp-a:user-a",
+        "--yes",
+        "--format",
+        "json",
+    )
+
+
+@pytest.mark.asyncio
+async def test_group_members_uses_real_conversation_id(monkeypatch):
+    """Owner resolution is based on DWS data, never a display coordinate."""
+    client = DwsClient()
+    run_json = AsyncMock(return_value={"result": {"list": []}})
+    monkeypatch.setattr(client, "_run_json", run_json)
+
+    await client.group_members("open-conversation-2")
+
+    run_json.assert_awaited_once_with(
+        "chat",
+        "group",
+        "members",
+        "--id",
+        "open-conversation-2",
+        "--format",
+        "json",
+    )

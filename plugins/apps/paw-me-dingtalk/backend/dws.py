@@ -370,6 +370,20 @@ class DwsClient:
             raise DwsError(status.detail or "钉钉 OAuth 登录未完成")
         return status
 
+    async def logout(self, status: DwsStatus) -> None:
+        """Log out only the exact OAuth account shown for confirmation."""
+        if not status.corp_id or not status.user_id:
+            raise DwsError("当前钉钉账号缺少可验证的组织或用户 ID")
+        await self._run_json(
+            "auth",
+            "logout",
+            "--profile",
+            f"{status.corp_id}:{status.user_id}",
+            "--yes",
+            "--format",
+            "json",
+        )
+
     async def cancel_integration(self) -> None:
         """Cancel the currently tracked installer or OAuth process."""
         process = self._integration_process
@@ -396,6 +410,7 @@ class DwsClient:
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=self._environment(),
         )
         self._processes.add(process)
         stderr_task = asyncio.create_task(self._drain_stderr(process))
@@ -495,6 +510,20 @@ class DwsClient:
             subject_id,
             "--limit",
             str(max(1, min(limit, 100))),
+            "--format",
+            "json",
+        )
+
+    async def group_members(self, conversation_id: str) -> dict[str, Any]:
+        """Read real group members to identify the OAuth account owner."""
+        if not conversation_id.strip():
+            raise DwsError("群会话缺少真实 openConversationId")
+        return await self._run_json(
+            "chat",
+            "group",
+            "members",
+            "--id",
+            conversation_id,
             "--format",
             "json",
         )
