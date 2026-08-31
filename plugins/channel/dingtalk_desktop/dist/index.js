@@ -1,11 +1,11 @@
-import { forwardRef as S, createElement as N } from "react";
+const S = window.QwenPaw.host.React, N = S.createElement, P = S.forwardRef;
 /**
  * @license lucide-react v0.562.0 - ISC
  *
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
-const T = (r) => r.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase(), q = (r) => r.replace(
+const R = (r) => r.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase(), q = (r) => r.replace(
   /^([A-Z])|[\s-_]+(\w)/g,
   (n, o, c) => c ? c.toUpperCase() : o.toLowerCase()
 ), _ = (r) => {
@@ -39,7 +39,7 @@ var H = {
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
-const R = S(
+const V = P(
   ({
     color: r = "currentColor",
     size: n = 24,
@@ -75,12 +75,12 @@ const R = S(
  * See the LICENSE file in the root directory of this source tree.
  */
 const l = (r, n) => {
-  const o = S(
-    ({ className: c, ...t }, s) => N(R, {
+  const o = P(
+    ({ className: c, ...t }, s) => N(V, {
       ref: s,
       iconNode: n,
       className: j(
-        `lucide-${T(_(r))}`,
+        `lucide-${R(_(r))}`,
         `lucide-${r}`,
         c
       ),
@@ -95,32 +95,21 @@ const l = (r, n) => {
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
-const V = [
+const Q = [
   ["path", { d: "M12 8V4H8", key: "hb8ula" }],
   ["rect", { width: "16", height: "12", x: "4", y: "8", rx: "2", key: "enze0r" }],
   ["path", { d: "M2 14h2", key: "vft8re" }],
   ["path", { d: "M20 14h2", key: "4cs60a" }],
   ["path", { d: "M15 13v2", key: "1xurst" }],
   ["path", { d: "M9 13v2", key: "rq6x2g" }]
-], O = l("bot", V);
+], O = l("bot", Q);
 /**
  * @license lucide-react v0.562.0 - ISC
  *
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
-const Q = [["path", { d: "M20 6 9 17l-5-5", key: "1gmf2c" }]], U = l("check", Q);
-/**
- * @license lucide-react v0.562.0 - ISC
- *
- * This source code is licensed under the ISC license.
- * See the LICENSE file in the root directory of this source tree.
- */
-const F = [
-  ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
-  ["line", { x1: "12", x2: "12", y1: "8", y2: "12", key: "1pkeuh" }],
-  ["line", { x1: "12", x2: "12.01", y1: "16", y2: "16", key: "4dfq90" }]
-], L = l("circle-alert", F);
+const U = [["path", { d: "M20 6 9 17l-5-5", key: "1gmf2c" }]], F = l("check", U);
 /**
  * @license lucide-react v0.562.0 - ISC
  *
@@ -128,6 +117,17 @@ const F = [
  * See the LICENSE file in the root directory of this source tree.
  */
 const J = [
+  ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
+  ["line", { x1: "12", x2: "12", y1: "8", y2: "12", key: "1pkeuh" }],
+  ["line", { x1: "12", x2: "12.01", y1: "16", y2: "16", key: "4dfq90" }]
+], L = l("circle-alert", J);
+/**
+ * @license lucide-react v0.562.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const K = [
   [
     "path",
     {
@@ -136,32 +136,32 @@ const J = [
     }
   ],
   ["path", { d: "M20.054 15.987H3.946", key: "14rxg9" }]
-], K = l("laptop", J);
+], W = l("laptop", K);
 /**
  * @license lucide-react v0.562.0 - ISC
  *
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
-const W = [["path", { d: "M21 12a9 9 0 1 1-6.219-8.56", key: "13zald" }]], Z = l("loader-circle", W);
+const Z = [["path", { d: "M21 12a9 9 0 1 1-6.219-8.56", key: "13zald" }]], I = l("loader-circle", Z);
 /**
  * @license lucide-react v0.562.0 - ISC
  *
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
-const I = [
+const X = [
   ["circle", { cx: "12", cy: "16", r: "1", key: "1au0dj" }],
   ["rect", { x: "3", y: "10", width: "18", height: "12", rx: "2", key: "6s8ecr" }],
   ["path", { d: "M7 10V7a5 5 0 0 1 10 0v3", key: "1pqi11" }]
-], X = l("lock-keyhole", I);
+], Y = l("lock-keyhole", X);
 /**
  * @license lucide-react v0.562.0 - ISC
  *
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
-const Y = [
+const G = [
   [
     "path",
     {
@@ -172,35 +172,19 @@ const Y = [
   ["path", { d: "M7 11h10", key: "1twpyw" }],
   ["path", { d: "M7 15h6", key: "d9of3u" }],
   ["path", { d: "M7 7h8", key: "af5zfr" }]
-], G = l("message-square-text", Y);
+], ee = l("message-square-text", G);
 /**
  * @license lucide-react v0.562.0 - ISC
  *
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
-const ee = [
+const te = [
   ["path", { d: "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8", key: "v9h5vc" }],
   ["path", { d: "M21 3v5h-5", key: "1q7to0" }],
   ["path", { d: "M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16", key: "3uifl3" }],
   ["path", { d: "M8 16H3v5", key: "1cv678" }]
-], te = l("refresh-cw", ee);
-/**
- * @license lucide-react v0.562.0 - ISC
- *
- * This source code is licensed under the ISC license.
- * See the LICENSE file in the root directory of this source tree.
- */
-const ae = [
-  [
-    "path",
-    {
-      d: "M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z",
-      key: "1ffxy3"
-    }
-  ],
-  ["path", { d: "m21.854 2.147-10.94 10.939", key: "12cjpa" }]
-], C = l("send", ae);
+], ae = l("refresh-cw", te);
 /**
  * @license lucide-react v0.562.0 - ISC
  *
@@ -211,25 +195,41 @@ const ne = [
   [
     "path",
     {
-      d: "M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z",
-      key: "oel41y"
+      d: "M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z",
+      key: "1ffxy3"
     }
   ],
-  ["path", { d: "m9 12 2 2 4-4", key: "dzmm74" }]
-], oe = l("shield-check", ne);
+  ["path", { d: "m21.854 2.147-10.94 10.939", key: "12cjpa" }]
+], C = l("send", ne);
 /**
  * @license lucide-react v0.562.0 - ISC
  *
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
-const re = [
+const oe = [
+  [
+    "path",
+    {
+      d: "M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z",
+      key: "oel41y"
+    }
+  ],
+  ["path", { d: "m9 12 2 2 4-4", key: "dzmm74" }]
+], re = l("shield-check", oe);
+/**
+ * @license lucide-react v0.562.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const ce = [
   ["path", { d: "M10 11v6", key: "nco0om" }],
   ["path", { d: "M14 11v6", key: "outv1u" }],
   ["path", { d: "M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6", key: "miytrc" }],
   ["path", { d: "M3 6h18", key: "d0wm0j" }],
   ["path", { d: "M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2", key: "e791ji" }]
-], ce = l("trash-2", re), h = window.QwenPaw.host, e = h.React, { useEffect: se, useState: g } = e, de = `
+], se = l("trash-2", ce), h = window.QwenPaw.host, e = h.React, { useEffect: de, useState: g } = e, le = `
 .dt-shell{min-height:100%;background:#f5f4ef;color:#17211d;padding:clamp(20px,4vw,56px);font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
 .dt-wrap{max-width:1080px;margin:0 auto}.dt-hero{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:32px}
 .dt-kicker{display:flex;align-items:center;gap:8px;color:#547064;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
@@ -263,10 +263,10 @@ async function u(r, n, o) {
   return s;
 }
 function v({ ok: r, text: n }) {
-  return /* @__PURE__ */ e.createElement("span", { className: `dt-state ${r ? "ok" : ""}` }, r ? /* @__PURE__ */ e.createElement(U, { size: 14 }) : /* @__PURE__ */ e.createElement(L, { size: 14 }), n);
+  return /* @__PURE__ */ e.createElement("span", { className: `dt-state ${r ? "ok" : ""}` }, r ? /* @__PURE__ */ e.createElement(F, { size: 14 }) : /* @__PURE__ */ e.createElement(L, { size: 14 }), n);
 }
-function le() {
-  const [r, n] = g([]), [o, c] = g(""), [t, s] = g(null), [f, x] = g([]), [p, m] = g(""), [y, i] = g(""), P = async () => {
+function ie() {
+  const [r, n] = g([]), [o, c] = g(""), [t, s] = g(null), [f, x] = g([]), [p, m] = g(""), [y, i] = g(""), B = async () => {
     try {
       const a = await u("/agents");
       n(a.agents.filter((d) => d.enabled));
@@ -291,10 +291,10 @@ function le() {
       }
     }
   };
-  se(() => {
-    P();
+  de(() => {
+    B();
   }, []);
-  const B = (a) => {
+  const T = (a) => {
     c(a), s(null), x([]), i(""), a && k(a);
   }, z = async (a) => {
     m(a), i("");
@@ -326,14 +326,14 @@ function le() {
       m("");
     }
   }, b = !!(o && t), E = !!(t != null && t.desktop.logged_in && t.desktop.accessibility);
-  return /* @__PURE__ */ e.createElement("div", { className: "dt-shell" }, /* @__PURE__ */ e.createElement("style", null, de), /* @__PURE__ */ e.createElement("main", { className: "dt-wrap" }, /* @__PURE__ */ e.createElement("header", { className: "dt-hero" }, /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement("div", { className: "dt-kicker" }, /* @__PURE__ */ e.createElement(oe, { size: 15 }), " Personal channel"), /* @__PURE__ */ e.createElement("h1", { className: "dt-title" }, "让所选 Agent 接管当前阿里钉会话"), /* @__PURE__ */ e.createElement("p", { className: "dt-sub" }, "使用所选 Agent 与本机阿里钉登录态。Agent backend 的安装和认证完全由 QwenPaw 现有运行时管理；插件不重复登录，也不读取或保存任何账号凭证。")), /* @__PURE__ */ e.createElement(
+  return /* @__PURE__ */ e.createElement("div", { className: "dt-shell" }, /* @__PURE__ */ e.createElement("style", null, le), /* @__PURE__ */ e.createElement("main", { className: "dt-wrap" }, /* @__PURE__ */ e.createElement("header", { className: "dt-hero" }, /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement("div", { className: "dt-kicker" }, /* @__PURE__ */ e.createElement(re, { size: 15 }), " Personal channel"), /* @__PURE__ */ e.createElement("h1", { className: "dt-title" }, "让所选 Agent 接管当前阿里钉会话"), /* @__PURE__ */ e.createElement("p", { className: "dt-sub" }, "使用所选 Agent 与本机阿里钉登录态。Agent backend 的安装和认证完全由 QwenPaw 现有运行时管理；插件不重复登录，也不读取或保存任何账号凭证。")), /* @__PURE__ */ e.createElement(
     "button",
     {
       className: "dt-button",
       disabled: !o,
       onClick: () => void k(o)
     },
-    /* @__PURE__ */ e.createElement(te, { size: 16 }),
+    /* @__PURE__ */ e.createElement(ae, { size: 16 }),
     " 刷新状态"
   )), /* @__PURE__ */ e.createElement("section", { className: "dt-grid" }, /* @__PURE__ */ e.createElement("article", { className: "dt-card" }, /* @__PURE__ */ e.createElement("div", { className: "dt-card-head" }, /* @__PURE__ */ e.createElement("div", { className: "dt-icon" }, /* @__PURE__ */ e.createElement(O, { size: 20 })), /* @__PURE__ */ e.createElement(
     v,
@@ -347,17 +347,17 @@ function le() {
       id: "dt-agent",
       className: "dt-select",
       value: o,
-      onChange: (a) => B(a.target.value)
+      onChange: (a) => T(a.target.value)
     },
     /* @__PURE__ */ e.createElement("option", { value: "" }, "请选择 Agent"),
     r.map((a) => /* @__PURE__ */ e.createElement("option", { key: a.id, value: a.id }, a.name || a.id))
-  )), /* @__PURE__ */ e.createElement("p", null, t ? `${t.agent_id} · ${t.backend}` : o ? "正在检查 Agent 状态" : "配置、审批和草稿都会严格归属所选 Agent")), /* @__PURE__ */ e.createElement("article", { className: "dt-card" }, /* @__PURE__ */ e.createElement("div", { className: "dt-card-head" }, /* @__PURE__ */ e.createElement("div", { className: "dt-icon" }, /* @__PURE__ */ e.createElement(K, { size: 20 })), /* @__PURE__ */ e.createElement(
+  )), /* @__PURE__ */ e.createElement("p", null, t ? `${t.agent_id} · ${t.backend}` : o ? "正在检查 Agent 状态" : "配置、审批和草稿都会严格归属所选 Agent")), /* @__PURE__ */ e.createElement("article", { className: "dt-card" }, /* @__PURE__ */ e.createElement("div", { className: "dt-card-head" }, /* @__PURE__ */ e.createElement("div", { className: "dt-icon" }, /* @__PURE__ */ e.createElement(W, { size: 20 })), /* @__PURE__ */ e.createElement(
     v,
     {
       ok: E,
       text: E ? "本机已连接" : "需要检查"
     }
-  )), /* @__PURE__ */ e.createElement("h2", null, "阿里钉桌面端"), /* @__PURE__ */ e.createElement("p", null, t != null && t.desktop.version ? `版本 ${t.desktop.version} · 本机登录态` : (t == null ? void 0 : t.desktop.detail) || "请打开阿里钉并完成登录")), /* @__PURE__ */ e.createElement("article", { className: "dt-card dt-wide" }, /* @__PURE__ */ e.createElement("div", { className: "dt-card-head" }, /* @__PURE__ */ e.createElement("div", { className: "dt-icon" }, /* @__PURE__ */ e.createElement(X, { size: 20 })), /* @__PURE__ */ e.createElement(
+  )), /* @__PURE__ */ e.createElement("h2", null, "阿里钉桌面端"), /* @__PURE__ */ e.createElement("p", null, t != null && t.desktop.version ? `版本 ${t.desktop.version} · 本机登录态` : (t == null ? void 0 : t.desktop.detail) || "请打开阿里钉并完成登录")), /* @__PURE__ */ e.createElement("article", { className: "dt-card dt-wide" }, /* @__PURE__ */ e.createElement("div", { className: "dt-card-head" }, /* @__PURE__ */ e.createElement("div", { className: "dt-icon" }, /* @__PURE__ */ e.createElement(Y, { size: 20 })), /* @__PURE__ */ e.createElement(
     v,
     {
       ok: !!(t != null && t.configured),
@@ -370,7 +370,7 @@ function le() {
       disabled: !b || !E || !!p,
       onClick: () => void z("draft")
     },
-    p === "draft" ? /* @__PURE__ */ e.createElement(Z, { size: 16 }) : /* @__PURE__ */ e.createElement(G, { size: 16 }),
+    p === "draft" ? /* @__PURE__ */ e.createElement(I, { size: 16 }) : /* @__PURE__ */ e.createElement(ee, { size: 16 }),
     "一键连接并使用草稿"
   ), /* @__PURE__ */ e.createElement(
     "button",
@@ -397,7 +397,7 @@ function le() {
       disabled: p === a.id,
       onClick: () => void A(a, "delete")
     },
-    /* @__PURE__ */ e.createElement(ce, { size: 15 }),
+    /* @__PURE__ */ e.createElement(se, { size: 15 }),
     " 删除"
   ))))), y && /* @__PURE__ */ e.createElement("div", { className: "dt-error" }, y)));
 }
@@ -405,7 +405,7 @@ var M, $;
 ($ = (M = window.QwenPaw).registerRoutes) == null || $.call(M, "dingtalk-desktop", [
   {
     path: "/plugin/dingtalk-desktop",
-    component: le,
+    component: ie,
     label: "阿里钉 · Agent",
     icon: "message-square-text",
     priority: 44

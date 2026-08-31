@@ -49,3 +49,13 @@ def test_reply_mode_options_follow_host_string_contract():
     )
     assert reply_mode["options"] == ["draft", "automatic"]
     assert all(field["name"] != "allowed_conversations" for field in fields)
+
+
+def test_frontend_bundle_has_no_bare_react_import():
+    """The Blob-loaded plugin bundle resolves React through the host SDK."""
+    bundle = (PLUGIN_ROOT / "dist" / "index.js").read_text(
+        encoding="utf-8",
+    )
+
+    assert 'from "react"' not in bundle
+    assert "registerRoutes" in bundle

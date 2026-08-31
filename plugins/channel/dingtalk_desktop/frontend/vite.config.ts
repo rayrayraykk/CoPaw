@@ -4,6 +4,11 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   plugins: [react({ jsxRuntime: "classic" })],
+  resolve: {
+    alias: {
+      react: resolve(__dirname, "src/react-host.ts"),
+    },
+  },
   build: {
     lib: {
       entry: resolve(__dirname, "src/index.tsx"),
@@ -13,7 +18,7 @@ export default defineConfig({
     outDir: resolve(__dirname, "../dist"),
     emptyOutDir: true,
     rollupOptions: {
-      external: ["react", "react-dom"],
+      external: ["react-dom"],
     },
   },
 });
