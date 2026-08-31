@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Import the source form of the DingTalk Desktop plugin."""
+"""Import the source form of the Paw Me DingTalk application."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ from pathlib import Path
 PLUGIN_ROOT = (
     Path(__file__).resolve().parents[4]
     / "plugins"
-    / "channel"
-    / "dingtalk_desktop"
+    / "apps"
+    / "paw-me-dingtalk"
 )
 
 if str(PLUGIN_ROOT) not in sys.path:

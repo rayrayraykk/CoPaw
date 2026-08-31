@@ -1,0 +1,51 @@
+{
+  "id": "paw-me-dingtalk",
+  "name": "Paw Me · DingTalk",
+  "version": "0.3.0",
+  "type": "app",
+  "description": "A governed DingTalk digital twin powered by the QwenPaw Agent you select.",
+  "description_i18n": {
+    "zh-CN": "由所选 QwenPaw Agent 驱动的钉钉数字人分身，在单页内完成身份、权限、处理、草稿和审计闭环。",
+    "en-US": "A DingTalk digital twin with identity, policy, execution, outbox, and audit managed on one page."
+  },
+  "author": "QwenPaw Team",
+  "entry": {
+    "backend": "backend/main.py",
+    "frontend": "dist/index.js"
+  },
+  "pack_requires": [
+    "dist/index.js"
+  ],
+  "pack_requires_hint": "Run npm ci && npm run build from ui before packaging.",
+  "pack_exclude": [
+    "ui",
+    "data"
+  ],
+  "dependencies": [],
+  "qwenpaw_version": {
+    "min": "2.2.0b3",
+    "max": "2.3.0"
+  },
+  "meta": {
+    "pawapp": {
+      "icon": "PM",
+      "category": "productivity",
+      "entry_page": "/apps/paw-me-dingtalk",
+      "launch_scope": "page"
+    },
+    "permissions": {
+      "chat": true,
+      "storage": true,
+      "network": [
+        "gitee.com",
+        "open.dingtalk.com"
+      ]
+    },
+    "features": [
+      "digital-twin",
+      "identity-governance",
+      "draft-outbox",
+      "runtime-audit"
+    ]
+  }
+}
