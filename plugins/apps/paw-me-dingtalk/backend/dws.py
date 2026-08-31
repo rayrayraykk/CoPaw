@@ -11,6 +11,7 @@ import signal
 import tempfile
 import urllib.request
 from dataclasses import asdict, dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, AsyncIterator, Awaitable, Callable
 
@@ -524,6 +525,90 @@ class DwsClient:
             "members",
             "--id",
             conversation_id,
+            "--format",
+            "json",
+        )
+
+    async def self_profile(self) -> dict[str, Any]:
+        """Read the OAuth owner's organization profile."""
+        return await self._run_json(
+            "contact",
+            "user",
+            "get-self",
+            "--format",
+            "json",
+        )
+
+    async def conversations(self, limit: int = 20) -> dict[str, Any]:
+        """Read a bounded page of the owner's recent conversations."""
+        return await self._run_json(
+            "chat",
+            "+conversation-list",
+            "--limit",
+            str(max(1, min(limit, 100))),
+            "--format",
+            "json",
+        )
+
+    async def conversation_history(
+        self,
+        conversation_id: str,
+        limit: int = 30,
+    ) -> dict[str, Any]:
+        """Read bounded history by a real conversation identifier."""
+        return await self._run_json(
+            "chat",
+            "message",
+            "list",
+            "--conversation-id",
+            conversation_id,
+            "--limit",
+            str(max(1, min(limit, 100))),
+            "--format",
+            "json",
+        )
+
+    async def created_todos(self) -> dict[str, Any]:
+        """Read metadata for tasks created by the OAuth owner."""
+        return await self._run_json(
+            "todo",
+            "+created-todos",
+            "--format",
+            "json",
+        )
+
+    async def people_by_dimension(
+        self,
+        name: str,
+        dimension: str,
+    ) -> dict[str, Any]:
+        """Read factual reporting-line people for the OAuth owner."""
+        if dimension not in {"supervisor", "subordinate"}:
+            raise ValueError(f"Unsupported person dimension: {dimension}")
+        return await self._run_json(
+            "aisearch",
+            "person",
+            "--query",
+            name,
+            "--dimension",
+            dimension,
+            "--format",
+            "json",
+        )
+
+    async def agenda(self, days: int = 30) -> dict[str, Any]:
+        """Read bounded recent calendar metadata."""
+        end = datetime.now().astimezone()
+        start = end - timedelta(days=max(1, min(days, 90)))
+        return await self._run_json(
+            "calendar",
+            "+agenda",
+            "--start",
+            start.isoformat(timespec="seconds"),
+            "--end",
+            end.isoformat(timespec="seconds"),
+            "--limit",
+            "100",
             "--format",
             "json",
         )

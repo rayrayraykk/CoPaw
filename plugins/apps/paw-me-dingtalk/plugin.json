@@ -1,7 +1,7 @@
 {
   "id": "paw-me-dingtalk",
   "name": "Paw Me · DingTalk",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "type": "app",
   "description": "A governed DingTalk digital twin powered by the QwenPaw Agent you select.",
   "description_i18n": {
@@ -13,14 +13,9 @@
     "backend": "backend/main.py",
     "frontend": "dist/index.js"
   },
-  "pack_requires": [
-    "dist/index.js"
-  ],
+  "pack_requires": ["dist/index.js"],
   "pack_requires_hint": "Run npm ci && npm run build from ui before packaging.",
-  "pack_exclude": [
-    "ui",
-    "data"
-  ],
+  "pack_exclude": ["ui", "data"],
   "dependencies": [],
   "qwenpaw_version": {
     "min": "2.2.0b3",
@@ -36,16 +31,15 @@
     "permissions": {
       "chat": true,
       "storage": true,
-      "network": [
-        "gitee.com",
-        "open.dingtalk.com"
-      ]
+      "network": ["gitee.com", "open.dingtalk.com"]
     },
     "features": [
       "digital-twin",
       "identity-governance",
       "draft-outbox",
-      "runtime-audit"
+      "runtime-audit",
+      "owner-profile",
+      "relationship-context"
     ]
   }
 }

@@ -116,6 +116,39 @@ type ActivityItem = {
   created_at: number;
 };
 
+type OwnerProfile = {
+  status: "absent" | "collecting" | "ready" | "partial" | "stale" | "failed";
+  collected: {
+    identity?: {
+      name?: string;
+      title?: string;
+      departments?: string[];
+      roles?: string[];
+    };
+    work_style?: {
+      message_count?: number;
+      average_message_length?: number;
+      created_todo_subjects?: string[];
+      calendar_subjects?: string[];
+    };
+    relationships?: Array<{
+      subject_id: string;
+      name: string;
+      kinds: string[];
+      interaction_count: number;
+      shared_group_count: number;
+      last_interaction_at: string;
+    }>;
+    coverage?: Record<string, number | boolean>;
+  };
+  approved: { notes?: string };
+  error: string;
+  refreshed_at: number;
+  next_refresh_at: number;
+  approved_at: number | null;
+  revision: number;
+};
+
 type Snapshot = {
   settings: {
     enabled: boolean;
@@ -129,6 +162,7 @@ type Snapshot = {
   work_items: WorkItem[];
   outbox: Outbox[];
   activity: ActivityItem[];
+  owner_profile: OwnerProfile;
   identity_provider: {
     provider: string;
     available: boolean;
@@ -151,6 +185,9 @@ type Snapshot = {
     integration_stage: string;
     integration_detail: string;
     integration_progress: number | null;
+    profile_stage: string;
+    profile_detail: string;
+    profile_progress: number | null;
   };
 };
 
@@ -166,7 +203,8 @@ const styles = `
 .pm-global{margin-bottom:16px}.pm-global-grid{display:grid;grid-template-columns:minmax(220px,1fr) minmax(220px,1fr);gap:18px}.pm-global-field{display:grid;gap:7px}.pm-global-label{font-weight:650}.pm-source{margin:12px 0;padding:12px;border:1px solid var(--ant-color-border-secondary);border-radius:10px}.pm-source-head{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:8px}.pm-draft{padding:12px;border-radius:10px;background:var(--ant-color-fill-quaternary)}.pm-account{margin-top:18px;padding:16px;border:1px solid var(--ant-color-border-secondary);border-radius:10px;background:var(--ant-color-bg-container)}
 .pm-policy-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.pm-subtle{color:var(--ant-color-text-secondary)}.pm-pre{white-space:pre-wrap;line-height:1.65;margin:0}.pm-error{color:var(--ant-color-error)}.pm-id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere;font-size:12px}.pm-setup{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:16px;border:1px solid var(--ant-color-border-secondary);border-radius:10px;margin-bottom:16px}.pm-setup-copy{min-width:0}.pm-setup-title{font-weight:650;margin-bottom:4px}
 .pm-onboarding{max-width:880px;margin:42px auto 0}.pm-onboarding .ant-card-body{padding:32px}.pm-onboarding-head{max-width:650px;margin-bottom:30px}.pm-onboarding-head h2{margin:0 0 8px!important;font-size:26px!important;letter-spacing:-.025em}.pm-steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:24px}.pm-step{display:flex;align-items:center;gap:10px;padding:12px;border:1px solid var(--ant-color-border-secondary);border-radius:10px;color:var(--ant-color-text-secondary)}.pm-step-current{border-color:var(--ant-color-primary);color:var(--ant-color-text);background:var(--ant-color-primary-bg)}.pm-step-done{color:var(--ant-color-success)}.pm-step-icon{display:grid;place-items:center;flex:none}.pm-onboarding-action{padding:22px;border-radius:12px;background:var(--ant-color-fill-quaternary)}.pm-onboarding-action h3{margin:0 0 6px;font-size:18px}.pm-progress{margin:18px 0 6px}.pm-onboarding-buttons{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:20px}.pm-agent-select{width:100%;max-width:420px;margin-top:16px}
-@media(max-width:760px){.pm-page{padding:16px 12px 32px}.pm-header{flex-direction:column}.pm-actions{justify-content:flex-start}.pm-status-inner{align-items:flex-start;flex-direction:column}.pm-status-detail{white-space:normal}.pm-policy-grid,.pm-global-grid{grid-template-columns:1fr}.pm-onboarding{margin-top:18px}.pm-onboarding .ant-card-body{padding:20px}.pm-steps{grid-template-columns:1fr}.pm-source-head{align-items:flex-start;flex-direction:column}}
+.pm-profile-grid{display:grid;grid-template-columns:minmax(240px,.8fr) minmax(320px,1.2fr);gap:20px}.pm-profile-facts{display:grid;gap:10px}.pm-profile-relation{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--ant-color-border-secondary)}.pm-profile-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}.pm-profile-progress{margin:12px 0}.pm-profile-note{margin-top:12px}
+@media(max-width:760px){.pm-page{padding:16px 12px 32px}.pm-header{flex-direction:column}.pm-actions{justify-content:flex-start}.pm-status-inner{align-items:flex-start;flex-direction:column}.pm-status-detail{white-space:normal}.pm-policy-grid,.pm-global-grid,.pm-profile-grid{grid-template-columns:1fr}.pm-onboarding{margin-top:18px}.pm-onboarding .ant-card-body{padding:20px}.pm-steps{grid-template-columns:1fr}.pm-source-head{align-items:flex-start;flex-direction:column}}
 `;
 
 const statusLabel: Record<string, string> = {
@@ -224,6 +262,7 @@ function PawMePage() {
   );
   const [draftEditor, setDraftEditor] = useState<Outbox | null>(null);
   const [draftText, setDraftText] = useState("");
+  const [profileNotes, setProfileNotes] = useState("");
   const [settingsForm] = Form.useForm();
   const [authorizationForm] = Form.useForm();
 
@@ -285,6 +324,10 @@ function PawMePage() {
       window.clearInterval(interval);
     };
   }, [agentId]);
+
+  useEffect(() => {
+    setProfileNotes(data?.owner_profile.approved.notes || "");
+  }, [data?.owner_profile.revision]);
 
   const saveSettings = async (values: Record<string, unknown>) => {
     if (!api) return;
@@ -410,6 +453,34 @@ function PawMePage() {
     }
   };
 
+  const refreshProfile = async () => {
+    if (!api) return;
+    try {
+      setData(await api.post<Snapshot>("/profile/refresh"));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "画像更新失败");
+    }
+  };
+
+  const cancelProfile = async () => {
+    if (!api) return;
+    setData(await api.post<Snapshot>("/profile/cancel"));
+  };
+
+  const approveProfile = async () => {
+    if (!api) return;
+    try {
+      setData(
+        await api.post<Snapshot>("/profile/approve", {
+          notes: profileNotes,
+        }),
+      );
+      await sdk?.host.toast("本人画像已审核", "success");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "画像审核失败");
+    }
+  };
+
   const removePrincipal = async (id: string) => {
     if (!api) return;
     await api.delete(`/principals/${id}`);
@@ -490,6 +561,9 @@ function PawMePage() {
     "verifying",
     "login",
   ].includes(integrationStage);
+  const profile = data?.owner_profile;
+  const profileBusy = profile?.status === "collecting";
+  const profileApproved = Boolean(profile?.approved_at);
 
   if (!oauthReady || !identityConfirmed) {
     const currentStep = !connectorReady
@@ -1084,7 +1158,7 @@ function PawMePage() {
           <Space>
             <Switch
               checked={data?.settings.enabled}
-              disabled={!oauthReady}
+              disabled={!oauthReady || !profileApproved}
               onChange={(value: boolean) => void toggleRuntime(value)}
             />
             <Text>{data?.settings.enabled ? "运行中" : "已停止"}</Text>
@@ -1136,6 +1210,115 @@ function PawMePage() {
               </Tag>
             ) : null}
           </Space>
+        </div>
+      </Card>
+
+      <Card
+        className="pm-panel"
+        title="本人画像与人物关系"
+        extra={
+          <Tag color={profileApproved ? "success" : "warning"}>
+            {profileApproved ? "已审核" : "启用前需审核"}
+          </Tag>
+        }
+      >
+        <Alert
+          type={profile?.status === "failed" ? "error" : "info"}
+          showIcon
+          message={data?.runtime.profile_detail || "等待初始化"}
+          description="首次初始化和后台定期更新才访问钉钉；日常回复只读取本地快照。不会保存他人的私聊正文，也不会推断私人关系。"
+        />
+        {profileBusy ? (
+          <div className="pm-profile-progress">
+            <Progress
+              percent={data?.runtime.profile_progress ?? 0}
+              status="active"
+            />
+          </div>
+        ) : null}
+        <div className="pm-profile-grid" style={{ marginTop: 16 }}>
+          <div className="pm-profile-facts">
+            <Descriptions column={1} size="small" bordered>
+              <Descriptions.Item label="本人">
+                {profile?.collected.identity?.name || "待采集"}
+              </Descriptions.Item>
+              <Descriptions.Item label="部门">
+                {profile?.collected.identity?.departments?.join("、") || "—"}
+              </Descriptions.Item>
+              <Descriptions.Item label="职位 / 角色">
+                {[
+                  profile?.collected.identity?.title,
+                  ...(profile?.collected.identity?.roles || []),
+                ]
+                  .filter(Boolean)
+                  .join(" · ") || "—"}
+              </Descriptions.Item>
+              <Descriptions.Item label="表达样本">
+                {profile?.collected.work_style?.message_count || 0} 条本人消息
+              </Descriptions.Item>
+              <Descriptions.Item label="最近更新">
+                {time(profile?.refreshed_at)}
+              </Descriptions.Item>
+            </Descriptions>
+            {profile?.error ? (
+              <Text type="warning">部分数据未完成：{profile.error}</Text>
+            ) : null}
+          </div>
+          <div>
+            <Text strong>近期协作关系</Text>
+            {(profile?.collected.relationships || []).slice(0, 6).map((row) => (
+              <div className="pm-profile-relation" key={row.subject_id}>
+                <div>
+                  <div>{row.name}</div>
+                  <Text type="secondary">
+                    互动 {row.interaction_count} 次 · 共同群{" "}
+                    {row.shared_group_count} 个
+                  </Text>
+                </div>
+                <Tag>有来源</Tag>
+              </div>
+            ))}
+            {!profile?.collected.relationships?.length ? (
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description="暂无关系数据"
+              />
+            ) : null}
+            <Input.TextArea
+              className="pm-profile-note"
+              rows={3}
+              value={profileNotes}
+              placeholder="可补充：我的职责、做事方式、称呼习惯，以及明确的人物关系。"
+              onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) =>
+                setProfileNotes(event.target.value)
+              }
+            />
+          </div>
+        </div>
+        <div className="pm-profile-actions">
+          <Button
+            type="primary"
+            icon={<UserCheck size={16} />}
+            disabled={
+              profileBusy ||
+              !["ready", "partial", "stale"].includes(profile?.status || "")
+            }
+            onClick={() => void approveProfile()}
+          >
+            审核并保存画像
+          </Button>
+          <Button
+            icon={<RefreshCw size={16} />}
+            disabled={profileBusy}
+            onClick={() => void refreshProfile()}
+          >
+            立即更新
+          </Button>
+          {profileBusy ? (
+            <Button icon={<X size={16} />} onClick={() => void cancelProfile()}>
+              取消更新
+            </Button>
+          ) : null}
         </div>
       </Card>
 

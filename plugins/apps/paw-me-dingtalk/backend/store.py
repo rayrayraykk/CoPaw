@@ -112,6 +112,19 @@ class PawMeStore:  # pylint: disable=too-many-public-methods
             messages_json TEXT NOT NULL,
             captured_at REAL NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS owner_profile (
+            slot INTEGER PRIMARY KEY CHECK(slot = 1),
+            corp_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            status TEXT NOT NULL,
+            collected_json TEXT NOT NULL,
+            approved_json TEXT NOT NULL,
+            error TEXT NOT NULL,
+            refreshed_at REAL NOT NULL,
+            next_refresh_at REAL NOT NULL,
+            approved_at REAL,
+            revision INTEGER NOT NULL
+        );
         """
         with self._lock, self._connect() as connection:
             connection.executescript(schema)
@@ -159,6 +172,105 @@ class PawMeStore:  # pylint: disable=too-many-public-methods
                 (key,),
             ).fetchone()
         return str(row["value"]) if row else default
+
+    def get_owner_profile(self) -> dict[str, Any]:
+        """Return the local owner profile without any network access."""
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM owner_profile WHERE slot = 1",
+            ).fetchone()
+        if row is None:
+            return {
+                "status": "absent",
+                "collected": {},
+                "approved": {},
+                "error": "",
+                "refreshed_at": 0.0,
+                "next_refresh_at": 0.0,
+                "approved_at": None,
+                "revision": 0,
+            }
+        result = dict(row)
+        result["collected"] = json.loads(result.pop("collected_json"))
+        result["approved"] = json.loads(result.pop("approved_json"))
+        return result
+
+    def save_owner_profile(
+        self,
+        *,
+        corp_id: str,
+        user_id: str,
+        status: str,
+        collected: dict[str, Any],
+        error: str = "",
+        refresh_hours: float = 6.0,
+    ) -> dict[str, Any]:
+        """Replace collected facts while preserving reviewed user notes."""
+        now = time.time()
+        current = self.get_owner_profile()
+        same_owner = (
+            current.get("corp_id") == corp_id
+            and current.get("user_id") == user_id
+        )
+        approved = current.get("approved", {}) if same_owner else {}
+        approved_at = current.get("approved_at") if same_owner else None
+        revision = int(current.get("revision", 0)) + 1
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO owner_profile(
+                    slot, corp_id, user_id, status, collected_json,
+                    approved_json, error, refreshed_at, next_refresh_at,
+                    approved_at, revision
+                ) VALUES(1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(slot) DO UPDATE SET
+                    corp_id = excluded.corp_id,
+                    user_id = excluded.user_id,
+                    status = excluded.status,
+                    collected_json = excluded.collected_json,
+                    approved_json = excluded.approved_json,
+                    error = excluded.error,
+                    refreshed_at = excluded.refreshed_at,
+                    next_refresh_at = excluded.next_refresh_at,
+                    approved_at = excluded.approved_at,
+                    revision = excluded.revision
+                """,
+                (
+                    corp_id,
+                    user_id,
+                    status,
+                    json.dumps(collected, ensure_ascii=False),
+                    json.dumps(approved, ensure_ascii=False),
+                    error[:2000],
+                    now,
+                    now + max(1.0, refresh_hours) * 3600,
+                    approved_at,
+                    revision,
+                ),
+            )
+        return self.get_owner_profile()
+
+    def approve_owner_profile(self, notes: str) -> dict[str, Any]:
+        """Approve collected facts and save editable owner guidance."""
+        current = self.get_owner_profile()
+        if current["status"] not in {"ready", "partial", "stale"}:
+            raise ValueError("Owner profile is not ready for approval")
+        now = time.time()
+        approved = {"notes": notes.strip()[:6000]}
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                """
+                UPDATE owner_profile SET approved_json = ?, approved_at = ?
+                WHERE slot = 1
+                """,
+                (json.dumps(approved, ensure_ascii=False), now),
+            )
+        return self.get_owner_profile()
+
+    def invalidate_owner_profile(self) -> None:
+        """Remove a snapshot when the OAuth person or organization changes."""
+        with self._lock, self._connect() as connection:
+            connection.execute("DELETE FROM owner_profile WHERE slot = 1")
 
     def set_setting(self, key: str, value: str) -> None:
         """Persist one application setting."""
@@ -935,4 +1047,5 @@ class PawMeStore:  # pylint: disable=too-many-public-methods
             "work_items": self.list_work_items(),
             "outbox": self.list_outbox(),
             "activity": self.list_activity(),
+            "owner_profile": self.get_owner_profile(),
         }

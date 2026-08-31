@@ -23,6 +23,7 @@ from qwenpaw.pawapp.context import ChatReply
 from qwenpaw.schemas import AgentRequest
 
 from .dws import DwsClient, DwsError, DwsMessageEvent, DwsStatus
+from .profile import OwnerProfileCollector, profile_prompt
 from .store import PawMeStore
 
 logger = logging.getLogger(__name__)
@@ -85,6 +86,12 @@ class OutboxPayload(BaseModel):
     text: str = Field(min_length=1)
 
 
+class ProfileApprovalPayload(BaseModel):
+    """Editable owner guidance reviewed before activation."""
+
+    notes: str = Field(default="", max_length=6000)
+
+
 class PawMeRuntime:
     """Consume OAuth message events and serialize Agent work."""
 
@@ -98,6 +105,10 @@ class PawMeRuntime:
         self.integration_stage = "idle"
         self.integration_detail = ""
         self.integration_progress: int | None = None
+        self.profile_task: asyncio.Task[Any] | None = None
+        self.profile_stage = "idle"
+        self.profile_detail = "尚未初始化数字分身画像"
+        self.profile_progress: int | None = None
         self.running = False
         self.stage = "stopped"
         self.detail = "数字人分身未启动"
@@ -140,6 +151,9 @@ class PawMeRuntime:
             "integration_stage": self.integration_stage,
             "integration_detail": self.integration_detail,
             "integration_progress": self.integration_progress,
+            "profile_stage": self.profile_stage,
+            "profile_detail": self.profile_detail,
+            "profile_progress": self.profile_progress,
         }
 
     def start(self) -> None:
@@ -285,6 +299,7 @@ class PawMeRuntime:
                         "请确认当前 OAuth 账号就是数字分身的本人账号",
                     )
                 else:
+                    self._ensure_profile_refresh()
                     self._ensure_streams()
                     await self._dispatch_due()
                     if not self.agent_tasks:
@@ -296,6 +311,116 @@ class PawMeRuntime:
                 logger.exception("Paw Me DingTalk supervisor failed")
                 self.publish("error", "监听遇到错误，将自动重试", str(exc))
             await asyncio.sleep(1.0)
+
+    def begin_profile_refresh(self) -> None:
+        """Start one bounded profile refresh outside reply processing."""
+        if self.profile_task and not self.profile_task.done():
+            raise DwsError("数字分身画像正在初始化或更新")
+        if not self.identity_confirmed(self.dws_status):
+            raise DwsError("请先确认当前钉钉 OAuth 本人账号")
+        current = STORE.get_owner_profile()
+        STORE.save_owner_profile(
+            corp_id=self.dws_status.corp_id,
+            user_id=self.dws_status.user_id,
+            status="collecting",
+            collected=current.get("collected", {}),
+        )
+        self.profile_stage = "identity"
+        self.profile_progress = 0
+        self.profile_detail = "正在初始化本人身份、工作方式与人物关系"
+        self.profile_task = asyncio.create_task(self._refresh_profile())
+
+    def _ensure_profile_refresh(self) -> None:
+        if self.profile_task and not self.profile_task.done():
+            return
+        profile = STORE.get_owner_profile()
+        if (
+            profile.get("corp_id") != self.dws_status.corp_id
+            or profile.get("user_id") != self.dws_status.user_id
+        ):
+            STORE.invalidate_owner_profile()
+            self.begin_profile_refresh()
+            return
+        if float(profile.get("next_refresh_at", 0)) <= time.time():
+            self.begin_profile_refresh()
+
+    async def _profile_progress(
+        self,
+        stage: str,
+        progress: int,
+        detail: str,
+    ) -> None:
+        self.profile_stage = stage
+        self.profile_progress = progress
+        self.profile_detail = detail
+        self.version += 1
+
+    async def _refresh_profile(self) -> None:
+        try:
+            collector = OwnerProfileCollector(DWS)
+            collected, errors = await collector.collect(
+                corp_id=self.dws_status.corp_id,
+                user_id=self.dws_status.user_id,
+                user_name=self.dws_status.user_name,
+                progress=self._profile_progress,
+            )
+            profile_status = "partial" if errors else "ready"
+            await asyncio.to_thread(
+                STORE.save_owner_profile,
+                corp_id=self.dws_status.corp_id,
+                user_id=self.dws_status.user_id,
+                status=profile_status,
+                collected=collected,
+                error="\n".join(errors),
+            )
+            self.profile_stage = profile_status
+            self.profile_progress = 100
+            self.profile_detail = (
+                "画像已部分更新，可审核后使用" if errors else "本人身份、工作方式与人物关系已初始化"
+            )
+            STORE.add_activity(
+                kind="profile",
+                status=profile_status,
+                title="数字分身画像已更新",
+                detail=("；".join(errors) if errors else "本地快照已就绪"),
+            )
+        except asyncio.CancelledError:
+            self.profile_stage = "cancelled"
+            self.profile_progress = None
+            self.profile_detail = "画像初始化已取消，可以重新开始"
+            raise
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Paw Me owner profile refresh failed")
+            current = STORE.get_owner_profile()
+            await asyncio.to_thread(
+                STORE.save_owner_profile,
+                corp_id=self.dws_status.corp_id,
+                user_id=self.dws_status.user_id,
+                status=("stale" if current.get("collected") else "failed"),
+                collected=current.get("collected", {}),
+                error=str(exc),
+            )
+            self.profile_stage = "failed"
+            self.profile_progress = None
+            self.profile_detail = f"画像更新失败：{exc}"
+
+    async def cancel_profile_refresh(self) -> None:
+        """Cancel one profile collection without deleting the last snapshot."""
+        task = self.profile_task
+        if task is None or task.done():
+            return
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        current = STORE.get_owner_profile()
+        if current.get("status") == "collecting":
+            await asyncio.to_thread(
+                STORE.save_owner_profile,
+                corp_id=str(current.get("corp_id", "")),
+                user_id=str(current.get("user_id", "")),
+                status=("stale" if current.get("collected") else "failed"),
+                collected=current.get("collected", {}),
+                error="用户已取消本次画像更新",
+            )
 
     def _ensure_streams(self) -> None:
         for kind in ("all-direct", "all-group"):
@@ -878,7 +1003,7 @@ class PawMeRuntime:
                     "content": [
                         {
                             "type": "text",
-                            "text": self._identity_instructions(),
+                            "text": self._identity_instructions(item),
                         },
                     ],
                 },
@@ -938,13 +1063,27 @@ class PawMeRuntime:
             "参数。只输出可直接发给对方的消息正文。"
         )
 
-    def _identity_instructions(self) -> str:
+    def _identity_instructions(self, item: dict[str, Any]) -> str:
         owner = self.dws_status.user_name.strip()
-        if not owner:
+        profile = STORE.get_owner_profile()
+        collected = profile.get("collected", {})
+        approved = profile.get("approved", {})
+        local_profile = ""
+        if profile.get("approved_at") and collected:
+            local_profile = profile_prompt(
+                collected,
+                str(item.get("subject_id", "")),
+            )
+            notes = str(approved.get("notes", "")).strip()
+            if notes:
+                local_profile = f"{local_profile}\n本人审核补充：{notes}"
+        if not owner and not local_profile:
             return IDENTITY_INSTRUCTIONS
         return (
             f"{IDENTITY_INSTRUCTIONS}当前经用户确认的钉钉账号主人显示名为"
-            f"“{owner}”；仅用于理解说话者身份，不要主动自我介绍。"
+            f"“{owner or '未命名'}”；仅用于理解说话者身份，不要主动自我"
+            f"介绍。以下画像来自初始化或后台定期更新的本地快照，本轮不得"
+            f"为画像再次查询钉钉：\n{local_profile}"
         )
 
     @staticmethod
@@ -1093,21 +1232,37 @@ async def update_settings(
         )
     RUNTIME.remember_context(ctx)
     settings = payload.model_dump()
+    blocked_stage = ""
+    blocked_detail = ""
     previous_access_mode = STORE.get_setting("access_mode", "approval")
     if payload.enabled:
         status = await RUNTIME.refresh_dws_status(force=True)
         if not status.authenticated:
             settings["enabled"] = False
+            blocked_stage = "setup_required"
+            blocked_detail = "完成钉钉连接后才能启用数字人分身"
             RUNTIME.publish(
                 "setup_required",
-                "完成钉钉连接后才能启用数字人分身",
+                blocked_detail,
             )
         elif not RUNTIME.identity_confirmed(status):
             settings["enabled"] = False
+            blocked_stage = "identity_confirmation_required"
+            blocked_detail = "请先确认当前 OAuth 账号就是数字分身本人"
             RUNTIME.publish(
                 "identity_confirmation_required",
-                "请先确认当前 OAuth 账号就是数字分身本人",
+                blocked_detail,
             )
+        else:
+            profile = await asyncio.to_thread(STORE.get_owner_profile)
+            if not profile.get("approved_at"):
+                settings["enabled"] = False
+                blocked_stage = "profile_approval_required"
+                blocked_detail = "请先完成并审核本人画像，再启用数字人分身"
+                RUNTIME.publish(
+                    "profile_approval_required",
+                    blocked_detail,
+                )
     for key, value in settings.items():
         stored = str(value).lower() if isinstance(value, bool) else str(value)
         STORE.set_setting(key, stored)
@@ -1122,6 +1277,8 @@ async def update_settings(
         RUNTIME.start()
     else:
         await RUNTIME.stop()
+        if blocked_detail:
+            RUNTIME.publish(blocked_stage, blocked_detail)
     return await snapshot(ctx)
 
 
@@ -1176,6 +1333,61 @@ async def confirm_identity(ctx=Depends(get_ctx)) -> dict[str, Any]:
         detail=f"组织：{status.corp_name or status.corp_id}",
     )
     RUNTIME.publish("identity_confirmed", "本人 OAuth 账号已确认")
+    try:
+        RUNTIME.begin_profile_refresh()
+    except DwsError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return await snapshot(ctx)
+
+
+@router.post("/profile/refresh")
+async def refresh_profile(ctx=Depends(get_ctx)) -> dict[str, Any]:
+    """Start a bounded profile refresh without blocking the page."""
+    RUNTIME.remember_context(ctx)
+    status = await RUNTIME.refresh_dws_status(force=True)
+    if not RUNTIME.identity_confirmed(status):
+        raise HTTPException(
+            status_code=409,
+            detail="请先确认当前钉钉 OAuth 本人账号",
+        )
+    try:
+        RUNTIME.begin_profile_refresh()
+    except DwsError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return await snapshot(ctx)
+
+
+@router.post("/profile/cancel")
+async def cancel_profile(ctx=Depends(get_ctx)) -> dict[str, Any]:
+    """Cancel profile collection and retain the previous local snapshot."""
+    await RUNTIME.cancel_profile_refresh()
+    return await snapshot(ctx)
+
+
+@router.post("/profile/approve")
+async def approve_profile(
+    payload: ProfileApprovalPayload,
+    ctx=Depends(get_ctx),
+) -> dict[str, Any]:
+    """Approve the visible snapshot and optional owner guidance."""
+    try:
+        await asyncio.to_thread(
+            STORE.approve_owner_profile,
+            payload.notes,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    RUNTIME.publish("profile_approved", "本人画像已审核，可以启用")
+    return await snapshot(ctx)
+
+
+@router.delete("/profile")
+async def reset_profile(ctx=Depends(get_ctx)) -> dict[str, Any]:
+    """Delete the local snapshot and require a fresh review."""
+    await RUNTIME.cancel_profile_refresh()
+    await asyncio.to_thread(STORE.invalidate_owner_profile)
+    STORE.set_setting("enabled", "false")
+    await RUNTIME.stop()
     return await snapshot(ctx)
 
 
@@ -1187,6 +1399,7 @@ async def reconnect_identity(ctx=Depends(get_ctx)) -> dict[str, Any]:
     STORE.set_setting("enabled", "false")
     STORE.set_setting("identity_corp_id", "")
     STORE.set_setting("identity_user_id", "")
+    STORE.invalidate_owner_profile()
     RUNTIME.owner_open_ids.clear()
     RUNTIME.group_owner_ids.clear()
     if status.authenticated:

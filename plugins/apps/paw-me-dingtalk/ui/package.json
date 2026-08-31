@@ -1,7 +1,7 @@
 {
   "name": "paw-me-dingtalk-ui",
   "private": true,
-  "version": "0.5.0",
+  "version": "0.6.0",
   "scripts": {
     "build": "vite build",
     "format:check": "tsc --noEmit && prettier --check ."

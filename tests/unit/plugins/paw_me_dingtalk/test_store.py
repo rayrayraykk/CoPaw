@@ -214,3 +214,48 @@ def test_raw_dws_event_is_persisted_before_processing(tmp_path):
     )
 
     assert item["messages"][0]["raw"]["message_id"] == "m-raw"
+
+
+def test_owner_profile_refresh_preserves_reviewed_notes(tmp_path):
+    """Periodic facts refresh cannot overwrite explicit owner guidance."""
+    store = PawMeStore(tmp_path / "paw-me.sqlite3")
+    store.save_owner_profile(
+        corp_id="corp",
+        user_id="owner",
+        status="ready",
+        collected={"identity": {"name": "旧名字"}},
+    )
+    store.approve_owner_profile("保持简洁")
+
+    refreshed = store.save_owner_profile(
+        corp_id="corp",
+        user_id="owner",
+        status="ready",
+        collected={"identity": {"name": "新名字"}},
+    )
+
+    assert refreshed["collected"]["identity"]["name"] == "新名字"
+    assert refreshed["approved"]["notes"] == "保持简洁"
+    assert refreshed["approved_at"] is not None
+
+
+def test_owner_change_invalidates_reviewed_profile(tmp_path):
+    """A different OAuth owner never inherits another person's profile."""
+    store = PawMeStore(tmp_path / "paw-me.sqlite3")
+    store.save_owner_profile(
+        corp_id="corp-a",
+        user_id="owner-a",
+        status="ready",
+        collected={"identity": {"name": "甲"}},
+    )
+    store.approve_owner_profile("甲的习惯")
+
+    changed = store.save_owner_profile(
+        corp_id="corp-b",
+        user_id="owner-b",
+        status="ready",
+        collected={"identity": {"name": "乙"}},
+    )
+
+    assert changed["approved"] == {}
+    assert changed["approved_at"] is None
