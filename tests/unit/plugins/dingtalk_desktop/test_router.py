@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-"""Tests for Codex-gated one-click setup."""
+"""Tests for agent-scoped one-click setup."""
 
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import Mock
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -18,7 +18,6 @@ def make_client(
     monkeypatch,
     tmp_path,
     backend="codex",
-    authenticated=True,
 ):
     """Build a setup API with isolated workspace and desktop doubles."""
     config = SimpleNamespace(
@@ -26,19 +25,10 @@ def make_client(
         backend_settings={},
         channels=None,
     )
-    provider_status = SimpleNamespace(
-        model_dump=lambda: {
-            "installed": True,
-            "authenticated": authenticated,
-        },
-    )
-    adapter = SimpleNamespace(status=AsyncMock(return_value=provider_status))
-    runtime = SimpleNamespace(adapter=AsyncMock(return_value=adapter))
     workspace = SimpleNamespace(
         agent_id="agent",
         workspace_dir=tmp_path,
         config=config,
-        harness_runtime=runtime,
     )
     driver = SimpleNamespace(
         bundle_id="dd.work.exclusive4aliding",
@@ -78,9 +68,9 @@ def make_client(
     return TestClient(app), config, saved, driver
 
 
-def test_setup_rejects_non_codex_agent(monkeypatch, tmp_path):
-    """A QwenPaw-native agent cannot silently change backend."""
-    client, _, saved, _ = make_client(
+def test_setup_accepts_selected_non_codex_agent(monkeypatch, tmp_path):
+    """Any selected agent may own the desktop channel and unified ACL."""
+    client, config, saved, _ = make_client(
         monkeypatch,
         tmp_path,
         backend="qwenpaw",
@@ -88,22 +78,34 @@ def test_setup_rejects_non_codex_agent(monkeypatch, tmp_path):
 
     response = client.post("/setup", json={"reply_mode": "draft"})
 
-    assert response.status_code == 409
-    saved.assert_not_called()
+    assert response.status_code == 200
+    assert config.channels.dingtalk_desktop["access_control_dm"] is True
+    saved.assert_called_once_with("agent", config)
 
 
-def test_setup_requires_codex_oauth(monkeypatch, tmp_path):
-    """The plugin delegates authentication to the existing Codex adapter."""
-    client, _, saved, _ = make_client(
+def test_status_rejects_legacy_private_allowlist_configuration(
+    monkeypatch,
+    tmp_path,
+):
+    """Old private allowlist state is not reported as connected."""
+    client, config, _, _ = make_client(
         monkeypatch,
         tmp_path,
-        authenticated=False,
+        backend="qwenpaw",
+    )
+    config.channels = SimpleNamespace(
+        dingtalk_desktop={
+            "enabled": True,
+            "reply_mode": "automatic",
+            "allowed_conversations": "Legacy title",
+        },
     )
 
-    response = client.post("/setup", json={"reply_mode": "draft"})
+    response = client.get("/status")
 
-    assert response.status_code == 401
-    saved.assert_not_called()
+    assert response.status_code == 200
+    assert response.json()["configured"] is False
+    assert response.json()["access_control"]["whitelist_count"] == 0
 
 
 def test_setup_authorizes_current_conversation_in_shared_acl(
@@ -126,6 +128,10 @@ def test_setup_authorizes_current_conversation_in_shared_acl(
         "Exact conversation",
     )
     saved.assert_called_once_with("agent", config)
+    status = client.get("/status")
+    assert status.status_code == 200
+    assert status.json()["configured"] is True
+    assert status.json()["access_control"]["whitelist_count"] == 1
 
 
 def test_draft_send_rechecks_shared_acl(monkeypatch, tmp_path):

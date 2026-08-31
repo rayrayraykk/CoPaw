@@ -2,8 +2,8 @@
 
 ## Goal
 
-Add an installable QwenPaw channel plugin that lets a user bind the currently
-selected Codex-backed agent to the locally signed-in DingTalk desktop app.
+Add an installable QwenPaw channel plugin that lets a user bind any selected
+agent to the locally signed-in DingTalk desktop app.
 Replies are sent as the signed-in user through macOS Accessibility instead of
 through a DingTalk robot or webhook.
 
@@ -16,9 +16,9 @@ The implementation targets QwenPaw `2.2.0b3` from upstream `main` at
 - DingTalk is installed as `/Applications/iDingTalk.app` with bundle id
   `dd.work.exclusive4aliding`.
 - The user grants Accessibility access to the QwenPaw desktop host.
-- Codex authentication is owned by QwenPaw's existing Codex harness. The
-  plugin calls the existing harness status/login endpoints and never reads or
-  stores OpenAI credentials.
+- Backend authentication is owned by the selected QwenPaw agent and its
+  existing runtime. The plugin does not add a second backend login flow or
+  read and store provider credentials.
 - DingTalk authentication is the existing local desktop session. DingTalk
   does not expose an OAuth grant for controlling a personal desktop account,
   and macOS Accessibility permission cannot be replaced by OAuth.
@@ -35,7 +35,7 @@ low-cost change detector ----> macOS Accessibility bridge
                             dingtalk_desktop channel
                                       |
                                       v
-                         selected QwenPaw Codex agent
+                            selected QwenPaw agent
                                       |
                                       v
                            draft store or AX send
@@ -56,19 +56,19 @@ closed.
 Recent context is read with the native macOS AX API. The helper caps reads at
 30 rows and sets a per-application messaging timeout so stale UI nodes cannot
 block the channel indefinitely. The context contract labels incoming messages
-as `[对方]` and signed-in-user messages as `[我]`; Codex learns tone and action
-style only from `[我]` examples. Unclear requests must become a minimal,
+as `[对方]` and signed-in-user messages as `[我]`; the agent learns tone and
+action style only from `[我]` examples. Unclear requests must become a minimal,
 style-matched clarification question.
 
-For action-oriented requests, Codex emits user-visible plan, observable
+For action-oriented requests, the agent emits user-visible plan, observable
 progress, result, and final-response blocks. The channel sends those blocks in
 order (or stores them as ordered drafts). Hidden chain-of-thought and internal
 reasoning are never requested or forwarded.
 
 The channel is configured per agent. The setup API resolves the agent from
-QwenPaw's existing `X-Agent-Id` header, rejects non-Codex agents, verifies the
-Codex OAuth state through the harness adapter, detects the local DingTalk
-session, writes the channel config, and requests an agent hot reload.
+QwenPaw's existing `X-Agent-Id` header, detects the local DingTalk session,
+writes the channel config, and requests an agent hot reload. Backend readiness
+and authentication remain the responsibility of the existing agent runtime.
 
 ## Safety model
 
@@ -88,7 +88,7 @@ session, writes the channel config, and requests an agent hot reload.
 ## Checklist
 
 - [x] Base work on current upstream `main` in a dedicated branch/worktree.
-- [x] Verify QwenPaw Codex app-server and ChatGPT OAuth support.
+- [x] Verify QwenPaw agent selection and existing backend routing.
 - [x] Verify the local iDingTalk bundle, login window, and Accessibility tree.
 - [x] Define a QwenPaw-native channel plugin instead of a compatibility layer.
 - [x] Implement macOS status, semantic observation, and exact-title send bridge.
@@ -96,7 +96,7 @@ session, writes the channel config, and requests an agent hot reload.
 - [x] Implement per-conversation sessions and duplicate/self-loop protection.
 - [x] Implement draft-first replies and explicit draft approval.
 - [x] Implement an agent-scoped one-click setup page.
-- [x] Enforce Codex backend and OAuth readiness during setup.
+- [x] Bind any selected agent without duplicating backend authentication.
 - [x] Reuse unified channel access control and add automatic-reply opt-in.
 - [x] Add recent semantic context and signed-in-user style grounding.
 - [x] Add style-matched clarification and observable progress messages.

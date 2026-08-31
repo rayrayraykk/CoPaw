@@ -55,6 +55,13 @@ def _authorize_conversation(workspace: object, conversation: str) -> None:
     )
 
 
+def _config_value(config: object, name: str, default: object) -> object:
+    """Read one field from a typed or plugin-owned channel config."""
+    if isinstance(config, dict):
+        return config.get(name, default)
+    return getattr(config, name, default)
+
+
 def _driver_for_config(config: object) -> DingTalkDesktopDriver:
     channels = getattr(config, "channels", None)
     plugin_config = getattr(channels, "dingtalk_desktop", None)
@@ -66,16 +73,6 @@ def _driver_for_config(config: object) -> DingTalkDesktopDriver:
     if isinstance(plugin_config, dict):
         bundle_id = plugin_config.get("bundle_id", bundle_id)
     return DingTalkDesktopDriver(bundle_id=str(bundle_id))
-
-
-async def _codex_status(workspace: object) -> dict:
-    config = workspace.config
-    settings = (
-        dict(config.backend_settings) if config.backend == "codex" else {}
-    )
-    adapter = await workspace.harness_runtime.adapter("codex", settings)
-    status = await adapter.status()
-    return status.model_dump()
 
 
 async def _ready_conversation(
@@ -110,49 +107,35 @@ def build_router() -> APIRouter:
         workspace = await get_agent_for_request(request)
         config = load_agent_config(workspace.agent_id)
         driver = _driver_for_config(config)
-        desktop, codex = await asyncio.gather(
-            asyncio.to_thread(driver.status),
-            _codex_status(workspace),
-        )
+        desktop = await asyncio.to_thread(driver.status)
         plugin_config = getattr(
             config.channels,
             "dingtalk_desktop",
             None,
         )
-        enabled = bool(getattr(plugin_config, "enabled", False))
-        if isinstance(plugin_config, dict):
-            enabled = bool(plugin_config.get("enabled", False))
+        enabled = bool(_config_value(plugin_config, "enabled", False))
+        access_control_dm = bool(
+            _config_value(plugin_config, "access_control_dm", False),
+        )
         drafts = DraftStore(draft_store_path(workspace.workspace_dir))
+        access_control = _access_summary(workspace)
         return {
             "agent_id": workspace.agent_id,
             "backend": config.backend,
-            "configured": enabled,
+            "configured": bool(
+                enabled
+                and access_control_dm
+                and access_control["whitelist_count"] > 0,
+            ),
             "desktop": desktop.as_dict(),
-            "codex": codex,
             "draft_count": len(drafts.list()),
-            "access_control": _access_summary(workspace),
+            "access_control": access_control,
         }
 
     @router.post("/setup")
     async def setup(body: SetupRequest, request: Request) -> dict:
         workspace = await get_agent_for_request(request)
         config = load_agent_config(workspace.agent_id)
-        if config.backend != "codex":
-            raise HTTPException(
-                status_code=409,
-                detail="Select a Codex-backed agent before setup.",
-            )
-        codex = await _codex_status(workspace)
-        if not codex.get("installed"):
-            raise HTTPException(
-                status_code=409,
-                detail="The Codex runtime is not installed.",
-            )
-        if not codex.get("authenticated"):
-            raise HTTPException(
-                status_code=401,
-                detail="Complete Codex ChatGPT OAuth before setup.",
-            )
         driver, conversation = await _ready_conversation(config)
         if config.channels is None:
             config.channels = ChannelConfig()

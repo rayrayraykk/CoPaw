@@ -86,7 +86,10 @@ class DingTalkDesktopChannel(BaseChannel):
         """Build a channel from a plugin-owned extra config object."""
         return cls(
             process=process,
-            enabled=bool(getattr(config, "enabled", False)),
+            enabled=bool(
+                getattr(config, "enabled", False)
+                and getattr(config, "access_control_dm", False),
+            ),
             reply_mode=str(getattr(config, "reply_mode", "draft")),
             poll_sec=float(getattr(config, "poll_sec", 1.0)),
             bundle_id=str(

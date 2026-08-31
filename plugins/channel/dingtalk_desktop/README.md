@@ -1,21 +1,22 @@
 # DingTalk Desktop
 
-Connect the currently selected Codex-backed QwenPaw agent to the locally
-signed-in DingTalk desktop client on macOS. The plugin acts as the signed-in
-user through semantic Accessibility attributes; it does not create a DingTalk
-robot, call a webhook, reuse session secrets, click coordinates, or switch
-conversations.
+Connect any selected QwenPaw agent to the locally signed-in DingTalk desktop
+client on macOS. The plugin acts as the signed-in user through semantic
+Accessibility attributes; it does not create a DingTalk robot, call a webhook,
+reuse session secrets, click coordinates, or switch conversations.
 
 ## Install
 
 Install the `plugins/channel/dingtalk_desktop` directory through QwenPaw's
-plugin manager. Open **阿里钉 · Codex** after installation and complete the
-four checks shown on the page:
+plugin manager. Open **阿里钉 · Agent** after installation and complete the
+three checks shown on the page:
 
-1. Select a Codex-backed agent.
-2. Complete the existing QwenPaw Codex ChatGPT OAuth flow.
-3. Open and sign in to `/Applications/iDingTalk.app`.
-4. Grant Accessibility access to the QwenPaw desktop host in macOS.
+1. Select the agent that should own the channel.
+2. Open and sign in to `/Applications/iDingTalk.app`.
+3. Grant Accessibility access to the QwenPaw desktop host in macOS.
+
+Agent backend installation and authentication remain owned by QwenPaw's
+existing runtime. The plugin does not add a second backend login flow.
 
 Open the exact DingTalk conversation you want to bind, then choose **一键连接并使用草稿**.
 The plugin authorizes that title through QwenPaw's existing channel access
@@ -34,9 +35,10 @@ Only rows carrying DingTalk's semantic `session msg receiving` Accessibility
 description are treated as inbound. Sending rows and unknown UI structures
 are ignored.
 
-The plugin gives Codex up to 16 recent semantically directed messages by
-default. It learns tone only from messages sent by the signed-in user. When a
-request is unclear, Codex asks a minimal clarification in that style. Tasks
+The plugin gives the selected agent up to 16 recent semantically directed
+messages by default. It learns tone only from messages sent by the signed-in
+user. When a request is unclear, the agent asks a minimal clarification in
+that style. Tasks
 with actions are split into ordered, user-visible plan/progress/result messages
 without exposing hidden reasoning.
 

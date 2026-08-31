@@ -187,6 +187,7 @@ def test_from_config_enables_shared_dm_access_control(monkeypatch, tmp_path):
     )
     config = SimpleNamespace(
         enabled=True,
+        access_control_dm=True,
         reply_mode="draft",
         poll_sec=1.0,
         bundle_id="bundle",
@@ -201,6 +202,32 @@ def test_from_config_enables_shared_dm_access_control(monkeypatch, tmp_path):
 
     assert channel.access_control_dm is True
     assert channel.access_control_group is False
+
+
+def test_from_config_rejects_legacy_private_allowlist(monkeypatch, tmp_path):
+    """An old private allowlist cannot bypass one-click ACL setup."""
+    monkeypatch.setattr(
+        "qwenpaw.app.channels.base.load_config",
+        lambda: SimpleNamespace(
+            tools=SimpleNamespace(builtin_tools={}),
+        ),
+    )
+    config = SimpleNamespace(
+        enabled=True,
+        reply_mode="automatic",
+        allowed_conversations="Legacy title",
+        poll_sec=1.0,
+        bundle_id="bundle",
+        context_messages=16,
+    )
+
+    channel = DingTalkDesktopChannel.from_config(
+        process=lambda request: request,
+        config=config,
+        workspace_dir=tmp_path,
+    )
+
+    assert channel.enabled is False
 
 
 @pytest.mark.asyncio
@@ -218,7 +245,7 @@ async def test_start_retries_when_desktop_is_not_ready(tmp_path):
 
 
 def test_persona_prompt_uses_outgoing_style_and_requires_progress_blocks():
-    """The Codex request receives grounded style and progress rules."""
+    """The agent request receives grounded style and progress rules."""
     history = [
         DialogueMessage("能今天给我吗", True),
         DialogueMessage("可以，我晚点看下", False),

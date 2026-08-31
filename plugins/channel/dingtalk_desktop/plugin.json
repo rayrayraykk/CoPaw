@@ -1,12 +1,12 @@
 {
   "id": "dingtalk-desktop",
   "name": "DingTalk Desktop",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "channel",
-  "description": "Connect a Codex agent to the locally signed-in DingTalk desktop app.",
+  "description": "Connect a selected QwenPaw agent to the locally signed-in DingTalk desktop app.",
   "description_i18n": {
-    "zh-CN": "将 Codex Agent 连接到本机已登录的钉钉桌面端，以本人身份生成草稿或回复。",
-    "en-US": "Connect a Codex agent to the locally signed-in DingTalk desktop app for draft-first personal replies."
+    "zh-CN": "将所选 QwenPaw Agent 连接到本机已登录的钉钉桌面端，以本人身份生成草稿或回复。",
+    "en-US": "Connect a selected QwenPaw agent to the locally signed-in DingTalk desktop app for draft-first personal replies."
   },
   "author": "QwenPaw Team",
   "entry": {

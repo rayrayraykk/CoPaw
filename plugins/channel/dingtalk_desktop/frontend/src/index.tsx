@@ -3,7 +3,6 @@ import {
   Bot,
   Check,
   CircleAlert,
-  ExternalLink,
   Laptop,
   LoaderCircle,
   LockKeyhole,
@@ -27,18 +26,11 @@ type DesktopStatus = {
   detail: string;
 };
 
-type CodexStatus = {
-  installed: boolean;
-  authenticated: boolean;
-  error?: string | null;
-};
-
 type Status = {
   agent_id: string;
   backend: string;
   configured: boolean;
   desktop: DesktopStatus;
-  codex: CodexStatus;
   draft_count: number;
   access_control: {
     whitelist_count: number;
@@ -54,6 +46,13 @@ type Draft = {
   created_at: number;
 };
 
+type AgentSummary = {
+  id: string;
+  name: string;
+  backend: string;
+  enabled: boolean;
+};
+
 const styles = `
 .dt-shell{min-height:100%;background:#f5f4ef;color:#17211d;padding:clamp(20px,4vw,56px);font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
 .dt-wrap{max-width:1080px;margin:0 auto}.dt-hero{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:32px}
@@ -63,19 +62,31 @@ const styles = `
 .dt-button:hover{transform:translateY(-1px);border-color:#8fa098;box-shadow:0 8px 24px rgba(20,32,27,.08)}.dt-button:disabled{opacity:.48;cursor:not-allowed;transform:none;box-shadow:none}.dt-primary{background:#173f34;color:#fff;border-color:#173f34}.dt-danger{color:#9b3e35}
 .dt-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.dt-card{background:rgba(255,255,255,.78);border:1px solid #dfe2dc;border-radius:20px;padding:22px;box-shadow:0 16px 50px rgba(32,45,39,.045)}
 .dt-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}.dt-icon{width:40px;height:40px;border-radius:12px;background:#e7eee9;color:#285b4a;display:grid;place-items:center}.dt-state{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:700;color:#68736e}.dt-state.ok{color:#267352}.dt-card h2{font-size:17px;margin:18px 0 6px;letter-spacing:-.02em}.dt-card p{color:#6d7772;font-size:13px;line-height:1.55;margin:0}.dt-wide{grid-column:1/-1}
+.dt-field{display:grid;gap:7px;margin-top:14px}.dt-label{color:#53625b;font-size:12px;font-weight:700}.dt-select{width:100%;min-height:44px;border:1px solid #c8cec8;border-radius:11px;background:#fff;color:#17211d;padding:0 12px;font:inherit}.dt-select:focus-visible,.dt-button:focus-visible{outline:3px solid rgba(40,91,74,.25);outline-offset:2px}
 .dt-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}.dt-notice{display:flex;gap:12px;margin-top:18px;padding:14px;border-radius:13px;background:#f4eee3;color:#725d37;font-size:13px;line-height:1.5}
 .dt-section{margin-top:28px}.dt-section-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}.dt-section h2{font-size:20px;letter-spacing:-.03em}.dt-draft{display:grid;grid-template-columns:minmax(150px,220px) 1fr auto;gap:18px;align-items:start}.dt-draft+.dt-draft{margin-top:12px}.dt-meta{font-size:12px;color:#6d7772}.dt-conversation{font-weight:700;margin-bottom:5px}.dt-copy{white-space:pre-wrap;font-size:14px;line-height:1.65;color:#33413b}.dt-error{margin-top:18px;color:#973b33;font-size:13px}.dt-empty{text-align:center;padding:34px;color:#7c8581}
 @media(max-width:720px){.dt-shell{padding:20px 14px}.dt-hero{align-items:flex-start;flex-direction:column}.dt-grid{grid-template-columns:1fr}.dt-wide{grid-column:auto}.dt-draft{grid-template-columns:1fr}.dt-draft .dt-actions{margin-top:0}}
 `;
 
-async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+async function requestJson<T>(
+  path: string,
+  init?: RequestInit,
+  agentId?: string,
+): Promise<T> {
+  const requestInit = {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...((init?.headers as Record<string, string>) || {}),
+      ...(agentId ? { "X-Agent-Id": agentId } : {}),
+    },
+  };
   const response = host.fetch
-    ? await host.fetch(path, init)
+    ? await host.fetch(path, requestInit)
     : await fetch(host.getApiUrl(path), {
-        ...init,
+        ...requestInit,
         headers: {
-          "Content-Type": "application/json",
-          ...(init?.headers || {}),
+          ...requestInit.headers,
           ...(host.getApiToken()
             ? { Authorization: `Bearer ${host.getApiToken()}` }
             : {}),
@@ -98,17 +109,33 @@ function State({ ok, text }: { ok: boolean; text: string }) {
 }
 
 function DingTalkDesktopPage() {
+  const [agents, setAgents] = useState<AgentSummary[]>([]);
+  const [selectedAgent, setSelectedAgent] = useState("");
   const [status, setStatus] = useState<Status | null>(null);
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
 
-  const refresh = async () => {
+  const loadAgents = async () => {
+    try {
+      const response = await requestJson<{ agents: AgentSummary[] }>("/agents");
+      setAgents(response.agents.filter((agent) => agent.enabled));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Agent 加载失败");
+    }
+  };
+
+  const refresh = async (agentId = selectedAgent) => {
+    if (!agentId) return;
     setError("");
     try {
       const [nextStatus, nextDrafts] = await Promise.all([
-        requestJson<Status>("/dingtalk-desktop/status"),
-        requestJson<{ drafts: Draft[] }>("/dingtalk-desktop/drafts"),
+        requestJson<Status>("/dingtalk-desktop/status", undefined, agentId),
+        requestJson<{ drafts: Draft[] }>(
+          "/dingtalk-desktop/drafts",
+          undefined,
+          agentId,
+        ),
       ]);
       setStatus(nextStatus);
       setDrafts(nextDrafts.drafts);
@@ -118,47 +145,30 @@ function DingTalkDesktopPage() {
   };
 
   useEffect(() => {
-    void refresh();
+    void loadAgents();
   }, []);
 
-  const login = async () => {
-    setBusy("login");
+  const selectAgent = (agentId: string) => {
+    setSelectedAgent(agentId);
+    setStatus(null);
+    setDrafts([]);
     setError("");
-    const popup = window.open("about:blank", "_blank");
-    try {
-      const result = await requestJson<{ authUrl?: string }>(
-        "/harnesses/codex/login",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ device_code: false, settings: {} }),
-        },
-      );
-      if (result.authUrl && popup) {
-        popup.location.href = result.authUrl;
-      } else if (result.authUrl) {
-        window.open(result.authUrl, "_blank", "noopener,noreferrer");
-      } else {
-        popup?.close();
-      }
-    } catch (reason) {
-      popup?.close();
-      setError(reason instanceof Error ? reason.message : "OAuth 启动失败");
-    } finally {
-      setBusy("");
-    }
+    if (agentId) void refresh(agentId);
   };
 
   const setup = async (replyMode: "draft" | "automatic") => {
     setBusy(replyMode);
     setError("");
     try {
-      await requestJson("/dingtalk-desktop/setup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reply_mode: replyMode }),
-      });
-      await refresh();
+      await requestJson(
+        "/dingtalk-desktop/setup",
+        {
+          method: "POST",
+          body: JSON.stringify({ reply_mode: replyMode }),
+        },
+        selectedAgent,
+      );
+      await refresh(selectedAgent);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "连接失败");
     } finally {
@@ -175,8 +185,9 @@ function DingTalkDesktopPage() {
           action === "send" ? "/send" : ""
         }`,
         { method: action === "send" ? "POST" : "DELETE" },
+        selectedAgent,
       );
-      await refresh();
+      await refresh(selectedAgent);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "操作失败");
     } finally {
@@ -184,9 +195,7 @@ function DingTalkDesktopPage() {
     }
   };
 
-  const codexReady = Boolean(
-    status?.backend === "codex" && status.codex.authenticated,
-  );
+  const agentReady = Boolean(selectedAgent && status);
   const desktopReady = Boolean(
     status?.desktop.logged_in && status.desktop.accessibility,
   );
@@ -200,13 +209,18 @@ function DingTalkDesktopPage() {
             <div className="dt-kicker">
               <ShieldCheck size={15} /> Personal channel
             </div>
-            <h1 className="dt-title">Codex，接管当前阿里钉会话</h1>
+            <h1 className="dt-title">让所选 Agent 接管当前阿里钉会话</h1>
             <p className="dt-sub">
-              使用 QwenPaw 已有的 Codex OAuth 与本机阿里钉登录态。没有机器人、
-              没有 webhook，也不读取或保存任何账号凭证。
+              使用所选 Agent 与本机阿里钉登录态。Agent backend
+              的安装和认证完全由 QwenPaw
+              现有运行时管理；插件不重复登录，也不读取或保存任何账号凭证。
             </p>
           </div>
-          <button className="dt-button" onClick={() => void refresh()}>
+          <button
+            className="dt-button"
+            disabled={!selectedAgent}
+            onClick={() => void refresh(selectedAgent)}
+          >
             <RefreshCw size={16} /> 刷新状态
           </button>
         </header>
@@ -217,24 +231,43 @@ function DingTalkDesktopPage() {
               <div className="dt-icon">
                 <Bot size={20} />
               </div>
-              <State ok={codexReady} text={codexReady ? "已认证" : "未就绪"} />
+              <State
+                ok={agentReady}
+                text={
+                  agentReady
+                    ? "Agent 已就绪"
+                    : selectedAgent
+                    ? "未就绪"
+                    : "先选择 Agent"
+                }
+              />
             </div>
-            <h2>当前 Codex Agent</h2>
+            <h2>选择回复消息的 Agent</h2>
+            <div className="dt-field">
+              <label className="dt-label" htmlFor="dt-agent">
+                回复消息的 Agent
+              </label>
+              <select
+                id="dt-agent"
+                className="dt-select"
+                value={selectedAgent}
+                onChange={(event) => selectAgent(event.target.value)}
+              >
+                <option value="">请选择 Agent</option>
+                {agents.map((agent) => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.name || agent.id}
+                  </option>
+                ))}
+              </select>
+            </div>
             <p>
-              {status ? `${status.agent_id} · ${status.backend}` : "正在检查"}
+              {status
+                ? `${status.agent_id} · ${status.backend}`
+                : selectedAgent
+                ? "正在检查 Agent 状态"
+                : "配置、审批和草稿都会严格归属所选 Agent"}
             </p>
-            {!status?.codex.authenticated && (
-              <div className="dt-actions">
-                <button className="dt-button" onClick={() => void login()}>
-                  {busy === "login" ? (
-                    <LoaderCircle size={16} />
-                  ) : (
-                    <ExternalLink size={16} />
-                  )}
-                  通过 ChatGPT OAuth 登录
-                </button>
-              </div>
-            )}
           </article>
 
           <article className="dt-card">
@@ -267,13 +300,13 @@ function DingTalkDesktopPage() {
             </div>
             <h2>连接当前会话并授权</h2>
             <p>
-              插件不使用坐标，也不会自动点击或切换会话。连接时，当前会话会 加入
+              插件不使用坐标，也不会自动点击或切换会话。连接时，当前会话将写入
               QwenPaw 现有的渠道访问控制；其他会话会进入统一的待审批列表。
             </p>
             <div className="dt-actions">
               <button
                 className="dt-button dt-primary"
-                disabled={!codexReady || !desktopReady || Boolean(busy)}
+                disabled={!agentReady || !desktopReady || Boolean(busy)}
                 onClick={() => void setup("draft")}
               >
                 {busy === "draft" ? (
@@ -285,7 +318,7 @@ function DingTalkDesktopPage() {
               </button>
               <button
                 className="dt-button"
-                disabled={!codexReady || !desktopReady || Boolean(busy)}
+                disabled={!agentReady || !desktopReady || Boolean(busy)}
                 onClick={() => void setup("automatic")}
               >
                 <Send size={16} /> 明确启用自动回复
@@ -295,7 +328,7 @@ function DingTalkDesktopPage() {
               <CircleAlert size={18} />
               <span>
                 建议先使用草稿模式。已授权{" "}
-                {status?.access_control.whitelist_count ?? 0} 个 会话，待审批{" "}
+                {status?.access_control.whitelist_count ?? 0} 个会话，待审批{" "}
                 {status?.access_control.pending_count ?? 0} 个；请在渠道页顶部的
                 待审批入口统一处理。
               </span>
@@ -350,7 +383,7 @@ window.QwenPaw.registerRoutes?.("dingtalk-desktop", [
   {
     path: "/plugin/dingtalk-desktop",
     component: DingTalkDesktopPage,
-    label: "阿里钉 · Codex",
+    label: "阿里钉 · Agent",
     icon: "message-square-text",
     priority: 44,
   },

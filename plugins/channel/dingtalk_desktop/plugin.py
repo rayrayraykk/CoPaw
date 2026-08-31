@@ -18,8 +18,8 @@ class DingTalkDesktopPlugin:
             channel_class=DingTalkDesktopChannel,
             label="DingTalk Desktop",
             description=(
-                "Use the local signed-in account for draft-first "
-                "personal replies."
+                "Let the selected agent reply through the local signed-in "
+                "account with unified access control."
             ),
             config_fields=[
                 {
