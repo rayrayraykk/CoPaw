@@ -169,5 +169,7 @@ continues.
 Bearer credentials may be provided as an `Authorization` header or through
 the legacy-compatible `oauth.accessToken`. An expired token is refreshed when
 `oauth.clientId`, `oauth.refreshToken`, and `oauth.tokenEndpoint` are present.
-The response is bounded to 64 KiB and must return a Bearer token. Starting a
-new interactive browser authorization remains a later client/API feature.
+The response is bounded to 64 KiB and must return a Bearer token. A remote
+client with `"oauth": {}` explicitly enables interactive browser OAuth through
+the Console or App Protocol. Access and refresh tokens stay in the operating
+system credential store; plain HTTP MCP clients never access that store.

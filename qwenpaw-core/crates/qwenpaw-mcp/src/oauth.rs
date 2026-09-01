@@ -394,6 +394,11 @@ impl McpManager {
                 "interactive OAuth is available only for remote HTTP MCP clients",
             )));
         }
+        if config.oauth.is_none() {
+            return Err(McpError::OAuth(String::from(
+                "interactive OAuth is not enabled for this MCP client",
+            )));
+        }
         Ok(config)
     }
 

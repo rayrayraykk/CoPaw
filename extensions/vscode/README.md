@@ -84,6 +84,9 @@ Set `qwenpaw.mcp.configPath` to either a legacy QwenPaw `agent.json` containing
 stdio entries use `command`, `args`, `env`, and `cwd`. All transports support an
 optional `tools` whitelist. MCP tools are namespaced as
 `mcp__<client>__<tool>` and always require an **Allow once** approval.
+Set `"oauth": {}` on a remote entry to enable **QwenPaw: Authorize MCP Server**
+and **QwenPaw: Revoke MCP Authorization**. Core opens authorization in the
+system browser and keeps tokens out of the extension protocol.
 
 Open VS Code Chat and invoke `@qwenpaw` to start or continue a thread. New
 threads are bound to the first open workspace folder. Shell calls are shown in

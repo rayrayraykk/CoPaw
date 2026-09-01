@@ -264,8 +264,7 @@ impl McpManager {
     pub async fn clients(&self) -> Result<Vec<McpClientInfo>, McpError> {
         let mut clients = Vec::with_capacity(self.inner.clients.len());
         for (key, config) in &self.inner.clients {
-            let remote = matches!(config.transport.as_str(), "streamable_http" | "sse");
-            let oauth_status = if remote {
+            let oauth_status = if config.oauth.is_some() {
                 Some(self.oauth_status(key).await?)
             } else {
                 None
@@ -1067,6 +1066,12 @@ async fn resolve_manager_bearer(
     configured_token: Option<String>,
     client: &reqwest::Client,
 ) -> Result<Option<String>, McpError> {
+    let Some(oauth) = &config.oauth else {
+        return Ok(configured_token);
+    };
+    if !oauth.access_token.is_empty() || !oauth.refresh_token.is_empty() {
+        return resolve_http_bearer(server_id, config, configured_token, client).await;
+    }
     if let Some(stored_token) = manager
         .stored_oauth_bearer(server_id, config, client)
         .await?

@@ -1,7 +1,25 @@
+use std::sync::Arc;
+
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use super::*;
+
+struct UnexpectedCredentialStore;
+
+impl McpOAuthCredentialStore for UnexpectedCredentialStore {
+    fn load(&self, _account: &str) -> Result<Option<McpOAuthCredentials>, String> {
+        panic!("plain HTTP MCP must not read the OAuth credential store");
+    }
+
+    fn save(&self, _account: &str, _credentials: &McpOAuthCredentials) -> Result<(), String> {
+        panic!("plain HTTP MCP must not write the OAuth credential store");
+    }
+
+    fn delete(&self, _account: &str) -> Result<(), String> {
+        panic!("plain HTTP MCP must not delete from the OAuth credential store");
+    }
+}
 
 #[test]
 fn normalizes_remote_transport_aliases_and_inference() {
@@ -68,5 +86,36 @@ fn marks_remote_headers_sensitive() {
             .get(&HeaderName::from_static("x-api-key"))
             .expect("header should exist")
             .is_sensitive()
+    );
+}
+
+#[tokio::test]
+async fn plain_http_clients_do_not_access_the_oauth_credential_store() {
+    let mut config: McpClientConfig = serde_json::from_value(json!({
+        "transport": "streamable_http",
+        "url": "http://127.0.0.1:3000/mcp"
+    }))
+    .expect("test config should deserialize");
+    normalize_transport(&mut config);
+    let manager = McpManager::new(
+        BTreeMap::from([(String::from("plain"), config.clone())]),
+        Arc::new(UnexpectedCredentialStore),
+    );
+
+    assert_eq!(
+        manager.clients().await.expect("client inventory")[0].oauth_status,
+        None
+    );
+    assert_eq!(
+        resolve_manager_bearer(
+            &manager,
+            "plain",
+            &config,
+            Some(String::from("configured-token")),
+            &reqwest::Client::new(),
+        )
+        .await
+        .expect("plain HTTP bearer should resolve"),
+        Some(String::from("configured-token"))
     );
 }
