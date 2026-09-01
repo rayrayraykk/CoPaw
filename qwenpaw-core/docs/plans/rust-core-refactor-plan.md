@@ -920,6 +920,15 @@ MVP 至少提供：
 - [x] 修正 App Protocol 中已经过时的交互式 OAuth 能力说明；
 - [x] 通过 OAuth/WSS 回归测试、Rust workspace 门禁和 workflow lint；
 
+### 14.2.21 当前开发切片：macOS 生产发布 fail-closed
+
+- [x] 可复用 Desktop workflow 区分手动 QA 与 production signing；
+- [x] 统一正式发布在构建前校验 Apple 与 Tauri updater secrets；
+- [x] production macOS 构建由 Tauri 完成 Developer ID 签名与公证，不再在公证后重签；
+- [x] production macOS 构建强制通过 codesign、stapler 与 Gatekeeper 验收；
+- [x] 补充脚本单测并通过 workflow、Shell、Tauri 单测与本地 macOS QA 打包门禁；
+- [ ] 配置 Apple/Tauri 生产凭据并在 GitHub 原生 runner 完成一次真实签名与公证；
+
 ### 14.3 客户端与发布
 
 - [x] WebUI 启动与导航契约测试通过；

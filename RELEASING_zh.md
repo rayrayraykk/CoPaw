@@ -24,7 +24,8 @@ QwenPaw 一个版本会发布四种产物——**PyPI** wheel、**Docker** 镜�
 
 1. **Resolve（解析草稿）**——按 `tag` 输入找到目标草稿（留空则自动识别唯一草稿），
    把草稿的 `target_commitish` 解析成具体 SHA，并把后续所有 job 钉在该 SHA 上
-   （保证*构建的代码 == 发布的代码*）。正式发布时若缺 DashScope secret 会直接 fail。
+   （保证*构建的代码 == 发布的代码*）。正式发布时若聊天验证、
+   Apple 签名/公证或 Tauri 更新器配置不完整，会在构建前直接 fail。
 2. **Prepare（构建 + 验证，不发布任何东西）**——并行：
    - `build-wheel`——构建 Python wheel（含打包好的 console）。
    - `verify-web`——pip 安装、Docker 健康检查、安装脚本三类验证。
@@ -38,6 +39,29 @@ QwenPaw 一个版本会发布四种产物——**PyPI** wheel、**Docker** 镜�
    （仅正式版/post，beta 跳过）、创建 Release Duty 验收 issue。
 
 整体约 60–75 分钟，主要耗时在桌面 Tauri 构建。
+
+## 正式发布凭据
+
+非 `dry_run` 发布若缺少以下任一项，会在构建任何产物前失败。请在
+**Settings → Secrets and variables → Actions → Secrets** 配置：
+
+- `QWENPAW_DASHSCOPE_API_KEY`
+- `APPLE_CERTIFICATE_P12`（Developer ID Application `.p12` 的 base64 内容）
+- `APPLE_CERTIFICATE_PASSWORD`
+- `APPLE_SIGNING_IDENTITY`
+- `APPLE_ID`
+- `APPLE_TEAM_ID`
+- `APPLE_APP_PASSWORD`（Apple 专用密码）
+- `TAURI_SIGNING_PRIVATE_KEY`
+
+在 **Actions → Variables** 配置以下非机密值：
+
+- `TAURI_UPDATER_PUBKEY`
+- `TAURI_UPDATER_ENDPOINTS`
+
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD` 只有在更新器私钥已加密时才需要。macOS
+正式构建由 Tauri 完成签名、公证和 stapling，然后用 `codesign`、
+`stapler` 和 Gatekeeper 验收最终 app；公证后不会再重签。
 
 ## 发一个版本
 
@@ -109,6 +133,9 @@ Release **点 Publish**（或 `gh release create ...`），会在 `release: publ
 运行 **Release (unified)** 时勾 `dry_run: true`，可在**不触及生产**的前提下验证门禁与
 草稿→published 翻牌：PyPI 上传、Docker 推送、OSS 上传都变成 no-op，而桌面构建/验证、
 草稿翻牌、duty issue 仍会真实执行。（在 fork 上这些只影响 fork 自己的 release 页面。）
+
+`dry_run` 使用桌面 QA 签名路径，允许 macOS 本地/ad-hoc 签名，不需要 Apple
+公证凭据。该产物只用于验证，不得作为正式 macOS 发布包分发。
 
 注意：桌面构建的 装 → 启 → 问答 UI 验证在 `dry_run` 下**仍会真跑**，需要
 `QWENPAW_DASHSCOPE_API_KEY` secret——`dry_run` 只跳过 resolve 阶段的 fail-fast 检查，

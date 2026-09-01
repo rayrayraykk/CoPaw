@@ -18,6 +18,11 @@ on:
         type: string
         required: false
         default: ""
+      production_signing:
+        description: "Require Developer ID signing, notarization, and updater signing"
+        type: boolean
+        required: false
+        default: false
   workflow_dispatch:
     inputs:
       ref:
@@ -25,12 +30,41 @@ on:
         type: string
         required: false
         default: ""
+      production_signing:
+        description: "Require production signing secrets and notarization"
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
 
 jobs:
+  check-production-secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Require production signing configuration
+        env:
+          QWENPAW_REQUIRE_APPLE_RELEASE: ${{ inputs.production_signing && '1' || '0' }}
+          QWENPAW_DASHSCOPE_API_KEY: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_UPDATER_PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
+          TAURI_UPDATER_ENDPOINTS: ${{ vars.TAURI_UPDATER_ENDPOINTS }}
+        run: bash scripts/pack-tauri/check_production_release_secrets.sh
+
   build-tauri-windows:
+    needs: [check-production-secrets]
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
@@ -175,6 +209,7 @@ jobs:
             dist/tauri-windows-x86_64-updater.json
 
   build-tauri-macos:
+    needs: [check-production-secrets]
     runs-on: macos-15
     timeout-minutes: 60
     steps:
@@ -216,9 +251,21 @@ jobs:
       - name: Clean dist directory
         run: rm -rf dist && mkdir -p dist
 
+      - name: Test macOS production release gate
+        run: |
+          bash scripts/pack-tauri/tests/test_production_release_secrets.sh
+          bash scripts/pack-tauri/tests/test_verify_macos_release.sh
+
       - name: Build Tauri macOS package
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
+          QWENPAW_REQUIRE_APPLE_RELEASE: ${{ inputs.production_signing && '1' || '0' }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           TAURI_UPDATER_PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}

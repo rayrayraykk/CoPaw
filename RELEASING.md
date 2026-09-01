@@ -28,8 +28,8 @@ with, e.g., a web release that has no matching desktop build.
 1. **Resolve** — finds the target draft (the `tag` input, or auto-detects the
    single existing draft), resolves the draft's `target_commitish` to a concrete
    SHA, and pins every downstream job to that SHA (so *what is built* == *what is
-   published*). On a real release it also fails fast if the DashScope secret is
-   missing.
+   published*). On a real release it also fails fast unless the chat-verification,
+   Apple signing/notarization, and Tauri updater configuration is complete.
 2. **Prepare** (build + verify, publishes nothing) — in parallel:
    - `build-wheel` — build the Python wheel (with the bundled console).
    - `verify-web` — pip-install, Docker health-check and install-script checks.
@@ -46,6 +46,31 @@ with, e.g., a web release that has no matching desktop build.
    issue.
 
 A full run is ~60–75 min, dominated by the desktop Tauri builds.
+
+## Production credentials
+
+A non-dry-run release fails before any artifact build when one of these entries
+is missing. Configure secret values under **Settings → Secrets and variables →
+Actions → Secrets**:
+
+- `QWENPAW_DASHSCOPE_API_KEY`
+- `APPLE_CERTIFICATE_P12` (base64-encoded Developer ID Application `.p12`)
+- `APPLE_CERTIFICATE_PASSWORD`
+- `APPLE_SIGNING_IDENTITY`
+- `APPLE_ID`
+- `APPLE_TEAM_ID`
+- `APPLE_APP_PASSWORD` (an app-specific password)
+- `TAURI_SIGNING_PRIVATE_KEY`
+
+Configure these non-secret values under **Actions → Variables**:
+
+- `TAURI_UPDATER_PUBKEY`
+- `TAURI_UPDATER_ENDPOINTS`
+
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD` is optional and is needed only when the
+updater private key is encrypted. The macOS production build lets Tauri sign,
+notarize, and staple the app, then verifies the final bundle with `codesign`,
+`stapler`, and Gatekeeper. It deliberately does not re-sign after notarization.
 
 ## Cutting a release
 
@@ -128,6 +153,10 @@ draft→published flip **without** touching production: PyPI upload, Docker push
 and OSS upload become no-ops, while the desktop build/verify, the draft flip and
 the duty issue still run for real. On a fork this only affects the fork's own
 release page.
+
+`dry_run` uses the desktop QA signing path, so a local/ad-hoc macOS signature is
+allowed and Apple notarization credentials are not required. This output is for
+validation only and must not be distributed as a production macOS release.
 
 Note: the desktop build's install → launch → chat UI verification still runs
 under `dry_run` and needs the `QWENPAW_DASHSCOPE_API_KEY` secret — `dry_run` only

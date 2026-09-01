@@ -1,6 +1,6 @@
 # Build QwenPaw Desktop:
 # - Legacy desktop: Windows (conda-pack + NSIS), macOS (conda-pack -> .app)
-# - Tauri desktop: Windows/macOS app bundles with PyInstaller backend sidecar
+# - Tauri desktop: Windows/macOS app bundles with the Rust Core sidecar
 # Runs on release publish and manual dispatch.
 
 name: QwenPaw Desktop Build
@@ -29,24 +29,30 @@ concurrency:
   cancel-in-progress: ${{ github.event_name != 'release' }}
 
 jobs:
-  # On release events, fail fast if the DashScope secret is missing.
-  # Without it, the verifier would silently skip the LLM chat round
-  # and emit a misleading "PASS". Forks / manual dispatch are allowed
-  # to run without the secret (UI-load checks still execute).
+  # Any publishing path requires production verification, Apple signing,
+  # notarization, and updater signing. A plain manual dispatch remains a QA
+  # build and may use ad-hoc signing.
   check-release-secrets:
-    name: Check release secrets (release only)
-    if: github.event_name == 'release'
+    name: Check production release secrets
     runs-on: ubuntu-latest
     steps:
-      - name: Ensure DashScope secret is configured
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check release configuration
         env:
+          QWENPAW_REQUIRE_APPLE_RELEASE: ${{ (github.event_name == 'release' || inputs.upload_to_oss) && '1' || '0' }}
           QWENPAW_DASHSCOPE_API_KEY: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
-        run: |
-          if [ -z "$QWENPAW_DASHSCOPE_API_KEY" ]; then
-            echo "::error::QWENPAW_DASHSCOPE_API_KEY is not set; release verification cannot validate the LLM chat round. Configure the repo secret before publishing."
-            exit 1
-          fi
-          echo "DashScope secret present"
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_UPDATER_PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
+          TAURI_UPDATER_ENDPOINTS: ${{ vars.TAURI_UPDATER_ENDPOINTS }}
+        run: bash scripts/pack-tauri/check_production_release_secrets.sh
 
   build-windows:
     needs: [check-release-secrets]
@@ -356,9 +362,21 @@ jobs:
       - name: Clean dist directory
         run: rm -rf dist && mkdir -p dist
 
+      - name: Test macOS production release gate
+        run: |
+          bash scripts/pack-tauri/tests/test_production_release_secrets.sh
+          bash scripts/pack-tauri/tests/test_verify_macos_release.sh
+
       - name: Build Tauri macOS package
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
+          QWENPAW_REQUIRE_APPLE_RELEASE: ${{ (github.event_name == 'release' || inputs.upload_to_oss) && '1' || '0' }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           TAURI_UPDATER_PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}

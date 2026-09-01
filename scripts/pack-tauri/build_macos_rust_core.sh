@@ -18,6 +18,8 @@ echo "Version: ${VERSION}"
 echo ""
 
 SIGN_MACOS_BUNDLE="${REPO_ROOT}/scripts/pack-tauri/sign_macos_bundle.sh"
+VERIFY_MACOS_RELEASE="${REPO_ROOT}/scripts/pack-tauri/verify_macos_release.sh"
+PRODUCTION_RELEASE="${QWENPAW_REQUIRE_APPLE_RELEASE:-0}"
 
 # Step 0: Prerequisites
 echo "== Step 0: Checking Prerequisites =="
@@ -52,7 +54,34 @@ if [ ! -f "${SIGN_MACOS_BUNDLE}" ]; then
     exit 1
 fi
 
-if [ -z "${APPLE_SIGNING_IDENTITY:-}" ] && [ -z "${APPLE_CERTIFICATE:-}" ]; then
+if [[ "${PRODUCTION_RELEASE}" != "0" && "${PRODUCTION_RELEASE}" != "1" ]]; then
+    echo "ERROR: QWENPAW_REQUIRE_APPLE_RELEASE must be 0 or 1"
+    exit 1
+fi
+
+if [[ "${PRODUCTION_RELEASE}" == "1" ]]; then
+    for name in \
+        APPLE_CERTIFICATE \
+        APPLE_CERTIFICATE_PASSWORD \
+        APPLE_SIGNING_IDENTITY \
+        APPLE_ID \
+        APPLE_TEAM_ID \
+        APPLE_PASSWORD; do
+        if [[ -z "${!name:-}" ]]; then
+            echo "ERROR: production macOS release requires ${name}"
+            exit 1
+        fi
+    done
+    if [[ "${APPLE_SIGNING_IDENTITY}" == "-" ]]; then
+        echo "ERROR: production macOS release rejects ad-hoc signing"
+        exit 1
+    fi
+    if [[ ! -f "${VERIFY_MACOS_RELEASE}" ]]; then
+        echo "ERROR: macOS release verifier not found at ${VERIFY_MACOS_RELEASE}"
+        exit 1
+    fi
+    echo "Production Developer ID signing and notarization are required"
+elif [ -z "${APPLE_SIGNING_IDENTITY:-}" ] && [ -z "${APPLE_CERTIFICATE:-}" ]; then
     # Keep the app, Rust Core, and native helper consistently ad-hoc signed
     # when a Developer ID certificate is not configured. This is suitable for
     # local validation only and is not a notarized release.
@@ -105,10 +134,17 @@ if [ ! -x "${HELPER_PATH}" ]; then
 fi
 
 echo "== Step 2b: Signing Final macOS App =="
-bash "${SIGN_MACOS_BUNDLE}" \
-    "${APP_PATH}" \
-    "${APPLE_SIGNING_IDENTITY}"
-echo "Final macOS app signed and verified"
+if [[ "${PRODUCTION_RELEASE}" == "1" ]]; then
+    # Tauri signs nested resources, notarizes, and staples before it creates
+    # updater artifacts. Re-signing here would invalidate that notarization.
+    bash "${VERIFY_MACOS_RELEASE}" "${APP_PATH}"
+    echo "Production macOS app verified without post-notarization re-signing"
+else
+    bash "${SIGN_MACOS_BUNDLE}" \
+        "${APP_PATH}" \
+        "${APPLE_SIGNING_IDENTITY}"
+    echo "QA macOS app signed and verified"
+fi
 echo ""
 
 # Step 3: Collect distribution artifacts

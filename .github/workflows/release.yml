@@ -131,13 +131,18 @@ jobs:
 
       - name: Ensure release secrets present (skip on dry_run)
         env:
+          QWENPAW_REQUIRE_APPLE_RELEASE: ${{ inputs.dry_run && '0' || '1' }}
           QWENPAW_DASHSCOPE_API_KEY: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
-        run: |
-          if [ "${{ inputs.dry_run }}" != "true" ] && [ -z "${QWENPAW_DASHSCOPE_API_KEY:-}" ]; then
-            echo "::error::QWENPAW_DASHSCOPE_API_KEY is not set; desktop verification cannot validate the LLM chat round."
-            exit 1
-          fi
-          echo "Secret check OK (dry_run=${{ inputs.dry_run }})"
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_UPDATER_PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
+          TAURI_UPDATER_ENDPOINTS: ${{ vars.TAURI_UPDATER_ENDPOINTS }}
+        run: bash scripts/pack-tauri/check_production_release_secrets.sh
 
   # ── Prepare phase: build + verify everything, publish nothing ──────────────
   build-wheel:
@@ -217,6 +222,7 @@ jobs:
     uses: ./.github/workflows/desktop-build.yml
     with:
       ref: ${{ needs.resolve.outputs.sha }}
+      production_signing: ${{ !inputs.dry_run }}
     secrets: inherit
 
   build-plugins:
