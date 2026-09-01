@@ -84,7 +84,15 @@ if [[ "${PRODUCTION_RELEASE}" == "1" ]]; then
 elif [ -z "${APPLE_SIGNING_IDENTITY:-}" ] && [ -z "${APPLE_CERTIFICATE:-}" ]; then
     # Keep the app, Rust Core, and native helper consistently ad-hoc signed
     # when a Developer ID certificate is not configured. This is suitable for
-    # local validation only and is not a notarized release.
+    # local validation only and is not a notarized release. GitHub Actions
+    # exports missing secrets as empty variables; remove them so Tauri does not
+    # mistake an empty APPLE_CERTIFICATE for a certificate to import.
+    unset \
+        APPLE_CERTIFICATE \
+        APPLE_CERTIFICATE_PASSWORD \
+        APPLE_ID \
+        APPLE_TEAM_ID \
+        APPLE_PASSWORD
     export APPLE_SIGNING_IDENTITY="-"
     echo "Using ad-hoc macOS code signing"
 fi
