@@ -51,6 +51,15 @@ invalid lifecycle state uses `-32000`.
 - `app-server --stdio` uses newline-delimited JSON for a single local client.
 - `app-server --listen 127.0.0.1:8765` exposes `/app-protocol` as a WebSocket,
   plus `/healthz` and `/readyz` over HTTP.
+- `app-server --listen 127.0.0.1:0 --desktop --console-static-dir <dir>`
+  serves the unchanged Console build and prints one
+  `QWENPAW_BACKEND_READY {"port":...}` marker on stdout. Desktop mode also
+  exposes `/api/version`, `/api/healthz`, and a token-protected
+  `/api/desktop/shutdown`. The token is accepted only through
+  `QWENPAW_DESKTOP_SHUTDOWN_TOKEN` and is never a command-line argument.
+- Desktop mode returns 404 for every other `/api` route until that route has a
+  reviewed compatibility implementation. Static files and non-API paths use
+  SPA fallback with no-cache response headers.
 - Every WebSocket connection owns its own initialize state while all
   connections share the Core and persistent Threads.
 - The HTTP server rejects non-loopback listeners. WebSocket text frames are

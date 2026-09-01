@@ -20,6 +20,7 @@ const DEFAULT_BASE_URL: &str = "https://dashscope.aliyuncs.com/compatible-mode/v
 const DEFAULT_MODEL: &str = "qwen3-coder-plus";
 const MAX_BASE_URL_BYTES: usize = 2_048;
 const MAX_MODEL_ID_BYTES: usize = 256;
+const MAX_API_KEY_BYTES: usize = 8_192;
 const MAX_ERROR_BODY_BYTES: usize = 65_536;
 const MAX_SSE_EVENT_BYTES: usize = 262_144;
 const DEFAULT_HEADER_TIMEOUT_MS: u64 = 60_000;
@@ -87,6 +88,13 @@ impl ModelConfig {
         }
         if self.default_model.is_empty() || self.default_model.len() > MAX_MODEL_ID_BYTES {
             return Err(ModelConfigError::InvalidModelId);
+        }
+        if self.api_key.as_ref().is_some_and(|api_key| {
+            api_key.is_empty()
+                || api_key.len() > MAX_API_KEY_BYTES
+                || api_key.chars().any(char::is_control)
+        }) {
+            return Err(ModelConfigError::InvalidApiKey);
         }
         Ok(self)
     }
@@ -420,6 +428,8 @@ pub(crate) enum ModelConfigError {
     QueryOrFragmentInBaseUrl,
     #[error("default model ID must contain 1 through 256 bytes")]
     InvalidModelId,
+    #[error("API key must contain 1 through 8192 bytes without control characters")]
+    InvalidApiKey,
 }
 
 #[derive(Debug, Serialize)]

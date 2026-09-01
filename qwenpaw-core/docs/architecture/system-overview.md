@@ -1,6 +1,6 @@
 # QwenPaw Rust Core System Overview
 
-> Status: Rust Core + VS Code MVP, 2026-09-01
+> Status: Rust Core + VS Code MVP and Desktop sidecar foundation, 2026-09-01
 
 ## Objective
 
@@ -9,9 +9,9 @@ existing CoPaw repository so the product keeps its GitHub history and stars.
 The directory is designed as an extraction-ready repository boundary:
 
 - `qwenpaw-core/`: Rust workspace, App Protocol, persistence, model loop, tools, and native release artifacts;
-- the CoPaw repository root: existing product, unchanged Console/Desktop frontend, Python compatibility runtime during migration, and the VS Code extension.
+- the CoPaw repository root: existing product, unchanged Console/Desktop frontend, temporary Python compatibility runtime, and the VS Code extension.
 
-The first supported client is VS Code. Desktop and WebUI remain on the existing Python HTTP service until a separately reviewed compatibility layer is ready. Normal runtime should eventually stop requiring Python, but the migration does not remove working Python features before their replacements have contract and data-migration coverage.
+The first fully supported client is VS Code. Desktop now has an explicit opt-in path that starts Rust Core, serves the unchanged Console build, preserves the existing ready/version/shutdown lifecycle, and implements the first Console bootstrap/chat/approval compatibility slice. Python remains the default Desktop backend because most legacy `/api` routes are not implemented yet. Normal runtime should eventually stop requiring Python, but the cutover does not remove working Python features before their replacements have contract coverage. Rust Core always uses a new, isolated database and never imports the Python product's data.
 
 ## Runtime topology
 
@@ -30,25 +30,31 @@ Core runtime                           │
     ├── SQLite thread/config storage   │
     └── OpenAI-compatible model API    │
                                        │
-Existing Desktop/WebUI ── HTTP/SSE ── Python QwenPaw service
-    └── unchanged Console assets and all not-yet-migrated product domains
+Desktop opt-in ── random loopback HTTP ┘
+    ├── unchanged Console assets and SPA fallback
+    ├── version, health, authenticated shutdown
+    ├── bootstrap/model/Workspace APIs, text Chat SSE, stop, and one-time approval
+    └── explicit 404 for unsupported `/api` routes
+
+Default Desktop/WebUI ── HTTP/SSE ── Python QwenPaw service
+    └── all not-yet-migrated product domains
 ```
 
-The two server paths are deliberately separate in the MVP. VS Code never calls the Python Web API, and the existing Console never calls App Protocol yet.
+The two server paths are deliberately separate in the MVP. VS Code never calls the Python Web API. The existing Console uses a narrow HTTP/SSE adapter in Rust Desktop mode; that adapter translates at the transport edge into the same Core Thread/Turn/approval model used by App Protocol.
 
 ## Component ownership
 
 | Component | Repository | Responsibility | Current status |
 | --- | --- | --- | --- |
 | `qwenpaw-cli` | `qwenpaw-core/` | Native `qwenpaw-core` executable, configuration bootstrap, logging, process entrypoints | Implemented |
-| `qwenpaw-app-server` | `qwenpaw-core/` | JSONL stdio and loopback HTTP/WebSocket transports, initialization lifecycle, health probes | Implemented |
+| `qwenpaw-app-server` | `qwenpaw-core/` | JSONL stdio and loopback HTTP/WebSocket transports, Desktop static serving/lifecycle, initialization, health probes, and Console compatibility adapter | Implemented for App Protocol plus the first Desktop bootstrap/chat/approval slice |
 | `qwenpaw-protocol` | `qwenpaw-core/` | Rust protocol types, version, JSON Schema, fixtures, inventory, TypeScript SDK | Implemented, App Protocol v2 |
 | `qwenpaw-core` | `qwenpaw-core/` | Thread/Turn state machine, bounded context, model streaming, tool loop, approval and cancellation orchestration | Implemented for MVP |
 | `qwenpaw-storage` | `qwenpaw-core/` | SQLite snapshots and non-secret effective configuration | Implemented for MVP |
 | `qwenpaw-tools` | `qwenpaw-core/` | Workspace path boundary and built-in file/Shell tools | Implemented for MVP |
 | `qwenpaw-mcp` | `qwenpaw-core/` | stdio, Streamable HTTP, legacy SSE, existing-token OAuth refresh, bounded MCP execution | Implemented except interactive OAuth |
 | `extensions/vscode` | Product | Native Chat Participant, Core process ownership, settings/secrets, protocol rendering, thread/model/workspace commands | Implemented for MVP |
-| `console` | Product | Existing React WebUI and Tauri frontend | Source unchanged |
+| `console` | Product | Existing React WebUI and Tauri frontend | React business source unchanged; Tauri can opt into Rust Core with `QWENPAW_DESKTOP_RUST_CORE=1` |
 | `src/qwenpaw` | Product | Existing Python REST/SSE service and non-migrated domains | Compatibility runtime |
 | `references/codex` | Core | Read-only architecture and implementation reference | Not linked into production artifacts |
 
@@ -83,12 +89,12 @@ The exact method and notification set is generated in [App Protocol inventory](.
 | --- | --- | --- | --- |
 | Threads, Turns, messages, tool lifecycle | Core | SQLite under `QWENPAW_HOME` | Available only through typed App Protocol methods/events |
 | Effective base URL and default model | Core | SQLite | Validated, non-secret, readable through `config/read` |
-| Model API key | Client/process environment | VS Code SecretStorage or inherited environment | Never accepted by `config/write`, persisted, returned, or logged |
+| Model API key | Client/Desktop credential store | VS Code SecretStorage, inherited environment, or macOS Keychain/Windows Credential Manager/Linux Secret Service | Never persisted in SQLite, returned, or logged; Desktop reads/writes it only through the system credential store |
 | Workspace files | User filesystem | Existing files | Canonical path must remain within immutable Thread Workspace root |
 | MCP configuration | User-selected JSON | Existing file | Path passed at Core startup; sensitive headers are not logged |
 | MCP OAuth access/refresh token | Current MCP config/process | Existing configuration only | Core can refresh an existing grant but does not persist a new browser grant |
 | VS Code selected Thread/Workspace | VS Code extension | Chat metadata and in-memory one-shot selection | Workspace selection is restricted to open folders |
-| Existing Console and Python state | Python product runtime | Existing QwenPaw storage | Not read or migrated by Rust MVP |
+| Existing Console and Python state | Python product runtime | Existing QwenPaw storage | Kept separate and untouched; the Rust version starts with a new Core database as described in the [fresh-start notice](../release/fresh-start.md) |
 
 ## Trust boundaries
 
@@ -107,10 +113,12 @@ These MVP controls do not constitute a complete security parity claim with the P
 
 Core-specific `qwenpaw-core-v*` tags produce native archives for macOS arm64/x64, Linux x64, and Windows x64. The product locks one Core version, protocol version, tag, and asset name in `extensions/vscode/core-release.json`. Target-specific VSIX builds stage one matching binary and verify version and SHA-256 before packaging. macOS release artifacts fail closed unless Developer ID signing, notarization, and Gatekeeper verification succeed.
 
+Desktop build scripts now stage the release Core binary and `console/dist` under the Tauri resource directory. Migration builds still include the Python backend and runtimes, so an unset switch preserves the production path. The final macOS app signing pass covers the embedded Core Mach-O; Windows install/process cleanup recognizes `qwenpaw-core.exe`. Native bundle and notarization workflows remain release gates rather than claims made from a local build.
+
 Local development uses a thin VSIX and a Core binary from an explicit setting or `PATH`. This keeps a developer's native binary out of portable extension packages.
 
 ## Migration boundary
 
-The Rust MVP is not a drop-in replacement for the Python `/api` server. App Protocol is the new stable client contract; legacy Web API compatibility is tracked separately in [Web API inventory](../api-contract/web-api-inventory.md). Capability status and the conditions for retiring each Python area are in [Python to Rust migration matrix](../migration/python-to-rust-matrix.md).
+The Rust MVP is not yet a drop-in replacement for the Python `/api` server. App Protocol is the new stable client contract; the first legacy adapter slice now covers local bootstrap reads, Thread-backed chat list/history/archive, text-only Chat SSE and cancellation, and one-time approval polling/actions. Exact route status is tracked in [Web API inventory](../api-contract/web-api-inventory.md). In Desktop mode, unknown `/api` paths deliberately return 404 instead of falling through to the SPA or silently pretending compatibility. Capability status and the conditions for retiring each Python area are in [Python to Rust migration matrix](../migration/python-to-rust-matrix.md).
 
-Desktop/WebUI migration may begin only after its API subset, streaming behavior, authentication, filesystem behavior, and stored-data compatibility have contract tests. Until then, the existing Console and Python service remain the production path for those clients.
+The opt-in sidecar foundation is suitable for route-by-route compatibility work, but not for production cutover. The single OpenAI-compatible provider can update its base URL/model and store its API key in the OS credential store. Desktop also owns a versioned default Workspace, persists local selection, accepts the Console's first-turn `session_project_dirs`, and can rebind an idle Thread between turns. Attachments/uploads, multi-root and file-management APIs, Git APIs, and many product domains are still unsupported. The existing Console and Python service remain the production path until those required call sites, authentication, filesystem behavior, and packaged-client E2E paths have contract coverage. Production cutover starts with an empty, versioned Rust Core data directory; old Python data remains untouched and available only to the old product.

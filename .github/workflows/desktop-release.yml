@@ -265,10 +265,14 @@ jobs:
             Stop-Process -Force -ErrorAction SilentlyContinue
           Get-Process -Name "qwenpaw-backend" -ErrorAction SilentlyContinue |
             Stop-Process -Force -ErrorAction SilentlyContinue
+          Get-Process -Name "qwenpaw-core" -ErrorAction SilentlyContinue |
+            Stop-Process -Force -ErrorAction SilentlyContinue
           Start-Sleep -Seconds 2
           Get-Process -Name "qwenpaw-desktop" -ErrorAction SilentlyContinue |
             Stop-Process -Force -ErrorAction SilentlyContinue
           Get-Process -Name "qwenpaw-backend" -ErrorAction SilentlyContinue |
+            Stop-Process -Force -ErrorAction SilentlyContinue
+          Get-Process -Name "qwenpaw-core" -ErrorAction SilentlyContinue |
             Stop-Process -Force -ErrorAction SilentlyContinue
           exit 0
 
@@ -387,9 +391,11 @@ jobs:
           # Kill the Tauri shell and its sidecar subprocess.
           pkill -f "QwenPaw Desktop" 2>/dev/null || true
           pkill -f "qwenpaw-backend" 2>/dev/null || true
+          pkill -f "qwenpaw-core" 2>/dev/null || true
           sleep 2
           pkill -9 -f "QwenPaw Desktop" 2>/dev/null || true
           pkill -9 -f "qwenpaw-backend" 2>/dev/null || true
+          pkill -9 -f "qwenpaw-core" 2>/dev/null || true
           # Best-effort: kill anything sitting on the detected port.
           if [ -n "${BASE_URL:-}" ]; then
             PORT="${BASE_URL##*:}"

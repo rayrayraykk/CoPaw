@@ -9,16 +9,22 @@ repository.workspace = true
 [dependencies]
 anyhow.workspace = true
 axum.workspace = true
+chrono.workspace = true
+dirs.workspace = true
 futures-util.workspace = true
+keyring.workspace = true
 qwenpaw-core = { path = "../qwenpaw-core" }
 qwenpaw-protocol = { path = "../qwenpaw-protocol" }
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
+tokio-util.workspace = true
+tower-http.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
 pretty_assertions.workspace = true
+reqwest.workspace = true
 tempfile.workspace = true
 tokio-tungstenite.workspace = true
 

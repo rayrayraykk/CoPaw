@@ -1,4 +1,7 @@
+use std::collections::HashMap;
 use std::net::IpAddr;
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Context;
@@ -9,12 +12,16 @@ use axum::extract::WebSocketUpgrade;
 use axum::extract::ws::Message;
 use axum::extract::ws::WebSocket;
 use axum::http::HeaderMap;
+use axum::http::HeaderValue;
 use axum::http::StatusCode;
+use axum::http::header::CACHE_CONTROL;
 use axum::http::header::HOST;
 use axum::http::header::ORIGIN;
 use axum::response::IntoResponse;
 use axum::response::Response;
+use axum::routing::any;
 use axum::routing::get;
+use axum::routing::post;
 use futures_util::SinkExt;
 use futures_util::StreamExt;
 use qwenpaw_core::Core;
@@ -46,10 +53,24 @@ use tokio::io::AsyncBufReadExt;
 use tokio::io::AsyncWriteExt;
 use tokio::io::BufReader;
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
+use tower_http::services::ServeDir;
+use tower_http::services::ServeFile;
+use tower_http::set_header::SetResponseHeaderLayer;
 use tracing::warn;
+
+mod desktop_api;
+mod desktop_credentials;
+
+pub use desktop_credentials::DesktopCredentialStore;
+pub use desktop_credentials::SystemDesktopCredentialStore;
 
 const OUTBOUND_CHANNEL_CAPACITY: usize = 128;
 const MAX_WEBSOCKET_MESSAGE_BYTES: usize = 1_048_576;
+const DESKTOP_SHUTDOWN_TOKEN_HEADER: &str = "x-qwenpaw-desktop-shutdown-token";
+const MIN_DESKTOP_SHUTDOWN_TOKEN_BYTES: usize = 16;
+const MAX_DESKTOP_SHUTDOWN_TOKEN_BYTES: usize = 4096;
+const DESKTOP_DEFAULT_WORKSPACE_ENV: &str = "QWENPAW_DEFAULT_WORKSPACE";
 
 #[derive(Clone)]
 pub struct AppServer {
@@ -58,7 +79,37 @@ pub struct AppServer {
 
 struct AppServerInner {
     core: Core,
+    desktop_session_aliases: tokio::sync::RwLock<DesktopSessionAliases>,
+    desktop_pending_approvals: tokio::sync::RwLock<HashMap<String, DesktopPendingApproval>>,
+    desktop_credentials: Option<Arc<dyn DesktopCredentialStore>>,
+    desktop_workspace: Option<DesktopWorkspace>,
     allowed_origins: Vec<String>,
+    console_static_dir: Option<PathBuf>,
+    desktop_shutdown_token: Option<String>,
+    shutdown: CancellationToken,
+}
+
+#[derive(Default)]
+struct DesktopSessionAliases {
+    client_to_thread: HashMap<String, String>,
+    thread_to_client: HashMap<String, String>,
+}
+
+#[derive(Clone)]
+struct DesktopPendingApproval {
+    thread_id: String,
+    turn_id: String,
+    call_id: String,
+    tool_name: String,
+    arguments: String,
+    workspace_root: String,
+    session_id: String,
+    created_at: i64,
+}
+
+struct DesktopWorkspace {
+    initial: PathBuf,
+    selected: tokio::sync::RwLock<PathBuf>,
 }
 
 #[derive(Default)]
@@ -72,9 +123,86 @@ impl AppServer {
         Self {
             inner: Arc::new(AppServerInner {
                 core,
+                desktop_session_aliases: tokio::sync::RwLock::new(DesktopSessionAliases::default()),
+                desktop_pending_approvals: tokio::sync::RwLock::new(HashMap::new()),
+                desktop_credentials: None,
+                desktop_workspace: None,
                 allowed_origins: allowed_origins_from_env(),
+                console_static_dir: None,
+                desktop_shutdown_token: None,
+                shutdown: CancellationToken::new(),
             }),
         }
+    }
+
+    /// Creates a loopback HTTP server suitable for the Tauri Desktop sidecar.
+    ///
+    /// The Console directory must contain `index.html`. The shutdown token is
+    /// kept in memory and is required by the Desktop-only shutdown endpoint.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Console directory or shutdown token is
+    /// invalid.
+    pub fn new_desktop(
+        core: Core,
+        console_static_dir: &Path,
+        desktop_shutdown_token: String,
+    ) -> anyhow::Result<Self> {
+        Self::new_desktop_with_credential_store(
+            core,
+            console_static_dir,
+            desktop_shutdown_token,
+            Arc::new(SystemDesktopCredentialStore),
+        )
+    }
+
+    /// Creates a Desktop server with an explicit secure credential store.
+    ///
+    /// This constructor exists so platform credential behavior can be tested
+    /// without reading or writing the developer's real system keyring.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Console directory or shutdown token is
+    /// invalid.
+    pub fn new_desktop_with_credential_store(
+        core: Core,
+        console_static_dir: &Path,
+        desktop_shutdown_token: String,
+        desktop_credentials: Arc<dyn DesktopCredentialStore>,
+    ) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            (MIN_DESKTOP_SHUTDOWN_TOKEN_BYTES..=MAX_DESKTOP_SHUTDOWN_TOKEN_BYTES)
+                .contains(&desktop_shutdown_token.len())
+                && !desktop_shutdown_token.chars().any(char::is_control),
+            "Desktop shutdown token must contain 16 through 4096 bytes without control characters"
+        );
+        let console_static_dir = console_static_dir.canonicalize().with_context(|| {
+            format!(
+                "failed to resolve Console static directory {}",
+                console_static_dir.display()
+            )
+        })?;
+        anyhow::ensure!(
+            console_static_dir.is_dir() && console_static_dir.join("index.html").is_file(),
+            "Console static directory must contain index.html: {}",
+            console_static_dir.display()
+        );
+        let desktop_workspace = desktop_workspace_from_env(&core)?;
+        Ok(Self {
+            inner: Arc::new(AppServerInner {
+                core,
+                desktop_session_aliases: tokio::sync::RwLock::new(DesktopSessionAliases::default()),
+                desktop_pending_approvals: tokio::sync::RwLock::new(HashMap::new()),
+                desktop_credentials: Some(desktop_credentials),
+                desktop_workspace: Some(desktop_workspace),
+                allowed_origins: allowed_origins_from_env(),
+                console_static_dir: Some(console_static_dir),
+                desktop_shutdown_token: Some(desktop_shutdown_token),
+                shutdown: CancellationToken::new(),
+            }),
+        })
     }
 
     /// Runs the app server over newline-delimited JSON on stdin and stdout.
@@ -138,17 +266,35 @@ impl AppServer {
             address.ip().is_loopback(),
             "HTTP App Protocol requires a loopback listener"
         );
+        let shutdown = self.inner.shutdown.clone();
         axum::serve(listener, self.router())
+            .with_graceful_shutdown(shutdown.cancelled_owned())
             .await
             .context("QwenPaw HTTP app server failed")
     }
 
     fn router(self) -> Router {
-        Router::new()
+        let console_static_dir = self.inner.console_static_dir.clone();
+        let mut router = Router::new()
             .route("/healthz", get(healthz))
             .route("/readyz", get(readyz))
-            .route("/app-protocol", get(websocket_upgrade))
-            .with_state(self)
+            .route("/api/version", get(version))
+            .route("/api/healthz", get(healthz))
+            .route("/api/desktop/shutdown", post(desktop_shutdown))
+            .route("/app-protocol", get(websocket_upgrade));
+        if let Some(directory) = console_static_dir {
+            let index = directory.join("index.html");
+            router = router
+                .merge(desktop_api::router())
+                .route("/api", any(api_not_found))
+                .route("/api/{*path}", any(api_not_found))
+                .fallback_service(ServeDir::new(directory).fallback(ServeFile::new(index)))
+                .layer(SetResponseHeaderLayer::overriding(
+                    CACHE_CONTROL,
+                    HeaderValue::from_static("no-cache, no-store, must-revalidate"),
+                ));
+        }
+        router.with_state(self)
     }
 
     async fn process_line(
@@ -354,12 +500,68 @@ impl AppServer {
     }
 }
 
+fn desktop_workspace_from_env(core: &Core) -> anyhow::Result<DesktopWorkspace> {
+    let configured = std::env::var_os(DESKTOP_DEFAULT_WORKSPACE_ENV)
+        .map(PathBuf::from)
+        .map_or_else(std::env::current_dir, Ok)?;
+    let initial = configured.canonicalize().with_context(|| {
+        format!(
+            "failed to resolve Desktop default workspace {}",
+            configured.display()
+        )
+    })?;
+    anyhow::ensure!(
+        initial.is_dir(),
+        "Desktop default workspace is not a directory: {}",
+        initial.display()
+    );
+    let selected = core
+        .read_preferred_workspace()?
+        .map(PathBuf::from)
+        .and_then(|path| path.canonicalize().ok())
+        .filter(|path| path.is_dir())
+        .unwrap_or_else(|| initial.clone());
+    Ok(DesktopWorkspace {
+        selected: tokio::sync::RwLock::new(selected),
+        initial,
+    })
+}
+
 async fn healthz() -> Json<Value> {
     Json(serde_json::json!({"status": "ok"}))
 }
 
 async fn readyz() -> Json<Value> {
     Json(serde_json::json!({"status": "ready"}))
+}
+
+async fn version() -> Json<Value> {
+    Json(serde_json::json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "backend": "rust-core",
+        "protocolVersion": PROTOCOL_VERSION,
+    }))
+}
+
+async fn desktop_shutdown(State(server): State<AppServer>, headers: HeaderMap) -> Response {
+    let Some(expected) = server.inner.desktop_shutdown_token.as_deref() else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let Some(provided) = headers
+        .get(DESKTOP_SHUTDOWN_TOKEN_HEADER)
+        .and_then(|value| value.to_str().ok())
+    else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    if provided != expected {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    server.inner.shutdown.cancel();
+    Json(serde_json::json!({"ok": true})).into_response()
+}
+
+async fn api_not_found() -> StatusCode {
+    StatusCode::NOT_FOUND
 }
 
 async fn websocket_upgrade(

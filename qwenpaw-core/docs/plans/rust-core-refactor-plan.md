@@ -4,7 +4,7 @@
 >
 > 创建日期：2026-09-01
 >
-> Core 仓库：`/Users/qbc/Desktop/repos/as/qwenpaw-core`
+> Core 工作区：`/Users/qbc/Desktop/repos/as/qwenpaw/qwenpaw-core`
 >
 > 产品仓库：`/Users/qbc/Desktop/repos/as/qwenpaw`
 > 参考项目：[`rayrayraykk/CoPaw`](https://github.com/rayrayraykk/CoPaw)、[`openai/codex`](https://github.com/openai/codex)
@@ -139,10 +139,10 @@ Web 兼容 API 可以保留旧的 HTTP payload，但进入 Core 后必须转换�
 
 ## 5. 建议的仓库结构
 
-采用两个独立开发仓库。原 QwenPaw 仓库继续作为主产品、客户端和发行仓库，保留其社区入口；新仓库只负责 Rust Core：
+采用同一产品仓库内的可提取 Core 边界。原 QwenPaw 仓库继续作为主产品、客户端和发行仓库，保留其社区入口、历史与 Star；`qwenpaw-core/` 是逻辑独立且可在未来抽出的 Rust workspace：
 
 ```text
-qwenpaw-core/
+qwenpaw/qwenpaw-core/
 ├── docs/
 │   ├── plans/
 │   ├── architecture/
@@ -187,8 +187,8 @@ qwenpaw/
 - 发布时将 `console/dist` 作为静态资源打包给 Rust Server；
 - 不使用跨仓库符号链接，避免 Windows 和打包环境兼容问题；
 - `references/codex` 不参与 QwenPaw 编译；
-- 产品仓库通过版本清单和校验值锁定 Core binary，不以 Git submodule 作为用户安装方式；
-- 本地开发允许两个仓库放在同一父目录，并通过脚本发现本地 Core binary。
+- 产品仓库通过版本清单和校验值锁定发布 Core binary，不以 Git submodule 作为用户安装方式；
+- 本地开发直接使用仓库内 `qwenpaw-core/target`，目录边界仍保持独立依赖和质量门禁。
 
 ## 6. 目标架构
 
@@ -324,7 +324,7 @@ MVP 建议：
 - schema migration 随 Rust binary 一起发布；
 - 持久化事件应能够恢复最终状态，不依赖前端缓存。
 
-在阶段 0 调研完成前，不决定是否兼容现有 Python 数据库的全部内部表结构。优先定义用户数据迁移契约，而不是复制实现细节。
+Rust 新版本使用全新的 SQLite，不兼容或导入现有 Python 数据库内部表结构。旧数据目录由旧版本继续拥有，新 Core 不读取也不修改。
 
 ## 7. 分阶段实施计划
 
@@ -477,7 +477,7 @@ MVP 建议：
 
 1. 删除最后的 Python proxy；
 2. 删除运行时 Python 环境依赖；
-3. 完成旧用户数据迁移工具；
+3. 验证新版本使用独立数据目录且不会读取或修改旧 Python 数据；
 4. 完成权限、目录穿越、命令注入和凭据审计；
 5. 完成远程连接认证和 TLS 指南；
 6. 生成 macOS、Linux、Windows 发布物；
@@ -487,7 +487,7 @@ MVP 建议：
 验收标准：
 
 - 正常用户路径不需要 Python；
-- 旧版本数据可以迁移或明确报告不可迁移项；
+- 新版本明确从空数据启动，旧版本数据保持原样且不会被新版本修改；
 - 三个平台可以安装、启动、升级和卸载；
 - 发布包包含 SBOM、license notice 和校验信息；
 - 安全与回归测试全部通过。
@@ -548,14 +548,14 @@ Python legacy service 只绑定本机随机端口或本机 IPC，不直接暴露
 - `native`：由 Rust 实现；
 - `removed`：经确认后移除。
 
-### 9.3 数据迁移
+### 9.3 数据边界（Fresh Start）
 
-- 不直接假设旧数据格式稳定；
-- 阶段 0 盘点配置、会话、记忆、Workspace 和凭据位置；
-- 为每类用户数据定义版本化导入器；
-- 迁移前创建可恢复备份；
-- 迁移工具支持 dry-run 和结构化报告；
-- 不在没有备份的情况下原地破坏旧数据。
+- Rust 新版本不迁移 Python 配置、会话、记忆、Workspace 状态或凭据；
+- Rust Core 使用独立的新数据目录和 SQLite，不扫描旧 Python 数据目录；
+- 旧版本及其数据保持原样，可通过启动旧版本继续访问；
+- 新旧运行时禁止同时写入同一个逻辑会话或数据库；
+- 用户需要在新版本重新配置模型凭据和创建会话；
+- 后续如需人工导出能力，必须作为新的独立需求评审，不能隐式恢复自动迁移。
 
 ## 10. 安全设计重点
 
@@ -612,6 +612,7 @@ MVP 至少提供：
 - [x] D8：App Protocol 是 QwenPaw 自有协议，不承诺完整兼容 Codex；
 - [x] D9：迁移期间 Rust Server 是新客户端唯一 Core 入口；
 - [x] D10：确认后续实现按阶段开发、构建和测试，不进行一次性大改。
+- [x] D11：确认 Rust 新版本从空数据启动，不实现 Python 数据迁移或自动导入。
 
 ## 14. 执行 Checklist
 
@@ -851,6 +852,40 @@ MVP 至少提供：
 - [x] VS Code 协议同步、真实 Core 测试路径和 release 锁切换到单仓；
 - [x] 从 CoPaw 根目录重新验证 Rust、VS Code、VSIX 与 workflow；
 
+### 14.2.16 Desktop/WebUI Rust sidecar 基础链路
+
+- [x] Core Desktop HTTP 模式绑定随机 loopback 端口并输出兼容 ready marker；
+- [x] Core 托管现有 Console 静态目录与 SPA fallback，不修改 React 业务源码；
+- [x] 提供 `/api/version`、`/api/healthz` 和 token 保护的 Desktop shutdown；
+- [x] Tauri 支持显式 Rust Core 开关启动本地/打包 sidecar，同时保留 Python fallback；
+- [x] 增加真实 HTTP、静态资源、鉴权 shutdown、进程退出和 Tauri 路径测试；
+- [x] 更新 Desktop 打包资源边界并通过 Rust Core、Tauri、Console 本地质量门禁；
+
+### 14.2.17 新版本数据边界
+
+- [x] 取消 Python 数据迁移，Rust 新版本从空数据启动；
+- [x] Desktop/WebUI 切换时为 Rust Core 使用独立的 `rust-core-v1` 数据目录；
+- [x] 增加测试证明 Rust 启动不会扫描或修改旧 Python 数据；
+- [x] 在升级说明中明确旧会话不会出现在新版本，模型凭据需要重新配置；
+
+### 14.2.18 当前开发切片：WebUI 首条 Rust 对话链路
+
+- [x] 在 App Server 传输边缘实现 Console 兼容 adapter，不向 Core 领域层引入旧 payload；
+- [x] 保持 `console/` React 业务源码零改动；
+- [x] 实现本地 auth、language、upload-limit、agent、model 和 coding-mode 启动读取契约；
+- [x] 将 Chat 列表、历史、归档和恢复映射到 Rust Thread，并兼容前端本地 session ID；
+- [x] 将文本 Chat 请求和 Core 增量映射为现有 Console SSE，并支持按本地 session ID 停止；
+- [x] 将 Core 一次性工具审批映射为 Console 轮询与 approve/deny 接口；
+- [x] 对 `similar` 泛化审批返回明确不支持，避免伪造安全策略兼容；
+- [x] 补充真实模型 SSE、历史持久化、中断和拒绝 shell 的 HTTP 集成测试；
+- [ ] 支持 Console 附件与上传；
+- [x] 实现单一 OpenAI-compatible Desktop 模型配置写入和系统安全凭据存储；
+- [x] 实现持久化默认 project-directory、目录浏览/创建与单 Workspace Thread 绑定；
+- [x] 通过 Core workspace 全量测试、严格 Clippy、Tauri 测试/release check 与 Console 生产构建；
+- [ ] 支持多 project-directory、Workspace 文件管理、上传与 watch 契约；
+- [ ] 完成剩余启动调用图、错误响应和浏览器 E2E 契约；
+- [ ] 默认切换 Desktop 到 Rust Core；
+
 ### 14.3 客户端与发布
 
 - [ ] WebUI 契约测试通过；
@@ -859,7 +894,7 @@ MVP 至少提供：
 - [x] macOS 本地测试通过；
 - [ ] Linux 测试通过；
 - [ ] Windows 测试通过；
-- [ ] 完成旧数据迁移；
+- [x] 确认不迁移旧数据，新版本从空数据启动；
 - [ ] 删除 Python proxy；
 - [ ] 删除运行时 Python 依赖；
 - [ ] 完成安全审计；

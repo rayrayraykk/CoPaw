@@ -1,6 +1,6 @@
 # Python to Rust Capability Migration Matrix
 
-> Baseline: 2026-09-01. First target is Rust Core + VS Code; Desktop/WebUI remain on Python.
+> Baseline: 2026-09-01. Rust Core + VS Code is the first complete target; Desktop has an opt-in Rust sidecar foundation while its production API authority remains Python.
 
 ## Status definitions
 
@@ -16,30 +16,30 @@
 | Native process and CLI | Python CLI/runtime bootstrap | Rust MVP: native CLI and app server | Native release artifacts pass macOS, Linux, Windows installation and lifecycle tests |
 | Client protocol | REST/SSE/WebSocket surfaces | Rust MVP: App Protocol v2 over stdio and loopback WebSocket | Each migrating client uses versioned generated types and has reconnect/error fixtures |
 | Thread and Turn lifecycle | Chat/session services | Rust MVP: start/read/list/archive/resume, interrupt, persisted terminal state | Migration maps IDs/history/metadata and supports rollback without dual writers |
-| Conversation persistence | Existing QwenPaw stores | Partial: SQLite snapshots for new Core Threads | Import/export validation, corrupt/old-version recovery, retention and backup coverage |
+| Conversation persistence | Existing QwenPaw stores | Rust SQLite snapshots for new Core Threads; legacy data is intentionally not imported | New-version backup, restore, retention, corruption recovery, and schema upgrades pass |
 | Model provider | Provider manager and many adapters | Partial: one OpenAI-compatible Chat Completions/SSE adapter | Required providers, auth methods, model metadata, retry/rate-limit behavior have parity tests |
 | Context management | Python Agent context and memory systems | Partial: bounded recent complete turns and newest tool chain | Memory, summarization, token accounting, and long-session golden tests meet product requirements |
 | Agent loop | Python modes/loop/hooks | Rust MVP for bounded model/tool iterations | Required hooks, modes, policies, observability, and failure semantics are explicitly mapped |
 | Built-in file tools | Python tool system/governance | Rust MVP: list/search/read/write/replace inside one Workspace | Tool schema/output fixtures and Windows/Linux/macOS filesystem tests pass |
 | Shell execution | Python tools/sandbox | Partial: bounded subprocess, Workspace cwd, one-time approval | Sandbox/resource policy, platform command semantics, environment filtering, and audit parity pass |
-| Tool approvals | Python governance/access control | Partial: one-time approval through App Protocol | Persistent policies, multi-client routing, remote auth, audit, timeout, and recovery are covered |
+| Tool approvals | Python governance/access control | Partial: one-time approval through App Protocol and Console HTTP polling/actions | Persistent/generalized policies, multi-client routing, remote auth, audit, timeout, and recovery are covered |
 | MCP stdio | Python MCP drivers | Rust MVP with discovery, whitelist, approval, cancellation | Configuration compatibility and representative server fixtures pass on all targets |
 | MCP HTTP/SSE | Python MCP drivers | Rust MVP for Streamable HTTP and legacy SSE | Proxy/TLS/auth interoperability and failure/reconnect suites pass |
 | MCP OAuth | Python browser OAuth routes/store | Partial: existing access token and refresh grant only | Discovery, PKCE/browser callback, secure credential persistence/revocation, and UI flow pass |
-| Workspace identity | Python Workspace/project-directory services | Partial: canonical immutable root per Thread and registered root listing | Desktop/WebUI selection, multiple projects, watch/upload/download, permissions and path parity pass |
+| Workspace identity | Python Workspace/project-directory services | Partial: canonical Thread root, persisted Desktop default selection, browse/direct-child creation, and explicit idle-Thread rebinding | Multiple simultaneous roots, watch/upload/download, permissions and path parity pass |
 | Chat file references | Console rich references | Rust MVP for VS Code file URI/location metadata | Other reference types and Desktop/WebUI contracts are designed separately; no eager content leakage |
 | Non-secret configuration | Python config APIs/files | Partial: base URL/default model in Core SQLite | Full config ownership, schema migration, precedence, import/export, and rollback rules are approved |
-| Secret management | Python credentials/provider config | Partial: VS Code SecretStorage and process-only API key | Desktop/WebUI secret store, rotation, redaction, migration, and multi-user boundaries pass review |
+| Secret management | Python credentials/provider config | Partial: VS Code SecretStorage plus Desktop OS credential store with masked reads and process-only Core injection | Native credential-store tests, rotation/revocation, and remote/multi-user boundaries pass review |
 | VS Code client | No original equivalent | Rust MVP: Chat Participant and native commands | Native target VSIX CI succeeds on macOS/Linux/Windows; signed macOS artifact validated |
 | Core local WebSocket | Python HTTP service | Rust MVP for App Protocol loopback transport | A real client consumes it; authentication design exists before any remote exposure |
-| Console REST/SSE compatibility | Python FastAPI | Deferred | [Web API inventory](../api-contract/web-api-inventory.md) call sites and golden fixtures are complete |
-| Desktop sidecar lifecycle | Python sidecar plus Tauri commands | Deferred | Tauri starts/stops/updates signed Rust sidecar and preserves graceful shutdown semantics |
-| WebUI static serving | Python FastAPI | Deferred | Rust or outer host serves unchanged build with cache headers, SPA fallback, auth, and asset tests |
+| Console REST/SSE compatibility | Python FastAPI | Partial: bootstrap reads, Thread-backed chats, text Chat SSE/stop, and one-time approvals | Remaining [Web API inventory](../api-contract/web-api-inventory.md) call sites, uploads/settings/Workspace behavior, and golden fixtures are complete |
+| Desktop sidecar lifecycle | Python sidecar plus Tauri commands | Partial: explicit Rust switch, ready marker, authenticated graceful shutdown, Python fallback | Native packaged Tauri starts/stops/updates a signed Rust sidecar on every supported runner and compatibility routes pass |
+| WebUI static serving | Python FastAPI | Partial: Rust Desktop mode serves the unchanged build with no-cache headers and SPA fallback | Required legacy API/auth/streaming routes pass differential tests and production cutover is approved |
 | Agents and multi-agent isolation | Python agent manager/scoped routers | Deferred | Agent CRUD, per-agent storage/config, scoped routes, approval routing, and isolation tests pass |
 | Channels and mail | Python channel/mail services | Deferred | Each external webhook/socket, credential, allowlist, retry, and delivery contract has parity fixtures |
 | Browser/computer use | Python browser runtime/governance plus Tauri bridge | Deferred | Protocol, sandbox, platform bridge, approvals, observation, and security tests pass |
 | Cron/background work | Python cron services | Deferred | Durable scheduling, restart recovery, timezone, concurrency, audit, and UI contracts pass |
-| Memory/index/graph | Python memory and Workspace services | Deferred | Data format migration, retrieval quality, rebuild, durability, and UI graph contracts pass |
+| Memory/index/graph | Python memory and Workspace services | Deferred | New-store schema, retrieval quality, rebuild, durability, and UI graph contracts pass |
 | Skills/plugins/PawApps/market | Python plugin runtime and dynamic routes | Deferred | Package trust, sandboxing, lifecycle, dynamic API/frontend loading, and rollback are specified/tested |
 | Harnesses/ACP/external coding agents | Python harness and ACP services | Deferred | Process lifecycle, protocol versioning, MCP/session interop, cancellation, and security pass |
 | Git/checkpoints/coding mode | Python Workspace routers | Deferred | Cross-platform repository fixtures, destructive-action policy, checkpoint recovery, and UI contracts pass |
@@ -50,11 +50,11 @@
 ## Data-authority rules
 
 1. New VS Code Threads are owned only by Rust Core SQLite.
-2. Existing Desktop/WebUI sessions remain owned only by the Python runtime.
-3. No background bidirectional synchronization is introduced between the two stores.
-4. A future migration uses a versioned, restartable import with an immutable backup and explicit cutover marker.
-5. Rollback must never allow both runtimes to append to the same logical session.
-6. Secrets are migrated through platform secure storage or explicit user reauthorization, never copied into SQLite snapshots or logs.
+2. Default Desktop/WebUI sessions remain owned only by Python; an opt-in Rust Desktop session is owned only by the new Rust store.
+3. No import, background synchronization, or shared writer is introduced between the two stores.
+4. The Rust product starts from a new data directory and does not scan Python `chats.json`, `sessions/`, memory, or configuration.
+5. Rollback means launching the old product against its unchanged Python data, not writing Rust state back into it.
+6. Secrets are configured again through the new client's secure storage and are never copied from Python files into SQLite or logs.
 
 ## Recommended migration order after VS Code MVP
 
@@ -63,7 +63,7 @@
 3. Migrate read-only health, model, configuration, session-list, and Workspace metadata routes first.
 4. Migrate Chat streaming and approval lifecycle with dual-run comparison but a single writer.
 5. Add Desktop sidecar start/stop/update integration and signed native packaging.
-6. Migrate file operations, Git/checkpoints, uploads, and backup/restore before cutting storage ownership.
+6. Implement file operations, Git/checkpoints, uploads, and backup/restore against the new Rust-owned storage before cutover.
 7. Move higher-risk channel, Browser, plugin, scheduler, memory, and multi-tenant domains independently.
 8. Delete the Python proxy/runtime only after production rollback drills and a release acceptance checklist pass.
 
@@ -87,7 +87,7 @@ The migration objective is met only when:
 
 - VS Code, Desktop, and WebUI start and operate without a Python interpreter or Python sidecar;
 - every shipped client path uses Rust-owned, versioned contracts;
-- required existing user data is migrated or explicitly retained read-only with a supported export path;
+- the new version clearly starts fresh and never mutates the old Python data directory;
 - secrets, approvals, filesystem access, external callbacks, and remote connections pass security review;
 - native install/update/uninstall works on supported macOS, Linux, and Windows targets;
 - backup/restore and rollback have been exercised against release artifacts;

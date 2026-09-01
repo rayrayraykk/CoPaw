@@ -85,6 +85,7 @@ const APPROVAL_TIMEOUT: Duration = Duration::from_secs(120);
 const SYSTEM_PROMPT: &str = "You are QwenPaw, a coding agent working inside the configured workspace. Use list_files and search_text to discover relevant code, then read_file before editing. Prefer replace_text for small exact edits and write_file for complete file replacement. Use shell for build or test commands. Respect denied tool calls and report only what was actually verified.";
 const BASE_URL_SETTING: &str = "base_url";
 const DEFAULT_MODEL_SETTING: &str = "default_model";
+const PREFERRED_WORKSPACE_SETTING: &str = "preferred_workspace";
 
 pub type TurnEventStream = mpsc::Receiver<CoreEvent>;
 
@@ -373,6 +374,45 @@ impl Core {
         })
     }
 
+    /// Rebinds an idle Thread to an explicitly selected Workspace directory.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Workspace is invalid, the Thread is missing,
+    /// archived, active, or the updated snapshot cannot be persisted.
+    pub async fn set_thread_workspace(
+        &self,
+        thread_id: &str,
+        workspace_root: &Path,
+    ) -> Result<Thread, CoreError> {
+        let workspace = Workspace::open(workspace_root).map_err(CoreError::workspace)?;
+        let workspace_root = workspace.root().to_string_lossy().into_owned();
+        let (thread, snapshot) = {
+            let mut state = self.inner.state.lock().await;
+            let record = state
+                .threads
+                .get_mut(thread_id)
+                .ok_or_else(|| CoreError::ThreadNotFound(thread_id.to_owned()))?;
+            if record.thread.archived {
+                return Err(CoreError::ThreadArchived(thread_id.to_owned()));
+            }
+            if record.active_turn.is_some() {
+                return Err(CoreError::ThreadBusy(thread_id.to_owned()));
+            }
+            if record.thread.workspace_root.as_deref() == Some(&workspace_root) {
+                return Ok(record.thread.clone());
+            }
+            record.thread.workspace_root = Some(workspace_root);
+            record.thread.updated_at = now();
+            (record.thread.clone(), record.snapshot())
+        };
+        self.inner
+            .store
+            .upsert(&snapshot)
+            .map_err(CoreError::storage)?;
+        Ok(thread)
+    }
+
     #[must_use]
     pub fn read_config(&self) -> ConfigReadResponse {
         ConfigReadResponse {
@@ -408,6 +448,51 @@ impl Core {
         Ok(ConfigWriteResponse {
             config: protocol_config(&next),
         })
+    }
+
+    /// Replaces the process-only model API key without persisting it to SQLite.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the API key violates the bounded secret format.
+    pub fn set_runtime_api_key(&self, api_key: Option<String>) -> Result<(), CoreError> {
+        let current = self.inner.model.config_snapshot();
+        let next = ModelConfig {
+            api_key,
+            base_url: current.base_url,
+            default_model: current.default_model,
+        }
+        .normalize()
+        .map_err(CoreError::config)?;
+        self.inner.model.replace_config(next);
+        Ok(())
+    }
+
+    /// Reads the non-secret preferred Workspace used by Desktop clients.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the persisted setting cannot be read.
+    pub fn read_preferred_workspace(&self) -> Result<Option<String>, CoreError> {
+        self.inner
+            .store
+            .read_setting(PREFERRED_WORKSPACE_SETTING)
+            .map_err(CoreError::storage)
+    }
+
+    /// Validates and persists the preferred Workspace used by Desktop clients.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the directory is invalid or persistence fails.
+    pub fn write_preferred_workspace(&self, root: &Path) -> Result<String, CoreError> {
+        let workspace = Workspace::open(root).map_err(CoreError::workspace)?;
+        let root = workspace.root().to_string_lossy().into_owned();
+        self.inner
+            .store
+            .write_settings(&[(PREFERRED_WORKSPACE_SETTING, &root)])
+            .map_err(CoreError::storage)?;
+        Ok(root)
     }
 
     pub async fn list_workspaces(&self) -> WorkspaceListResponse {

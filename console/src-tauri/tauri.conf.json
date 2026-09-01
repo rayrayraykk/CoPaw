@@ -42,6 +42,7 @@
     ],
     "resources": [
       "binaries/qwenpaw-backend",
+      "binaries/qwenpaw-core",
       "binaries/python-runtime",
       "binaries/node-runtime"
     ],

@@ -14,10 +14,10 @@ The machine-generated Rust client contract is separate: see [App Protocol invent
 
 | Surface | Transport | Python source | Rust MVP disposition |
 | --- | --- | --- | --- |
-| `/`, `/console/**`, `/assets/**` | HTTP static/SPA | `src/qwenpaw/app/_app.py` | Keep existing frontend serving path; no Rust compatibility layer yet |
-| `/api/version`, `/api/healthz` | HTTP | `_app.py`, `routers/healthz.py` | Similar Core probes exist at `/healthz` and `/readyz`, but payload/routes are not compatibility claims |
+| `/`, `/console/**`, `/assets/**` | HTTP static/SPA | `src/qwenpaw/app/_app.py` | Implemented in opt-in Desktop mode with the unchanged Console build, no-cache HTML, and SPA fallback |
+| `/api/version`, `/api/healthz` | HTTP | `_app.py`, `routers/healthz.py` | Implemented for the local Desktop bootstrap; Core also exposes `/healthz` and `/readyz` |
 | `/api/doctor/runtime` | HTTP | `_app.py` | Python-specific; do not reproduce verbatim |
-| `/api/desktop/shutdown` | HTTP | `_app.py` | Replace only when Tauri owns Rust sidecar lifecycle |
+| `/api/desktop/shutdown` | HTTP | `_app.py` | Implemented with a per-process token passed by Tauri; invalid tokens fail closed as 404 |
 | `/api/**` | HTTP/SSE/WebSocket | `app/routers`, `app/chats`, `app/crons` | Domain-by-domain migration required |
 | `/api/agents/{agentId}/**` | HTTP/SSE | `routers/agent_scoped.py` | Multi-agent isolation not in Rust MVP |
 | `/api/ws/**`, `/api/browser/chrome/**` | WebSocket/HTTP | `browser/control_link/chrome` | Browser control not in Rust MVP |
@@ -28,34 +28,34 @@ The machine-generated Rust client contract is separate: see [App Protocol invent
 
 ## Primary `/api` router inventory
 
-“Phase 1 mapping” describes ownership, not wire compatibility. A Rust capability marked “partial” is available to VS Code through App Protocol and still does not satisfy the existing Console REST contract.
+“Phase 1 mapping” describes the currently tested subset. “Partial” means the listed route shapes work in Rust Desktop mode, while the rest of that Python domain remains unavailable and receives an explicit 404.
 
 | Prefix/domain | Python source | Representative responsibility | Phase 1 mapping |
 | --- | --- | --- | --- |
-| `/agents` | `routers/agents.py` | Agent CRUD, visibility, model and memory views | Deferred |
+| `/agents` | `routers/agents.py` | Agent CRUD, visibility, model and memory views | Partial: read-only singleton `default` agent bootstrap response; CRUD and multi-agent isolation deferred |
 | `/agent-status` | `routers/agent_status.py` | Scoped agent readiness | Deferred |
 | `/agent-stats` | `routers/agent_stats.py` | Agent execution statistics | Deferred |
-| `/auth` | `routers/auth.py` | Register, login, verify, profile | Deferred; remote/multi-user auth is not in Core |
-| `/chats` | `app/chats/api.py` | Session CRUD, groups, archive, project dirs, history | Partial via App Protocol Thread lifecycle; incompatible wire/data model |
-| `/console` | `routers/console.py` | Chat streaming, upload, push messages, inbox, traces | Partial agent streaming via App Protocol; REST/SSE and inbox deferred |
-| `/approval` | `routers/approval.py` | Approve, deny, status | Partial via App Protocol one-time tool approval |
+| `/auth` | `routers/auth.py` | Register, login, verify, profile | Partial: local no-auth bootstrap status/verify only; accounts and remote/multi-user auth deferred |
+| `/chats` | `app/chats/api.py` | Session CRUD, groups, archive, project dirs, history | Partial compatibility: list, history, fixed bootstrap groups, archive/unarchive, and persisted single-Workspace project-dir reads/rebinding map to Core Threads; multi-root and other CRUD/metadata deferred |
+| `/console` | `routers/console.py` | Chat streaming, upload, push messages, inbox, traces | Partial compatibility: text-only Chat SSE, local-session aliases, stop, approval polling, and empty inbox; uploads, attachments, traces, and reconnection deferred |
+| `/approval` | `routers/approval.py` | Approve, deny, status | Partial compatibility: one-time approve/deny with session validation; generalized `similar` approval and policy persistence return unsupported |
 | `/tool-calls` | `routers/tool_calls.py` | Tool status, output, offload, cancel | Partial lifecycle events only; offload and HTTP output APIs deferred |
-| `/models` | `routers/providers.py` | Provider/model config and discovery | Partial: one OpenAI-compatible base URL/model through App Protocol |
+| `/models` | `routers/providers.py` | Provider/model config and discovery | Partial compatibility: active/list, base URL, model selection/add, and API-key set/delete for one OpenAI-compatible provider; secrets use the OS credential store and are always masked; discovery and other providers deferred |
 | `/providers` | `routers/provider_oauth.py` | Provider browser OAuth | Deferred |
 | `/local-models` | `routers/local_models.py` | Local model lifecycle/download | Deferred |
 | `/config` | `routers/config.py` | Channels, heartbeat, agent and product settings | Partial only for non-secret model configuration |
-| `/settings` | `routers/settings.py` | Language, upload limit, offload policy | Deferred; frontend remains unchanged |
+| `/settings` | `routers/settings.py` | Language, upload limit, offload policy | Partial bootstrap reads for language and upload limit; writes and remaining settings deferred |
 | `/workspace` | `routers/workspace.py` | File tree/content/watch/upload, memory, prompt/config resources | Partial Workspace identity and bounded agent file tools; REST/file management deferred |
-| `/workspace/project-directory` | `routers/project_directory.py` | Select/create/clone/import/browse project roots | Partial: VS Code binds Threads only to open Workspace folders |
+| `/workspace/project-directory` | `routers/project_directory.py` | Select/create/clone/import/browse project roots | Partial compatibility: persisted local default selection, recent list, bounded directory browse, and direct-child creation; project clone/import/upload and multi-root remain deferred |
 | `/workspace/git` | `routers/git.py` | Status, branches, checkout, stage, commit, diff | Deferred |
 | `/workspace/checkpoints` | `routers/checkpoints.py` | Checkpoint create/list/restore | Deferred |
-| `/coding-mode` | `routers/coding_mode.py` | Coding mode status and activation | Superseded for VS Code by native Core agent loop; Console compatibility deferred |
+| `/coding-mode` | `routers/coding_mode.py` | Coding mode status and activation | Partial read-only disabled/default response; activation and configuration deferred |
 | `/loops` | `routers/loops.py` | Loop catalog and configuration | Deferred |
 | `/tools` | `routers/tools.py` | Tool catalog, toggles, async mode, config | Partial built-in/MCP tool execution; management contract deferred |
 | `/mcp` | `routers/mcp.py`, `routers/mcp_oauth.py` | MCP config, discovery, OAuth start/callback/status | Partial transports and existing-token refresh; interactive OAuth/persistence deferred |
 | `/skills` | `routers/skills.py`, `routers/skills_stream.py` | Skill CRUD, install/import/sync/security scan streams | Deferred |
 | `/plugins` | `routers/plugins.py` | Plugin lifecycle and configuration | Deferred |
-| `/frontend_plugin` | `routers/frontend_plugin.py` | Frontend plugin manifest/assets | Deferred |
+| `/frontend_plugin` | `routers/frontend_plugin.py` | Frontend plugin manifest/assets | Partial bootstrap response returns an empty list; plugin lifecycle/assets deferred |
 | `/pawapps` | `routers/pawapps.py` | PawApp list/detail/iframe/install lifecycle | Deferred |
 | `/market` | `routers/market.py` | Marketplace queries | Deferred |
 | `/harnesses` | `routers/harnesses.py` | External coding harness configuration | Deferred |
@@ -65,7 +65,7 @@ The machine-generated Rust client contract is separate: see [App Protocol invent
 | `/access-control` | `routers/access_control.py` | Channel access rules and approvals | Deferred |
 | `/envs` | `routers/envs.py` | Environment inspection/configuration | Deferred |
 | `/token-usage` | `routers/token_usage.py` | Usage summaries | Deferred |
-| `/backups` | `routers/backup.py` | Preview/create/import/export/restore, SSE progress | Deferred; required before deleting Python data path |
+| `/backups` | `routers/backup.py` | Preview/create/import/export/restore, SSE progress | Deferred; Rust needs backup/restore for new data, while old Python data remains untouched |
 | `/fork` | `routers/fork.py` | Fork Agent | Deferred |
 | `/files/preview/{path}` | `routers/files.py` | Guarded file preview/download | Deferred; Core agent `read_file` is not an HTTP preview endpoint |
 
@@ -108,8 +108,8 @@ Before a Rust compatibility endpoint replaces the corresponding Python path, cap
 2. Similar names are not compatibility. App Protocol `thread/archive`, for example, does not automatically satisfy every `/api/chats` archive/group behavior.
 3. Preserve authentication and filesystem boundaries before response-shape compatibility.
 4. Introduce adapters at the transport edge; do not pollute Core domain state with Python response objects.
-5. Keep old and new storage writable by only one authoritative runtime during a migration step.
-6. Remove a Python router only after frontend call-site inventory, golden fixtures, migration/rollback procedure, and cross-platform tests pass.
+5. Never point Rust Core at the old Python data directory; the new version owns a separate, initially empty store.
+6. Remove a Python router only after frontend call-site inventory, golden fixtures, cutover/rollback procedure, and cross-platform tests pass.
 
 ## Source-of-truth maintenance
 

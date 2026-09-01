@@ -153,6 +153,15 @@ Set-Location $REPO_ROOT
 Write-Host "Console static assets built" -ForegroundColor Green
 Write-Host ""
 
+# Step 1b: Build and stage the Rust Core migration sidecar
+Write-Host "== Step 1b: Staging Rust Core Sidecar ==" -ForegroundColor Yellow
+& (Join-Path $REPO_ROOT "scripts\pack-tauri\stage_rust_core.ps1")
+if ($LASTEXITCODE -ne 0) {
+    throw "Rust Core sidecar staging failed"
+}
+Write-Host "Rust Core sidecar staged" -ForegroundColor Green
+Write-Host ""
+
 # Step 2: Build PyInstaller backend
 Write-Host "== Step 2: Building PyInstaller Backend ==" -ForegroundColor Yellow
 $PYINSTALLER_SCRIPT = Join-Path $REPO_ROOT "scripts\pack-tauri\build_pyinstaller.ps1"

@@ -147,8 +147,8 @@ fn serializes_item_variant_fields_with_camel_case_names() {
 #[test]
 fn checked_in_contract_artifacts_match_rust_types() {
     assert_eq!(
-        typescript_contract(),
-        include_str!("../../../sdk/typescript/src/protocol.ts")
+        normalize_newlines(&typescript_contract()),
+        normalize_newlines(include_str!("../../../sdk/typescript/src/protocol.ts"))
     );
     assert_eq!(
         json_schema_contract(),
@@ -165,7 +165,13 @@ fn checked_in_contract_artifacts_match_rust_types() {
         .expect("checked-in fixtures should be valid JSON")
     );
     assert_eq!(
-        protocol_inventory(),
-        include_str!("../../../docs/api-contract/app-protocol-inventory.md")
+        normalize_newlines(&protocol_inventory()),
+        normalize_newlines(include_str!(
+            "../../../docs/api-contract/app-protocol-inventory.md"
+        ))
     );
+}
+
+fn normalize_newlines(value: &str) -> String {
+    value.replace("\r\n", "\n")
 }

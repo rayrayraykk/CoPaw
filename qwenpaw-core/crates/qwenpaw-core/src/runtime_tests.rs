@@ -391,6 +391,20 @@ fn persists_and_hot_reloads_non_secret_model_configuration() {
     );
     assert_eq!(core.read_config().config, written.config);
     assert_eq!(core.list_models().data[0].id, "qwen-configured");
+    core.set_runtime_api_key(None)
+        .expect("runtime API key should clear");
+    assert!(!core.read_config().config.api_key_configured);
+    core.set_runtime_api_key(Some(String::from("replacement-secret")))
+        .expect("runtime API key should update");
+    assert!(core.read_config().config.api_key_configured);
+    assert_eq!(
+        core.set_runtime_api_key(Some(String::from("invalid\nsecret")))
+            .expect_err("control characters should be rejected"),
+        CoreError::Config(String::from(
+            "API key must contain 1 through 8192 bytes without control characters"
+        ))
+    );
+    assert!(core.read_config().config.api_key_configured);
 
     drop(core);
     let reopened = Core::persistent(
@@ -475,6 +489,69 @@ async fn lists_and_reads_only_registered_workspaces() {
             .await
             .expect_err("unknown workspace should fail"),
         CoreError::WorkspaceNotFound(String::from("/not/registered"))
+    );
+}
+
+#[tokio::test]
+async fn rebinds_and_persists_an_idle_thread_workspace() {
+    let directory = tempfile::tempdir().expect("temporary directory should be created");
+    let first_workspace = directory.path().join("first");
+    let second_workspace = directory.path().join("second");
+    std::fs::create_dir_all(&first_workspace).expect("first workspace should be created");
+    std::fs::create_dir_all(&second_workspace).expect("second workspace should be created");
+    let database_path = directory.path().join("threads.sqlite3");
+    let config = ModelConfig {
+        api_key: None,
+        base_url: String::from("http://127.0.0.1:1"),
+        default_model: String::from("qwen-test"),
+    };
+    let core =
+        Core::persistent(config.clone(), &database_path).expect("persistent Core should open");
+    let started = core
+        .start_thread(ThreadStartParams {
+            model: None,
+            workspace_root: Some(first_workspace.to_string_lossy().into_owned()),
+        })
+        .await
+        .expect("thread should start");
+    let rebound = core
+        .set_thread_workspace(&started.thread.id, &second_workspace)
+        .await
+        .expect("idle thread should rebind");
+    assert_eq!(
+        rebound.workspace_root,
+        Some(
+            second_workspace
+                .canonicalize()
+                .expect("second workspace should resolve")
+                .to_string_lossy()
+                .into_owned()
+        )
+    );
+    assert_eq!(
+        core.write_preferred_workspace(&second_workspace)
+            .expect("preferred Workspace should persist"),
+        second_workspace
+            .canonicalize()
+            .expect("preferred Workspace should resolve")
+            .to_string_lossy()
+    );
+    drop(core);
+
+    let reopened = Core::persistent(config, &database_path).expect("persistent Core should reopen");
+    assert_eq!(
+        reopened
+            .read_thread(&started.thread.id)
+            .await
+            .expect("rebound thread should persist")
+            .thread,
+        rebound
+    );
+    assert_eq!(
+        reopened
+            .read_preferred_workspace()
+            .expect("preferred Workspace should reload"),
+        rebound.workspace_root
     );
 }
 

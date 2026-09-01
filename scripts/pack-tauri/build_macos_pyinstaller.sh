@@ -90,6 +90,11 @@ cd ..
 echo "Console static assets built"
 echo ""
 
+echo "== Step 1b: Staging Rust Core sidecar =="
+bash scripts/pack-tauri/stage_rust_core.sh
+echo "Rust Core sidecar staged"
+echo ""
+
 # Step 2: Build PyInstaller backend
 echo "== Step 2: Building PyInstaller Backend =="
 bash scripts/pack-tauri/build_pyinstaller.sh
