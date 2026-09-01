@@ -161,6 +161,11 @@ async fn desktop_mode_reports_its_port_and_stops_with_the_authenticated_endpoint
         .as_u64()
         .and_then(|port| u16::try_from(port).ok())
         .expect("Desktop ready marker should contain a TCP port");
+    assert_eq!(
+        std::fs::read_to_string(core_home.path().join("desktop_port"))
+            .expect("Desktop port file should be readable"),
+        format!("{port}\n")
+    );
 
     let mut version = tokio::net::TcpStream::connect(("127.0.0.1", port))
         .await

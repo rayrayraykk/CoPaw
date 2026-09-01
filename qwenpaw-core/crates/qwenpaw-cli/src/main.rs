@@ -6,7 +6,7 @@ use qwenpaw_app_server::SystemDesktopCredentialStore;
 use qwenpaw_core::Core;
 use qwenpaw_core::ModelConfig;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::info;
 use tracing::warn;
@@ -138,6 +138,7 @@ async fn main() -> anyhow::Result<()> {
                 let local_address = listener.local_addr()?;
                 info!(address = %local_address, "QwenPaw HTTP app server listening");
                 if desktop {
+                    write_desktop_port_file(&database_path, local_address.port())?;
                     let mut stdout = std::io::stdout().lock();
                     writeln!(
                         stdout,
@@ -167,4 +168,16 @@ fn core_database_path() -> anyhow::Result<std::path::PathBuf> {
         .join("qwenpaw")
         .join("core")
         .join("threads.sqlite3"))
+}
+
+fn write_desktop_port_file(database_path: &Path, port: u16) -> anyhow::Result<()> {
+    let data_directory = database_path.parent().ok_or_else(|| {
+        anyhow::anyhow!(
+            "Core database path has no data directory: {}",
+            database_path.display()
+        )
+    })?;
+    std::fs::create_dir_all(data_directory)?;
+    std::fs::write(data_directory.join("desktop_port"), format!("{port}\n"))?;
+    Ok(())
 }

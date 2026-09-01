@@ -45,10 +45,10 @@ sleep 3
 echo "[launch_tauri_macos] Process snapshot after launch:"
 ps -ef | grep -iE "qwenpaw|tauri" | grep -v grep || echo "  (no matching processes)"
 
-# 5. Wait for the sidecar to write the port file and respond.
-#    The sidecar writes desktop_port at WORKING_DIR root (~/.qwenpaw),
-#    not inside the workspace dir.
-PORT_FILE="$HOME/.qwenpaw/desktop_port"
+# 5. Wait for Rust Core to publish its port in the versioned fresh-start data
+#    directory and respond.
+CORE_HOME="$HOME/Library/Application Support/com.qwenpaw.desktop/rust-core-v1"
+PORT_FILE="$CORE_HOME/desktop_port"
 PORT=""
 for i in $(seq 1 60); do
   if [ -f "$PORT_FILE" ]; then
@@ -61,12 +61,13 @@ for i in $(seq 1 60); do
   if [ "$i" = "60" ]; then
     echo "::error::Tauri app did not start within 120s"
     echo "[debug] PORT_FILE=$PORT_FILE exists=$([ -f "$PORT_FILE" ] && echo yes || echo no)"
-    echo "[debug] WORKING_DIR (~/.qwenpaw) contents:"
-    ls -la "$HOME/.qwenpaw/" 2>/dev/null || echo "  (missing)"
-    echo "[debug] All qwenpaw-related files under HOME (top 30):"
-    find "$HOME/.qwenpaw" -maxdepth 4 -type f 2>/dev/null | head -30 || true
+    echo "[debug] Rust Core data directory contents:"
+    ls -la "$CORE_HOME/" 2>/dev/null || echo "  (missing)"
+    echo "[debug] Rust Core files (top 30):"
+    find "$CORE_HOME" -maxdepth 4 -type f 2>/dev/null | head -30 || true
     echo "[debug] desktop.log tail (if exists):"
-    tail -50 "$HOME/.qwenpaw/desktop.log" 2>/dev/null || echo "  (no desktop.log)"
+    tail -50 "$HOME/Library/Logs/com.qwenpaw.desktop/qwenpaw-desktop.log" \
+      2>/dev/null || echo "  (no desktop log)"
     echo "[debug] Process list:"
     ps -ef | grep -iE "qwenpaw|tauri" | grep -v grep || echo "  (no matching processes)"
     exit 1
@@ -76,7 +77,7 @@ done
 
 # 6. Auto-init creates BOOTSTRAP.md during startup. Remove it afterwards so
 #    the verifier can drive the agent in normal QA mode.
-rm -f "$HOME/.qwenpaw/workspaces/default/BOOTSTRAP.md"
+rm -f "$CORE_HOME/workspace/BOOTSTRAP.md"
 
 export BASE_URL="http://127.0.0.1:$PORT"
 echo "BASE_URL=$BASE_URL" >> "$GITHUB_ENV"
