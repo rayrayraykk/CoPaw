@@ -12,6 +12,8 @@ use tracing::info;
 use tracing::warn;
 use tracing_subscriber::EnvFilter;
 
+const DESKTOP_PORT_FILE_ENV: &str = "QWENPAW_DESKTOP_PORT_FILE";
+
 #[derive(Debug, Parser)]
 #[command(name = "qwenpaw-core", version, about)]
 struct Cli {
@@ -171,13 +173,32 @@ fn core_database_path() -> anyhow::Result<std::path::PathBuf> {
 }
 
 fn write_desktop_port_file(database_path: &Path, port: u16) -> anyhow::Result<()> {
-    let data_directory = database_path.parent().ok_or_else(|| {
+    let port_file = match std::env::var_os(DESKTOP_PORT_FILE_ENV) {
+        Some(path) => {
+            let path = PathBuf::from(path);
+            anyhow::ensure!(
+                path.is_absolute(),
+                "{DESKTOP_PORT_FILE_ENV} must be an absolute path"
+            );
+            path
+        }
+        None => database_path
+            .parent()
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Core database path has no data directory: {}",
+                    database_path.display()
+                )
+            })?
+            .join("desktop_port"),
+    };
+    let parent = port_file.parent().ok_or_else(|| {
         anyhow::anyhow!(
-            "Core database path has no data directory: {}",
-            database_path.display()
+            "Desktop port file has no containing directory: {}",
+            port_file.display()
         )
     })?;
-    std::fs::create_dir_all(data_directory)?;
-    std::fs::write(data_directory.join("desktop_port"), format!("{port}\n"))?;
+    std::fs::create_dir_all(parent)?;
+    std::fs::write(port_file, format!("{port}\n"))?;
     Ok(())
 }

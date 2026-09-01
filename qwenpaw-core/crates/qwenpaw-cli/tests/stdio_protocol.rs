@@ -123,6 +123,7 @@ async fn starts_with_an_empty_store_without_touching_legacy_data() {
 #[tokio::test]
 async fn desktop_mode_reports_its_port_and_stops_with_the_authenticated_endpoint() {
     let core_home = tempfile::tempdir().expect("temporary core home should be created");
+    let port_file = core_home.path().join("verify/desktop_port");
     let console = tempfile::tempdir().expect("temporary Console should be created");
     std::fs::write(console.path().join("index.html"), "<html>desktop</html>")
         .expect("Console index should be written");
@@ -139,6 +140,7 @@ async fn desktop_mode_reports_its_port_and_stops_with_the_authenticated_endpoint
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .env("QWENPAW_HOME", core_home.path())
+        .env("QWENPAW_DESKTOP_PORT_FILE", &port_file)
         .env("QWENPAW_API_KEY", "desktop-test-key")
         .env(
             "QWENPAW_DESKTOP_SHUTDOWN_TOKEN",
@@ -162,8 +164,7 @@ async fn desktop_mode_reports_its_port_and_stops_with_the_authenticated_endpoint
         .and_then(|port| u16::try_from(port).ok())
         .expect("Desktop ready marker should contain a TCP port");
     assert_eq!(
-        std::fs::read_to_string(core_home.path().join("desktop_port"))
-            .expect("Desktop port file should be readable"),
+        std::fs::read_to_string(port_file).expect("Desktop port file should be readable"),
         format!("{port}\n")
     );
 

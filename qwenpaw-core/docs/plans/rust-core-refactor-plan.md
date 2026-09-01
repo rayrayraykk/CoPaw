@@ -910,7 +910,7 @@ MVP 至少提供：
 - [x] Windows 安装器的 CLI PATH 和进程清理只指向 Desktop、Rust Core 与原生 helper；
 - [x] macOS/Windows 打包脚本只构建 Console、Rust Core、Tauri 和原生 helper；
 - [x] 更新 Fresh Start、系统架构和迁移矩阵，明确新 Desktop 不提供 Python fallback；
-- [x] Rust Core Desktop 启动后在版本化新数据目录发布端口文件，供原生安装验证发现健康端点；
+- [x] Rust Core Desktop 默认在版本化新数据目录发布端口，并支持原生安装验证传入隔离的端口文件路径；
 - [ ] 通过 Rust Core、Tauri、Console 本地门禁及 macOS/Windows 原生 runner 打包验证；
 
 ### 14.3 客户端与发布

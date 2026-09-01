@@ -104,13 +104,19 @@ if ($wv2Files) {
 #    This makes WebView2 expose a Chrome DevTools Protocol port so
 #    Playwright can connect_over_cdp() to the real embedded webview.
 $cdpPort = 9222
+$verifyTemp = if ($env:RUNNER_TEMP) {
+  $env:RUNNER_TEMP
+} else {
+  [System.IO.Path]::GetTempPath()
+}
+$portFile = Join-Path $verifyTemp "qwenpaw-desktop-port"
+if (Test-Path $portFile) { Remove-Item -Force $portFile }
+$env:QWENPAW_DESKTOP_PORT_FILE = $portFile
 $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=$cdpPort"
 Start-Process -FilePath $tauriExe
 
-# 4. Wait for Rust Core to publish its port in the versioned fresh-start data
-#    directory and respond.
-$coreHome = Join-Path $env:APPDATA "com.qwenpaw.desktop\rust-core-v1"
-$portFile = Join-Path $coreHome "desktop_port"
+# 4. Wait for Rust Core to publish its port at the verifier-owned path and
+#    respond.
 $port = $null
 $backendReady = $false
 $deadline = (Get-Date).AddSeconds(120)
@@ -135,12 +141,7 @@ if (-not $backendReady) {
   throw "Tauri app did not start within 120s"
 }
 
-# 5. Auto-init creates BOOTSTRAP.md during startup. Remove it afterwards so
-#    the verifier can drive the agent in normal QA mode.
-$bootstrapMd = Join-Path $coreHome "workspace\BOOTSTRAP.md"
-if (Test-Path $bootstrapMd) { Remove-Item -Force $bootstrapMd }
-
-# 6. Wait for CDP endpoint to become available.
+# 5. Wait for CDP endpoint to become available.
 $cdpUrl = "http://127.0.0.1:$cdpPort"
 $cdpReady = $false
 for ($i = 1; $i -le 30; $i++) {
