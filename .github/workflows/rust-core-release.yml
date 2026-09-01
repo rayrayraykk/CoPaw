@@ -111,7 +111,16 @@ jobs:
         run: '"${{ matrix.binary }}" --version'
       - name: Create release archive
         shell: bash
-        run: tar -C "$(dirname "${{ matrix.binary }}")" -czf "${{ runner.temp }}/${{ matrix.artifact }}.tar.gz" "$(basename "${{ matrix.binary }}")"
+        env:
+          RELEASE_ARTIFACT: ${{ matrix.artifact }}
+        run: |
+          archive="${RUNNER_TEMP}/${RELEASE_ARTIFACT}.tar.gz"
+          if command -v cygpath >/dev/null 2>&1; then
+            archive="$(cygpath -u "${archive}")"
+          fi
+          tar -C "$(dirname "${{ matrix.binary }}")" \
+            -czf "${archive}" \
+            "$(basename "${{ matrix.binary }}")"
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
