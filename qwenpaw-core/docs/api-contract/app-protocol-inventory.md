@@ -1,4 +1,4 @@
-# App Protocol v2 inventory
+# App Protocol v3 inventory
 
 This file is generated from `qwenpaw-protocol`.
 
@@ -20,6 +20,10 @@ This file is generated from `qwenpaw-protocol`.
 | `config/write` | `ConfigWriteParams` | `ConfigWriteResponse` |
 | `workspace/list` | `WorkspaceListParams` | `WorkspaceListResponse` |
 | `workspace/read` | `WorkspaceReadParams` | `WorkspaceReadResponse` |
+| `mcp/list` | `McpListParams` | `McpListResponse` |
+| `mcp/oauth/start` | `McpOAuthStartParams` | `McpOAuthStartResponse` |
+| `mcp/oauth/status` | `McpOAuthStatusParams` | `McpOAuthStatusResponse` |
+| `mcp/oauth/revoke` | `McpOAuthRevokeParams` | `McpOAuthRevokeResponse` |
 
 ## Client notifications
 

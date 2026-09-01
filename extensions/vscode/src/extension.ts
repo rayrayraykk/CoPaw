@@ -4,10 +4,12 @@ import { CoreClientManager } from "./coreClient";
 import { API_KEY_SECRET } from "./environment";
 import { buildUserInput } from "./fileReferences";
 import {
+  type McpClientInfo,
   type ModelInfo,
   type Thread,
   type WorkspaceInfo,
 } from "./generated/protocol";
+import { waitForMcpAuthorization } from "./mcpOAuth";
 import { runWithThreadRecovery } from "./threadRecovery";
 import {
   PENDING_THREAD_SELECTION_KEY,
@@ -336,6 +338,112 @@ export function activate(context: vscode.ExtensionContext): void {
       );
     },
   );
+  const authorizeMcp = vscode.commands.registerCommand(
+    "qwenpaw.authorizeMcp",
+    async () => {
+      const client = await manager?.get();
+      if (!client) {
+        throw new Error("QwenPaw Core client is unavailable");
+      }
+      const clients = (await client.listMcpClients()).filter(
+        (candidate) => candidate.enabled && candidate.oauthStatus !== null,
+      );
+      if (clients.length === 0) {
+        vscode.window.showInformationMessage(
+          "QwenPaw has no enabled remote MCP servers",
+        );
+        return;
+      }
+      const selection = await vscode.window.showQuickPick(
+        clients.map(mcpClientItem),
+        {
+          matchOnDescription: true,
+          matchOnDetail: true,
+          placeHolder: "Select a remote MCP server to authorize",
+          title: "QwenPaw: Authorize MCP Server",
+        },
+      );
+      if (!selection) {
+        return;
+      }
+      const started = await client.startMcpOAuth(selection.client.serverId);
+      const opened = await vscode.env.openExternal(
+        vscode.Uri.parse(started.authorizationUrl),
+      );
+      if (!opened) {
+        vscode.window.showWarningMessage(
+          "QwenPaw could not open the system browser for MCP authorization",
+        );
+        return;
+      }
+      const result = await vscode.window.withProgress(
+        {
+          cancellable: true,
+          location: vscode.ProgressLocation.Notification,
+          title: `Waiting for ${selection.client.name} authorization`,
+        },
+        async (_progress, token) =>
+          waitForMcpAuthorization({
+            isCancelled: () => token.isCancellationRequested,
+            readAuthorized: async () =>
+              (
+                await client.readMcpOAuthStatus(selection.client.serverId)
+              ).authorized,
+          }),
+      );
+      if (result === "authorized") {
+        vscode.window.showInformationMessage(
+          `QwenPaw authorized ${selection.client.name}`,
+        );
+      } else if (result === "timedOut") {
+        vscode.window.showWarningMessage(
+          `Authorization timed out for ${selection.client.name}`,
+        );
+      }
+    },
+  );
+  const revokeMcp = vscode.commands.registerCommand(
+    "qwenpaw.revokeMcp",
+    async () => {
+      const client = await manager?.get();
+      if (!client) {
+        throw new Error("QwenPaw Core client is unavailable");
+      }
+      const clients = (await client.listMcpClients()).filter(
+        (candidate) => candidate.oauthStatus?.authorized === true,
+      );
+      if (clients.length === 0) {
+        vscode.window.showInformationMessage(
+          "QwenPaw has no authorized MCP servers",
+        );
+        return;
+      }
+      const selection = await vscode.window.showQuickPick(
+        clients.map(mcpClientItem),
+        {
+          matchOnDescription: true,
+          matchOnDetail: true,
+          placeHolder: "Select an MCP authorization to remove",
+          title: "QwenPaw: Revoke MCP Authorization",
+        },
+      );
+      if (!selection) {
+        return;
+      }
+      const confirmation = await vscode.window.showWarningMessage(
+        `Revoke MCP authorization for ${selection.client.name}?`,
+        { modal: true },
+        "Revoke",
+      );
+      if (confirmation !== "Revoke") {
+        return;
+      }
+      await client.revokeMcpOAuth(selection.client.serverId);
+      vscode.window.showInformationMessage(
+        `QwenPaw revoked ${selection.client.name}`,
+      );
+    },
+  );
   const configurationChanged = vscode.workspace.onDidChangeConfiguration(
     (event) => {
       void handleConfigurationChange(event, output).catch((error: unknown) => {
@@ -355,6 +463,8 @@ export function activate(context: vscode.ExtensionContext): void {
     showConfiguration,
     showWorkspaces,
     selectWorkspace,
+    authorizeMcp,
+    revokeMcp,
     configurationChanged,
     manager,
   );
@@ -398,6 +508,10 @@ interface WorkspaceQuickPickItem extends vscode.QuickPickItem {
 
 interface WorkspaceFolderQuickPickItem extends vscode.QuickPickItem {
   readonly folder: vscode.WorkspaceFolder;
+}
+
+interface McpClientQuickPickItem extends vscode.QuickPickItem {
+  readonly client: McpClientInfo;
 }
 
 function newThreadItem(): ThreadQuickPickItem {
@@ -454,6 +568,18 @@ function workspaceFolderItem(
     label: folder.name,
     description: folder.uri.fsPath,
     folder,
+  };
+}
+
+function mcpClientItem(client: McpClientInfo): McpClientQuickPickItem {
+  const authorization = client.oauthStatus?.authorized
+    ? "authorized"
+    : "authorization required";
+  return {
+    label: client.name,
+    description: `${client.transport} · ${authorization}`,
+    detail: client.description || client.url,
+    client,
   };
 }
 

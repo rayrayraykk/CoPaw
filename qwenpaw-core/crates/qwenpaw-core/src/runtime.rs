@@ -674,6 +674,61 @@ impl Core {
         }
     }
 
+    /// Returns configured MCP clients with secret values redacted.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the secure OAuth credential store cannot be read.
+    pub async fn list_mcp_clients(&self) -> Result<Vec<qwenpaw_mcp::McpClientInfo>, CoreError> {
+        self.inner.mcp.clients().await.map_err(CoreError::mcp)
+    }
+
+    /// Starts interactive OAuth for a configured remote MCP client.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when discovery, registration, or callback setup fails.
+    pub async fn start_mcp_oauth(
+        &self,
+        server_id: &str,
+        options: qwenpaw_mcp::McpOAuthStartOptions,
+    ) -> Result<qwenpaw_mcp::McpOAuthStartResponse, CoreError> {
+        self.inner
+            .mcp
+            .start_oauth(server_id, options)
+            .await
+            .map_err(CoreError::mcp)
+    }
+
+    /// Returns secure-store OAuth status for a configured MCP client.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an unknown client or credential-store failure.
+    pub async fn mcp_oauth_status(
+        &self,
+        server_id: &str,
+    ) -> Result<qwenpaw_mcp::McpOAuthStatus, CoreError> {
+        self.inner
+            .mcp
+            .oauth_status(server_id)
+            .await
+            .map_err(CoreError::mcp)
+    }
+
+    /// Revokes secure-store OAuth credentials for a configured MCP client.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an unknown client or credential-store failure.
+    pub async fn revoke_mcp_oauth(&self, server_id: &str) -> Result<(), CoreError> {
+        self.inner
+            .mcp
+            .revoke_oauth(server_id)
+            .await
+            .map_err(CoreError::mcp)
+    }
+
     async fn run_turn(
         &self,
         thread_id: String,

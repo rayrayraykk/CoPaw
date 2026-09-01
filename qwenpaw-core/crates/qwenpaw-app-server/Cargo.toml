@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 anyhow.workspace = true
 axum.workspace = true
+axum-server.workspace = true
 chrono.workspace = true
 dirs.workspace = true
 futures-util.workspace = true
@@ -30,6 +31,8 @@ uuid.workspace = true
 
 [dev-dependencies]
 pretty_assertions.workspace = true
+rcgen.workspace = true
+rustls.workspace = true
 reqwest.workspace = true
 tokio-tungstenite.workspace = true
 

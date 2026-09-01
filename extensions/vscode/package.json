@@ -2,7 +2,7 @@
   "name": "qwenpaw-vscode",
   "displayName": "QwenPaw",
   "description": "Use the local QwenPaw Rust Core from VS Code Chat",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "qwenpaw",
   "license": "Apache-2.0",
   "repository": {
@@ -27,7 +27,9 @@
     "onCommand:qwenpaw.selectModel",
     "onCommand:qwenpaw.showConfiguration",
     "onCommand:qwenpaw.showWorkspaces",
-    "onCommand:qwenpaw.selectWorkspace"
+    "onCommand:qwenpaw.selectWorkspace",
+    "onCommand:qwenpaw.authorizeMcp",
+    "onCommand:qwenpaw.revokeMcp"
   ],
   "main": "./out/src/extension.js",
   "contributes": {
@@ -76,6 +78,14 @@
       {
         "command": "qwenpaw.selectWorkspace",
         "title": "QwenPaw: Select Workspace"
+      },
+      {
+        "command": "qwenpaw.authorizeMcp",
+        "title": "QwenPaw: Authorize MCP Server"
+      },
+      {
+        "command": "qwenpaw.revokeMcp",
+        "title": "QwenPaw: Revoke MCP Authorization"
       }
     ],
     "configuration": {

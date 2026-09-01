@@ -20,7 +20,7 @@ VS Code Chat
     │ JSONL over child-process stdio
     ▼
 qwenpaw-core app-server ───────────────┐
-    │ App Protocol v2                  │ optional loopback HTTP health
+    │ App Protocol v3                  │ optional loopback HTTP health
     ▼                                  │ and WebSocket transport
 Core runtime                           │
     ├── bounded agent loop             │
@@ -38,6 +38,8 @@ Desktop opt-in ── random loopback HTTP ┘
 
 Default Desktop/WebUI ── HTTP/SSE ── Python QwenPaw service
     └── all not-yet-migrated product domains
+
+Remote native client ── TLS + bearer-authenticated WSS ── Core App Protocol
 ```
 
 The two server paths are deliberately separate in the MVP. VS Code never calls the Python Web API. The existing Console uses a narrow HTTP/SSE adapter in Rust Desktop mode; that adapter translates at the transport edge into the same Core Thread/Turn/approval model used by App Protocol.
@@ -47,13 +49,13 @@ The two server paths are deliberately separate in the MVP. VS Code never calls t
 | Component | Repository | Responsibility | Current status |
 | --- | --- | --- | --- |
 | `qwenpaw-cli` | `qwenpaw-core/` | Native `qwenpaw-core` executable, configuration bootstrap, logging, process entrypoints | Implemented |
-| `qwenpaw-app-server` | `qwenpaw-core/` | JSONL stdio and loopback HTTP/WebSocket transports, Desktop static serving/lifecycle, initialization, health probes, and Console compatibility adapter | Implemented for App Protocol plus the first Desktop bootstrap/chat/approval slice |
-| `qwenpaw-protocol` | `qwenpaw-core/` | Rust protocol types, version, JSON Schema, fixtures, inventory, TypeScript SDK | Implemented, App Protocol v2 |
+| `qwenpaw-app-server` | `qwenpaw-core/` | JSONL stdio, loopback HTTP/WebSocket, authenticated remote WSS, Desktop static serving/lifecycle, initialization, health probes, and Console compatibility adapter | Implemented for App Protocol plus the first Desktop bootstrap/chat/approval slice |
+| `qwenpaw-protocol` | `qwenpaw-core/` | Rust protocol types, version, JSON Schema, fixtures, inventory, TypeScript SDK | Implemented, App Protocol v3 |
 | `qwenpaw-core` | `qwenpaw-core/` | Thread/Turn state machine, bounded context, model streaming, tool loop, approval and cancellation orchestration | Implemented for MVP |
 | `qwenpaw-storage` | `qwenpaw-core/` | SQLite snapshots and non-secret effective configuration | Implemented for MVP |
 | `qwenpaw-tools` | `qwenpaw-core/` | Workspace path boundary and built-in file/Shell tools | Implemented for MVP |
-| `qwenpaw-mcp` | `qwenpaw-core/` | stdio, Streamable HTTP, legacy SSE, existing-token OAuth refresh, bounded MCP execution | Implemented except interactive OAuth |
-| `extensions/vscode` | Product | Native Chat Participant, Core process ownership, settings/secrets, protocol rendering, thread/model/workspace commands | Implemented for MVP |
+| `qwenpaw-mcp` | `qwenpaw-core/` | stdio, Streamable HTTP, legacy SSE, interactive OAuth/refresh, secure token storage, bounded MCP execution | Implemented for the current MCP client scope |
+| `extensions/vscode` | Product | Native Chat Participant, Core process ownership, settings/secrets, protocol rendering, thread/model/workspace/MCP OAuth commands | Implemented for MVP |
 | `console` | Product | Existing React WebUI and Tauri frontend | React business source unchanged; Tauri can opt into Rust Core with `QWENPAW_DESKTOP_RUST_CORE=1` |
 | `src/qwenpaw` | Product | Existing Python REST/SSE service and non-migrated domains | Compatibility runtime |
 | `references/codex` | Core | Read-only architecture and implementation reference | Not linked into production artifacts |
@@ -73,7 +75,7 @@ A component moves into a new crate only when it has an independently testable pu
 
 1. The VS Code extension resolves an explicit, verified bundled, or `PATH` Core executable.
 2. It starts `qwenpaw-core app-server --stdio`, keeping stdout exclusively for JSONL and inheriting stderr for logs.
-3. Client and server negotiate exact App Protocol version 2 through `initialize`.
+3. Client and server negotiate exact App Protocol version 3 through `initialize`.
 4. The extension synchronizes non-secret model configuration and injects an API key from SecretStorage only into the child environment.
 5. A new Thread is bound to one canonical Workspace root, or an existing persisted Thread is resumed.
 6. A Chat request becomes text plus optional structured file references. Core validates and normalizes references without reading their contents.
@@ -92,14 +94,18 @@ The exact method and notification set is generated in [App Protocol inventory](.
 | Model API key | Client/Desktop credential store | VS Code SecretStorage, inherited environment, or macOS Keychain/Windows Credential Manager/Linux Secret Service | Never persisted in SQLite, returned, or logged; Desktop reads/writes it only through the system credential store |
 | Workspace files | User filesystem | Existing files | Canonical path must remain within immutable Thread Workspace root |
 | MCP configuration | User-selected JSON | Existing file | Path passed at Core startup; sensitive headers are not logged |
-| MCP OAuth access/refresh token | Current MCP config/process | Existing configuration only | Core can refresh an existing grant but does not persist a new browser grant |
+| MCP OAuth access/refresh token | Core MCP manager | macOS Keychain, Windows Credential Manager, or Linux Secret Service | Browser grants and refreshes remain in the system credential store; protocol and Console responses expose status only |
+| Remote App Protocol bearer token | Deployment operator | Permission-restricted external file | Re-read for every WSS handshake; never accepted as a CLI value or written to logs/SQLite |
 | VS Code selected Thread/Workspace | VS Code extension | Chat metadata and in-memory one-shot selection | Workspace selection is restricted to open folders |
 | Existing Console and Python state | Python product runtime | Existing QwenPaw storage | Kept separate and untouched; the Rust version starts with a new Core database as described in the [fresh-start notice](../release/fresh-start.md) |
 
 ## Trust boundaries
 
 - Stdio is local and single-client; Core rejects requests before `initialize` and enforces exact protocol compatibility.
-- HTTP/WebSocket listens only on loopback. Browser origins must be loopback same-origin or explicitly allowlisted for development.
+- Plain HTTP/WebSocket listens only on loopback. Remote mode exposes WSS only,
+  requires a TLS certificate/private key and a permission-restricted bearer
+  token file, and re-reads that file for each handshake. Browser origins still
+  require an explicit allowlist; native clients may omit `Origin`.
 - Model redirects are disabled. Response-header, idle-stream, event, error-body, context, and output sizes are bounded.
 - Every Workspace path is canonicalized. File references must be existing regular files; discovery avoids symlink traversal.
 - Read-only tools do not require approval. File mutation, Shell, and all MCP calls require a fresh one-time approval.
@@ -107,7 +113,7 @@ The exact method and notification set is generated in [App Protocol inventory](.
 - The extension does not display tool arguments or results in progress messages and does not store API keys in normal settings.
 - A Core crash invalidates only that process generation; replacement is on demand, not an uncontrolled restart loop.
 
-These MVP controls do not constitute a complete security parity claim with the Python product. Browser governance, sandbox policy, plugin trust, remote authentication, and multi-tenant isolation remain outside this phase.
+These MVP controls do not constitute a complete security parity claim with the Python product. Browser governance, sandbox policy, plugin trust, remote multi-user authorization, and tenant isolation remain outside this phase.
 
 ## Build and release boundary
 

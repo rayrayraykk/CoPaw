@@ -8,7 +8,7 @@ pub use events::*;
 pub use rpc::*;
 pub use types::*;
 
-pub const PROTOCOL_VERSION: u32 = 2;
+pub const PROTOCOL_VERSION: u32 = 3;
 
 #[cfg(test)]
 #[path = "protocol_tests.rs"]

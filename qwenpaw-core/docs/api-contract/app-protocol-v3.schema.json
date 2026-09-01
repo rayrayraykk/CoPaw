@@ -1,0 +1,1305 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "clientNotifications": {
+    "initialized": {
+      "additionalProperties": false,
+      "type": "object"
+    }
+  },
+  "definitions": {
+    "AgentMessageDeltaNotification": {
+      "properties": {
+        "delta": {
+          "type": "string"
+        },
+        "itemId": {
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "turnId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "delta",
+        "itemId",
+        "threadId",
+        "turnId"
+      ],
+      "title": "AgentMessageDeltaNotification",
+      "type": "object"
+    },
+    "ApprovalDecision": {
+      "enum": [
+        "approved",
+        "denied"
+      ],
+      "type": "string"
+    },
+    "ClientInfo": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "type": "object"
+    },
+    "ConfigReadParams": {
+      "title": "ConfigReadParams",
+      "type": "object"
+    },
+    "ConfigReadResponse": {
+      "properties": {
+        "config": {
+          "$ref": "#/definitions/CoreConfig"
+        }
+      },
+      "required": [
+        "config"
+      ],
+      "title": "ConfigReadResponse",
+      "type": "object"
+    },
+    "ConfigWriteParams": {
+      "properties": {
+        "baseUrl": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "defaultModel": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "title": "ConfigWriteParams",
+      "type": "object"
+    },
+    "ConfigWriteResponse": {
+      "properties": {
+        "config": {
+          "$ref": "#/definitions/CoreConfig"
+        }
+      },
+      "required": [
+        "config"
+      ],
+      "title": "ConfigWriteResponse",
+      "type": "object"
+    },
+    "CoreConfig": {
+      "properties": {
+        "apiKeyConfigured": {
+          "type": "boolean"
+        },
+        "baseUrl": {
+          "type": "string"
+        },
+        "defaultModel": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "apiKeyConfigured",
+        "baseUrl",
+        "defaultModel"
+      ],
+      "type": "object"
+    },
+    "ErrorInfo": {
+      "properties": {
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "message"
+      ],
+      "type": "object"
+    },
+    "InitializeParams": {
+      "properties": {
+        "clientInfo": {
+          "$ref": "#/definitions/ClientInfo"
+        }
+      },
+      "required": [
+        "clientInfo"
+      ],
+      "title": "InitializeParams",
+      "type": "object"
+    },
+    "InitializeResponse": {
+      "properties": {
+        "protocolVersion": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "serverInfo": {
+          "$ref": "#/definitions/ServerInfo"
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "serverInfo"
+      ],
+      "title": "InitializeResponse",
+      "type": "object"
+    },
+    "Item": {
+      "oneOf": [
+        {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "userMessage"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "text",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "agentMessage"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "text",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "arguments": {
+              "type": "string"
+            },
+            "call_id": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "toolCall"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "arguments",
+            "call_id",
+            "id",
+            "name",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "call_id": {
+              "type": "string"
+            },
+            "content": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "is_error": {
+              "type": "boolean"
+            },
+            "type": {
+              "enum": [
+                "toolResult"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "call_id",
+            "content",
+            "id",
+            "is_error",
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ItemCompletedNotification": {
+      "properties": {
+        "item": {
+          "$ref": "#/definitions/Item"
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "turnId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "item",
+        "threadId",
+        "turnId"
+      ],
+      "title": "ItemCompletedNotification",
+      "type": "object"
+    },
+    "ItemStartedNotification": {
+      "properties": {
+        "item": {
+          "$ref": "#/definitions/Item"
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "turnId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "item",
+        "threadId",
+        "turnId"
+      ],
+      "title": "ItemStartedNotification",
+      "type": "object"
+    },
+    "McpClientInfo": {
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        },
+        "oauthStatus": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/McpOAuthStatus"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "serverId": {
+          "type": "string"
+        },
+        "transport": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "description",
+        "enabled",
+        "name",
+        "serverId",
+        "transport",
+        "url"
+      ],
+      "type": "object"
+    },
+    "McpListParams": {
+      "title": "McpListParams",
+      "type": "object"
+    },
+    "McpListResponse": {
+      "properties": {
+        "data": {
+          "items": {
+            "$ref": "#/definitions/McpClientInfo"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "data"
+      ],
+      "title": "McpListResponse",
+      "type": "object"
+    },
+    "McpOAuthRevokeParams": {
+      "properties": {
+        "serverId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "serverId"
+      ],
+      "title": "McpOAuthRevokeParams",
+      "type": "object"
+    },
+    "McpOAuthRevokeResponse": {
+      "properties": {
+        "revoked": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "revoked"
+      ],
+      "title": "McpOAuthRevokeResponse",
+      "type": "object"
+    },
+    "McpOAuthStartParams": {
+      "properties": {
+        "authorizationEndpoint": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientId": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "scope": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "serverId": {
+          "type": "string"
+        },
+        "tokenEndpoint": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "url": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "serverId"
+      ],
+      "title": "McpOAuthStartParams",
+      "type": "object"
+    },
+    "McpOAuthStartResponse": {
+      "properties": {
+        "authorizationUrl": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "authorizationUrl",
+        "sessionId"
+      ],
+      "title": "McpOAuthStartResponse",
+      "type": "object"
+    },
+    "McpOAuthStatus": {
+      "properties": {
+        "authorized": {
+          "type": "boolean"
+        },
+        "clientId": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "format": "double",
+          "type": "number"
+        },
+        "scope": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "authorized",
+        "clientId",
+        "expiresAt",
+        "scope"
+      ],
+      "type": "object"
+    },
+    "McpOAuthStatusParams": {
+      "properties": {
+        "serverId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "serverId"
+      ],
+      "title": "McpOAuthStatusParams",
+      "type": "object"
+    },
+    "McpOAuthStatusResponse": {
+      "properties": {
+        "status": {
+          "$ref": "#/definitions/McpOAuthStatus"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "McpOAuthStatusResponse",
+      "type": "object"
+    },
+    "ModelInfo": {
+      "properties": {
+        "displayName": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "isDefault": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "displayName",
+        "id",
+        "isDefault"
+      ],
+      "type": "object"
+    },
+    "ModelListParams": {
+      "title": "ModelListParams",
+      "type": "object"
+    },
+    "ModelListResponse": {
+      "properties": {
+        "data": {
+          "items": {
+            "$ref": "#/definitions/ModelInfo"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "data"
+      ],
+      "title": "ModelListResponse",
+      "type": "object"
+    },
+    "ServerInfo": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "type": "object"
+    },
+    "Thread": {
+      "properties": {
+        "archived": {
+          "default": false,
+          "type": "boolean"
+        },
+        "createdAt": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/definitions/ThreadStatus"
+        },
+        "updatedAt": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "workspaceRoot": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "createdAt",
+        "id",
+        "model",
+        "status",
+        "updatedAt"
+      ],
+      "type": "object"
+    },
+    "ThreadArchiveParams": {
+      "properties": {
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "threadId"
+      ],
+      "title": "ThreadArchiveParams",
+      "type": "object"
+    },
+    "ThreadArchiveResponse": {
+      "properties": {
+        "thread": {
+          "$ref": "#/definitions/Thread"
+        }
+      },
+      "required": [
+        "thread"
+      ],
+      "title": "ThreadArchiveResponse",
+      "type": "object"
+    },
+    "ThreadListParams": {
+      "properties": {
+        "cursor": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "includeArchived": {
+          "default": false,
+          "type": "boolean"
+        },
+        "limit": {
+          "default": null,
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "title": "ThreadListParams",
+      "type": "object"
+    },
+    "ThreadListResponse": {
+      "properties": {
+        "data": {
+          "items": {
+            "$ref": "#/definitions/Thread"
+          },
+          "type": "array"
+        },
+        "nextCursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "data"
+      ],
+      "title": "ThreadListResponse",
+      "type": "object"
+    },
+    "ThreadReadParams": {
+      "properties": {
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "threadId"
+      ],
+      "title": "ThreadReadParams",
+      "type": "object"
+    },
+    "ThreadReadResponse": {
+      "properties": {
+        "thread": {
+          "$ref": "#/definitions/Thread"
+        },
+        "turns": {
+          "items": {
+            "$ref": "#/definitions/Turn"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "thread",
+        "turns"
+      ],
+      "title": "ThreadReadResponse",
+      "type": "object"
+    },
+    "ThreadResumeParams": {
+      "properties": {
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "threadId"
+      ],
+      "title": "ThreadResumeParams",
+      "type": "object"
+    },
+    "ThreadResumeResponse": {
+      "properties": {
+        "thread": {
+          "$ref": "#/definitions/Thread"
+        }
+      },
+      "required": [
+        "thread"
+      ],
+      "title": "ThreadResumeResponse",
+      "type": "object"
+    },
+    "ThreadStartParams": {
+      "properties": {
+        "model": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "workspaceRoot": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "title": "ThreadStartParams",
+      "type": "object"
+    },
+    "ThreadStartResponse": {
+      "properties": {
+        "thread": {
+          "$ref": "#/definitions/Thread"
+        }
+      },
+      "required": [
+        "thread"
+      ],
+      "title": "ThreadStartResponse",
+      "type": "object"
+    },
+    "ThreadStartedNotification": {
+      "properties": {
+        "thread": {
+          "$ref": "#/definitions/Thread"
+        }
+      },
+      "required": [
+        "thread"
+      ],
+      "title": "ThreadStartedNotification",
+      "type": "object"
+    },
+    "ThreadStatus": {
+      "enum": [
+        "idle",
+        "active",
+        "error"
+      ],
+      "type": "string"
+    },
+    "ToolApprovalRequestedNotification": {
+      "properties": {
+        "approvalId": {
+          "type": "string"
+        },
+        "arguments": {
+          "type": "string"
+        },
+        "callId": {
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "toolName": {
+          "type": "string"
+        },
+        "turnId": {
+          "type": "string"
+        },
+        "workspaceRoot": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "approvalId",
+        "arguments",
+        "callId",
+        "threadId",
+        "toolName",
+        "turnId",
+        "workspaceRoot"
+      ],
+      "title": "ToolApprovalRequestedNotification",
+      "type": "object"
+    },
+    "ToolApprovalResolvedNotification": {
+      "properties": {
+        "approvalId": {
+          "type": "string"
+        },
+        "decision": {
+          "$ref": "#/definitions/ApprovalDecision"
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "turnId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "approvalId",
+        "decision",
+        "threadId",
+        "turnId"
+      ],
+      "title": "ToolApprovalResolvedNotification",
+      "type": "object"
+    },
+    "ToolApprovalRespondParams": {
+      "properties": {
+        "approvalId": {
+          "type": "string"
+        },
+        "decision": {
+          "$ref": "#/definitions/ApprovalDecision"
+        }
+      },
+      "required": [
+        "approvalId",
+        "decision"
+      ],
+      "title": "ToolApprovalRespondParams",
+      "type": "object"
+    },
+    "ToolApprovalRespondResponse": {
+      "properties": {
+        "accepted": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "accepted"
+      ],
+      "title": "ToolApprovalRespondResponse",
+      "type": "object"
+    },
+    "Turn": {
+      "properties": {
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ErrorInfo"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/definitions/Item"
+          },
+          "type": "array"
+        },
+        "status": {
+          "$ref": "#/definitions/TurnStatus"
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "items",
+        "status",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    "TurnCompletedNotification": {
+      "properties": {
+        "turn": {
+          "$ref": "#/definitions/Turn"
+        }
+      },
+      "required": [
+        "turn"
+      ],
+      "title": "TurnCompletedNotification",
+      "type": "object"
+    },
+    "TurnInterruptParams": {
+      "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "turnId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "threadId",
+        "turnId"
+      ],
+      "title": "TurnInterruptParams",
+      "type": "object"
+    },
+    "TurnInterruptResponse": {
+      "properties": {
+        "accepted": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "accepted"
+      ],
+      "title": "TurnInterruptResponse",
+      "type": "object"
+    },
+    "TurnStartParams": {
+      "properties": {
+        "input": {
+          "items": {
+            "$ref": "#/definitions/UserInput"
+          },
+          "type": "array"
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "input",
+        "threadId"
+      ],
+      "title": "TurnStartParams",
+      "type": "object"
+    },
+    "TurnStartResponse": {
+      "properties": {
+        "turn": {
+          "$ref": "#/definitions/Turn"
+        }
+      },
+      "required": [
+        "turn"
+      ],
+      "title": "TurnStartResponse",
+      "type": "object"
+    },
+    "TurnStartedNotification": {
+      "properties": {
+        "turn": {
+          "$ref": "#/definitions/Turn"
+        }
+      },
+      "required": [
+        "turn"
+      ],
+      "title": "TurnStartedNotification",
+      "type": "object"
+    },
+    "TurnStatus": {
+      "enum": [
+        "inProgress",
+        "completed",
+        "interrupted",
+        "failed"
+      ],
+      "type": "string"
+    },
+    "UserInput": {
+      "oneOf": [
+        {
+          "properties": {
+            "text": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "text"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "text",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "end_line": {
+              "default": null,
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "path": {
+              "type": "string"
+            },
+            "start_line": {
+              "default": null,
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "type": {
+              "enum": [
+                "fileReference"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "WorkspaceInfo": {
+      "properties": {
+        "archivedThreadCount": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "root": {
+          "type": "string"
+        },
+        "threadCount": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "updatedAt": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "archivedThreadCount",
+        "root",
+        "threadCount",
+        "updatedAt"
+      ],
+      "type": "object"
+    },
+    "WorkspaceListParams": {
+      "title": "WorkspaceListParams",
+      "type": "object"
+    },
+    "WorkspaceListResponse": {
+      "properties": {
+        "data": {
+          "items": {
+            "$ref": "#/definitions/WorkspaceInfo"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "data"
+      ],
+      "title": "WorkspaceListResponse",
+      "type": "object"
+    },
+    "WorkspaceReadParams": {
+      "properties": {
+        "root": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "root"
+      ],
+      "title": "WorkspaceReadParams",
+      "type": "object"
+    },
+    "WorkspaceReadResponse": {
+      "properties": {
+        "workspace": {
+          "$ref": "#/definitions/WorkspaceInfo"
+        }
+      },
+      "required": [
+        "workspace"
+      ],
+      "title": "WorkspaceReadResponse",
+      "type": "object"
+    }
+  },
+  "protocolVersion": 3,
+  "requests": {
+    "config/read": {
+      "params": {
+        "$ref": "#/definitions/ConfigReadParams"
+      },
+      "result": {
+        "$ref": "#/definitions/ConfigReadResponse"
+      }
+    },
+    "config/write": {
+      "params": {
+        "$ref": "#/definitions/ConfigWriteParams"
+      },
+      "result": {
+        "$ref": "#/definitions/ConfigWriteResponse"
+      }
+    },
+    "initialize": {
+      "params": {
+        "$ref": "#/definitions/InitializeParams"
+      },
+      "result": {
+        "$ref": "#/definitions/InitializeResponse"
+      }
+    },
+    "mcp/list": {
+      "params": {
+        "$ref": "#/definitions/McpListParams"
+      },
+      "result": {
+        "$ref": "#/definitions/McpListResponse"
+      }
+    },
+    "mcp/oauth/revoke": {
+      "params": {
+        "$ref": "#/definitions/McpOAuthRevokeParams"
+      },
+      "result": {
+        "$ref": "#/definitions/McpOAuthRevokeResponse"
+      }
+    },
+    "mcp/oauth/start": {
+      "params": {
+        "$ref": "#/definitions/McpOAuthStartParams"
+      },
+      "result": {
+        "$ref": "#/definitions/McpOAuthStartResponse"
+      }
+    },
+    "mcp/oauth/status": {
+      "params": {
+        "$ref": "#/definitions/McpOAuthStatusParams"
+      },
+      "result": {
+        "$ref": "#/definitions/McpOAuthStatusResponse"
+      }
+    },
+    "model/list": {
+      "params": {
+        "$ref": "#/definitions/ModelListParams"
+      },
+      "result": {
+        "$ref": "#/definitions/ModelListResponse"
+      }
+    },
+    "thread/archive": {
+      "params": {
+        "$ref": "#/definitions/ThreadArchiveParams"
+      },
+      "result": {
+        "$ref": "#/definitions/ThreadArchiveResponse"
+      }
+    },
+    "thread/list": {
+      "params": {
+        "$ref": "#/definitions/ThreadListParams"
+      },
+      "result": {
+        "$ref": "#/definitions/ThreadListResponse"
+      }
+    },
+    "thread/read": {
+      "params": {
+        "$ref": "#/definitions/ThreadReadParams"
+      },
+      "result": {
+        "$ref": "#/definitions/ThreadReadResponse"
+      }
+    },
+    "thread/resume": {
+      "params": {
+        "$ref": "#/definitions/ThreadResumeParams"
+      },
+      "result": {
+        "$ref": "#/definitions/ThreadResumeResponse"
+      }
+    },
+    "thread/start": {
+      "params": {
+        "$ref": "#/definitions/ThreadStartParams"
+      },
+      "result": {
+        "$ref": "#/definitions/ThreadStartResponse"
+      }
+    },
+    "tool/approval/respond": {
+      "params": {
+        "$ref": "#/definitions/ToolApprovalRespondParams"
+      },
+      "result": {
+        "$ref": "#/definitions/ToolApprovalRespondResponse"
+      }
+    },
+    "turn/interrupt": {
+      "params": {
+        "$ref": "#/definitions/TurnInterruptParams"
+      },
+      "result": {
+        "$ref": "#/definitions/TurnInterruptResponse"
+      }
+    },
+    "turn/start": {
+      "params": {
+        "$ref": "#/definitions/TurnStartParams"
+      },
+      "result": {
+        "$ref": "#/definitions/TurnStartResponse"
+      }
+    },
+    "workspace/list": {
+      "params": {
+        "$ref": "#/definitions/WorkspaceListParams"
+      },
+      "result": {
+        "$ref": "#/definitions/WorkspaceListResponse"
+      }
+    },
+    "workspace/read": {
+      "params": {
+        "$ref": "#/definitions/WorkspaceReadParams"
+      },
+      "result": {
+        "$ref": "#/definitions/WorkspaceReadResponse"
+      }
+    }
+  },
+  "serverNotifications": {
+    "item/agentMessage/delta": {
+      "$ref": "#/definitions/AgentMessageDeltaNotification"
+    },
+    "item/completed": {
+      "$ref": "#/definitions/ItemCompletedNotification"
+    },
+    "item/started": {
+      "$ref": "#/definitions/ItemStartedNotification"
+    },
+    "thread/started": {
+      "$ref": "#/definitions/ThreadStartedNotification"
+    },
+    "tool/approval/requested": {
+      "$ref": "#/definitions/ToolApprovalRequestedNotification"
+    },
+    "tool/approval/resolved": {
+      "$ref": "#/definitions/ToolApprovalResolvedNotification"
+    },
+    "turn/completed": {
+      "$ref": "#/definitions/TurnCompletedNotification"
+    },
+    "turn/started": {
+      "$ref": "#/definitions/TurnStartedNotification"
+    }
+  },
+  "title": "QwenPaw App Protocol v3"
+}

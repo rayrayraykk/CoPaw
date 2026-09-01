@@ -8,7 +8,7 @@ This inventory records the HTTP, SSE, and WebSocket surfaces that the existing D
 
 The Python application mounts its primary routers below `/api`, also serves Console assets and SPA fallback routes, and exposes a small set of root-level external webhooks. Many agent-specific routers are mounted a second time below `/api/agents/{agentId}`.
 
-The machine-generated Rust client contract is separate: see [App Protocol inventory](app-protocol-inventory.md) and [App Protocol v2 schema](app-protocol-v2.schema.json).
+The machine-generated Rust client contract is separate: see [App Protocol inventory](app-protocol-inventory.md) and [App Protocol v3 schema](app-protocol-v3.schema.json).
 
 ## Top-level surfaces
 
@@ -52,7 +52,7 @@ The machine-generated Rust client contract is separate: see [App Protocol invent
 | `/coding-mode` | `routers/coding_mode.py` | Coding mode status and activation | Partial read-only disabled/default response; activation and configuration deferred |
 | `/loops` | `routers/loops.py` | Loop catalog and configuration | Partial bootstrap contract: one actual standard guarded loop and idle status; custom modes and writes deferred |
 | `/tools` | `routers/tools.py` | Tool catalog, toggles, async mode, config | Partial built-in/MCP tool execution; management contract deferred |
-| `/mcp` | `routers/mcp.py`, `routers/mcp_oauth.py` | MCP config, discovery, OAuth start/callback/status | Partial transports and existing-token refresh; interactive OAuth/persistence deferred |
+| `/mcp` | `routers/mcp.py`, `routers/mcp_oauth.py` | MCP config, discovery, OAuth start/callback/status | Partial management contract plus native stdio/HTTP/SSE transports and interactive OAuth discovery, PKCE loopback callback, secure persistence, refresh and revoke; client CRUD/access-policy writes remain deferred |
 | `/skills` | `routers/skills.py`, `routers/skills_stream.py` | Skill CRUD, install/import/sync/security scan streams | Partial bootstrap contract returns an empty catalog because Desktop Skills are not implemented; lifecycle and streams deferred |
 | `/plugins` | `routers/plugins.py` | Plugin lifecycle and configuration | Deferred |
 | `/frontend_plugin` | `routers/frontend_plugin.py` | Frontend plugin manifest/assets | Partial bootstrap response returns an empty list; plugin lifecycle/assets deferred |

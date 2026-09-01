@@ -40,6 +40,15 @@ use tokio_util::sync::CancellationToken;
 use tracing::info;
 use tracing::warn;
 
+mod oauth;
+
+pub use oauth::McpOAuthCredentialStore;
+pub use oauth::McpOAuthCredentials;
+pub use oauth::McpOAuthStartOptions;
+pub use oauth::McpOAuthStartResponse;
+pub use oauth::McpOAuthStatus;
+pub use oauth::SystemMcpOAuthCredentialStore;
+
 const CONFIG_ENV: &str = "QWENPAW_MCP_CONFIG";
 const MAX_CONFIG_BYTES: u64 = 1_048_576;
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(15);
@@ -57,6 +66,8 @@ type ClientService = RunningService<RoleClient, ()>;
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct McpClientConfig {
+    #[serde(default)]
+    name: String,
     #[serde(default)]
     description: String,
     #[serde(default = "default_true", alias = "isActive")]
@@ -96,6 +107,8 @@ struct McpOAuthConfig {
     expires_at: f64,
     #[serde(default)]
     token_endpoint: String,
+    #[serde(default, alias = "authEndpoint")]
+    authorization_endpoint: String,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -129,12 +142,30 @@ struct McpManagerInner {
     clients: BTreeMap<String, McpClientConfig>,
     connections: Mutex<HashMap<String, Arc<Connection>>>,
     routes: RwLock<HashMap<String, ToolRoute>>,
+    oauth_store: Arc<dyn McpOAuthCredentialStore>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct McpToolOutput {
     pub content: String,
     pub is_error: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct McpClientInfo {
+    pub key: String,
+    pub name: String,
+    pub description: String,
+    pub enabled: bool,
+    pub transport: String,
+    pub url: String,
+    pub headers: HashMap<String, String>,
+    pub command: String,
+    pub args: Vec<String>,
+    pub env: HashMap<String, String>,
+    pub cwd: String,
+    pub tools: Option<Vec<String>>,
+    pub oauth_status: Option<McpOAuthStatus>,
 }
 
 impl McpManager {
@@ -153,7 +184,7 @@ impl McpManager {
 
     #[must_use]
     pub fn empty() -> Self {
-        Self::new(BTreeMap::new())
+        Self::new(BTreeMap::new(), Arc::new(SystemMcpOAuthCredentialStore))
     }
 
     /// Loads the legacy-compatible MCP client map from a JSON file.
@@ -162,6 +193,18 @@ impl McpManager {
     ///
     /// Returns an error for invalid file metadata, JSON, or enabled clients.
     pub fn from_path(path: &Path) -> Result<Self, McpError> {
+        Self::from_path_with_oauth_store(path, Arc::new(SystemMcpOAuthCredentialStore))
+    }
+
+    /// Loads MCP clients with an explicitly supplied OAuth credential store.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid configuration or enabled clients.
+    pub fn from_path_with_oauth_store(
+        path: &Path,
+        oauth_store: Arc<dyn McpOAuthCredentialStore>,
+    ) -> Result<Self, McpError> {
         let metadata = std::fs::metadata(path).map_err(|source| McpError::ConfigRead {
             path: path.to_path_buf(),
             source,
@@ -188,15 +231,19 @@ impl McpManager {
         for (id, client) in &config.clients {
             validate_client(id, client)?;
         }
-        Ok(Self::new(config.clients))
+        Ok(Self::new(config.clients, oauth_store))
     }
 
-    fn new(clients: BTreeMap<String, McpClientConfig>) -> Self {
+    fn new(
+        clients: BTreeMap<String, McpClientConfig>,
+        oauth_store: Arc<dyn McpOAuthCredentialStore>,
+    ) -> Self {
         Self {
             inner: Arc::new(McpManagerInner {
                 clients,
                 connections: Mutex::new(HashMap::new()),
                 routes: RwLock::new(HashMap::new()),
+                oauth_store,
             }),
         }
     }
@@ -207,6 +254,43 @@ impl McpManager {
             .clients
             .values()
             .all(|client| !client.enabled || !transport_is_supported(&client.transport))
+    }
+
+    /// Returns a redacted snapshot of configured MCP clients.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when OAuth status cannot be read from the secure store.
+    pub async fn clients(&self) -> Result<Vec<McpClientInfo>, McpError> {
+        let mut clients = Vec::with_capacity(self.inner.clients.len());
+        for (key, config) in &self.inner.clients {
+            let remote = matches!(config.transport.as_str(), "streamable_http" | "sse");
+            let oauth_status = if remote {
+                Some(self.oauth_status(key).await?)
+            } else {
+                None
+            };
+            clients.push(McpClientInfo {
+                key: key.clone(),
+                name: if config.name.is_empty() {
+                    key.clone()
+                } else {
+                    config.name.clone()
+                },
+                description: config.description.clone(),
+                enabled: config.enabled,
+                transport: config.transport.clone(),
+                url: config.url.clone(),
+                headers: redact_values(&config.headers),
+                command: config.command.clone(),
+                args: config.args.clone(),
+                env: redact_values(&config.env),
+                cwd: config.cwd.clone(),
+                tools: config.tools.clone(),
+                oauth_status,
+            });
+        }
+        Ok(clients)
     }
 
     /// Discovers enabled MCP tools and returns OpenAI-compatible definitions.
@@ -390,8 +474,10 @@ impl McpManager {
         let cancellation = CancellationToken::new();
         let client = match config.transport.as_str() {
             "stdio" => start_stdio_client(server_id, config, cancellation.clone()).await?,
-            "streamable_http" => start_http_client(server_id, config, cancellation.clone()).await?,
-            "sse" => start_sse_client(server_id, config, cancellation.clone()).await?,
+            "streamable_http" => {
+                start_http_client(self, server_id, config, cancellation.clone()).await?
+            }
+            "sse" => start_sse_client(self, server_id, config, cancellation.clone()).await?,
             _ => {
                 return Err(McpError::UnsupportedTransport {
                     id: server_id.to_owned(),
@@ -446,6 +532,7 @@ async fn start_stdio_client(
 }
 
 async fn start_http_client(
+    manager: &McpManager,
     server_id: &str,
     config: &McpClientConfig,
     cancellation: CancellationToken,
@@ -459,7 +546,7 @@ async fn start_http_client(
         .map_err(|error| McpError::HttpClient(error.to_string()))?;
     let (headers, configured_token) = resolve_http_headers(config)?;
     let bearer_token =
-        resolve_http_bearer(server_id, config, configured_token, &http_client).await?;
+        resolve_manager_bearer(manager, server_id, config, configured_token, &http_client).await?;
     let mut transport_config = StreamableHttpClientTransportConfig::with_uri(url)
         .custom_headers(headers)
         .max_sse_event_size(MAX_RESULT_BYTES);
@@ -474,13 +561,14 @@ async fn start_http_client(
 }
 
 async fn start_sse_client(
+    manager: &McpManager,
     server_id: &str,
     config: &McpClientConfig,
     cancellation: CancellationToken,
 ) -> Result<ClientService, McpError> {
     let result = tokio::time::timeout(STARTUP_TIMEOUT, async {
         let transport =
-            LegacySseTransport::connect(server_id, config, cancellation.clone()).await?;
+            LegacySseTransport::connect(manager, server_id, config, cancellation.clone()).await?;
         ().serve_with_ct(transport, cancellation)
             .await
             .map_err(|error| LegacySseError::Protocol(error.to_string()))
@@ -523,6 +611,7 @@ struct LegacySseTransport {
 
 impl LegacySseTransport {
     async fn connect(
+        manager: &McpManager,
         server_id: &str,
         config: &McpClientConfig,
         cancellation: CancellationToken,
@@ -540,9 +629,10 @@ impl LegacySseTransport {
             .map_err(|_| LegacySseError::Http("client setup"))?;
         let (custom_headers, configured_token) = resolve_http_headers(config)
             .map_err(|error| LegacySseError::Configuration(error.to_string()))?;
-        let bearer_token = resolve_http_bearer(server_id, config, configured_token, &client)
-            .await
-            .map_err(|error| LegacySseError::Configuration(error.to_string()))?;
+        let bearer_token =
+            resolve_manager_bearer(manager, server_id, config, configured_token, &client)
+                .await
+                .map_err(|error| LegacySseError::Configuration(error.to_string()))?;
         let headers = legacy_header_map(custom_headers, bearer_token)?;
         let response = client
             .get(base_url.clone())
@@ -785,6 +875,13 @@ fn default_true() -> bool {
     true
 }
 
+fn redact_values(values: &HashMap<String, String>) -> HashMap<String, String> {
+    values
+        .keys()
+        .map(|key| (key.clone(), String::from("********")))
+        .collect()
+}
+
 fn normalize_transport(config: &mut McpClientConfig) {
     let transport = config.transport.trim().to_ascii_lowercase();
     config.transport = match transport.as_str() {
@@ -961,6 +1058,27 @@ async fn resolve_http_bearer(
     refresh_oauth_token(server_id, oauth, client)
         .await
         .map(Some)
+}
+
+async fn resolve_manager_bearer(
+    manager: &McpManager,
+    server_id: &str,
+    config: &McpClientConfig,
+    configured_token: Option<String>,
+    client: &reqwest::Client,
+) -> Result<Option<String>, McpError> {
+    if let Some(stored_token) = manager
+        .stored_oauth_bearer(server_id, config, client)
+        .await?
+    {
+        if configured_token.is_some() {
+            return Err(McpError::InvalidConfig(String::from(
+                "MCP configuration cannot combine Authorization with stored OAuth credentials",
+            )));
+        }
+        return Ok(Some(stored_token));
+    }
+    resolve_http_bearer(server_id, config, configured_token, client).await
 }
 
 async fn refresh_oauth_token(
@@ -1180,6 +1298,8 @@ pub enum McpError {
     Spawn(#[from] std::io::Error),
     #[error("failed to create MCP HTTP client: {0}")]
     HttpClient(String),
+    #[error("MCP OAuth failed: {0}")]
+    OAuth(String),
     #[error("MCP OAuth refresh failed: {0}")]
     OAuthRefresh(String),
     #[error("MCP server startup failed: {0}")]

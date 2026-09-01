@@ -22,6 +22,16 @@ use crate::InitializeResponse;
 use crate::Item;
 use crate::ItemCompletedNotification;
 use crate::ItemStartedNotification;
+use crate::McpClientInfo;
+use crate::McpListParams;
+use crate::McpListResponse;
+use crate::McpOAuthRevokeParams;
+use crate::McpOAuthRevokeResponse;
+use crate::McpOAuthStartParams;
+use crate::McpOAuthStartResponse;
+use crate::McpOAuthStatus;
+use crate::McpOAuthStatusParams;
+use crate::McpOAuthStatusResponse;
 use crate::ModelInfo;
 use crate::ModelListParams;
 use crate::ModelListResponse;
@@ -97,6 +107,22 @@ pub const REQUEST_METHODS: &[(&str, &str, &str)] = &[
         "WorkspaceReadParams",
         "WorkspaceReadResponse",
     ),
+    ("mcp/list", "McpListParams", "McpListResponse"),
+    (
+        "mcp/oauth/start",
+        "McpOAuthStartParams",
+        "McpOAuthStartResponse",
+    ),
+    (
+        "mcp/oauth/status",
+        "McpOAuthStatusParams",
+        "McpOAuthStatusResponse",
+    ),
+    (
+        "mcp/oauth/revoke",
+        "McpOAuthRevokeParams",
+        "McpOAuthRevokeResponse",
+    ),
 ];
 
 pub const SERVER_NOTIFICATIONS: &[(&str, &str)] = &[
@@ -158,6 +184,16 @@ pub fn typescript_contract() -> String {
         WorkspaceReadParams::decl(),
         WorkspaceReadResponse::decl(),
         WorkspaceInfo::decl(),
+        McpListParams::decl(),
+        McpListResponse::decl(),
+        McpClientInfo::decl(),
+        McpOAuthStatus::decl(),
+        McpOAuthStartParams::decl(),
+        McpOAuthStartResponse::decl(),
+        McpOAuthStatusParams::decl(),
+        McpOAuthStatusResponse::decl(),
+        McpOAuthRevokeParams::decl(),
+        McpOAuthRevokeResponse::decl(),
         ThreadStartedNotification::decl(),
         TurnStartedNotification::decl(),
         ItemStartedNotification::decl(),
@@ -228,6 +264,14 @@ pub fn json_schema_contract() -> Value {
     add_schema::<WorkspaceListResponse>(&mut definitions);
     add_schema::<WorkspaceReadParams>(&mut definitions);
     add_schema::<WorkspaceReadResponse>(&mut definitions);
+    add_schema::<McpListParams>(&mut definitions);
+    add_schema::<McpListResponse>(&mut definitions);
+    add_schema::<McpOAuthStartParams>(&mut definitions);
+    add_schema::<McpOAuthStartResponse>(&mut definitions);
+    add_schema::<McpOAuthStatusParams>(&mut definitions);
+    add_schema::<McpOAuthStatusResponse>(&mut definitions);
+    add_schema::<McpOAuthRevokeParams>(&mut definitions);
+    add_schema::<McpOAuthRevokeResponse>(&mut definitions);
     add_schema::<ThreadStartedNotification>(&mut definitions);
     add_schema::<TurnStartedNotification>(&mut definitions);
     add_schema::<ItemStartedNotification>(&mut definitions);
@@ -320,6 +364,17 @@ fn sample_requests(thread: &Thread, turn: &Turn) -> Value {
         },
         "workspace/list": WorkspaceListParams::default(),
         "workspace/read": WorkspaceReadParams { root: String::from("/workspace") },
+        "mcp/list": McpListParams::default(),
+        "mcp/oauth/start": McpOAuthStartParams {
+            server_id: String::from("remote-tools"),
+            ..McpOAuthStartParams::default()
+        },
+        "mcp/oauth/status": McpOAuthStatusParams {
+            server_id: String::from("remote-tools"),
+        },
+        "mcp/oauth/revoke": McpOAuthRevokeParams {
+            server_id: String::from("remote-tools"),
+        },
     })
 }
 
@@ -328,7 +383,7 @@ fn sample_responses(thread: &Thread, turn: &Turn) -> Value {
         "initialize": InitializeResponse {
             protocol_version: crate::PROTOCOL_VERSION,
             server_info: ServerInfo {
-                name: String::from("qwenpaw-core"), version: String::from("0.1.0"),
+                name: String::from("qwenpaw-core"), version: String::from(env!("CARGO_PKG_VERSION")),
             },
         },
         "thread/start": ThreadStartResponse { thread: thread.clone() },
@@ -353,7 +408,39 @@ fn sample_responses(thread: &Thread, turn: &Turn) -> Value {
         "config/write": ConfigWriteResponse { config: sample_config() },
         "workspace/list": WorkspaceListResponse { data: vec![sample_workspace()] },
         "workspace/read": WorkspaceReadResponse { workspace: sample_workspace() },
+        "mcp/list": McpListResponse {
+            data: vec![sample_mcp_client()],
+        },
+        "mcp/oauth/start": McpOAuthStartResponse {
+            authorization_url: String::from("https://auth.example.test/authorize"),
+            session_id: String::from("opaque-session"),
+        },
+        "mcp/oauth/status": McpOAuthStatusResponse {
+            status: sample_oauth_status(),
+        },
+        "mcp/oauth/revoke": McpOAuthRevokeResponse { revoked: true },
     })
+}
+
+fn sample_oauth_status() -> McpOAuthStatus {
+    McpOAuthStatus {
+        authorized: true,
+        expires_at: 1_700_003_600.0,
+        scope: String::from("tools.read"),
+        client_id: String::from("qwenpaw-native"),
+    }
+}
+
+fn sample_mcp_client() -> McpClientInfo {
+    McpClientInfo {
+        server_id: String::from("remote-tools"),
+        name: String::from("Remote Tools"),
+        description: String::from("Example remote MCP server"),
+        enabled: true,
+        transport: String::from("streamable_http"),
+        url: String::from("https://mcp.example.test"),
+        oauth_status: Some(sample_oauth_status()),
+    }
 }
 
 fn sample_notifications(thread: &Thread, turn: Turn) -> Value {

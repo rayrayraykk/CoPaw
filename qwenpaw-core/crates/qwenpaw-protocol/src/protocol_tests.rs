@@ -153,14 +153,14 @@ fn checked_in_contract_artifacts_match_rust_types() {
     assert_eq!(
         json_schema_contract(),
         serde_json::from_str::<serde_json::Value>(include_str!(
-            "../../../docs/api-contract/app-protocol-v2.schema.json"
+            "../../../docs/api-contract/app-protocol-v3.schema.json"
         ))
         .expect("checked-in schema should be valid JSON")
     );
     assert_eq!(
         app_protocol_fixtures(),
         serde_json::from_str::<serde_json::Value>(include_str!(
-            "../../../docs/api-contract/fixtures/app-protocol-v2.json"
+            "../../../docs/api-contract/fixtures/app-protocol-v3.json"
         ))
         .expect("checked-in fixtures should be valid JSON")
     );

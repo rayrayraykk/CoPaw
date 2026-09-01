@@ -82,6 +82,26 @@ export type WorkspaceReadResponse = { workspace: WorkspaceInfo, };
 
 export type WorkspaceInfo = { root: string, threadCount: number, archivedThreadCount: number, updatedAt: number, };
 
+export type McpListParams = Record<string, never>;
+
+export type McpListResponse = { data: Array<McpClientInfo>, };
+
+export type McpClientInfo = { serverId: string, name: string, description: string, enabled: boolean, transport: string, url: string, oauthStatus: McpOAuthStatus | null, };
+
+export type McpOAuthStatus = { authorized: boolean, expiresAt: number, scope: string, clientId: string, };
+
+export type McpOAuthStartParams = { serverId: string, url: string | null, scope: string | null, clientId: string | null, authorizationEndpoint: string | null, tokenEndpoint: string | null, };
+
+export type McpOAuthStartResponse = { authorizationUrl: string, sessionId: string, };
+
+export type McpOAuthStatusParams = { serverId: string, };
+
+export type McpOAuthStatusResponse = { status: McpOAuthStatus, };
+
+export type McpOAuthRevokeParams = { serverId: string, };
+
+export type McpOAuthRevokeResponse = { revoked: boolean, };
+
 export type ThreadStartedNotification = { thread: Thread, };
 
 export type TurnStartedNotification = { turn: Turn, };
@@ -113,6 +133,10 @@ export interface AppProtocolRequests {
   readonly "config/write": { readonly params: ConfigWriteParams; readonly result: ConfigWriteResponse };
   readonly "workspace/list": { readonly params: WorkspaceListParams; readonly result: WorkspaceListResponse };
   readonly "workspace/read": { readonly params: WorkspaceReadParams; readonly result: WorkspaceReadResponse };
+  readonly "mcp/list": { readonly params: McpListParams; readonly result: McpListResponse };
+  readonly "mcp/oauth/start": { readonly params: McpOAuthStartParams; readonly result: McpOAuthStartResponse };
+  readonly "mcp/oauth/status": { readonly params: McpOAuthStatusParams; readonly result: McpOAuthStatusResponse };
+  readonly "mcp/oauth/revoke": { readonly params: McpOAuthRevokeParams; readonly result: McpOAuthRevokeResponse };
 }
 
 export interface AppProtocolServerNotifications {
@@ -126,4 +150,4 @@ export interface AppProtocolServerNotifications {
   readonly "turn/completed": TurnCompletedNotification;
 }
 
-export const PROTOCOL_VERSION = 2 as const;
+export const PROTOCOL_VERSION = 3 as const;

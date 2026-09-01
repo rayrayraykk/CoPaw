@@ -1,0 +1,337 @@
+{
+  "protocolVersion": 3,
+  "requests": {
+    "config/read": {},
+    "config/write": {
+      "baseUrl": "https://example.test/v1",
+      "defaultModel": "qwen3-coder-plus"
+    },
+    "initialize": {
+      "clientInfo": {
+        "name": "qwenpaw_vscode",
+        "title": "QwenPaw VS Code Extension",
+        "version": "0.1.0"
+      }
+    },
+    "mcp/list": {},
+    "mcp/oauth/revoke": {
+      "serverId": "remote-tools"
+    },
+    "mcp/oauth/start": {
+      "authorizationEndpoint": null,
+      "clientId": null,
+      "scope": null,
+      "serverId": "remote-tools",
+      "tokenEndpoint": null,
+      "url": null
+    },
+    "mcp/oauth/status": {
+      "serverId": "remote-tools"
+    },
+    "model/list": {},
+    "thread/archive": {
+      "threadId": "thread-1"
+    },
+    "thread/list": {
+      "cursor": null,
+      "includeArchived": false,
+      "limit": null
+    },
+    "thread/read": {
+      "threadId": "thread-1"
+    },
+    "thread/resume": {
+      "threadId": "thread-1"
+    },
+    "thread/start": {
+      "model": "qwen3-coder-plus",
+      "workspaceRoot": "/workspace"
+    },
+    "tool/approval/respond": {
+      "approvalId": "approval-1",
+      "decision": "approved"
+    },
+    "turn/interrupt": {
+      "threadId": "thread-1",
+      "turnId": "turn-1"
+    },
+    "turn/start": {
+      "input": [
+        {
+          "text": "review this file",
+          "type": "text"
+        },
+        {
+          "endLine": 20,
+          "path": "/workspace/src/lib.rs",
+          "startLine": 10,
+          "type": "fileReference"
+        }
+      ],
+      "threadId": "thread-1"
+    },
+    "workspace/list": {},
+    "workspace/read": {
+      "root": "/workspace"
+    }
+  },
+  "responses": {
+    "config/read": {
+      "config": {
+        "apiKeyConfigured": true,
+        "baseUrl": "https://example.test/v1",
+        "defaultModel": "qwen3-coder-plus"
+      }
+    },
+    "config/write": {
+      "config": {
+        "apiKeyConfigured": true,
+        "baseUrl": "https://example.test/v1",
+        "defaultModel": "qwen3-coder-plus"
+      }
+    },
+    "initialize": {
+      "protocolVersion": 3,
+      "serverInfo": {
+        "name": "qwenpaw-core",
+        "version": "0.2.0"
+      }
+    },
+    "mcp/list": {
+      "data": [
+        {
+          "description": "Example remote MCP server",
+          "enabled": true,
+          "name": "Remote Tools",
+          "oauthStatus": {
+            "authorized": true,
+            "clientId": "qwenpaw-native",
+            "expiresAt": 1700003600.0,
+            "scope": "tools.read"
+          },
+          "serverId": "remote-tools",
+          "transport": "streamable_http",
+          "url": "https://mcp.example.test"
+        }
+      ]
+    },
+    "mcp/oauth/revoke": {
+      "revoked": true
+    },
+    "mcp/oauth/start": {
+      "authorizationUrl": "https://auth.example.test/authorize",
+      "sessionId": "opaque-session"
+    },
+    "mcp/oauth/status": {
+      "status": {
+        "authorized": true,
+        "clientId": "qwenpaw-native",
+        "expiresAt": 1700003600.0,
+        "scope": "tools.read"
+      }
+    },
+    "model/list": {
+      "data": [
+        {
+          "displayName": "Qwen3 Coder Plus",
+          "id": "qwen3-coder-plus",
+          "isDefault": true
+        }
+      ]
+    },
+    "thread/archive": {
+      "thread": {
+        "archived": true,
+        "createdAt": 1700000000,
+        "id": "thread-1",
+        "model": "qwen3-coder-plus",
+        "status": "idle",
+        "updatedAt": 1700000000,
+        "workspaceRoot": "/workspace"
+      }
+    },
+    "thread/list": {
+      "data": [
+        {
+          "archived": false,
+          "createdAt": 1700000000,
+          "id": "thread-1",
+          "model": "qwen3-coder-plus",
+          "status": "idle",
+          "updatedAt": 1700000000,
+          "workspaceRoot": "/workspace"
+        }
+      ],
+      "nextCursor": null
+    },
+    "thread/read": {
+      "thread": {
+        "archived": false,
+        "createdAt": 1700000000,
+        "id": "thread-1",
+        "model": "qwen3-coder-plus",
+        "status": "idle",
+        "updatedAt": 1700000000,
+        "workspaceRoot": "/workspace"
+      },
+      "turns": [
+        {
+          "error": null,
+          "id": "turn-1",
+          "items": [
+            {
+              "id": "item-agent-1",
+              "text": "hello",
+              "type": "agentMessage"
+            }
+          ],
+          "status": "completed",
+          "threadId": "thread-1"
+        }
+      ]
+    },
+    "thread/resume": {
+      "thread": {
+        "archived": false,
+        "createdAt": 1700000000,
+        "id": "thread-1",
+        "model": "qwen3-coder-plus",
+        "status": "idle",
+        "updatedAt": 1700000000,
+        "workspaceRoot": "/workspace"
+      }
+    },
+    "thread/start": {
+      "thread": {
+        "archived": false,
+        "createdAt": 1700000000,
+        "id": "thread-1",
+        "model": "qwen3-coder-plus",
+        "status": "idle",
+        "updatedAt": 1700000000,
+        "workspaceRoot": "/workspace"
+      }
+    },
+    "tool/approval/respond": {
+      "accepted": true
+    },
+    "turn/interrupt": {
+      "accepted": true
+    },
+    "turn/start": {
+      "turn": {
+        "error": null,
+        "id": "turn-1",
+        "items": [
+          {
+            "id": "item-agent-1",
+            "text": "hello",
+            "type": "agentMessage"
+          }
+        ],
+        "status": "completed",
+        "threadId": "thread-1"
+      }
+    },
+    "workspace/list": {
+      "data": [
+        {
+          "archivedThreadCount": 1,
+          "root": "/workspace",
+          "threadCount": 2,
+          "updatedAt": 1700000000
+        }
+      ]
+    },
+    "workspace/read": {
+      "workspace": {
+        "archivedThreadCount": 1,
+        "root": "/workspace",
+        "threadCount": 2,
+        "updatedAt": 1700000000
+      }
+    }
+  },
+  "serverNotifications": {
+    "item/agentMessage/delta": {
+      "delta": "hello",
+      "itemId": "item-agent-1",
+      "threadId": "thread-1",
+      "turnId": "turn-1"
+    },
+    "item/completed": {
+      "item": {
+        "id": "item-agent-1",
+        "text": "hello",
+        "type": "agentMessage"
+      },
+      "threadId": "thread-1",
+      "turnId": "turn-1"
+    },
+    "item/started": {
+      "item": {
+        "id": "item-agent-1",
+        "text": "hello",
+        "type": "agentMessage"
+      },
+      "threadId": "thread-1",
+      "turnId": "turn-1"
+    },
+    "thread/started": {
+      "thread": {
+        "archived": false,
+        "createdAt": 1700000000,
+        "id": "thread-1",
+        "model": "qwen3-coder-plus",
+        "status": "idle",
+        "updatedAt": 1700000000,
+        "workspaceRoot": "/workspace"
+      }
+    },
+    "tool/approval/requested": {
+      "approvalId": "approval-1",
+      "arguments": "{\"command\":\"cargo test\"}",
+      "callId": "call-1",
+      "threadId": "thread-1",
+      "toolName": "shell",
+      "turnId": "turn-1",
+      "workspaceRoot": "/workspace"
+    },
+    "tool/approval/resolved": {
+      "approvalId": "approval-1",
+      "decision": "approved",
+      "threadId": "thread-1",
+      "turnId": "turn-1"
+    },
+    "turn/completed": {
+      "turn": {
+        "error": null,
+        "id": "turn-1",
+        "items": [
+          {
+            "id": "item-agent-1",
+            "text": "hello",
+            "type": "agentMessage"
+          }
+        ],
+        "status": "completed",
+        "threadId": "thread-1"
+      }
+    },
+    "turn/started": {
+      "turn": {
+        "error": null,
+        "id": "turn-1",
+        "items": [
+          {
+            "id": "item-agent-1",
+            "text": "hello",
+            "type": "agentMessage"
+          }
+        ],
+        "status": "completed",
+        "threadId": "thread-1"
+      }
+    }
+  }
+}

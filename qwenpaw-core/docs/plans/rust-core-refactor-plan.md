@@ -718,12 +718,20 @@ MVP 至少提供：
 - [x] 支持敏感 HTTP headers、Bearer access token 与已有授权的 refresh-token 更新；
 - [x] 网络 MCP 继续复用逐次审批、Turn 中断和工具结果上限；
 - [x] 补充真实 Streamable HTTP、legacy SSE、OAuth refresh 与 Agent Loop 测试；
-- [ ] 实现交互式 OAuth discovery、浏览器授权回调与凭据持久化；
+- [x] 按 MCP 2026-07-28 实现 RFC 9728 资源元数据、RFC 8414/OIDC 授权服务器发现；
+- [x] 实现 PKCE S256、一次性 state、10 分钟超时和 loopback 浏览器回调；
+- [x] 在 authorization/token 请求中带上受保护 MCP `resource`，并按 RFC 9207 校验授权响应 `iss`；
+- [x] 预注册 client ID 优先，仅将带 `application_type=native` 的 DCR 作为旧服务兼容 fallback；
+- [x] access/refresh token 及授权元数据只存入系统 Keychain / Credential Manager / Secret Service，不进 SQLite 或日志；
+- [x] refresh 后原子更新访问凭据，revoke 立即断开已缓存 MCP 连接；
+- [x] 保持 Console 业务源码不变，实现 `/api/mcp/oauth/start|status|revoke` 契约；
+- [x] 通过 App Protocol 暴露同一 OAuth 状态机，VS Code 仅负责用系统浏览器打开授权 URL；
+- [x] 使用真实 loopback OAuth/MCP fixture 覆盖成功、state/issuer 不匹配、超时、refresh 和 revoke；
 
 ### 14.2.4 当前开发切片：App Protocol 契约闭环
 
 - [x] 单一 Rust 类型源覆盖全部 MVP request、response 和 notification payload；
-- [x] 生成版本化 App Protocol JSON Schema（当前 v2）；
+- [x] 生成版本化 App Protocol JSON Schema（当前 v3）；
 - [x] 生成包含全部稳定消息的 typed contract fixtures；
 - [x] 生成可审阅的方法与通知 inventory；
 - [x] 生成 TypeScript SDK 并由 VS Code 替换手写协议接口；
@@ -740,7 +748,7 @@ MVP 至少提供：
 - [x] HTTP listener 强制 loopback，拒绝公网和 unspecified 地址；
 - [x] 默认校验 loopback same-origin，并支持显式开发 Origin allowlist；
 - [x] 增加真实 TCP health、WebSocket 握手、协议和连接隔离测试；
-- [ ] 实现远程 WSS、认证、TLS 和可轮换 token；
+- [x] 实现远程 WSS、认证、TLS 和可轮换 token；
 
 ### 14.2.6 当前开发切片：VS Code Thread 与模型交互
 

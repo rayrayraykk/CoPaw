@@ -11,6 +11,8 @@ import, scan, modify, or share the Python product's data directory.
   copied from Python files or environment snapshots. After configuration, the
   Rust Desktop stores the model API key in macOS Keychain, Windows Credential
   Manager, or Linux Secret Service rather than SQLite.
+- MCP OAuth grants are also configured again and remain only in the operating
+  system credential store; Rust Core never imports Python OAuth records.
 - Desktop stores Rust Core state under the Tauri application data directory in
   the versioned `rust-core-v1` subdirectory.
 - The old Python product and its data remain unchanged. Returning to the old

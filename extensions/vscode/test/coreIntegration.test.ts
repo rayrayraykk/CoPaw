@@ -39,11 +39,11 @@ test(
         protocolVersion: number;
         serverInfo: { name: string; version: string };
       }>("initialize", {
-        clientInfo: { name: "vscode_test", version: "0.1.0" },
+        clientInfo: { name: "vscode_test", version: "0.2.0" },
       });
       assert.deepEqual(initialized, {
-        protocolVersion: 2,
-        serverInfo: { name: "qwenpaw-core", version: "0.1.0" },
+        protocolVersion: 3,
+        serverInfo: { name: "qwenpaw-core", version: "0.2.0" },
       });
 
       const started = await rpc.request<{

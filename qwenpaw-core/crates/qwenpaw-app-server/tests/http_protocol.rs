@@ -91,7 +91,7 @@ async fn serves_health_and_independent_websocket_sessions() {
     )
     .await;
     let initialized = receive_json(&mut first).await;
-    assert_eq!(initialized["result"]["protocolVersion"], json!(2));
+    assert_eq!(initialized["result"]["protocolVersion"], json!(3));
 
     let (mut second, _) = tokio_tungstenite::connect_async(&url)
         .await
@@ -175,7 +175,7 @@ async fn serves_the_console_and_requires_the_desktop_shutdown_token() {
     .await;
     assert!(version.starts_with("HTTP/1.1 200 OK"));
     assert!(
-        version.contains("{\"backend\":\"rust-core\",\"protocolVersion\":2,\"version\":\"0.1.0\"}")
+        version.contains("{\"backend\":\"rust-core\",\"protocolVersion\":3,\"version\":\"0.2.0\"}")
     );
 
     let console_index = http_request(

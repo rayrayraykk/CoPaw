@@ -13,11 +13,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &typescript_contract(),
     )?;
     write_json(
-        &root.join("docs/api-contract/app-protocol-v2.schema.json"),
+        &root.join("docs/api-contract/app-protocol-v3.schema.json"),
         &json_schema_contract(),
     )?;
     write_json(
-        &root.join("docs/api-contract/fixtures/app-protocol-v2.json"),
+        &root.join("docs/api-contract/fixtures/app-protocol-v3.json"),
         &app_protocol_fixtures(),
     )?;
     write(

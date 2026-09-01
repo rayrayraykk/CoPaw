@@ -43,8 +43,8 @@ async fn serves_initialize_and_thread_start_over_stdio() {
         json!({
             "id": 1,
             "result": {
-                "protocolVersion": 2,
-                "serverInfo": {"name": "qwenpaw-core", "version": "0.1.0"}
+                "protocolVersion": 3,
+                "serverInfo": {"name": "qwenpaw-core", "version": "0.2.0"}
             }
         })
     );
@@ -100,7 +100,7 @@ async fn starts_with_an_empty_store_without_touching_legacy_data() {
     )
     .await;
     let initialized = receive(&mut lines).await;
-    assert_eq!(initialized["result"]["protocolVersion"], json!(2));
+    assert_eq!(initialized["result"]["protocolVersion"], json!(3));
 
     send(
         &mut stdin,

@@ -3,6 +3,7 @@ use std::net::IpAddr;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::Context;
 use axum::Json;
@@ -14,9 +15,11 @@ use axum::extract::ws::WebSocket;
 use axum::http::HeaderMap;
 use axum::http::HeaderValue;
 use axum::http::StatusCode;
+use axum::http::header::AUTHORIZATION;
 use axum::http::header::CACHE_CONTROL;
 use axum::http::header::HOST;
 use axum::http::header::ORIGIN;
+use axum::http::header::WWW_AUTHENTICATE;
 use axum::response::IntoResponse;
 use axum::response::Response;
 use axum::routing::any;
@@ -26,12 +29,23 @@ use futures_util::SinkExt;
 use futures_util::StreamExt;
 use qwenpaw_core::Core;
 use qwenpaw_core::CoreError;
+use qwenpaw_core::McpOAuthStartOptions;
 use qwenpaw_core::TurnEventStream;
 use qwenpaw_protocol::ClientMessage;
 use qwenpaw_protocol::ConfigReadParams;
 use qwenpaw_protocol::ConfigWriteParams;
 use qwenpaw_protocol::InitializeParams;
 use qwenpaw_protocol::InitializeResponse;
+use qwenpaw_protocol::McpClientInfo;
+use qwenpaw_protocol::McpListParams;
+use qwenpaw_protocol::McpListResponse;
+use qwenpaw_protocol::McpOAuthRevokeParams;
+use qwenpaw_protocol::McpOAuthRevokeResponse;
+use qwenpaw_protocol::McpOAuthStartParams;
+use qwenpaw_protocol::McpOAuthStartResponse;
+use qwenpaw_protocol::McpOAuthStatus;
+use qwenpaw_protocol::McpOAuthStatusParams;
+use qwenpaw_protocol::McpOAuthStatusResponse;
 use qwenpaw_protocol::PROTOCOL_VERSION;
 use qwenpaw_protocol::ServerInfo;
 use qwenpaw_protocol::ServerNotification;
@@ -49,6 +63,7 @@ use qwenpaw_protocol::WorkspaceListParams;
 use qwenpaw_protocol::WorkspaceReadParams;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
+use sha2::Digest as _;
 use tokio::io::AsyncBufReadExt;
 use tokio::io::AsyncWriteExt;
 use tokio::io::BufReader;
@@ -68,6 +83,8 @@ pub use desktop_credentials::SystemDesktopCredentialStore;
 
 const OUTBOUND_CHANNEL_CAPACITY: usize = 128;
 const MAX_WEBSOCKET_MESSAGE_BYTES: usize = 1_048_576;
+const MIN_REMOTE_TOKEN_BYTES: usize = 32;
+const MAX_REMOTE_TOKEN_BYTES: usize = 4096;
 const DESKTOP_SHUTDOWN_TOKEN_HEADER: &str = "x-qwenpaw-desktop-shutdown-token";
 const MIN_DESKTOP_SHUTDOWN_TOKEN_BYTES: usize = 16;
 const MAX_DESKTOP_SHUTDOWN_TOKEN_BYTES: usize = 4096;
@@ -87,6 +104,7 @@ struct AppServerInner {
     allowed_origins: Vec<String>,
     console_static_dir: Option<PathBuf>,
     desktop_shutdown_token: Option<String>,
+    remote_auth_token_file: Option<PathBuf>,
     shutdown: CancellationToken,
 }
 
@@ -132,6 +150,7 @@ impl AppServer {
                 allowed_origins: allowed_origins_from_env(),
                 console_static_dir: None,
                 desktop_shutdown_token: None,
+                remote_auth_token_file: None,
                 shutdown: CancellationToken::new(),
             }),
         }
@@ -255,6 +274,7 @@ impl AppServer {
                 allowed_origins: allowed_origins_from_env(),
                 console_static_dir: Some(console_static_dir),
                 desktop_shutdown_token: Some(desktop_shutdown_token),
+                remote_auth_token_file: None,
                 shutdown: CancellationToken::new(),
             }),
         })
@@ -328,6 +348,67 @@ impl AppServer {
             .context("QwenPaw HTTP app server failed")
     }
 
+    /// Enables bearer authentication for remote WSS handshakes.
+    ///
+    /// The token file is re-read for every handshake so operators can rotate
+    /// it with an atomic file replacement without restarting Core.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the file is missing, insecure, or contains an
+    /// invalid token, or when Desktop mode is active.
+    pub fn with_remote_auth_token_file(mut self, path: &Path) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            self.inner.console_static_dir.is_none(),
+            "remote WSS cannot serve Desktop compatibility routes"
+        );
+        let path = validate_remote_token_file(path)?;
+        let inner = Arc::get_mut(&mut self.inner)
+            .context("remote authentication must be configured before cloning AppServer")?;
+        inner.remote_auth_token_file = Some(path);
+        Ok(self)
+    }
+
+    /// Runs authenticated App Protocol `WebSocket` connections over TLS.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when authentication was not configured, TLS material
+    /// is invalid, or the server cannot accept traffic.
+    pub async fn run_wss(
+        self,
+        listener: std::net::TcpListener,
+        certificate_path: &Path,
+        private_key_path: &Path,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.inner.remote_auth_token_file.is_some(),
+            "remote WSS requires bearer authentication"
+        );
+        let tls = axum_server::tls_rustls::RustlsConfig::from_pem_file(
+            certificate_path,
+            private_key_path,
+        )
+        .await
+        .context("remote WSS TLS certificate or private key is invalid")?;
+        listener
+            .set_nonblocking(true)
+            .context("remote WSS listener could not enter nonblocking mode")?;
+        let handle = axum_server::Handle::new();
+        let shutdown_handle = handle.clone();
+        let shutdown = self.inner.shutdown.clone();
+        tokio::spawn(async move {
+            shutdown.cancelled().await;
+            shutdown_handle.graceful_shutdown(Some(Duration::from_secs(10)));
+        });
+        axum_server::from_tcp_rustls(listener, tls)
+            .context("remote WSS listener is invalid")?
+            .handle(handle)
+            .serve(self.remote_router().into_make_service())
+            .await
+            .context("QwenPaw remote WSS app server failed")
+    }
+
     fn router(self) -> Router {
         let console_static_dir = self.inner.console_static_dir.clone();
         let mut router = Router::new()
@@ -351,6 +432,14 @@ impl AppServer {
                 ));
         }
         router.with_state(self)
+    }
+
+    fn remote_router(self) -> Router {
+        Router::new()
+            .route("/healthz", get(healthz))
+            .route("/readyz", get(readyz))
+            .route("/app-protocol", get(websocket_upgrade))
+            .with_state(self)
     }
 
     async fn process_line(
@@ -419,16 +508,7 @@ impl AppServer {
 
     async fn dispatch(&self, method: &str, params: Value) -> Result<DispatchOutput, DispatchError> {
         match method {
-            "initialize" => {
-                let _: InitializeParams = decode_params(params)?;
-                DispatchOutput::result(InitializeResponse {
-                    protocol_version: PROTOCOL_VERSION,
-                    server_info: ServerInfo {
-                        name: String::from("qwenpaw-core"),
-                        version: String::from(env!("CARGO_PKG_VERSION")),
-                    },
-                })
-            }
+            "initialize" => initialize_response(params),
             "thread/start" => {
                 let response = self
                     .inner
@@ -511,7 +591,8 @@ impl AppServer {
                 DispatchOutput::result(self.inner.core.respond_tool_approval(params).await)
             }
             "model/list" => DispatchOutput::result(self.inner.core.list_models()),
-            "config/read" | "config/write" | "workspace/list" | "workspace/read" => {
+            "config/read" | "config/write" | "workspace/list" | "workspace/read" | "mcp/list"
+            | "mcp/oauth/start" | "mcp/oauth/status" | "mcp/oauth/revoke" => {
                 self.dispatch_resource(method, params).await
             }
             _ => Err(DispatchError::method_not_found(method)),
@@ -551,8 +632,97 @@ impl AppServer {
                         .map_err(|error| DispatchError::core(&error))?,
                 )
             }
+            "mcp/list" => {
+                let _: McpListParams = decode_default_params(params)?;
+                let clients = self
+                    .inner
+                    .core
+                    .list_mcp_clients()
+                    .await
+                    .map_err(|error| DispatchError::core(&error))?;
+                DispatchOutput::result(McpListResponse {
+                    data: clients.into_iter().map(protocol_mcp_client).collect(),
+                })
+            }
+            "mcp/oauth/start" => {
+                let params: McpOAuthStartParams = decode_params(params)?;
+                let response = self
+                    .inner
+                    .core
+                    .start_mcp_oauth(
+                        &params.server_id,
+                        McpOAuthStartOptions {
+                            url: params.url.unwrap_or_default(),
+                            scope: params.scope.unwrap_or_default(),
+                            client_id: params.client_id.unwrap_or_default(),
+                            authorization_endpoint: params
+                                .authorization_endpoint
+                                .unwrap_or_default(),
+                            token_endpoint: params.token_endpoint.unwrap_or_default(),
+                        },
+                    )
+                    .await
+                    .map_err(|error| DispatchError::core(&error))?;
+                DispatchOutput::result(McpOAuthStartResponse {
+                    authorization_url: response.authorization_url,
+                    session_id: response.session_id,
+                })
+            }
+            "mcp/oauth/status" => {
+                let params: McpOAuthStatusParams = decode_params(params)?;
+                let status = self
+                    .inner
+                    .core
+                    .mcp_oauth_status(&params.server_id)
+                    .await
+                    .map_err(|error| DispatchError::core(&error))?;
+                DispatchOutput::result(McpOAuthStatusResponse {
+                    status: protocol_oauth_status(status),
+                })
+            }
+            "mcp/oauth/revoke" => {
+                let params: McpOAuthRevokeParams = decode_params(params)?;
+                self.inner
+                    .core
+                    .revoke_mcp_oauth(&params.server_id)
+                    .await
+                    .map_err(|error| DispatchError::core(&error))?;
+                DispatchOutput::result(McpOAuthRevokeResponse { revoked: true })
+            }
             _ => unreachable!("resource dispatch receives only resource methods"),
         }
+    }
+}
+
+fn initialize_response(params: Value) -> Result<DispatchOutput, DispatchError> {
+    let _: InitializeParams = decode_params(params)?;
+    DispatchOutput::result(InitializeResponse {
+        protocol_version: PROTOCOL_VERSION,
+        server_info: ServerInfo {
+            name: String::from("qwenpaw-core"),
+            version: String::from(env!("CARGO_PKG_VERSION")),
+        },
+    })
+}
+
+fn protocol_mcp_client(client: qwenpaw_core::McpClientInfo) -> McpClientInfo {
+    McpClientInfo {
+        server_id: client.key,
+        name: client.name,
+        description: client.description,
+        enabled: client.enabled,
+        transport: client.transport,
+        url: client.url,
+        oauth_status: client.oauth_status.map(protocol_oauth_status),
+    }
+}
+
+fn protocol_oauth_status(status: qwenpaw_core::McpOAuthStatus) -> McpOAuthStatus {
+    McpOAuthStatus {
+        authorized: status.authorized,
+        expires_at: status.expires_at,
+        scope: status.scope,
+        client_id: status.client_id,
     }
 }
 
@@ -632,6 +802,11 @@ async fn websocket_upgrade(
     headers: HeaderMap,
     websocket: WebSocketUpgrade,
 ) -> Response {
+    match server.remote_request_authorized(&headers).await {
+        Ok(true) => {}
+        Ok(false) => return remote_unauthorized(),
+        Err(()) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    }
     if !server.origin_allowed(&headers) {
         return StatusCode::FORBIDDEN.into_response();
     }
@@ -641,6 +816,33 @@ async fn websocket_upgrade(
 }
 
 impl AppServer {
+    async fn remote_request_authorized(&self, headers: &HeaderMap) -> Result<bool, ()> {
+        let Some(path) = self.inner.remote_auth_token_file.as_ref() else {
+            return Ok(true);
+        };
+        let metadata = tokio::fs::metadata(path).await.map_err(|_| {
+            warn!("remote authentication token file metadata could not be read");
+        })?;
+        if !remote_token_metadata_is_secure(&metadata) {
+            warn!("remote authentication token file permissions or size are invalid");
+            return Err(());
+        }
+        let bytes = tokio::fs::read(path).await.map_err(|_| {
+            warn!("remote authentication token file could not be read");
+        })?;
+        let expected = parse_remote_token(&bytes).map_err(|_| {
+            warn!("remote authentication token file is invalid");
+        })?;
+        let Some(provided) = headers
+            .get(AUTHORIZATION)
+            .and_then(|value| value.to_str().ok())
+            .and_then(bearer_token)
+        else {
+            return Ok(false);
+        };
+        Ok(constant_time_token_eq(expected, provided))
+    }
+
     fn origin_allowed(&self, headers: &HeaderMap) -> bool {
         let Some(origin) = headers.get(ORIGIN) else {
             return true;
@@ -696,6 +898,86 @@ impl AppServer {
         drop(outbound_tx);
         let _ = writer.await;
     }
+}
+
+fn validate_remote_token_file(path: &Path) -> anyhow::Result<PathBuf> {
+    let path = path.canonicalize().with_context(|| {
+        format!(
+            "remote authentication token file is unavailable: {}",
+            path.display()
+        )
+    })?;
+    let metadata = std::fs::metadata(&path)
+        .context("remote authentication token file metadata is unavailable")?;
+    anyhow::ensure!(
+        remote_token_metadata_is_secure(&metadata),
+        "remote authentication token file must be a small regular file and must not be accessible by group or other users"
+    );
+    let bytes =
+        std::fs::read(&path).context("remote authentication token file could not be read")?;
+    parse_remote_token(&bytes).map_err(anyhow::Error::msg)?;
+    Ok(path)
+}
+
+fn remote_token_metadata_is_secure(metadata: &std::fs::Metadata) -> bool {
+    if !metadata.is_file() || metadata.len() > (MAX_REMOTE_TOKEN_BYTES + 2) as u64 {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt as _;
+
+        if metadata.mode().trailing_zeros() < 6 {
+            return false;
+        }
+    }
+    true
+}
+
+fn parse_remote_token(bytes: &[u8]) -> Result<&str, &'static str> {
+    let value =
+        std::str::from_utf8(bytes).map_err(|_| "remote authentication token must be UTF-8")?;
+    let token = value.trim_end_matches(['\r', '\n']);
+    if !value[token.len()..]
+        .bytes()
+        .all(|byte| matches!(byte, b'\r' | b'\n'))
+    {
+        return Err("remote authentication token has invalid trailing data");
+    }
+    if !(MIN_REMOTE_TOKEN_BYTES..=MAX_REMOTE_TOKEN_BYTES).contains(&token.len())
+        || !token.bytes().all(|byte| byte.is_ascii_graphic())
+    {
+        return Err(
+            "remote authentication token must contain 32 through 4096 printable ASCII bytes",
+        );
+    }
+    Ok(token)
+}
+
+fn bearer_token(value: &str) -> Option<&str> {
+    let (scheme, token) = value.split_once(' ')?;
+    (scheme.eq_ignore_ascii_case("bearer") && !token.contains(char::is_whitespace)).then_some(token)
+}
+
+fn constant_time_token_eq(expected: &str, provided: &str) -> bool {
+    let expected = sha2::Sha256::digest(expected.as_bytes());
+    let provided = sha2::Sha256::digest(provided.as_bytes());
+    expected
+        .iter()
+        .zip(provided.iter())
+        .fold(0_u8, |difference, (left, right)| {
+            difference | (left ^ right)
+        })
+        == 0
+}
+
+fn remote_unauthorized() -> Response {
+    let mut response = StatusCode::UNAUTHORIZED.into_response();
+    response.headers_mut().insert(
+        WWW_AUTHENTICATE,
+        HeaderValue::from_static("Bearer realm=\"qwenpaw-app-protocol\""),
+    );
+    response
 }
 
 fn allowed_origins_from_env() -> Vec<String> {

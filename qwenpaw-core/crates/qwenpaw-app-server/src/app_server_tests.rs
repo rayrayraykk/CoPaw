@@ -57,7 +57,7 @@ async fn initializes_and_creates_a_thread() {
         serde_json::from_str(&rx.recv().await.expect("server should initialize"))
             .expect("response should be JSON");
     assert_eq!(initialize["id"], json!(1));
-    assert_eq!(initialize["result"]["protocolVersion"], json!(2));
+    assert_eq!(initialize["result"]["protocolVersion"], json!(3));
 
     server
         .process_line(

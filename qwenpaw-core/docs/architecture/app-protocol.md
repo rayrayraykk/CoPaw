@@ -33,7 +33,7 @@ Request:
 Response:
 
 ```json
-{"id":1,"result":{"protocolVersion":2,"serverInfo":{"name":"qwenpaw-core","version":"0.1.0"}}}
+{"id":1,"result":{"protocolVersion":3,"serverInfo":{"name":"qwenpaw-core","version":"0.2.0"}}}
 ```
 
 Notification:
@@ -66,6 +66,12 @@ invalid lifecycle state uses `-32000`.
   capped at 1 MiB. Missing `Origin` is accepted for native clients; browser
   clients require a loopback same-origin Host or an explicit
   `QWENPAW_ALLOWED_ORIGINS` entry.
+- `app-server --listen <addr> --remote --tls-cert <pem> --tls-key <pem>
+  --auth-token-file <file>` exposes only health probes and authenticated WSS.
+  Remote mode never accepts plaintext WebSockets. The bearer token file is
+  permission-checked at startup and re-read for every new handshake so it can
+  be rotated by atomic replacement without exposing the secret in arguments
+  or logs. Existing connections are not forcibly disconnected by rotation.
 
 ## Stable MVP methods
 
@@ -118,9 +124,9 @@ otherwise probe arbitrary filesystem paths.
 `qwenpaw-protocol` is the source of truth. Its generator produces:
 
 - `sdk/typescript/src/protocol.ts` for TypeScript clients;
-- `docs/api-contract/app-protocol-v2.schema.json` for machine-readable payload
+- `docs/api-contract/app-protocol-v3.schema.json` for machine-readable payload
   validation;
-- `docs/api-contract/fixtures/app-protocol-v2.json` with typed examples for
+- `docs/api-contract/fixtures/app-protocol-v3.json` with typed examples for
   every stable request, response, and server notification;
 - `docs/api-contract/app-protocol-inventory.md` from the same method registry.
 

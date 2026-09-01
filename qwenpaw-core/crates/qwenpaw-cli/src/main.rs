@@ -40,6 +40,23 @@ enum Command {
             conflicts_with = "stdio"
         )]
         console_static_dir: Option<PathBuf>,
+        /// Expose authenticated App Protocol `WebSocket` connections over TLS.
+        #[arg(
+            long,
+            requires = "listen",
+            requires_all = ["tls_cert", "tls_key", "auth_token_file"],
+            conflicts_with_all = ["stdio", "desktop"]
+        )]
+        remote: bool,
+        /// PEM certificate chain used by remote WSS.
+        #[arg(long, value_name = "FILE", requires = "remote")]
+        tls_cert: Option<PathBuf>,
+        /// PEM private key used by remote WSS.
+        #[arg(long, value_name = "FILE", requires = "remote")]
+        tls_key: Option<PathBuf>,
+        /// Permission-restricted bearer token file, re-read on every handshake.
+        #[arg(long, value_name = "FILE", requires = "remote")]
+        auth_token_file: Option<PathBuf>,
     },
 }
 
@@ -59,6 +76,10 @@ async fn main() -> anyhow::Result<()> {
             listen,
             desktop,
             console_static_dir,
+            remote,
+            tls_cert,
+            tls_key,
+            auth_token_file,
         } => {
             let database_path = core_database_path()?;
             let mut model_config = ModelConfig::from_env();
@@ -74,7 +95,7 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
             let core = Core::persistent(model_config, &database_path)?;
-            let server = if desktop {
+            let mut server = if desktop {
                 let console_static_dir = console_static_dir
                     .as_deref()
                     .ok_or_else(|| anyhow::anyhow!("Desktop mode requires --console-static-dir"))?;
@@ -91,7 +112,25 @@ async fn main() -> anyhow::Result<()> {
             } else {
                 AppServer::new(core)
             };
+            if remote {
+                let token_file = auth_token_file
+                    .as_deref()
+                    .ok_or_else(|| anyhow::anyhow!("remote mode requires --auth-token-file"))?;
+                server = server.with_remote_auth_token_file(token_file)?;
+            }
             if let Some(address) = listen {
+                if remote {
+                    let certificate = tls_cert
+                        .as_deref()
+                        .ok_or_else(|| anyhow::anyhow!("remote mode requires --tls-cert"))?;
+                    let private_key = tls_key
+                        .as_deref()
+                        .ok_or_else(|| anyhow::anyhow!("remote mode requires --tls-key"))?;
+                    let listener = std::net::TcpListener::bind(address)?;
+                    let local_address = listener.local_addr()?;
+                    info!(address = %local_address, "QwenPaw remote WSS app server listening");
+                    return server.run_wss(listener, certificate, private_key).await;
+                }
                 if !address.ip().is_loopback() {
                     anyhow::bail!("HTTP App Protocol currently requires a loopback listen address");
                 }

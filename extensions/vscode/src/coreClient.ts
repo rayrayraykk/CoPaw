@@ -12,6 +12,12 @@ import {
   type InitializeResponse,
   type ItemCompletedNotification,
   type ItemStartedNotification,
+  type McpClientInfo,
+  type McpListResponse,
+  type McpOAuthRevokeResponse,
+  type McpOAuthStartResponse,
+  type McpOAuthStatus,
+  type McpOAuthStatusResponse,
   type ModelInfo,
   type ModelListResponse,
   PROTOCOL_VERSION,
@@ -92,7 +98,7 @@ export class CoreClient implements vscode.Disposable {
         clientInfo: {
           name: "qwenpaw_vscode",
           title: "QwenPaw VS Code Extension",
-          version: "0.1.0",
+          version: "0.2.0",
         },
       });
       if (initialized.protocolVersion !== PROTOCOL_VERSION) {
@@ -199,6 +205,33 @@ export class CoreClient implements vscode.Disposable {
       { root },
     );
     return response.workspace;
+  }
+
+  public async listMcpClients(): Promise<readonly McpClientInfo[]> {
+    const response = await this.rpc.request<McpListResponse>("mcp/list", {});
+    return response.data;
+  }
+
+  public async startMcpOAuth(serverId: string): Promise<McpOAuthStartResponse> {
+    return this.rpc.request<McpOAuthStartResponse>("mcp/oauth/start", {
+      serverId,
+    });
+  }
+
+  public async readMcpOAuthStatus(serverId: string): Promise<McpOAuthStatus> {
+    const response = await this.rpc.request<McpOAuthStatusResponse>(
+      "mcp/oauth/status",
+      { serverId },
+    );
+    return response.status;
+  }
+
+  public async revokeMcpOAuth(serverId: string): Promise<boolean> {
+    const response = await this.rpc.request<McpOAuthRevokeResponse>(
+      "mcp/oauth/revoke",
+      { serverId },
+    );
+    return response.revoked;
   }
 
   public async runTurn(
