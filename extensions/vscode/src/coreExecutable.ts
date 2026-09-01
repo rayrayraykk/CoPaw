@@ -75,9 +75,7 @@ export async function resolveCoreExecutable(
   }
   const digest = createHash("sha256").update(binary).digest("hex");
   if (digest !== manifest.sha256) {
-    throw new Error(
-      `Bundled QwenPaw Core checksum mismatch for ${target}`,
-    );
+    throw new Error(`Bundled QwenPaw Core checksum mismatch for ${target}`);
   }
   return { path: bundledPath, source: "bundled" };
 }

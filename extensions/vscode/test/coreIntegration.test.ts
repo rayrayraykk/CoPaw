@@ -10,7 +10,8 @@ import test from "node:test";
 
 import { RpcClient } from "../src/rpcClient";
 
-const executableName = process.platform === "win32" ? "qwenpaw-core.exe" : "qwenpaw-core";
+const executableName =
+  process.platform === "win32" ? "qwenpaw-core.exe" : "qwenpaw-core";
 const defaultCorePath = resolve(
   __dirname,
   "../../../../qwenpaw-core/target/debug",
@@ -108,7 +109,7 @@ test(
       });
 
       const threads = await rpc.request<{
-        data: typeof started.thread[];
+        data: (typeof started.thread)[];
         nextCursor: string | null;
       }>("thread/list", {
         cursor: null,
@@ -246,7 +247,9 @@ test(
           resolveCompletion?.();
         } else {
           rejectCompletion?.(
-            new Error(`file reference turn ended as ${turn.status}: ${turn.error}`),
+            new Error(
+              `file reference turn ended as ${turn.status}: ${turn.error}`,
+            ),
           );
         }
       });
@@ -295,7 +298,9 @@ test(
   "paginates real Core threads over stdio",
   { skip: !existsSync(corePath) },
   async () => {
-    const coreHome = await mkdtemp(resolve(tmpdir(), "qwenpaw-core-page-test-"));
+    const coreHome = await mkdtemp(
+      resolve(tmpdir(), "qwenpaw-core-page-test-"),
+    );
     const child = spawn(corePath, ["app-server", "--stdio"], {
       env: {
         ...process.env,
@@ -400,9 +405,13 @@ test(
         }
       });
     });
-    await new Promise<void>((resolve) => modelServer.listen(0, "127.0.0.1", resolve));
+    await new Promise<void>((resolve) =>
+      modelServer.listen(0, "127.0.0.1", resolve),
+    );
     const address = modelServer.address() as AddressInfo;
-    const coreHome = await mkdtemp(resolve(tmpdir(), "qwenpaw-core-tool-test-"));
+    const coreHome = await mkdtemp(
+      resolve(tmpdir(), "qwenpaw-core-tool-test-"),
+    );
     const child = spawn(corePath, ["app-server", "--stdio"], {
       env: {
         ...process.env,
@@ -438,7 +447,9 @@ test(
               decision: "approved",
             })
             .then((result) => assert.equal(result.accepted, true))
-            .catch((error: unknown) => rejectCompletion?.(new Error(String(error))));
+            .catch(
+              (error: unknown) => rejectCompletion?.(new Error(String(error))),
+            );
         } else if (method === "item/agentMessage/delta") {
           responseText += String(payload.delta);
         } else if (method === "turn/completed") {
@@ -487,7 +498,9 @@ test(
       modelServer.listen(0, "127.0.0.1", resolve),
     );
     const address = modelServer.address() as AddressInfo;
-    const coreHome = await mkdtemp(resolve(tmpdir(), "qwenpaw-core-cancel-test-"));
+    const coreHome = await mkdtemp(
+      resolve(tmpdir(), "qwenpaw-core-cancel-test-"),
+    );
     const child = spawn(corePath, ["app-server", "--stdio"], {
       env: {
         ...process.env,
@@ -521,8 +534,9 @@ test(
         if (method !== "turn/completed") {
           return;
         }
-        const turn = (params as { turn: { id: string; status: string; error: unknown } })
-          .turn;
+        const turn = (
+          params as { turn: { id: string; status: string; error: unknown } }
+        ).turn;
         if (turn.id === activeTurnId) {
           resolveCompletion?.(turn);
         }

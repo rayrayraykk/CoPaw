@@ -121,9 +121,9 @@ repos:
       - id: prettier
         additional_dependencies: [ 'prettier@3.0.0' ]
         files: \.(tsx?)$
-        exclude: '(?x)(^web/|^console/|/dist/|.*/skills/.*|^scripts/pack/)'
+        exclude: '(?x)(^web/|^console/|/dist/|.*/skills/.*|^scripts/pack/|^extensions/vscode/src/generated/protocol\.ts$|^qwenpaw-core/sdk/typescript/src/protocol\.ts$)'
   - repo: https://github.com/rhysd/actionlint
-    rev: v1.7.7
+    rev: v1.7.8
     hooks:
       - id: actionlint
         args: ['-shellcheck=']

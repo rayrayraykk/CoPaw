@@ -39,7 +39,5 @@ export async function collectCursorPages<T>(
     seenCursors.add(page.nextCursor);
     cursor = page.nextCursor;
   }
-  throw new Error(
-    `QwenPaw Core pagination exceeded ${limits.maxPages} pages`,
-  );
+  throw new Error(`QwenPaw Core pagination exceeded ${limits.maxPages} pages`);
 }

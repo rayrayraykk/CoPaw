@@ -25,8 +25,14 @@ interface QwenPawMetadata {
 let manager: CoreClientManager | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
-  const output = vscode.window.createOutputChannel("QwenPaw Core", { log: true });
-  manager = new CoreClientManager(output, context.secrets, context.extensionPath);
+  const output = vscode.window.createOutputChannel("QwenPaw Core", {
+    log: true,
+  });
+  manager = new CoreClientManager(
+    output,
+    context.secrets,
+    context.extensionPath,
+  );
   const handler: vscode.ChatRequestHandler = async (
     request,
     chatContext,
@@ -38,10 +44,9 @@ export function activate(context: vscode.ExtensionContext): void {
     if (!client) {
       throw new Error("QwenPaw Core client is unavailable");
     }
-    const pendingSelection =
-      context.workspaceState.get<PendingThreadSelection>(
-        PENDING_THREAD_SELECTION_KEY,
-      );
+    const pendingSelection = context.workspaceState.get<PendingThreadSelection>(
+      PENDING_THREAD_SELECTION_KEY,
+    );
     if (pendingSelection) {
       await context.workspaceState.update(
         PENDING_THREAD_SELECTION_KEY,
@@ -76,7 +81,10 @@ export function activate(context: vscode.ExtensionContext): void {
     });
     return { metadata: { threadId } satisfies QwenPawMetadata };
   };
-  const participant = vscode.chat.createChatParticipant("qwenpaw.chat", handler);
+  const participant = vscode.chat.createChatParticipant(
+    "qwenpaw.chat",
+    handler,
+  );
   const restart = vscode.commands.registerCommand(
     "qwenpaw.restartCore",
     async () => {
@@ -189,10 +197,9 @@ export function activate(context: vscode.ExtensionContext): void {
         return;
       }
       await client.archiveThread(selection.thread.id);
-      const pending =
-        context.workspaceState.get<PendingThreadSelection>(
-          PENDING_THREAD_SELECTION_KEY,
-        );
+      const pending = context.workspaceState.get<PendingThreadSelection>(
+        PENDING_THREAD_SELECTION_KEY,
+      );
       if (
         pending?.kind === "existing" &&
         pending.threadId === selection.thread.id
@@ -215,13 +222,13 @@ export function activate(context: vscode.ExtensionContext): void {
         throw new Error("QwenPaw Core client is unavailable");
       }
       const configuration = vscode.workspace.getConfiguration("qwenpaw");
-      const current = configuration.get<string>(
-        "model",
-        "qwen3-coder-plus",
-      );
+      const current = configuration.get<string>("model", "qwen3-coder-plus");
       const models = await client.listModels();
       const selection = await vscode.window.showQuickPick(
-        [...models.map((model) => modelItem(model, current)), customModelItem()],
+        [
+          ...models.map((model) => modelItem(model, current)),
+          customModelItem(),
+        ],
         {
           matchOnDescription: true,
           placeHolder: "Select the model used for new threads",
@@ -233,13 +240,15 @@ export function activate(context: vscode.ExtensionContext): void {
       }
       const model =
         selection.modelId ??
-        (await vscode.window.showInputBox({
-          ignoreFocusOut: true,
-          prompt: "Enter an OpenAI-compatible model ID",
-          title: "QwenPaw: Model ID",
-          validateInput: (value) =>
-            value.trim() ? undefined : "Model ID cannot be empty",
-        }))?.trim();
+        (
+          await vscode.window.showInputBox({
+            ignoreFocusOut: true,
+            prompt: "Enter an OpenAI-compatible model ID",
+            title: "QwenPaw: Model ID",
+            validateInput: (value) =>
+              value.trim() ? undefined : "Model ID cannot be empty",
+          })
+        )?.trim();
       if (!model || model === current) {
         return;
       }
@@ -265,7 +274,9 @@ export function activate(context: vscode.ExtensionContext): void {
         [
           `Model: ${configuration.defaultModel}`,
           `Base URL: ${configuration.baseUrl}`,
-          `API key: ${configuration.apiKeyConfigured ? "configured" : "not configured"}`,
+          `API key: ${
+            configuration.apiKeyConfigured ? "configured" : "not configured"
+          }`,
         ].join("\n"),
         { modal: true },
       );
@@ -386,9 +397,8 @@ export function activate(context: vscode.ExtensionContext): void {
           waitForMcpAuthorization({
             isCancelled: () => token.isCancellationRequested,
             readAuthorized: async () =>
-              (
-                await client.readMcpOAuthStatus(selection.client.serverId)
-              ).authorized,
+              (await client.readMcpOAuthStatus(selection.client.serverId))
+                .authorized,
           }),
       );
       if (result === "authorized") {
@@ -532,11 +542,9 @@ function threadItem(thread: Thread): ThreadQuickPickItem {
   };
 }
 
-function modelItem(
-  model: ModelInfo,
-  current: string,
-): ModelQuickPickItem {
-  const state = model.id === current ? "current" : model.isDefault ? "default" : "";
+function modelItem(model: ModelInfo, current: string): ModelQuickPickItem {
+  const state =
+    model.id === current ? "current" : model.isDefault ? "default" : "";
   return {
     label: model.displayName,
     description: [model.id, state].filter(Boolean).join(" · "),

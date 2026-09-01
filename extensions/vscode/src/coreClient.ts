@@ -136,7 +136,10 @@ export class CoreClient implements vscode.Disposable {
   }
 
   public async listModels(): Promise<readonly ModelInfo[]> {
-    const response = await this.rpc.request<ModelListResponse>("model/list", {});
+    const response = await this.rpc.request<ModelListResponse>(
+      "model/list",
+      {},
+    );
     return response.data;
   }
 
@@ -148,12 +151,10 @@ export class CoreClient implements vscode.Disposable {
     return response.config;
   }
 
-  public async updateConfig(
-    values: {
-      readonly baseUrl?: string;
-      readonly defaultModel?: string;
-    },
-  ): Promise<ConfigWriteResponse["config"]> {
+  public async updateConfig(values: {
+    readonly baseUrl?: string;
+    readonly defaultModel?: string;
+  }): Promise<ConfigWriteResponse["config"]> {
     const params: ConfigWriteParams = {
       baseUrl: values.baseUrl ?? null,
       defaultModel: values.defaultModel ?? null,
@@ -165,7 +166,9 @@ export class CoreClient implements vscode.Disposable {
     return response.config;
   }
 
-  public async listThreads(includeArchived = false): Promise<readonly Thread[]> {
+  public async listThreads(
+    includeArchived = false,
+  ): Promise<readonly Thread[]> {
     return collectCursorPages(async (cursor) =>
       this.rpc.request<ThreadListResponse>("thread/list", {
         cursor,

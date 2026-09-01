@@ -5,10 +5,13 @@ import { collectCursorPages } from "../src/pagination";
 
 test("collects all cursor pages in server order", async () => {
   const cursors: Array<string | null> = [];
-  const pages = new Map<string | null, {
-    data: readonly number[];
-    nextCursor: string | null;
-  }>([
+  const pages = new Map<
+    string | null,
+    {
+      data: readonly number[];
+      nextCursor: string | null;
+    }
+  >([
     [null, { data: [1, 2], nextCursor: "page-2" }],
     ["page-2", { data: [3], nextCursor: "page-3" }],
     ["page-3", { data: [4, 5], nextCursor: null }],
@@ -39,10 +42,10 @@ test("rejects a repeated cursor", async () => {
 
 test("rejects a result over the item limit", async () => {
   await assert.rejects(
-    collectCursorPages(
-      async () => ({ data: [1, 2, 3], nextCursor: null }),
-      { maxItems: 2, maxPages: 2 },
-    ),
+    collectCursorPages(async () => ({ data: [1, 2, 3], nextCursor: null }), {
+      maxItems: 2,
+      maxPages: 2,
+    }),
     /exceeded 2 items/,
   );
 });

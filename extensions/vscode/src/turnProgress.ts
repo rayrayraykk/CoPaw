@@ -13,9 +13,7 @@ export type TurnOutcome =
   | { readonly kind: "interrupted" }
   | { readonly kind: "invalid"; readonly message: string };
 
-export function turnOutcome(
-  turn: Pick<Turn, "status" | "error">,
-): TurnOutcome {
+export function turnOutcome(turn: Pick<Turn, "status" | "error">): TurnOutcome {
   switch (turn.status) {
     case "completed":
       return { kind: "completed" };
@@ -65,9 +63,7 @@ export class TurnProgressTracker {
     return `Waiting for approval: ${name}`;
   }
 
-  public approvalResolved(
-    approval: ToolApprovalResolvedNotification,
-  ): string {
+  public approvalResolved(approval: ToolApprovalResolvedNotification): string {
     const name = this.approvalTools.get(approval.approvalId) ?? "tool";
     this.approvalTools.delete(approval.approvalId);
     return approval.decision === "approved"

@@ -1,5 +1,4 @@
-export const PENDING_THREAD_SELECTION_KEY =
-  "qwenpaw.pendingThreadSelection.v1";
+export const PENDING_THREAD_SELECTION_KEY = "qwenpaw.pendingThreadSelection.v1";
 
 export type PendingThreadSelection =
   | { readonly kind: "existing"; readonly threadId: string }
