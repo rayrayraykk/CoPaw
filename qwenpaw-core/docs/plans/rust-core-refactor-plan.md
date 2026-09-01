@@ -903,8 +903,8 @@ MVP 至少提供：
 - [ ] Desktop 切换到 Rust sidecar；
 - [x] VS Code Chat Participant MVP 完成；
 - [x] macOS 本地测试通过；
-- [ ] Linux 测试通过；
-- [ ] Windows 测试通过；
+- [x] Linux 测试通过；
+- [x] Windows 测试通过；
 - [x] 确认不迁移旧数据，新版本从空数据启动；
 - [ ] 删除 Python proxy；
 - [ ] 删除运行时 Python 依赖；
