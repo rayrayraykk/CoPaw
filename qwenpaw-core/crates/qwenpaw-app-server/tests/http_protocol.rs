@@ -285,6 +285,269 @@ async fn serves_the_unchanged_console_bootstrap_contracts() {
 }
 
 #[tokio::test]
+async fn serves_workspace_git_read_and_write_contracts() {
+    let console = tempfile::tempdir().expect("temporary Console should be created");
+    let desktop_data = tempfile::tempdir().expect("temporary Desktop data should be created");
+    let workspace = tempfile::tempdir().expect("temporary Workspace should be created");
+    std::fs::write(console.path().join("index.html"), "<html>console</html>")
+        .expect("Console index should be written");
+    std::fs::write(workspace.path().join("tracked.txt"), "initial\n")
+        .expect("tracked fixture should be written");
+    let core = Core::new(ModelConfig {
+        api_key: None,
+        base_url: String::from("http://127.0.0.1:1"),
+        default_model: String::from("qwen-test"),
+    });
+    core.write_preferred_workspace(workspace.path())
+        .expect("temporary Workspace should be selected");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("Desktop listener should bind");
+    let address = listener
+        .local_addr()
+        .expect("Desktop listener should have an address");
+    let server = AppServer::new_desktop_with_credential_store_and_data_dir(
+        core,
+        console.path(),
+        String::from("desktop-git-token"),
+        Arc::new(MemoryCredentialStore::default()),
+        desktop_data.path(),
+    )
+    .expect("Desktop server should configure");
+    let task = tokio::spawn(server.run_http(listener));
+
+    assert_git_contracts(address, workspace.path()).await;
+    task.abort();
+}
+
+async fn assert_git_contracts(address: SocketAddr, workspace: &std::path::Path) {
+    let client = reqwest::Client::new();
+    let base = format!("http://{address}/api/workspace/git");
+    let coding_mode = post_json(
+        &client,
+        format!("http://{address}/api/coding-mode"),
+        json!({"enabled": true}),
+    )
+    .await;
+    assert_eq!(coding_mode, json!({"enabled": true, "agent_id": "default"}));
+    assert_eq!(
+        get_json(&client, format!("http://{address}/api/coding-mode")).await,
+        coding_mode
+    );
+    let initialized = get_json(&client, format!("{base}/status")).await;
+    assert_eq!(
+        initialized["changes"],
+        json!([{"path": "tracked.txt", "status": "?", "staged": false}])
+    );
+    assert_eq!(initialized["ahead"], json!(0));
+    assert_eq!(initialized["behind"], json!(0));
+    assert!(
+        !initialized["branch"]
+            .as_str()
+            .unwrap_or_default()
+            .is_empty()
+    );
+    assert!(workspace.join(".git").is_dir());
+
+    assert_eq!(
+        post_json(
+            &client,
+            format!("{base}/stage"),
+            json!({"paths": ["tracked.txt"]}),
+        )
+        .await,
+        json!({"staged": ["tracked.txt"]})
+    );
+    assert_eq!(
+        post_json(
+            &client,
+            format!("{base}/commit"),
+            json!({"message": "Track fixture"}),
+        )
+        .await["committed"],
+        json!(true)
+    );
+
+    std::fs::write(workspace.join("tracked.txt"), "changed\n")
+        .expect("tracked fixture should change");
+    std::fs::write(workspace.join("new.txt"), "new file\n")
+        .expect("untracked fixture should be written");
+    assert_git_status_changes(&client, &base).await;
+    assert_git_stage_and_unstage(&client, &base).await;
+    let commit_hash = assert_git_commit_and_history(&client, &base).await;
+    assert_git_branch_discard_and_revert(&client, &base, workspace, &commit_hash).await;
+    assert_git_rejects_unsafe_inputs(&client, &base).await;
+}
+
+async fn assert_git_status_changes(client: &reqwest::Client, base: &str) {
+    assert_eq!(
+        get_json(client, format!("{base}/status")).await["changes"],
+        json!([
+            {"path": "tracked.txt", "status": "M", "staged": false},
+            {"path": "new.txt", "status": "?", "staged": false}
+        ])
+    );
+    let diff = get_json(client, format!("{base}/diff?path=new.txt&untracked=true")).await;
+    assert!(
+        diff["diff"]
+            .as_str()
+            .is_some_and(|text| { text.contains("new file") && text.contains("+++ b/new.txt") })
+    );
+}
+
+async fn assert_git_stage_and_unstage(client: &reqwest::Client, base: &str) {
+    let staged = post_json(
+        client,
+        format!("{base}/stage"),
+        json!({"paths": ["tracked.txt", "new.txt"]}),
+    )
+    .await;
+    assert_eq!(staged, json!({"staged": ["tracked.txt", "new.txt"]}));
+    let unstaged = post_json(
+        client,
+        format!("{base}/unstage"),
+        json!({"paths": ["new.txt"]}),
+    )
+    .await;
+    assert_eq!(unstaged, json!({"unstaged": ["new.txt"]}));
+    let restaged = post_json(
+        client,
+        format!("{base}/stage"),
+        json!({"paths": ["new.txt"]}),
+    )
+    .await;
+    assert_eq!(restaged, json!({"staged": ["new.txt"]}));
+}
+
+async fn assert_git_commit_and_history(client: &reqwest::Client, base: &str) -> String {
+    let committed = post_json(
+        client,
+        format!("{base}/commit"),
+        json!({"message": "Git contract update"}),
+    )
+    .await;
+    assert_eq!(committed["committed"], json!(true));
+    let log = get_json(client, format!("{base}/log?limit=10")).await;
+    assert_eq!(log[0]["author"], json!("QwenPaw"));
+    assert_eq!(log[0]["message"], json!("Git contract update"));
+    let hash = log[0]["hash"]
+        .as_str()
+        .expect("Git log should contain a hash")
+        .to_owned();
+    assert_eq!(hash.len(), 8);
+    let commit_diff = get_json(client, format!("{base}/commit-diff?commit_hash={hash}")).await;
+    assert_eq!(commit_diff["hash"], json!(hash));
+    assert!(
+        commit_diff["diff"]
+            .as_str()
+            .is_some_and(|text| text.contains("Git contract update") && text.contains("new.txt"))
+    );
+    hash
+}
+
+async fn assert_git_branch_discard_and_revert(
+    client: &reqwest::Client,
+    base: &str,
+    workspace: &std::path::Path,
+    commit_hash: &str,
+) {
+    assert_eq!(
+        post_json(
+            client,
+            format!("{base}/checkout"),
+            json!({"branch": "test/rust-core", "create": true}),
+        )
+        .await,
+        json!({"branch": "test/rust-core"})
+    );
+    let branches = get_json(client, format!("{base}/branches")).await;
+    assert!(
+        branches
+            .as_array()
+            .is_some_and(|branches| branches.iter().any(|branch| branch
+                == &json!({"name": "test/rust-core", "current": true, "remote": false})))
+    );
+    std::fs::write(workspace.join("tracked.txt"), "discard me\n")
+        .expect("tracked fixture should change before discard");
+    assert_eq!(
+        post_json(
+            client,
+            format!("{base}/discard"),
+            json!({"paths": ["tracked.txt"]}),
+        )
+        .await,
+        json!({"discarded": ["tracked.txt"]})
+    );
+    assert_eq!(
+        std::fs::read_to_string(workspace.join("tracked.txt"))
+            .expect("discarded fixture should read"),
+        "changed\n"
+    );
+    let reverted = post_json(
+        client,
+        format!("{base}/revert"),
+        json!({"commit_hash": commit_hash}),
+    )
+    .await;
+    assert_eq!(reverted["reverted"], json!(commit_hash));
+    assert_eq!(
+        std::fs::read_to_string(workspace.join("tracked.txt"))
+            .expect("reverted fixture should read"),
+        "initial\n"
+    );
+    assert!(!workspace.join("new.txt").exists());
+}
+
+async fn assert_git_rejects_unsafe_inputs(client: &reqwest::Client, base: &str) {
+    let traversal = client
+        .post(format!("{base}/stage"))
+        .json(&json!({"paths": ["../outside"]}))
+        .send()
+        .await
+        .expect("unsafe path request should send");
+    assert_eq!(traversal.status(), reqwest::StatusCode::BAD_REQUEST);
+    assert_eq!(
+        traversal
+            .json::<Value>()
+            .await
+            .expect("unsafe path response should be JSON"),
+        json!({"detail": "Git path must be relative without traversal"})
+    );
+    let option = client
+        .get(format!(
+            "{base}/commit-diff?commit_hash=--upload-pack%3Devil"
+        ))
+        .send()
+        .await
+        .expect("unsafe hash request should send");
+    assert_eq!(option.status(), reqwest::StatusCode::BAD_REQUEST);
+    assert_eq!(
+        option
+            .json::<Value>()
+            .await
+            .expect("unsafe hash response should be JSON"),
+        json!({"detail": "Git commit hash is invalid"})
+    );
+}
+
+async fn get_json(client: &reqwest::Client, url: String) -> Value {
+    let response = client.get(url).send().await.expect("GET should send");
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    response.json().await.expect("GET response should be JSON")
+}
+
+async fn post_json(client: &reqwest::Client, url: String, body: Value) -> Value {
+    let response = client
+        .post(url)
+        .json(&body)
+        .send()
+        .await
+        .expect("POST should send");
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    response.json().await.expect("POST response should be JSON")
+}
+
+#[tokio::test]
 async fn streams_console_chat_with_the_unchanged_frontend_sse_contract() {
     let model_base_url = start_model_server().await;
     let console = tempfile::tempdir().expect("temporary Console should be created");

@@ -42,7 +42,8 @@
 | Memory/index/graph | Python memory and Workspace services | Deferred | New-store schema, retrieval quality, rebuild, durability, and UI graph contracts pass |
 | Skills/plugins/PawApps/market | Python plugin runtime and dynamic routes | Deferred | Package trust, sandboxing, lifecycle, dynamic API/frontend loading, and rollback are specified/tested |
 | Harnesses/ACP/external coding agents | Python harness and ACP services | Deferred | Process lifecycle, protocol versioning, MCP/session interop, cancellation, and security pass |
-| Git/checkpoints/coding mode | Python Workspace routers | Deferred | Cross-platform repository fixtures, destructive-action policy, checkpoint recovery, and UI contracts pass |
+| Git and coding mode | Python Workspace routers | Partial: Coding Mode is Rust-persisted and all 11 existing Console Git calls operate on the selected single Workspace with bounded, literal pathspec commands and injection checks | Cross-platform repository fixtures, multi-root/chat isolation, hook/destructive-action policy, and large-output behavior pass native runners |
+| Checkpoints | Python Workspace routers | Deferred | Checkpoint creation, graph, garbage collection, destructive-action policy, and recovery fixtures pass |
 | Backups and restore | Python backup service | Deferred | Rust backup includes every authoritative store, validates archives, supports rollback, and passes recovery drills |
 | Authentication/Hub/multi-tenancy | Python auth and Hub control app | Deferred | Threat model, tenant isolation, session/token lifecycle, proxy rules, audit, and remote TLS tests pass |
 | Metrics/token usage/observability | Python stats and observability | Deferred | Stable event model, redaction, usage accuracy, retention, and diagnostics are accepted |

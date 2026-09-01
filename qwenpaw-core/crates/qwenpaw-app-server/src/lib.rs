@@ -77,6 +77,7 @@ use tracing::warn;
 mod desktop_api;
 mod desktop_credentials;
 mod desktop_files;
+mod desktop_git;
 mod desktop_navigation;
 
 pub use desktop_credentials::DesktopCredentialStore;
@@ -100,6 +101,7 @@ struct AppServerInner {
     core: Core,
     desktop_session_aliases: tokio::sync::RwLock<DesktopSessionAliases>,
     desktop_pending_approvals: tokio::sync::RwLock<HashMap<String, DesktopPendingApproval>>,
+    desktop_git_lock: tokio::sync::Mutex<()>,
     desktop_credentials: Option<Arc<dyn DesktopCredentialStore>>,
     desktop_workspace: Option<DesktopWorkspace>,
     allowed_origins: Vec<String>,
@@ -146,6 +148,7 @@ impl AppServer {
                 core,
                 desktop_session_aliases: tokio::sync::RwLock::new(DesktopSessionAliases::default()),
                 desktop_pending_approvals: tokio::sync::RwLock::new(HashMap::new()),
+                desktop_git_lock: tokio::sync::Mutex::new(()),
                 desktop_credentials: None,
                 desktop_workspace: None,
                 allowed_origins: allowed_origins_from_env(),
@@ -270,6 +273,7 @@ impl AppServer {
                 core,
                 desktop_session_aliases: tokio::sync::RwLock::new(DesktopSessionAliases::default()),
                 desktop_pending_approvals: tokio::sync::RwLock::new(HashMap::new()),
+                desktop_git_lock: tokio::sync::Mutex::new(()),
                 desktop_credentials: Some(desktop_credentials),
                 desktop_workspace: Some(desktop_workspace),
                 allowed_origins: allowed_origins_from_env(),
@@ -424,6 +428,7 @@ impl AppServer {
             router = router
                 .merge(desktop_api::router())
                 .merge(desktop_files::router())
+                .merge(desktop_git::router())
                 .merge(desktop_navigation::router())
                 .route("/api", any(api_not_found))
                 .route("/api/{*path}", any(api_not_found))

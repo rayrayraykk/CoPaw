@@ -86,6 +86,7 @@ const SYSTEM_PROMPT: &str = "You are QwenPaw, a coding agent working inside the 
 const BASE_URL_SETTING: &str = "base_url";
 const DEFAULT_MODEL_SETTING: &str = "default_model";
 const PREFERRED_WORKSPACE_SETTING: &str = "preferred_workspace";
+const CODING_MODE_SETTING: &str = "coding_mode";
 
 pub type TurnEventStream = mpsc::Receiver<CoreEvent>;
 
@@ -493,6 +494,42 @@ impl Core {
             .write_settings(&[(PREFERRED_WORKSPACE_SETTING, &root)])
             .map_err(CoreError::storage)?;
         Ok(root)
+    }
+
+    /// Reads whether Desktop Coding Mode is enabled for the built-in agent.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when SQLite cannot be read or the stored value is
+    /// invalid.
+    pub fn read_coding_mode(&self) -> Result<bool, CoreError> {
+        match self
+            .inner
+            .store
+            .read_setting(CODING_MODE_SETTING)
+            .map_err(CoreError::storage)?
+            .as_deref()
+        {
+            None | Some("false") => Ok(false),
+            Some("true") => Ok(true),
+            Some(_) => Err(CoreError::Config(String::from(
+                "stored Coding Mode setting is invalid",
+            ))),
+        }
+    }
+
+    /// Persists whether Desktop Coding Mode is enabled for the built-in agent.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when SQLite persistence fails.
+    pub fn write_coding_mode(&self, enabled: bool) -> Result<bool, CoreError> {
+        let value = if enabled { "true" } else { "false" };
+        self.inner
+            .store
+            .write_settings(&[(CODING_MODE_SETTING, value)])
+            .map_err(CoreError::storage)?;
+        Ok(enabled)
     }
 
     pub async fn list_workspaces(&self) -> WorkspaceListResponse {

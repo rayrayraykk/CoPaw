@@ -71,7 +71,7 @@ pub(super) fn router() -> Router<AppServer> {
         .route("/api/console/chat/stop", post(stop_console_chat))
         .route("/api/approval/approve", post(approve_tool))
         .route("/api/approval/deny", post(deny_tool))
-        .route("/api/coding-mode", get(coding_mode))
+        .route("/api/coding-mode", get(coding_mode).post(set_coding_mode))
         .route("/api/loops", get(loop_modes))
         .route("/api/loops/status", get(loop_status))
         .route("/api/skills", get(skills))
@@ -1195,8 +1195,30 @@ async fn chat_groups() -> Json<Value> {
     ]))
 }
 
-async fn coding_mode() -> Json<Value> {
-    Json(json!({"enabled": false, "agent_id": "default"}))
+async fn coding_mode(State(server): State<AppServer>) -> Result<Json<Value>, ApiError> {
+    let enabled = server
+        .inner
+        .core
+        .read_coding_mode()
+        .map_err(|error| api_error(&error))?;
+    Ok(Json(json!({"enabled": enabled, "agent_id": "default"})))
+}
+
+#[derive(Debug, Deserialize)]
+struct CodingModeRequest {
+    enabled: bool,
+}
+
+async fn set_coding_mode(
+    State(server): State<AppServer>,
+    Json(request): Json<CodingModeRequest>,
+) -> Result<Json<Value>, ApiError> {
+    let enabled = server
+        .inner
+        .core
+        .write_coding_mode(request.enabled)
+        .map_err(|error| api_error(&error))?;
+    Ok(Json(json!({"enabled": enabled, "agent_id": "default"})))
 }
 
 #[derive(Debug, Deserialize)]

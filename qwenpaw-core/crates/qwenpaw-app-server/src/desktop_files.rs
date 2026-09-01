@@ -54,7 +54,7 @@ const MAX_MULTIPART_BODY_BYTES: usize = MAX_UPLOAD_FILE_BYTES + 1_024 * 1_024;
 const ATTACHMENTS_DIRECTORY: &str = "attachments";
 const WORKSPACE_ATTACHMENTS_DIRECTORY: &str = ".qwenpaw/attachments";
 
-type ApiError = (StatusCode, Json<Value>);
+pub(super) type ApiError = (StatusCode, Json<Value>);
 
 pub(super) fn router() -> Router<AppServer> {
     Router::new()
@@ -738,7 +738,7 @@ async fn ensure_workspace_attachment_directory(root: &Path) -> Result<PathBuf, A
     Ok(canonical)
 }
 
-async fn resolve_workspace_root(
+pub(super) async fn resolve_workspace_root(
     server: &AppServer,
     headers: &HeaderMap,
     requested_root: Option<&str>,

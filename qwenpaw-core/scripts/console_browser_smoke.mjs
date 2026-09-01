@@ -124,6 +124,32 @@ function navigationPaths(arguments_) {
   });
 }
 
+function smokeOptions(arguments_) {
+  const codingGit = arguments_.includes("--coding-git");
+  const navigationArguments = arguments_.filter(
+    (argument) => argument !== "--coding-git",
+  );
+  return {
+    codingGit,
+    paths: navigationPaths(navigationArguments),
+  };
+}
+
+async function enableCodingMode(origin) {
+  const response = await fetch(`${origin}/api/coding-mode`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled: true }),
+  });
+  if (!response.ok) {
+    throw new Error(`Coding Mode setup returned ${response.status}`);
+  }
+  const body = await response.json();
+  if (body.enabled !== true) {
+    throw new Error("Coding Mode setup did not enable the Rust capability");
+  }
+}
+
 function waitForDevTools(child) {
   return new Promise((resolve, reject) => {
     let stderr = "";
@@ -213,7 +239,8 @@ function apiPath(url, origin) {
   return `${parsed.pathname}${parsed.search}`;
 }
 
-async function inspectConsole(client, origin, paths) {
+async function inspectConsole(client, origin, options) {
+  const { codingGit, paths } = options;
   let observation;
   client.on("Network.responseReceived", ({ response }) => {
     const requestPath = apiPath(response.url, origin);
@@ -252,6 +279,27 @@ async function inspectConsole(client, origin, paths) {
     await delay(
       paths.length === 1 ? WAIT_AFTER_LOAD_MS : NAVIGATION_WAIT_AFTER_LOAD_MS,
     );
+    if (codingGit && navigationPath === "/files") {
+      const activated = await client.send("Runtime.evaluate", {
+        expression: `(() => {
+          const sourceControl = [...document.querySelectorAll("button")].find(
+            (button) => /source control/i.test(
+              button.getAttribute("aria-label") ?? ""
+            )
+          );
+          sourceControl?.click();
+          return Boolean(sourceControl);
+        })()`,
+        returnByValue: true,
+      });
+      if (!activated.result.value) {
+        observation.browserErrors.push(
+          "Coding Mode Source Control control did not render",
+        );
+      } else {
+        await delay(NAVIGATION_WAIT_AFTER_LOAD_MS);
+      }
+    }
     const evaluation = await client.send("Runtime.evaluate", {
       expression: `JSON.stringify({
         bodyText: document.body?.innerText ?? "",
@@ -313,7 +361,8 @@ async function inspectConsole(client, origin, paths) {
 
 async function main() {
   const origin = validateBaseUrl(process.argv[2] ?? "");
-  const paths = navigationPaths(process.argv.slice(3));
+  const options = smokeOptions(process.argv.slice(3));
+  if (options.codingGit) await enableCodingMode(origin);
   const executable = await chromeExecutable();
   const profile = await mkdtemp(
     path.join(os.tmpdir(), "qwenpaw-chrome-smoke-"),
@@ -336,7 +385,7 @@ async function main() {
     const browserWebSocketUrl = await waitForDevTools(child);
     const target = await createPage(browserWebSocketUrl);
     const client = await connectDevTools(target.webSocketDebuggerUrl);
-    const result = await inspectConsole(client, origin, paths);
+    const result = await inspectConsole(client, origin, options);
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     const browser = await connectDevTools(browserWebSocketUrl);
     await browser.send("Browser.close");

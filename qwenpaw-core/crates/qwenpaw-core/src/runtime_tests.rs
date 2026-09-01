@@ -439,6 +439,43 @@ fn persists_and_hot_reloads_non_secret_model_configuration() {
     );
 }
 
+#[test]
+fn persists_desktop_coding_mode_in_the_core_store() {
+    let directory = tempfile::tempdir().expect("temporary directory should be created");
+    let database_path = directory.path().join("threads.sqlite3");
+    let model_config = ModelConfig {
+        api_key: None,
+        base_url: String::from("http://127.0.0.1:1"),
+        default_model: String::from("qwen-test"),
+    };
+    let core = Core::persistent(model_config.clone(), &database_path)
+        .expect("persistent Core should open");
+    assert!(!core.read_coding_mode().expect("Coding Mode should read"));
+    assert!(
+        core.write_coding_mode(true)
+            .expect("Coding Mode should persist")
+    );
+    drop(core);
+
+    let reopened =
+        Core::persistent(model_config, &database_path).expect("persistent Core should reopen");
+    assert!(
+        reopened
+            .read_coding_mode()
+            .expect("Coding Mode should reload")
+    );
+    assert!(
+        !reopened
+            .write_coding_mode(false)
+            .expect("Coding Mode should update")
+    );
+    assert!(
+        !reopened
+            .read_coding_mode()
+            .expect("updated Coding Mode should read")
+    );
+}
+
 #[tokio::test]
 async fn lists_and_reads_only_registered_workspaces() {
     let directory = tempfile::tempdir().expect("temporary directory should be created");

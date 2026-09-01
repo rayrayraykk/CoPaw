@@ -9,6 +9,8 @@ The repository is under active development. VS Code uses the stdio app-server
 protocol, while Desktop starts Rust Core by default and serves the unchanged
 Console over a random loopback HTTP port. Transitional bundles can explicitly
 select the legacy Python backend with `QWENPAW_DESKTOP_RUST_CORE=0`.
+The built-in Desktop agent persists Coding Mode in Core SQLite and uses the
+unchanged Files/Source Control UI against Rust-owned Workspace Git endpoints.
 
 ## Architecture and migration
 
