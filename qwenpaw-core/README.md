@@ -50,8 +50,11 @@ parallel handwritten interfaces.
 
 Tagged Core releases build native archives for macOS arm64/x64, Linux x64, and
 Windows x64. macOS jobs require Developer ID signing and notarization secrets;
-the release fails closed when they are unavailable. The product repository
-pins the resulting tag and asset names in `extensions/vscode/core-release.json`.
+tagged or explicitly production-signed runs check all six Apple values before
+starting any native build and fail closed when they are unavailable. A manual
+workflow dispatch defaults to unsigned, non-publishing four-platform QA. The
+product repository pins published tag and asset names in
+`extensions/vscode/core-release.json`.
 
 Run the stdio app server:
 

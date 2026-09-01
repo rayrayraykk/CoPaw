@@ -72,8 +72,11 @@ release-signing credentials are configured.
 The Core release workflow requires `APPLE_CERTIFICATE_P12` (base64-encoded),
 `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`,
 `APPLE_TEAM_ID`, and `APPLE_APP_PASSWORD` repository secrets. A missing secret,
-failed notarization, or failed Gatekeeper assessment stops the release; the
-workflow never publishes an unsigned macOS archive.
+or an ad-hoc identity stops the workflow before native builds start. Failed
+notarization or Gatekeeper assessment also stops the release; the workflow
+never publishes an unsigned macOS archive. A manual Core workflow dispatch may
+leave `production_signing` off to validate four native archives without
+publishing them; those QA artifacts must not be used in a macOS VSIX release.
 
 ## MCP
 

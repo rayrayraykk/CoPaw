@@ -604,7 +604,7 @@ MVP 至少提供：
 
 - [x] D1：确认 Codex 指 `https://github.com/openai/codex`；
 - [x] D2：目标保持可拆分的 `qwenpaw-core` 边界；首个版本按用户决定暂存于 CoPaw 的 `qwenpaw-core/`，Codex 仅作为本地忽略的参考仓库；
-- [x] D3：确认最终目标是正常运行时完全去 Python，但迁移期允许 Python sidecar；
+- [x] D3：确认新 Desktop 正常运行时完全去 Python；旧 Python 版本仅作为独立 legacy 产品保留，新版不提供 sidecar fallback；
 - [x] D4：确认现有 WebUI 业务代码不改，必要修改保持最小；
 - [x] D5：确认第一阶段目标为 Rust Core + VS Code，不包含全部消息渠道、Browser Use 和完整 Memory；
 - [x] D6：MVP 首个模型接口采用 OpenAI-compatible / Qwen；
@@ -633,21 +633,21 @@ MVP 至少提供：
 ### 14.2 Rust MVP
 
 - [x] 创建 Cargo workspace；
-- [ ] 创建 domain crate；
+- [x] 完成 domain 边界评审，当前类型由 protocol/runtime 所有，不创建空 domain crate；
 - [x] 创建 protocol crate；
 - [x] 创建 server crate；
 - [x] 创建 runtime crate；
-- [ ] 创建 models crate；
+- [x] 完成 model 边界评审，单一 OpenAI-compatible adapter 保留在 runtime，不创建空 models crate；
 - [x] 创建 tools crate；
 - [x] 创建 storage crate；
-- [ ] 创建 governance crate；
-- [ ] 创建 platform crate；
+- [x] 完成 governance 边界评审，当前审批策略保留在 Core 状态机；
+- [x] 完成 platform 边界评审，平台代码保留在各自所有组件；
 - [x] 创建 CLI；
 - [x] 生成 JSON Schema；
 - [x] 生成 TypeScript SDK；
 - [x] 实现 stdio；
 - [x] 实现 loopback HTTP health / WebSocket App Protocol；
-- [ ] 实现 WebUI 兼容层；
+- [x] 实现 Desktop/WebUI 当前范围的 HTTP/SSE 兼容层，未实现产品域显式返回空/禁用或 404；
 - [x] 实现模型流式响应；
 - [x] 实现基础 Agent Loop；
 - [x] 实现基础文件与 Shell 工具；
@@ -865,7 +865,7 @@ MVP 至少提供：
 - [x] Core Desktop HTTP 模式绑定随机 loopback 端口并输出兼容 ready marker；
 - [x] Core 托管现有 Console 静态目录与 SPA fallback，不修改 React 业务源码；
 - [x] 提供 `/api/version`、`/api/healthz` 和 token 保护的 Desktop shutdown；
-- [x] Tauri 支持显式 Rust Core 开关启动本地/打包 sidecar，同时保留 Python fallback；
+- [x] Tauri 完成 Rust Core 本地/打包 sidecar 启动链路；该阶段的临时 Python fallback 已在 Rust-only 收口中删除；
 - [x] 增加真实 HTTP、静态资源、鉴权 shutdown、进程退出和 Tauri 路径测试；
 - [x] 更新 Desktop 打包资源边界并通过 Rust Core、Tauri、Console 本地质量门禁；
 
@@ -900,7 +900,7 @@ MVP 至少提供：
 - [x] 补齐已观察 Chat 启动调用图，并用真实 headless Chrome 验证页面渲染、0 个 API 404 和 0 个浏览器错误；
 - [ ] 支持多 project-directory、memory/profile 与剩余 Coding 文件契约；
 - [x] 完成非 Chat 导航页的调用图、空/禁用状态响应和 24 页真实浏览器 E2E 契约；
-- [x] 默认切换 Desktop 到 Rust Core，并保留 `QWENPAW_DESKTOP_RUST_CORE=0` 显式 legacy 回退；
+- [x] 默认切换 Desktop 到 Rust Core；下一切片已删除 `QWENPAW_DESKTOP_RUST_CORE=0` 与 legacy backend 回退；
 
 ### 14.2.19 当前开发切片：Rust-only Desktop 收口
 
@@ -927,7 +927,18 @@ MVP 至少提供：
 - [x] production macOS 构建由 Tauri 完成 Developer ID 签名与公证，不再在公证后重签；
 - [x] production macOS 构建强制通过 codesign、stapler 与 Gatekeeper 验收；
 - [x] 补充脚本单测并通过 workflow、Shell、Tauri 单测与本地 macOS QA 打包门禁；
+- [x] macOS/Windows 原生 runner 完成 Rust-only 安装、启动、WebView 与真实聊天 QA（[Desktop Build #33545103126](https://github.com/rayrayraykk/CoPaw/actions/runs/33545103126)）；
 - [ ] 配置 Apple/Tauri 生产凭据并在 GitHub 原生 runner 完成一次真实签名与公证；
+
+### 14.2.22 后续目标完成度审计
+
+- [x] Desktop/WebUI：新 Desktop 只启动 Rust Core，现有 React 业务源码不变，原生包安装/启动/页面矩阵通过；
+- [x] 数据边界：按 Fresh Start 决策不迁移、不扫描、不修改 Python 数据，使用版本化新库；
+- [x] 交互式 OAuth：MCP discovery、PKCE loopback callback、系统浏览器、安全凭据存储、refresh/revoke 及 VS Code/Console 契约通过；
+- [x] 远程 WSS：TLS、bearer token file、Origin allowlist、token rotation、私钥权限与原生平台回归通过；
+- [x] 跨平台 QA：Core CI 通过 Linux/macOS/Windows，Desktop 通过 macOS/Windows 原生 runner；
+- [x] 生产发布脚本在缺失 Apple/Tauri 凭据时 fail-closed，不会发布 ad-hoc macOS 产物；
+- [ ] 外部阻塞：仓库配置 Apple/Tauri 凭据后，完成 Core、平台 VSIX 与 Desktop 的真实 Developer ID 签名/公证发布验收；
 
 ### 14.3 客户端与发布
 
@@ -938,10 +949,11 @@ MVP 至少提供：
 - [x] Linux 测试通过；
 - [x] Windows 测试通过；
 - [x] 确认不迁移旧数据，新版本从空数据启动；
-- [ ] 删除 Python proxy；
-- [ ] 删除运行时 Python 依赖；
-- [ ] 完成安全审计；
-- [ ] 完成发布验收。
+- [x] 新 Desktop 删除 Python proxy，保留的 Python 源码仅属于可独立运行的 legacy 产品；
+- [x] 新 Desktop 安装包删除运行时 Python 依赖；
+- [x] 完成当前范围的 OAuth/WSS、路径、凭据、审批与发布门禁安全审计；
+- [x] 完成 macOS/Windows 未签名 QA 发布验收；
+- [ ] 完成 Apple Developer ID 签名/公证的生产发布验收。
 
 ## 15. 阶段 0 预期交付物
 

@@ -6,7 +6,9 @@
 
 - **Rust MVP**: implemented and exercised through the App Protocol/VS Code path.
 - **Partial**: a Rust capability exists, but not with full Python behavior or Web API compatibility.
-- **Deferred**: intentionally remains in Python for this phase.
+- **Deferred**: unavailable or explicitly disabled in the new Rust version;
+  users reach the old Python behavior only by deliberately running a legacy
+  release.
 - **Exit gate**: evidence required before the Python implementation can stop being the authority.
 
 ## Matrix
@@ -57,16 +59,16 @@
 5. Rollback means launching the old product against its unchanged Python data, not writing Rust state back into it.
 6. Secrets are configured again through the new client's secure storage and are never copied from Python files into SQLite or logs.
 
-## Recommended migration order after VS Code MVP
+## Fresh-start capability implementation order after VS Code MVP
 
 1. Freeze and capture the Console's actual API call graph and streaming fixtures.
 2. Define a Rust Web compatibility edge that translates HTTP/SSE to Core domain operations without changing Console source.
 3. Migrate read-only health, model, configuration, session-list, and Workspace metadata routes first.
-4. Migrate Chat streaming and approval lifecycle with dual-run comparison but a single writer.
+4. Implement Chat streaming and approval lifecycle with fixture/differential comparison, without shared data or dual writers.
 5. Add Desktop sidecar start/stop/update integration and signed native packaging.
 6. Implement file operations, Git/checkpoints, uploads, and backup/restore against the new Rust-owned storage before cutover.
 7. Move higher-risk channel, Browser, plugin, scheduler, memory, and multi-tenant domains independently.
-8. Delete the Python proxy/runtime only after production rollback drills and a release acceptance checklist pass.
+8. Remove the Python proxy/runtime from the new Desktop package while keeping legacy releases and their data independently runnable for rollback.
 
 ## Crate extraction triggers
 
@@ -94,4 +96,9 @@ The migration objective is met only when:
 - backup/restore and rollback have been exercised against release artifacts;
 - the Python process is absent from production process trees and packaging, not merely unused by the happy path.
 
-Until all conditions hold, documentation and release notes must describe the runtime as hybrid rather than fully migrated.
+The new Desktop may be described as Rust-only only after its package and process
+tree prove that no Python runtime or sidecar is present. Unimplemented product
+domains must remain truthfully unavailable or disabled; they do not make the
+new runtime hybrid. The separately runnable legacy Python release must be
+described as a different product generation, never as an automatic fallback or
+shared data authority.
