@@ -1,0 +1,73 @@
+name: VS Code Platform Packages
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "vscode-v*"
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            target: darwin-arm64
+            executable: qwenpaw-core
+          - os: macos-15-intel
+            target: darwin-x64
+            executable: qwenpaw-core
+          - os: ubuntu-latest
+            target: linux-x64
+            executable: qwenpaw-core
+          - os: windows-latest
+            target: win32-x64
+            executable: qwenpaw-core.exe
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: extensions/vscode
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: extensions/vscode/package-lock.json
+      - run: npm ci
+      - name: Download locked Core release
+        id: core
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          QWENPAW_VSCODE_TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          repository="$(node -p "require('./core-release.json').repository")"
+          tag="$(node -p "require('./core-release.json').tag")"
+          asset="$(node -p "require('./core-release.json').assets[process.env.QWENPAW_VSCODE_TARGET]")"
+          download="$RUNNER_TEMP/qwenpaw-core-download"
+          mkdir -p "$download"
+          gh release download "$tag" --repo "$repository" --pattern "$asset" --dir "$download"
+          tar -xzf "$download/$asset" -C "$download"
+          binary="$download/${{ matrix.executable }}"
+          if [[ ! -f "$binary" ]]; then
+            echo "Core archive did not contain ${{ matrix.executable }}" >&2
+            exit 1
+          fi
+          chmod +x "$binary"
+          echo "binary=$binary" >> "$GITHUB_OUTPUT"
+      - name: Build target VSIX
+        env:
+          QWENPAW_CORE_BIN: ${{ steps.core.outputs.binary }}
+          QWENPAW_VSCODE_TARGET: ${{ matrix.target }}
+        run: npm run package:bundled
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qwenpaw-vscode-${{ matrix.target }}
+          path: extensions/vscode/*.vsix
+          if-no-files-found: error

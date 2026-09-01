@@ -1,0 +1,33 @@
+[package]
+name = "qwenpaw-mcp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+futures-util.workspace = true
+http.workspace = true
+reqwest.workspace = true
+rmcp.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+axum.workspace = true
+pretty_assertions.workspace = true
+tempfile.workspace = true
+
+[[bin]]
+name = "qwenpaw-mcp-test-server"
+path = "src/bin/test_server.rs"
+test = false
+bench = false
+
+[lints]
+workspace = true

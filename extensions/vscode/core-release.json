@@ -1,0 +1,12 @@
+{
+  "version": "0.1.0",
+  "protocolVersion": 2,
+  "repository": "rayrayraykk/CoPaw",
+  "tag": "qwenpaw-core-v0.1.0",
+  "assets": {
+    "darwin-arm64": "qwenpaw-core-darwin-arm64.tar.gz",
+    "darwin-x64": "qwenpaw-core-darwin-x64.tar.gz",
+    "linux-x64": "qwenpaw-core-linux-x64.tar.gz",
+    "win32-x64": "qwenpaw-core-win32-x64.tar.gz"
+  }
+}

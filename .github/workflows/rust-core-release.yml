@@ -1,0 +1,107 @@
+name: Core Release Binaries
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "qwenpaw-core-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: qwenpaw-core-linux-x64
+            binary: target/x86_64-unknown-linux-gnu/release/qwenpaw-core
+          - os: macos-15
+            target: aarch64-apple-darwin
+            artifact: qwenpaw-core-darwin-arm64
+            binary: target/aarch64-apple-darwin/release/qwenpaw-core
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+            artifact: qwenpaw-core-darwin-x64
+            binary: target/x86_64-apple-darwin/release/qwenpaw-core
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: qwenpaw-core-win32-x64
+            binary: target/x86_64-pc-windows-msvc/release/qwenpaw-core.exe
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: qwenpaw-core
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+          workspaces: qwenpaw-core -> target
+      - run: cargo build --release --locked --target ${{ matrix.target }} -p qwenpaw-cli
+      - name: Sign and notarize macOS executable
+        if: startsWith(matrix.target, 'aarch64-apple-') || startsWith(matrix.target, 'x86_64-apple-')
+        shell: bash
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for name in APPLE_CERTIFICATE_P12 APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_TEAM_ID APPLE_APP_PASSWORD; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "Missing required secret: ${name}" >&2
+              exit 1
+            fi
+          done
+          certificate="$RUNNER_TEMP/qwenpaw-developer-id.p12"
+          keychain="$RUNNER_TEMP/qwenpaw-signing.keychain-db"
+          archive="$RUNNER_TEMP/qwenpaw-core-notarization.zip"
+          keychain_password="qwenpaw-ci-keychain"
+          trap 'security delete-keychain "$keychain" >/dev/null 2>&1 || true' EXIT
+          printf '%s' "$APPLE_CERTIFICATE_P12" | base64 -D > "$certificate"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$certificate" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security list-keychains -d user -s "$keychain"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain"
+          codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" "${{ matrix.binary }}"
+          codesign --verify --deep --strict "${{ matrix.binary }}"
+          ditto -c -k --keepParent "${{ matrix.binary }}" "$archive"
+          xcrun notarytool submit "$archive" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" --wait
+          spctl --assess --type execute "${{ matrix.binary }}"
+      - name: Verify executable
+        shell: bash
+        run: '"${{ matrix.binary }}" --version'
+      - name: Create release archive
+        shell: bash
+        run: tar -C "$(dirname "${{ matrix.binary }}")" -czf "${{ runner.temp }}/${{ matrix.artifact }}.tar.gz" "$(basename "${{ matrix.binary }}")"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ runner.temp }}/${{ matrix.artifact }}.tar.gz
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/qwenpaw-core-v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Publish locked Core archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" artifacts/*.tar.gz --generate-notes --verify-tag

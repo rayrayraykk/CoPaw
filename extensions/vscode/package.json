@@ -1,0 +1,137 @@
+{
+  "name": "qwenpaw-vscode",
+  "displayName": "QwenPaw",
+  "description": "Use the local QwenPaw Rust Core from VS Code Chat",
+  "version": "0.1.0",
+  "publisher": "qwenpaw",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rayrayraykk/CoPaw.git",
+    "directory": "extensions/vscode"
+  },
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "AI",
+    "Chat"
+  ],
+  "activationEvents": [
+    "onChatParticipant:qwenpaw.chat",
+    "onCommand:qwenpaw.restartCore",
+    "onCommand:qwenpaw.setApiKey",
+    "onCommand:qwenpaw.clearApiKey",
+    "onCommand:qwenpaw.selectThread",
+    "onCommand:qwenpaw.archiveThread",
+    "onCommand:qwenpaw.selectModel",
+    "onCommand:qwenpaw.showConfiguration",
+    "onCommand:qwenpaw.showWorkspaces",
+    "onCommand:qwenpaw.selectWorkspace"
+  ],
+  "main": "./out/src/extension.js",
+  "contributes": {
+    "chatParticipants": [
+      {
+        "id": "qwenpaw.chat",
+        "name": "qwenpaw",
+        "fullName": "QwenPaw",
+        "description": "Work with your local QwenPaw agent",
+        "isSticky": true
+      }
+    ],
+    "commands": [
+      {
+        "command": "qwenpaw.restartCore",
+        "title": "QwenPaw: Restart Core"
+      },
+      {
+        "command": "qwenpaw.setApiKey",
+        "title": "QwenPaw: Set API Key"
+      },
+      {
+        "command": "qwenpaw.clearApiKey",
+        "title": "QwenPaw: Clear Stored API Key"
+      },
+      {
+        "command": "qwenpaw.selectThread",
+        "title": "QwenPaw: Select Thread"
+      },
+      {
+        "command": "qwenpaw.archiveThread",
+        "title": "QwenPaw: Archive Thread"
+      },
+      {
+        "command": "qwenpaw.selectModel",
+        "title": "QwenPaw: Select Model"
+      },
+      {
+        "command": "qwenpaw.showConfiguration",
+        "title": "QwenPaw: Show Core Configuration"
+      },
+      {
+        "command": "qwenpaw.showWorkspaces",
+        "title": "QwenPaw: Show Workspaces"
+      },
+      {
+        "command": "qwenpaw.selectWorkspace",
+        "title": "QwenPaw: Select Workspace"
+      }
+    ],
+    "configuration": {
+      "title": "QwenPaw",
+      "properties": {
+        "qwenpaw.core.path": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "description": "Optional path to the QwenPaw Core executable. When empty, the extension uses its verified bundled Core, then falls back to PATH."
+        },
+        "qwenpaw.core.arguments": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "app-server",
+            "--stdio"
+          ],
+          "scope": "machine",
+          "description": "Arguments used to start QwenPaw Core"
+        },
+        "qwenpaw.model": {
+          "type": "string",
+          "default": "qwen3-coder-plus",
+          "scope": "window",
+          "description": "OpenAI-compatible model ID used for new QwenPaw threads"
+        },
+        "qwenpaw.baseUrl": {
+          "type": "string",
+          "default": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+          "scope": "machine",
+          "description": "OpenAI-compatible API base URL"
+        },
+        "qwenpaw.mcp.configPath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "description": "Optional path to a QwenPaw MCP JSON file or legacy agent.json. Enabled stdio, Streamable HTTP, and legacy SSE tools are discovered when Core starts a turn."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "check": "npm run compile && npm test",
+    "package": "npm run compile && node scripts/clean-core.mjs && vsce package --no-dependencies",
+    "package:bundled": "npm run compile && node scripts/stage-core.mjs && node scripts/package-vsix.mjs",
+    "sync:protocol": "node scripts/sync-protocol.mjs",
+    "test": "node --test out/test/*.test.js scripts/*.test.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "@types/vscode": "^1.95.0",
+    "@vscode/vsce": "3.9.2",
+    "typescript": "~5.8.3"
+  }
+}

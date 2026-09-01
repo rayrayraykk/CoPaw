@@ -1,0 +1,70 @@
+[workspace]
+members = [
+    "crates/qwenpaw-app-server",
+    "crates/qwenpaw-cli",
+    "crates/qwenpaw-core",
+    "crates/qwenpaw-mcp",
+    "crates/qwenpaw-protocol",
+    "crates/qwenpaw-storage",
+    "crates/qwenpaw-tools",
+]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "Apache-2.0"
+repository = "https://github.com/rayrayraykk/qwenpaw-core"
+
+[workspace.dependencies]
+anyhow = "1.0"
+axum = { version = "0.8", features = ["ws"] }
+bytes = "1.10"
+clap = { version = "4.5", features = ["derive"] }
+dirs = "6.0"
+futures-util = "0.3"
+http = "1.3"
+pretty_assertions = "1.4"
+reqwest = { version = "0.13.2", default-features = false, features = [
+    "form",
+    "http2",
+    "json",
+    "rustls",
+    "stream",
+] }
+rmcp = { version = "=3.1.3", default-features = false, features = [
+    "client",
+    "transport-child-process",
+    "transport-streamable-http-client-reqwest",
+] }
+schemars = "0.8.22"
+rusqlite = { version = "0.37", features = ["bundled"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+tempfile = "3.23"
+tokio = { version = "1.47", features = [
+    "fs",
+    "io-std",
+    "io-util",
+    "macros",
+    "net",
+    "process",
+    "rt-multi-thread",
+    "sync",
+    "time",
+] }
+tokio-util = { version = "0.7", features = ["rt"] }
+tokio-tungstenite = "0.29"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+ts-rs = "11.0.1"
+uuid = { version = "1.18", features = ["v7"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }

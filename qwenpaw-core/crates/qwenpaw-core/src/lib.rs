@@ -1,0 +1,13 @@
+mod context;
+mod model;
+mod runtime;
+
+pub use model::ModelConfig;
+pub use qwenpaw_mcp::McpManager;
+pub use runtime::Core;
+pub use runtime::CoreError;
+pub use runtime::TurnEventStream;
+
+#[cfg(test)]
+#[path = "runtime_tests.rs"]
+mod tests;

@@ -1,0 +1,62 @@
+name: Core CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "qwenpaw-core/**"
+      - ".github/workflows/rust-core-ci.yml"
+  pull_request:
+    paths:
+      - "qwenpaw-core/**"
+      - ".github/workflows/rust-core-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  msrv:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: qwenpaw-core
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: qwenpaw-core -> target
+      - run: cargo test --workspace --locked
+
+  quality:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: qwenpaw-core
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: qwenpaw-core -> target
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: qwenpaw-core
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: qwenpaw-core -> target
+      - run: cargo test --workspace
