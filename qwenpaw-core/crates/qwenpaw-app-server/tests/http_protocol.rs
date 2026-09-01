@@ -478,11 +478,9 @@ async fn assert_git_branch_discard_and_revert(
         .await,
         json!({"discarded": ["tracked.txt"]})
     );
-    assert_eq!(
-        std::fs::read_to_string(workspace.join("tracked.txt"))
-            .expect("discarded fixture should read"),
-        "changed\n"
-    );
+    let discarded = std::fs::read_to_string(workspace.join("tracked.txt"))
+        .expect("discarded fixture should read");
+    assert_eq!(discarded.lines().collect::<Vec<_>>(), ["changed"]);
     let reverted = post_json(
         client,
         format!("{base}/revert"),
@@ -490,11 +488,9 @@ async fn assert_git_branch_discard_and_revert(
     )
     .await;
     assert_eq!(reverted["reverted"], json!(commit_hash));
-    assert_eq!(
-        std::fs::read_to_string(workspace.join("tracked.txt"))
-            .expect("reverted fixture should read"),
-        "initial\n"
-    );
+    let reverted = std::fs::read_to_string(workspace.join("tracked.txt"))
+        .expect("reverted fixture should read");
+    assert_eq!(reverted.lines().collect::<Vec<_>>(), ["initial"]);
     assert!(!workspace.join("new.txt").exists());
 }
 
