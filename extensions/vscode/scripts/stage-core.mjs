@@ -5,6 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { verifyCoreVersionResult } from "./core-version.mjs";
+import { parsePackageKind } from "./package-kind.mjs";
 
 const supportedTargets = new Set([
   "darwin-arm64",
@@ -15,6 +16,9 @@ const supportedTargets = new Set([
 const extensionRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const binarySetting = process.env.QWENPAW_CORE_BIN;
 const target = process.env.QWENPAW_VSCODE_TARGET;
+const packageKind = parsePackageKind(
+  process.env.QWENPAW_VSCODE_PACKAGE_KIND,
+);
 
 if (!binarySetting) {
   throw new Error("QWENPAW_CORE_BIN must point to a release Core binary");
@@ -43,8 +47,12 @@ if (
   throw new Error("core-release.json is invalid");
 }
 verifyCoreVersion(source, release.version);
-if (target.startsWith("darwin-")) {
+if (target.startsWith("darwin-") && packageKind === "release") {
   verifyMacRelease(source);
+} else if (target.startsWith("darwin-")) {
+  process.stderr.write(
+    "QA package: skipping Developer ID and Gatekeeper checks for macOS Core\n",
+  );
 }
 
 await rm(coreRoot, { recursive: true, force: true });
@@ -53,7 +61,7 @@ await copyFile(source, destination);
 if (!target.startsWith("win32-")) {
   await chmod(destination, 0o755);
 }
-if (target.startsWith("darwin-")) {
+if (target.startsWith("darwin-") && packageKind === "release") {
   verifyMacRelease(destination);
 }
 const binary = await readFile(destination);
@@ -62,6 +70,7 @@ const manifest = {
   protocolVersion: release.protocolVersion,
   target,
   executable,
+  packageKind,
   sha256: createHash("sha256").update(binary).digest("hex"),
 };
 await writeFile(

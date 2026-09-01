@@ -63,6 +63,13 @@ declared in `core-release.json`, then creates separate `darwin-arm64`,
 `darwin-x64`, `linux-x64`, and `win32-x64` VSIX artifacts on native runners.
 Update that lock file only after the matching Core release archives exist.
 
+A manual workflow dispatch is an isolated QA path: each native runner builds
+Core from the selected source commit and uploads a three-day
+`qwenpaw-vscode-qa-*` artifact whose bundled manifest records
+`"packageKind": "qa"`. macOS QA skips Developer ID/Gatekeeper release checks;
+tagged builds default to `"release"`, download only the locked Core release,
+and retain all signature checks. QA VSIX files must not be published.
+
 macOS bundles must use a Developer ID-signed and notarized Core binary. The
 staging script verifies both `codesign` and Gatekeeper assessment before and
 after copying, and refuses ad-hoc linker signatures. Local macOS development

@@ -39,7 +39,21 @@ jobs:
           cache: npm
           cache-dependency-path: extensions/vscode/package-lock.json
       - run: npm ci
+      - name: Set up Rust for source QA
+        if: github.event_name == 'workflow_dispatch'
+        uses: dtolnay/rust-toolchain@stable
+      - name: Rust cache for source QA
+        if: github.event_name == 'workflow_dispatch'
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: vscode-${{ matrix.target }}
+          workspaces: qwenpaw-core -> target
+      - name: Build Core from source for QA
+        if: github.event_name == 'workflow_dispatch'
+        working-directory: qwenpaw-core
+        run: cargo build --release --locked -p qwenpaw-cli
       - name: Download locked Core release
+        if: github.event_name != 'workflow_dispatch'
         id: core
         shell: bash
         env:
@@ -61,12 +75,31 @@ jobs:
           fi
           chmod +x "$binary"
           echo "binary=$binary" >> "$GITHUB_OUTPUT"
-      - name: Build target VSIX
+      - name: Build target VSIX from source for QA
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          QWENPAW_CORE_BIN: ${{ format('{0}/qwenpaw-core/target/release/{1}', github.workspace, matrix.executable) }}
+          QWENPAW_VSCODE_TARGET: ${{ matrix.target }}
+          QWENPAW_VSCODE_PACKAGE_KIND: qa
+        run: npm run package:bundled
+      - name: Build target VSIX from locked release
+        if: github.event_name != 'workflow_dispatch'
         env:
           QWENPAW_CORE_BIN: ${{ steps.core.outputs.binary }}
           QWENPAW_VSCODE_TARGET: ${{ matrix.target }}
+          QWENPAW_VSCODE_PACKAGE_KIND: release
         run: npm run package:bundled
-      - uses: actions/upload-artifact@v4
+      - name: Upload QA VSIX
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: qwenpaw-vscode-qa-${{ matrix.target }}
+          path: extensions/vscode/*.vsix
+          if-no-files-found: error
+          retention-days: 3
+      - name: Upload release VSIX
+        if: github.event_name != 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
         with:
           name: qwenpaw-vscode-${{ matrix.target }}
           path: extensions/vscode/*.vsix
