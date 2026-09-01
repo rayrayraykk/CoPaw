@@ -81,11 +81,12 @@ cargo run -p qwenpaw-cli -- app-server \
   --auth-token-file /secure/qwenpaw-token
 ```
 
-The token file must contain 32 through 4096 printable ASCII bytes. On Unix it
-must not be readable or writable by group or other users. Core re-reads the
-file for each WSS handshake, so an atomic file replacement rotates the token
-for new connections without putting the secret in process arguments or logs.
-Existing authenticated connections remain active until they disconnect.
+The token file must contain 32 through 4096 printable ASCII bytes. On Unix the
+token file and TLS private key must not be accessible by group or other users.
+Core re-reads the token file for each WSS handshake, so an atomic file
+replacement rotates the token for new connections without putting the secret
+in process arguments or logs. Existing authenticated connections remain active
+until they disconnect.
 
 Build the VS Code extension from the parent CoPaw repository:
 

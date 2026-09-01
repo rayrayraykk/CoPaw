@@ -32,8 +32,7 @@ async fn requires_tls_authentication_and_reloads_the_remote_token() {
         rcgen::generate_simple_self_signed(vec![String::from("localhost")])
             .expect("test TLS certificate should generate");
     std::fs::write(&certificate_path, cert.pem()).expect("test certificate should write");
-    std::fs::write(&private_key_path, signing_key.serialize_pem())
-        .expect("test private key should write");
+    write_private_file(&private_key_path, signing_key.serialize_pem());
     write_private_token(&token_path, INITIAL_TOKEN);
 
     let listener =
@@ -130,6 +129,44 @@ async fn requires_tls_authentication_and_reloads_the_remote_token() {
     server_task.abort();
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn rejects_a_tls_private_key_readable_by_other_users() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let directory = tempfile::tempdir().expect("temporary WSS directory should be created");
+    let certificate_path = directory.path().join("certificate.pem");
+    let private_key_path = directory.path().join("private-key.pem");
+    let token_path = directory.path().join("auth-token");
+    let CertifiedKey { cert, signing_key } =
+        rcgen::generate_simple_self_signed(vec![String::from("localhost")])
+            .expect("test TLS certificate should generate");
+    std::fs::write(&certificate_path, cert.pem()).expect("test certificate should write");
+    write_private_file(&private_key_path, signing_key.serialize_pem());
+    std::fs::set_permissions(&private_key_path, std::fs::Permissions::from_mode(0o644))
+        .expect("test private key should become intentionally insecure");
+    write_private_token(&token_path, INITIAL_TOKEN);
+    let listener =
+        std::net::TcpListener::bind("127.0.0.1:0").expect("remote WSS listener should bind");
+    let server = AppServer::new(Core::new(ModelConfig {
+        api_key: None,
+        base_url: String::from("http://127.0.0.1:1"),
+        default_model: String::from("qwen-test"),
+    }))
+    .with_remote_auth_token_file(&token_path)
+    .expect("remote authentication should configure");
+
+    let error = server
+        .run_wss(listener, &certificate_path, &private_key_path)
+        .await
+        .expect_err("an insecure TLS private key should fail closed");
+    assert!(
+        error
+            .to_string()
+            .contains("must not be accessible by group or other users")
+    );
+}
+
 fn tls_connector(certificate: rustls::pki_types::CertificateDer<'static>) -> Connector {
     let mut roots = RootCertStore::empty();
     roots
@@ -185,12 +222,16 @@ async fn connect(
 }
 
 fn write_private_token(path: &Path, token: &str) {
-    std::fs::write(path, format!("{token}\n")).expect("test token should write");
+    write_private_file(path, format!("{token}\n"));
+}
+
+fn write_private_file(path: &Path, contents: impl AsRef<[u8]>) {
+    std::fs::write(path, contents).expect("private test file should write");
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt as _;
 
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
-            .expect("test token permissions should update");
+            .expect("private test file permissions should update");
     }
 }

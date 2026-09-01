@@ -913,6 +913,13 @@ MVP 至少提供：
 - [x] Rust Core Desktop 默认在版本化新数据目录发布端口，并支持原生安装验证传入隔离的端口文件路径；
 - [x] 通过 Rust Core、Tauri、Console 本地门禁及 macOS/Windows 原生 runner 打包验证（[Desktop Build #33536039382](https://github.com/rayrayraykk/CoPaw/actions/runs/33536039382)）；
 
+### 14.2.20 当前开发切片：OAuth/WSS 安全审计
+
+- [x] 将 RustSec 依赖漏洞扫描固化进 Core CI；
+- [x] 远程 WSS 在 Unix 上拒绝组或其他用户可读的 TLS 私钥；
+- [x] 修正 App Protocol 中已经过时的交互式 OAuth 能力说明；
+- [x] 通过 OAuth/WSS 回归测试、Rust workspace 门禁和 workflow lint；
+
 ### 14.3 客户端与发布
 
 - [x] WebUI 启动与导航契约测试通过；

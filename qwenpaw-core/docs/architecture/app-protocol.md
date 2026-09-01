@@ -71,7 +71,9 @@ invalid lifecycle state uses `-32000`.
   Remote mode never accepts plaintext WebSockets. The bearer token file is
   permission-checked at startup and re-read for every new handshake so it can
   be rotated by atomic replacement without exposing the secret in arguments
-  or logs. Existing connections are not forcibly disconnected by rotation.
+  or logs. On Unix, Core also rejects a TLS private key accessible by group or
+  other users. Existing connections are not forcibly disconnected by token
+  rotation.
 
 ## Stable MVP methods
 
@@ -204,8 +206,11 @@ cannot silently shadow one another. Every MCP invocation follows the existing
 Remote clients support custom sensitive headers, Bearer access tokens, and
 refresh-token renewal for existing OAuth grants. Streamable HTTP uses the
 official rmcp transport. The bounded legacy SSE adapter requires its advertised
-POST endpoint to stay on the configured origin and disables redirects. An
-interactive browser OAuth grant is not yet exposed through App Protocol.
+POST endpoint to stay on the configured origin and disables redirects.
+Interactive browser OAuth is exposed through `mcp/oauth/start`,
+`mcp/oauth/status`, and `mcp/oauth/revoke`. Core owns the random loopback
+callback and token exchange; clients only open the returned authorization URL
+in the system browser and poll the status response.
 
 Core supports at most 32 configured clients, 64 tools per server, 65,536
 serialized bytes per tool definition, 1,048,576 bytes for the complete MCP

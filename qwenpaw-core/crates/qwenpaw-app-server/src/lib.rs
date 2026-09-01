@@ -87,6 +87,7 @@ const OUTBOUND_CHANNEL_CAPACITY: usize = 128;
 const MAX_WEBSOCKET_MESSAGE_BYTES: usize = 1_048_576;
 const MIN_REMOTE_TOKEN_BYTES: usize = 32;
 const MAX_REMOTE_TOKEN_BYTES: usize = 4096;
+const MAX_REMOTE_TLS_PRIVATE_KEY_BYTES: u64 = 1_048_576;
 const DESKTOP_SHUTDOWN_TOKEN_HEADER: &str = "x-qwenpaw-desktop-shutdown-token";
 const MIN_DESKTOP_SHUTDOWN_TOKEN_BYTES: usize = 16;
 const MAX_DESKTOP_SHUTDOWN_TOKEN_BYTES: usize = 4096;
@@ -390,9 +391,10 @@ impl AppServer {
             self.inner.remote_auth_token_file.is_some(),
             "remote WSS requires bearer authentication"
         );
+        let private_key_path = validate_remote_tls_private_key(private_key_path)?;
         let tls = axum_server::tls_rustls::RustlsConfig::from_pem_file(
             certificate_path,
-            private_key_path,
+            &private_key_path,
         )
         .await
         .context("remote WSS TLS certificate or private key is invalid")?;
@@ -923,6 +925,33 @@ fn validate_remote_token_file(path: &Path) -> anyhow::Result<PathBuf> {
     let bytes =
         std::fs::read(&path).context("remote authentication token file could not be read")?;
     parse_remote_token(&bytes).map_err(anyhow::Error::msg)?;
+    Ok(path)
+}
+
+fn validate_remote_tls_private_key(path: &Path) -> anyhow::Result<PathBuf> {
+    let path = path.canonicalize().with_context(|| {
+        format!(
+            "remote WSS TLS private key is unavailable: {}",
+            path.display()
+        )
+    })?;
+    let metadata =
+        std::fs::metadata(&path).context("remote WSS TLS private key metadata is unavailable")?;
+    anyhow::ensure!(
+        metadata.is_file()
+            && metadata.len() > 0
+            && metadata.len() <= MAX_REMOTE_TLS_PRIVATE_KEY_BYTES,
+        "remote WSS TLS private key must be a non-empty regular file no larger than 1 MiB"
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        anyhow::ensure!(
+            metadata.permissions().mode().trailing_zeros() >= 6,
+            "remote WSS TLS private key must not be accessible by group or other users"
+        );
+    }
     Ok(path)
 }
 
