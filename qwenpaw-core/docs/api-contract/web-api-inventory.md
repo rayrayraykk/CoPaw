@@ -14,7 +14,7 @@ The machine-generated Rust client contract is separate: see [App Protocol invent
 
 | Surface | Transport | Python source | Rust MVP disposition |
 | --- | --- | --- | --- |
-| `/`, `/console/**`, `/assets/**` | HTTP static/SPA | `src/qwenpaw/app/_app.py` | Implemented in opt-in Desktop mode with the unchanged Console build, no-cache HTML, and SPA fallback |
+| `/`, `/console/**`, `/assets/**` | HTTP static/SPA | `src/qwenpaw/app/_app.py` | Implemented in default Desktop Rust mode with the unchanged Console build, no-cache HTML, and SPA fallback |
 | `/api/version`, `/api/healthz` | HTTP | `_app.py`, `routers/healthz.py` | Implemented for the local Desktop bootstrap; Core also exposes `/healthz` and `/readyz` |
 | `/api/doctor/runtime` | HTTP | `_app.py` | Python-specific; do not reproduce verbatim |
 | `/api/desktop/shutdown` | HTTP | `_app.py` | Implemented with a per-process token passed by Tauri; invalid tokens fail closed as 404 |

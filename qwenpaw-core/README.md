@@ -5,8 +5,10 @@ desktop application, and WebUI. It is currently staged in the existing CoPaw
 repository under `qwenpaw-core/`; the code and release boundary remain
 self-contained so it can be extracted to a dedicated repository later.
 
-The repository is under active development. The first supported integration is
-the local VS Code extension over the stdio app-server protocol.
+The repository is under active development. VS Code uses the stdio app-server
+protocol, while Desktop starts Rust Core by default and serves the unchanged
+Console over a random loopback HTTP port. Transitional bundles can explicitly
+select the legacy Python backend with `QWENPAW_DESKTOP_RUST_CORE=0`.
 
 ## Architecture and migration
 

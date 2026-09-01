@@ -274,6 +274,7 @@ async fn serves_the_unchanged_console_bootstrap_contracts() {
     let task = tokio::spawn(server.run_http(listener));
 
     assert_bootstrap_json_contracts(address).await;
+    assert_navigation_json_contracts(address).await;
     assert_agent_contract(address).await;
     assert_model_contract(address).await;
     assert_model_write_contract(address, &credentials).await;
@@ -687,6 +688,227 @@ async fn assert_bootstrap_json_contracts(address: SocketAddr) {
         ),
         ("/api/frontend_plugin", json!([])),
     ] {
+        let response = http_request(
+            address,
+            &format!("GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"),
+        )
+        .await;
+        assert!(
+            response.starts_with("HTTP/1.1 200 OK"),
+            "{path}: {response}"
+        );
+        assert_eq!(response_json(&response), expected, "{path}");
+    }
+}
+
+async fn assert_navigation_json_contracts(address: SocketAddr) {
+    assert_navigation_control_contracts(address).await;
+    assert_navigation_agent_contracts(address).await;
+    assert_navigation_settings_contracts(address).await;
+
+    let checkpoint_status = http_request(
+        address,
+        "GET /api/workspace/checkpoints/status HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+    )
+    .await;
+    let checkpoint_status = response_json(&checkpoint_status);
+    assert_eq!(checkpoint_status["auto_enabled"], json!(false));
+    assert_eq!(checkpoint_status["has_checkpoints"], json!(false));
+    assert!(
+        checkpoint_status["workspace_dir"]
+            .as_str()
+            .is_some_and(|path| PathBuf::from(path).is_dir())
+    );
+}
+
+async fn assert_navigation_control_contracts(address: SocketAddr) {
+    assert_json_contracts(
+        address,
+        vec![
+            ("/api/workspace/files", json!([])),
+            ("/api/workspace/system-prompt-files", json!([])),
+            ("/api/mail-access-control/pending/all", json!([])),
+            ("/api/access-control/pending/all", json!([])),
+            ("/api/pawapps", json!({"apps": [], "total": 0})),
+            ("/api/config/channels", json!({})),
+            ("/api/config/channels/schemas", json!({})),
+            ("/api/config/channels/types", json!([])),
+            ("/api/config/user-timezone", json!({"timezone": "UTC"})),
+            (
+                "/api/cron/dispatch-targets",
+                json!({"channels": ["console"], "items": []}),
+            ),
+            ("/api/cron/jobs", json!([])),
+            (
+                "/api/config/heartbeat",
+                json!({
+                    "enabled": false,
+                    "every": "6h",
+                    "target": "main",
+                    "timeoutSeconds": 300,
+                    "activeHours": null
+                }),
+            ),
+            ("/api/tools", json!([])),
+            ("/api/config/acp", json!({"agents": {}})),
+        ],
+    )
+    .await;
+}
+
+async fn assert_navigation_agent_contracts(address: SocketAddr) {
+    let memory_runtime = memory_runtime_contract();
+    assert_json_contracts(
+        address,
+        vec![
+            (
+                "/api/agents/default/memory/runtime-status",
+                memory_runtime.clone(),
+            ),
+            (
+                "/api/agents/default/memory/status",
+                json!({
+                    "components": {},
+                    "components_total": "0 B",
+                    "process_rss": "0 B",
+                    "runtime": memory_runtime
+                }),
+            ),
+            ("/api/workspace/language", json!({"language": "en"})),
+            (
+                "/api/agent-stats?start_date=2026-08-25&end_date=2026-09-01",
+                json!({
+                    "total_active_sessions": 0,
+                    "total_messages": 0,
+                    "total_user_messages": 0,
+                    "total_assistant_messages": 0,
+                    "total_prompt_tokens": 0,
+                    "total_completion_tokens": 0,
+                    "total_llm_calls": 0,
+                    "total_tool_calls": 0,
+                    "agent_prompt_tokens": 0,
+                    "agent_completion_tokens": 0,
+                    "agent_llm_calls": 0,
+                    "agent_cache_read_tokens": 0,
+                    "agent_cache_eligible_input_tokens": 0,
+                    "agent_cache_hit_rate": null,
+                    "by_date": [],
+                    "channel_stats": [],
+                    "start_date": "2026-08-25",
+                    "end_date": "2026-09-01"
+                }),
+            ),
+            ("/api/agent-stats/llm-tool-trend", json!([])),
+            (
+                "/api/workspace/checkpoints/graph?limit=500",
+                json!({
+                    "nodes": [],
+                    "sessions": [],
+                    "summary": {
+                        "total": 0,
+                        "auto": 0,
+                        "snapshots": 0,
+                        "safety": 0,
+                        "heads": 0
+                    },
+                    "truncated": false
+                }),
+            ),
+        ],
+    )
+    .await;
+}
+
+fn memory_runtime_contract() -> Value {
+    json!({
+        "worker": {
+            "status": "idle",
+            "queue_pending": 0,
+            "tasks_running": 0
+        },
+        "auto_memory": {"enabled": false, "interval": 0},
+        "tasks": [],
+        "recent": {"last_error": null},
+        "reindexing": false,
+        "embedding_reindex_required": false,
+        "embedding_reindex_undo_available": false
+    })
+}
+
+async fn assert_navigation_settings_contracts(address: SocketAddr) {
+    assert_json_contracts(
+        address,
+        vec![
+            ("/api/envs", json!([])),
+            (
+                "/api/settings/offload-policy",
+                json!({"default_action": "keep_foreground"}),
+            ),
+            (
+                "/api/config/security/sandbox",
+                json!({
+                    "enabled": false,
+                    "effective": false,
+                    "reason": "Rust Core confines file tools to the selected Workspace"
+                }),
+            ),
+            (
+                "/api/config/security/sandbox/deny-paths-protection",
+                json!({
+                    "active": false,
+                    "protected_paths": [],
+                    "failed_paths": [],
+                    "platform_supported": false,
+                    "message": "Rust Core does not use the legacy Python ACL sandbox"
+                }),
+            ),
+            (
+                "/api/config/security/tool-guard",
+                json!({
+                    "enabled": true,
+                    "guarded_tools": null,
+                    "denied_tools": [],
+                    "custom_rules": [],
+                    "disabled_rules": [],
+                    "auto_denied_rules": [],
+                    "shell_evasion_checks": {}
+                }),
+            ),
+            ("/api/config/security/tool-guard/builtin-rules", json!([])),
+            ("/api/token-usage/details", json!([])),
+            ("/api/workspace/audio-mode", json!({"audio_mode": "auto"})),
+            (
+                "/api/workspace/local-whisper-status",
+                json!({
+                    "available": false,
+                    "ffmpeg_installed": false,
+                    "whisper_installed": false
+                }),
+            ),
+            (
+                "/api/workspace/transcription-providers",
+                json!({"providers": [], "configured_provider_id": ""}),
+            ),
+            (
+                "/api/console/debug/backend-logs?lines=200",
+                json!({
+                    "path": "",
+                    "exists": false,
+                    "lines": 0,
+                    "updated_at": null,
+                    "size": 0,
+                    "content": ""
+                }),
+            ),
+            ("/api/backups", json!([])),
+            ("/api/backups/jobs/active", Value::Null),
+        ],
+    )
+    .await;
+}
+
+async fn assert_json_contracts(address: SocketAddr, contracts: Vec<(&str, Value)>) {
+    for (path, expected) in contracts {
         let response = http_request(
             address,
             &format!("GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"),

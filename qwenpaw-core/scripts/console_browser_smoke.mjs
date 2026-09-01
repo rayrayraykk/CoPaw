@@ -6,7 +6,34 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 
 const WAIT_AFTER_LOAD_MS = 8_000;
+const NAVIGATION_WAIT_AFTER_LOAD_MS = 2_500;
 const START_TIMEOUT_MS = 15_000;
+const ALL_NAVIGATION_PATHS = [
+  "/chat",
+  "/files",
+  "/inbox",
+  "/market",
+  "/channels",
+  "/sessions",
+  "/cron-jobs",
+  "/heartbeat",
+  "/skills",
+  "/tools",
+  "/mcp",
+  "/acp",
+  "/agent-config",
+  "/agent-stats",
+  "/checkpoints",
+  "/agents",
+  "/models",
+  "/environments",
+  "/offload-policy",
+  "/security",
+  "/token-usage",
+  "/voice-transcription",
+  "/debug",
+  "/backups",
+];
 
 function delay(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -48,7 +75,10 @@ async function chromeExecutable() {
     return firstExecutable([
       configured,
       process.env.PROGRAMFILES &&
-        path.join(process.env.PROGRAMFILES, "Google/Chrome/Application/chrome.exe"),
+        path.join(
+          process.env.PROGRAMFILES,
+          "Google/Chrome/Application/chrome.exe",
+        ),
       process.env["PROGRAMFILES(X86)"] &&
         path.join(
           process.env["PROGRAMFILES(X86)"],
@@ -77,11 +107,30 @@ function validateBaseUrl(value) {
   return parsed.origin;
 }
 
+function navigationPaths(arguments_) {
+  if (arguments_.length === 0) return ["/"];
+  if (arguments_.length === 1 && arguments_[0] === "--all") {
+    return ALL_NAVIGATION_PATHS;
+  }
+  return arguments_.map((value) => {
+    const parsed = new URL(value, "http://localhost");
+    if (
+      parsed.origin !== "http://localhost" ||
+      !parsed.pathname.startsWith("/")
+    ) {
+      throw new Error(`Console smoke path must be relative: ${value}`);
+    }
+    return `${parsed.pathname}${parsed.search}`;
+  });
+}
+
 function waitForDevTools(child) {
   return new Promise((resolve, reject) => {
     let stderr = "";
     const timer = setTimeout(() => {
-      reject(new Error(`Chrome DevTools did not start: ${stderr.slice(-2_000)}`));
+      reject(
+        new Error(`Chrome DevTools did not start: ${stderr.slice(-2_000)}`),
+      );
     }, START_TIMEOUT_MS);
     child.stderr.on("data", (chunk) => {
       stderr += chunk.toString();
@@ -164,25 +213,26 @@ function apiPath(url, origin) {
   return `${parsed.pathname}${parsed.search}`;
 }
 
-async function inspectConsole(client, origin) {
-  const apiResponses = new Map();
-  const requestFailures = [];
-  const browserErrors = [];
+async function inspectConsole(client, origin, paths) {
+  let observation;
   client.on("Network.responseReceived", ({ response }) => {
     const requestPath = apiPath(response.url, origin);
-    if (requestPath) apiResponses.set(requestPath, response.status);
+    if (requestPath)
+      observation?.apiResponses.set(requestPath, response.status);
   });
   client.on("Network.loadingFailed", ({ errorText, type }) => {
-    if (type !== "EventSource") requestFailures.push(`${type}: ${errorText}`);
+    if (type !== "EventSource" && errorText !== "net::ERR_ABORTED") {
+      observation?.requestFailures.push(`${type}: ${errorText}`);
+    }
   });
   client.on("Runtime.exceptionThrown", ({ exceptionDetails }) => {
-    browserErrors.push(
+    observation?.browserErrors.push(
       exceptionDetails.exception?.description ?? exceptionDetails.text,
     );
   });
   client.on("Runtime.consoleAPICalled", ({ type, args }) => {
     if (type !== "error") return;
-    browserErrors.push(
+    observation?.browserErrors.push(
       args.map((argument) => argument.value ?? argument.description).join(" "),
     );
   });
@@ -191,56 +241,83 @@ async function inspectConsole(client, origin) {
     client.send("Page.enable"),
     client.send("Runtime.enable"),
   ]);
-  await client.send("Page.navigate", { url: `${origin}/` });
-  await delay(WAIT_AFTER_LOAD_MS);
-  const evaluation = await client.send("Runtime.evaluate", {
-    expression: `JSON.stringify({
-      bodyText: document.body?.innerText ?? "",
-      rootChildren: document.querySelector("#root")?.childElementCount ?? 0,
-      hasComposer: Boolean(
-        document.querySelector("textarea") ||
-        document.querySelector('[contenteditable="true"]')
-      ),
-      loadingError: Boolean(
-        [...document.querySelectorAll("body *")].some((element) =>
-          /backend detection failed|authentication failed|retry/i.test(
-            element.textContent ?? ""
+  const pages = [];
+  for (const navigationPath of paths) {
+    observation = {
+      apiResponses: new Map(),
+      requestFailures: [],
+      browserErrors: [],
+    };
+    await client.send("Page.navigate", { url: `${origin}${navigationPath}` });
+    await delay(
+      paths.length === 1 ? WAIT_AFTER_LOAD_MS : NAVIGATION_WAIT_AFTER_LOAD_MS,
+    );
+    const evaluation = await client.send("Runtime.evaluate", {
+      expression: `JSON.stringify({
+        bodyText: document.body?.innerText ?? "",
+        rootChildren: document.querySelector("#root")?.childElementCount ?? 0,
+        hasComposer: Boolean(
+          document.querySelector("textarea") ||
+          document.querySelector('[contenteditable="true"]')
+        ),
+        loadingError: Boolean(
+          [...document.querySelectorAll("body *")].some((element) =>
+            /backend detection failed|authentication failed/i.test(
+              element.textContent ?? ""
+            )
           )
         )
-      )
-    })`,
-    returnByValue: true,
-  });
-  const page = JSON.parse(evaluation.result.value);
-  const responses = [...apiResponses]
-    .map(([requestPath, status]) => ({ path: requestPath, status }))
-    .sort((left, right) => left.path.localeCompare(right.path));
-  const missing = responses.filter(({ status }) => status === 404);
-  const serverErrors = responses.filter(({ status }) => status >= 500);
-  const failures = [];
-  if (page.rootChildren === 0) failures.push("#root did not render");
-  if (!page.hasComposer) failures.push("chat composer did not render");
-  if (page.loadingError) failures.push("backend loading/error page rendered");
-  failures.push(...requestFailures, ...browserErrors, ...serverErrors.map(
-    ({ path: requestPath, status }) => `${requestPath} returned ${status}`,
-  ));
+      })`,
+      returnByValue: true,
+    });
+    const page = JSON.parse(evaluation.result.value);
+    const responses = [...observation.apiResponses]
+      .map(([requestPath, status]) => ({ path: requestPath, status }))
+      .sort((left, right) => left.path.localeCompare(right.path));
+    const failedApi = responses.filter(({ status }) => status >= 400);
+    const failures = [];
+    if (page.rootChildren === 0) failures.push("#root did not render");
+    if (
+      (navigationPath === "/" || navigationPath.startsWith("/chat")) &&
+      !page.hasComposer
+    ) {
+      failures.push("chat composer did not render");
+    }
+    if (page.loadingError) failures.push("backend loading/error page rendered");
+    failures.push(
+      ...observation.requestFailures,
+      ...observation.browserErrors,
+      ...failedApi.map(
+        ({ path: requestPath, status }) => `${requestPath} returned ${status}`,
+      ),
+    );
+    pages.push({
+      path: navigationPath,
+      ok: failures.length === 0,
+      page: {
+        rootChildren: page.rootChildren,
+        hasComposer: page.hasComposer,
+        textSample: page.bodyText.slice(0, 300),
+      },
+      apiResponses: responses,
+      failedApi,
+      failures,
+    });
+  }
+  observation = undefined;
   return {
-    ok: failures.length === 0,
-    page: {
-      rootChildren: page.rootChildren,
-      hasComposer: page.hasComposer,
-      textSample: page.bodyText.slice(0, 300),
-    },
-    apiResponses: responses,
-    missingApi: missing,
-    failures,
+    ok: pages.every(({ ok }) => ok),
+    pages,
   };
 }
 
 async function main() {
   const origin = validateBaseUrl(process.argv[2] ?? "");
+  const paths = navigationPaths(process.argv.slice(3));
   const executable = await chromeExecutable();
-  const profile = await mkdtemp(path.join(os.tmpdir(), "qwenpaw-chrome-smoke-"));
+  const profile = await mkdtemp(
+    path.join(os.tmpdir(), "qwenpaw-chrome-smoke-"),
+  );
   const child = spawn(
     executable,
     [
@@ -259,7 +336,7 @@ async function main() {
     const browserWebSocketUrl = await waitForDevTools(child);
     const target = await createPage(browserWebSocketUrl);
     const client = await connectDevTools(target.webSocketDebuggerUrl);
-    const result = await inspectConsole(client, origin);
+    const result = await inspectConsole(client, origin, paths);
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     const browser = await connectDevTools(browserWebSocketUrl);
     await browser.send("Browser.close");

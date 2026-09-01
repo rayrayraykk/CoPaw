@@ -894,13 +894,13 @@ MVP 至少提供：
 - [x] 使用跨平台原生文件事件实现 Workspace recursive watch SSE，并补充真实变更集成测试；
 - [x] 补齐已观察 Chat 启动调用图，并用真实 headless Chrome 验证页面渲染、0 个 API 404 和 0 个浏览器错误；
 - [ ] 支持多 project-directory、memory/profile 与剩余 Coding 文件契约；
-- [ ] 完成非 Chat 导航页的调用图、错误响应和浏览器 E2E 契约；
-- [ ] 默认切换 Desktop 到 Rust Core；
+- [x] 完成非 Chat 导航页的调用图、空/禁用状态响应和 24 页真实浏览器 E2E 契约；
+- [x] 默认切换 Desktop 到 Rust Core，并保留 `QWENPAW_DESKTOP_RUST_CORE=0` 显式 legacy 回退；
 
 ### 14.3 客户端与发布
 
-- [ ] WebUI 契约测试通过；
-- [ ] Desktop 切换到 Rust sidecar；
+- [x] WebUI 启动与导航契约测试通过；
+- [x] Desktop 默认切换到 Rust sidecar；
 - [x] VS Code Chat Participant MVP 完成；
 - [x] macOS 本地测试通过；
 - [x] Linux 测试通过；

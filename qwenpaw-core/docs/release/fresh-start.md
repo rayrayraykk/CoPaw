@@ -16,7 +16,9 @@ import, scan, modify, or share the Python product's data directory.
 - Desktop stores Rust Core state under the Tauri application data directory in
   the versioned `rust-core-v1` subdirectory.
 - The old Python product and its data remain unchanged. Returning to the old
-  version continues to use that old data.
+  version continues to use that old data. Transitional Desktop bundles can
+  select that legacy backend explicitly with `QWENPAW_DESKTOP_RUST_CORE=0`;
+  the unset/default path starts Rust Core.
 
 Do not copy a Python database or data directory into `rust-core-v1`. The Rust
 schema and ownership rules are independent. Any future manual export feature

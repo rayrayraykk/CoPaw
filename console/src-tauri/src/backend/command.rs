@@ -116,10 +116,10 @@ fn rust_core_requested() -> bool {
 }
 
 fn rust_core_switch_enabled(value: Option<&str>) -> bool {
-    value.is_some_and(|value| {
+    !value.is_some_and(|value| {
         matches!(
             value.trim().to_ascii_lowercase().as_str(),
-            "1" | "true" | "yes" | "on"
+            "0" | "false" | "no" | "off"
         )
     })
 }
@@ -382,14 +382,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rust_core_switch_accepts_only_explicit_true_values() {
-        for value in ["1", "true", "TRUE", "yes", "on", " on "] {
+    fn rust_core_is_default_and_accepts_an_explicit_legacy_fallback() {
+        assert!(rust_core_switch_enabled(None));
+        for value in ["", "1", "true", "TRUE", "yes", "on", "rust", " on "] {
             assert!(rust_core_switch_enabled(Some(value)));
         }
-        for value in ["", "0", "false", "enabled", "rust"] {
+        for value in ["0", "false", "FALSE", "no", "off", " off "] {
             assert!(!rust_core_switch_enabled(Some(value)));
         }
-        assert!(!rust_core_switch_enabled(None));
     }
 
     #[test]

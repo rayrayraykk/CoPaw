@@ -77,6 +77,7 @@ use tracing::warn;
 mod desktop_api;
 mod desktop_credentials;
 mod desktop_files;
+mod desktop_navigation;
 
 pub use desktop_credentials::DesktopCredentialStore;
 pub use desktop_credentials::SystemDesktopCredentialStore;
@@ -423,6 +424,7 @@ impl AppServer {
             router = router
                 .merge(desktop_api::router())
                 .merge(desktop_files::router())
+                .merge(desktop_navigation::router())
                 .route("/api", any(api_not_found))
                 .route("/api/{*path}", any(api_not_found))
                 .fallback_service(ServeDir::new(directory).fallback(ServeFile::new(index)))
