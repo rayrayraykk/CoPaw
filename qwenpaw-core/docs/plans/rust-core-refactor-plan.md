@@ -692,7 +692,7 @@ MVP 至少提供：
 - [x] 为显式路径、PATH fallback、内置 binary 和篡改场景补充单测；
 - [ ] 使用 Developer ID 签名并 notarize Core 后验证 macOS arm64 平台 VSIX；
 - [x] macOS bundled 打包拒绝 ad-hoc 或未通过 Gatekeeper 的 Core；
-- [ ] 在 CI 中生成 Linux、macOS 和 Windows 平台 VSIX；
+- [x] 在 CI 原生 runner 从同一源码 SHA 生成 Linux、macOS arm64/x64 和 Windows 平台 QA VSIX；
 
 #### 跨平台 VSIX 发布门禁
 
@@ -701,6 +701,7 @@ MVP 至少提供：
 - [x] 产品仓库通过 `core-release.json` 锁定 Core repository、tag 和 asset；
 - [x] VSIX 打包前执行 Core `--version` 并拒绝版本漂移；
 - [x] 产品 workflow 在四个原生 runner 生成 target-specific VSIX；
+- [x] 手动 QA VSIX 使用独立 artifact 名、3 天保留期与 `packageKind: qa`，不伪装生产产物；
 - [ ] 配置 Apple secrets 并实际跑通四个平台 workflow；
 
 ### 14.2.3 当前开发切片：MCP stdio 工具闭环
@@ -937,6 +938,7 @@ MVP 至少提供：
 - [x] 交互式 OAuth：MCP discovery、PKCE loopback callback、系统浏览器、安全凭据存储、refresh/revoke 及 VS Code/Console 契约通过；
 - [x] 远程 WSS：TLS、bearer token file、Origin allowlist、token rotation、私钥权限与原生平台回归通过；
 - [x] 跨平台 QA：Core CI 通过 Linux/macOS/Windows，Desktop 通过 macOS/Windows 原生 runner；
+- [x] 原生发布 QA：四平台 Core 归档通过 [Core Release #33548216424](https://github.com/rayrayraykk/CoPaw/actions/runs/33548216424)，四平台 VSIX 通过 [VSIX #33549602153](https://github.com/rayrayraykk/CoPaw/actions/runs/33549602153)；
 - [x] 生产发布脚本在缺失 Apple/Tauri 凭据时 fail-closed，不会发布 ad-hoc macOS 产物；
 - [ ] 外部阻塞：仓库配置 Apple/Tauri 凭据后，完成 Core、平台 VSIX 与 Desktop 的真实 Developer ID 签名/公证发布验收；
 
