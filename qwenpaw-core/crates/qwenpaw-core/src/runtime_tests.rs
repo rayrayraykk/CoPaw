@@ -81,10 +81,12 @@ async fn completes_a_streaming_turn_and_persists_history() {
             _ => None,
         })
         .expect("agent item should start");
+    assert!(read.thread.updated_at >= started.thread.updated_at);
     assert_eq!(
         read.thread,
         qwenpaw_protocol::Thread {
             status: ThreadStatus::Idle,
+            updated_at: read.thread.updated_at,
             ..started.thread
         }
     );
