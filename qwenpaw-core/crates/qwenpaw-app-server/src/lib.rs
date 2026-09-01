@@ -61,6 +61,7 @@ use tracing::warn;
 
 mod desktop_api;
 mod desktop_credentials;
+mod desktop_files;
 
 pub use desktop_credentials::DesktopCredentialStore;
 pub use desktop_credentials::SystemDesktopCredentialStore;
@@ -108,6 +109,7 @@ struct DesktopPendingApproval {
 }
 
 struct DesktopWorkspace {
+    data_dir: PathBuf,
     initial: PathBuf,
     selected: tokio::sync::RwLock<PathBuf>,
 }
@@ -172,6 +174,59 @@ impl AppServer {
         desktop_shutdown_token: String,
         desktop_credentials: Arc<dyn DesktopCredentialStore>,
     ) -> anyhow::Result<Self> {
+        Self::new_desktop_with_options(
+            core,
+            console_static_dir,
+            desktop_shutdown_token,
+            desktop_credentials,
+            None,
+        )
+    }
+
+    /// Creates a Desktop server with explicit credential and data stores.
+    ///
+    /// This is primarily useful for embedders and tests that must isolate all
+    /// Desktop-owned files from the process environment.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Console directory, data directory, or
+    /// shutdown token is invalid.
+    pub fn new_desktop_with_credential_store_and_data_dir(
+        core: Core,
+        console_static_dir: &Path,
+        desktop_shutdown_token: String,
+        desktop_credentials: Arc<dyn DesktopCredentialStore>,
+        desktop_data_dir: &Path,
+    ) -> anyhow::Result<Self> {
+        std::fs::create_dir_all(desktop_data_dir).with_context(|| {
+            format!(
+                "failed to create Desktop Rust Core data directory {}",
+                desktop_data_dir.display()
+            )
+        })?;
+        let desktop_data_dir = desktop_data_dir.canonicalize().with_context(|| {
+            format!(
+                "failed to resolve Desktop Rust Core data directory {}",
+                desktop_data_dir.display()
+            )
+        })?;
+        Self::new_desktop_with_options(
+            core,
+            console_static_dir,
+            desktop_shutdown_token,
+            desktop_credentials,
+            Some(desktop_data_dir),
+        )
+    }
+
+    fn new_desktop_with_options(
+        core: Core,
+        console_static_dir: &Path,
+        desktop_shutdown_token: String,
+        desktop_credentials: Arc<dyn DesktopCredentialStore>,
+        desktop_data_dir: Option<PathBuf>,
+    ) -> anyhow::Result<Self> {
         anyhow::ensure!(
             (MIN_DESKTOP_SHUTDOWN_TOKEN_BYTES..=MAX_DESKTOP_SHUTDOWN_TOKEN_BYTES)
                 .contains(&desktop_shutdown_token.len())
@@ -189,7 +244,7 @@ impl AppServer {
             "Console static directory must contain index.html: {}",
             console_static_dir.display()
         );
-        let desktop_workspace = desktop_workspace_from_env(&core)?;
+        let desktop_workspace = desktop_workspace_from_env(&core, desktop_data_dir)?;
         Ok(Self {
             inner: Arc::new(AppServerInner {
                 core,
@@ -286,6 +341,7 @@ impl AppServer {
             let index = directory.join("index.html");
             router = router
                 .merge(desktop_api::router())
+                .merge(desktop_files::router())
                 .route("/api", any(api_not_found))
                 .route("/api/{*path}", any(api_not_found))
                 .fallback_service(ServeDir::new(directory).fallback(ServeFile::new(index)))
@@ -500,7 +556,10 @@ impl AppServer {
     }
 }
 
-fn desktop_workspace_from_env(core: &Core) -> anyhow::Result<DesktopWorkspace> {
+fn desktop_workspace_from_env(
+    core: &Core,
+    desktop_data_dir: Option<PathBuf>,
+) -> anyhow::Result<DesktopWorkspace> {
     let configured = std::env::var_os(DESKTOP_DEFAULT_WORKSPACE_ENV)
         .map(PathBuf::from)
         .map_or_else(std::env::current_dir, Ok)?;
@@ -521,7 +580,11 @@ fn desktop_workspace_from_env(core: &Core) -> anyhow::Result<DesktopWorkspace> {
         .and_then(|path| path.canonicalize().ok())
         .filter(|path| path.is_dir())
         .unwrap_or_else(|| initial.clone());
+    let data_dir = desktop_data_dir
+        .or_else(|| std::env::var_os("QWENPAW_HOME").map(PathBuf::from))
+        .unwrap_or_else(|| initial.join(".qwenpaw-core"));
     Ok(DesktopWorkspace {
+        data_dir,
         selected: tokio::sync::RwLock::new(selected),
         initial,
     })

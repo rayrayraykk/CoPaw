@@ -878,12 +878,15 @@ MVP 至少提供：
 - [x] 将 Core 一次性工具审批映射为 Console 轮询与 approve/deny 接口；
 - [x] 对 `similar` 泛化审批返回明确不支持，避免伪造安全策略兼容；
 - [x] 补充真实模型 SSE、历史持久化、中断和拒绝 shell 的 HTTP 集成测试；
-- [ ] 支持 Console 附件与上传；
+- [x] 支持有界 Console 附件上传/预览，并复制到当前 Workspace 作为 Core 文件引用；
 - [x] 实现单一 OpenAI-compatible Desktop 模型配置写入和系统安全凭据存储；
 - [x] 实现持久化默认 project-directory、目录浏览/创建与单 Workspace Thread 绑定；
 - [x] 通过 Core workspace 全量测试、严格 Clippy、Tauri 测试/release check 与 Console 生产构建；
-- [ ] 支持多 project-directory、Workspace 文件管理、上传与 watch 契约；
-- [ ] 完成剩余启动调用图、错误响应和浏览器 E2E 契约；
+- [x] 支持单 Workspace 文件树、元数据、UTF-8 分块读取、ETag 保存、流式下载和冲突感知上传；
+- [x] 使用跨平台原生文件事件实现 Workspace recursive watch SSE，并补充真实变更集成测试；
+- [x] 补齐已观察 Chat 启动调用图，并用真实 headless Chrome 验证页面渲染、0 个 API 404 和 0 个浏览器错误；
+- [ ] 支持多 project-directory、memory/profile 与剩余 Coding 文件契约；
+- [ ] 完成非 Chat 导航页的调用图、错误响应和浏览器 E2E 契约；
 - [ ] 默认切换 Desktop 到 Rust Core；
 
 ### 14.3 客户端与发布

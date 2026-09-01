@@ -37,23 +37,23 @@ The machine-generated Rust client contract is separate: see [App Protocol invent
 | `/agent-stats` | `routers/agent_stats.py` | Agent execution statistics | Deferred |
 | `/auth` | `routers/auth.py` | Register, login, verify, profile | Partial: local no-auth bootstrap status/verify only; accounts and remote/multi-user auth deferred |
 | `/chats` | `app/chats/api.py` | Session CRUD, groups, archive, project dirs, history | Partial compatibility: list, history, fixed bootstrap groups, archive/unarchive, and persisted single-Workspace project-dir reads/rebinding map to Core Threads; multi-root and other CRUD/metadata deferred |
-| `/console` | `routers/console.py` | Chat streaming, upload, push messages, inbox, traces | Partial compatibility: text-only Chat SSE, local-session aliases, stop, approval polling, and empty inbox; uploads, attachments, traces, and reconnection deferred |
+| `/console` | `routers/console.py` | Chat streaming, upload, push messages, inbox, traces | Partial compatibility: Chat SSE, local-session aliases, stop, bounded attachment upload/preview, Workspace file references, approval polling, and empty inbox; direct multimodal model input, traces, and reconnection deferred |
 | `/approval` | `routers/approval.py` | Approve, deny, status | Partial compatibility: one-time approve/deny with session validation; generalized `similar` approval and policy persistence return unsupported |
 | `/tool-calls` | `routers/tool_calls.py` | Tool status, output, offload, cancel | Partial lifecycle events only; offload and HTTP output APIs deferred |
 | `/models` | `routers/providers.py` | Provider/model config and discovery | Partial compatibility: active/list, base URL, model selection/add, and API-key set/delete for one OpenAI-compatible provider; secrets use the OS credential store and are always masked; discovery and other providers deferred |
 | `/providers` | `routers/provider_oauth.py` | Provider browser OAuth | Deferred |
 | `/local-models` | `routers/local_models.py` | Local model lifecycle/download | Deferred |
 | `/config` | `routers/config.py` | Channels, heartbeat, agent and product settings | Partial only for non-secret model configuration |
-| `/settings` | `routers/settings.py` | Language, upload limit, offload policy | Partial bootstrap reads for language and upload limit; writes and remaining settings deferred |
-| `/workspace` | `routers/workspace.py` | File tree/content/watch/upload, memory, prompt/config resources | Partial Workspace identity and bounded agent file tools; REST/file management deferred |
+| `/settings` | `routers/settings.py` | Language, upload limit, offload policy | Partial bootstrap reads for language, the fixed 32 MiB Rust upload limit, and disabled transcription; writes and remaining settings deferred |
+| `/workspace` | `routers/workspace.py` | File tree/content/watch/upload, memory, prompt/config resources | Partial compatibility: single-root paginated tree, metadata, bounded UTF-8 reads, ETag-guarded saves, streamed downloads, HTML URI resolution, conflict-aware uploads, native recursive SSE file watch, and the actual `AUTO` approval running-config field; memory/profile resources, multi-root, and remaining Coding APIs deferred |
 | `/workspace/project-directory` | `routers/project_directory.py` | Select/create/clone/import/browse project roots | Partial compatibility: persisted local default selection, recent list, bounded directory browse, and direct-child creation; project clone/import/upload and multi-root remain deferred |
 | `/workspace/git` | `routers/git.py` | Status, branches, checkout, stage, commit, diff | Deferred |
 | `/workspace/checkpoints` | `routers/checkpoints.py` | Checkpoint create/list/restore | Deferred |
 | `/coding-mode` | `routers/coding_mode.py` | Coding mode status and activation | Partial read-only disabled/default response; activation and configuration deferred |
-| `/loops` | `routers/loops.py` | Loop catalog and configuration | Deferred |
+| `/loops` | `routers/loops.py` | Loop catalog and configuration | Partial bootstrap contract: one actual standard guarded loop and idle status; custom modes and writes deferred |
 | `/tools` | `routers/tools.py` | Tool catalog, toggles, async mode, config | Partial built-in/MCP tool execution; management contract deferred |
 | `/mcp` | `routers/mcp.py`, `routers/mcp_oauth.py` | MCP config, discovery, OAuth start/callback/status | Partial transports and existing-token refresh; interactive OAuth/persistence deferred |
-| `/skills` | `routers/skills.py`, `routers/skills_stream.py` | Skill CRUD, install/import/sync/security scan streams | Deferred |
+| `/skills` | `routers/skills.py`, `routers/skills_stream.py` | Skill CRUD, install/import/sync/security scan streams | Partial bootstrap contract returns an empty catalog because Desktop Skills are not implemented; lifecycle and streams deferred |
 | `/plugins` | `routers/plugins.py` | Plugin lifecycle and configuration | Deferred |
 | `/frontend_plugin` | `routers/frontend_plugin.py` | Frontend plugin manifest/assets | Partial bootstrap response returns an empty list; plugin lifecycle/assets deferred |
 | `/pawapps` | `routers/pawapps.py` | PawApp list/detail/iframe/install lifecycle | Deferred |
@@ -67,7 +67,7 @@ The machine-generated Rust client contract is separate: see [App Protocol invent
 | `/token-usage` | `routers/token_usage.py` | Usage summaries | Deferred |
 | `/backups` | `routers/backup.py` | Preview/create/import/export/restore, SSE progress | Deferred; Rust needs backup/restore for new data, while old Python data remains untouched |
 | `/fork` | `routers/fork.py` | Fork Agent | Deferred |
-| `/files/preview/{path}` | `routers/files.py` | Guarded file preview/download | Deferred; Core agent `read_file` is not an HTTP preview endpoint |
+| `/files/preview/{path}` | `routers/files.py` | Guarded file preview/download | Partial compatibility for opaque Rust attachment names stored below the isolated Core data directory; arbitrary filesystem preview remains unsupported |
 
 ## Repeated agent-scoped surface
 

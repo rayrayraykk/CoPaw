@@ -30,7 +30,6 @@ use qwenpaw_protocol::ThreadStatus;
 use qwenpaw_protocol::TurnInterruptParams;
 use qwenpaw_protocol::TurnStartParams;
 use qwenpaw_protocol::TurnStatus;
-use qwenpaw_protocol::UserInput;
 use serde::Deserialize;
 use serde_json::Value;
 use serde_json::json;
@@ -72,6 +71,14 @@ pub(super) fn router() -> Router<AppServer> {
         .route("/api/approval/approve", post(approve_tool))
         .route("/api/approval/deny", post(deny_tool))
         .route("/api/coding-mode", get(coding_mode))
+        .route("/api/loops", get(loop_modes))
+        .route("/api/loops/status", get(loop_status))
+        .route("/api/skills", get(skills))
+        .route("/api/workspace/running-config", get(running_config))
+        .route(
+            "/api/workspace/transcription-provider-type",
+            get(transcription_provider_type),
+        )
         .route(
             "/api/workspace/project-directory",
             get(project_directory).put(set_project_directory),
@@ -106,7 +113,35 @@ async fn language() -> Json<Value> {
 }
 
 async fn upload_limit() -> Json<Value> {
-    Json(json!({"upload_max_size_mb": null}))
+    Json(json!({"upload_max_size_mb": 32}))
+}
+
+async fn loop_modes() -> Json<Value> {
+    Json(json!([{
+        "id": "default",
+        "name": "default",
+        "slash_command": "",
+        "description": "The standard guarded agent loop.",
+        "source": "builtin",
+        "name_i18n": null,
+        "description_i18n": null
+    }]))
+}
+
+async fn loop_status() -> Json<Value> {
+    Json(json!({"state": "idle", "mode": null}))
+}
+
+async fn skills() -> Json<Value> {
+    Json(json!([]))
+}
+
+async fn running_config() -> Json<Value> {
+    Json(json!({"approval_level": "AUTO"}))
+}
+
+async fn transcription_provider_type() -> Json<Value> {
+    Json(json!({"transcription_provider_type": "disabled"}))
 }
 
 async fn agents(State(server): State<AppServer>) -> Result<Json<Value>, ApiError> {
@@ -453,7 +488,6 @@ async fn console_chat(
     State(server): State<AppServer>,
     Json(request): Json<ConsoleChatRequest>,
 ) -> Result<Sse<impl futures_util::Stream<Item = Result<Event, Infallible>>>, ApiError> {
-    let text = console_input_text(&request.input)?;
     let workspace_root = console_workspace_root(request.request_context.as_ref())?;
     let thread_id = resolve_console_thread(
         &server,
@@ -461,12 +495,29 @@ async fn console_chat(
         workspace_root.as_deref(),
     )
     .await?;
+    let thread = server
+        .inner
+        .core
+        .read_thread(&thread_id)
+        .await
+        .map_err(|error| api_error(&error))?
+        .thread;
+    let workspace_root = thread
+        .workspace_root
+        .as_deref()
+        .ok_or_else(|| bad_request("Console chat requires a Workspace directory"))?;
+    let input = super::desktop_files::console_user_input(
+        &server,
+        &request.input,
+        std::path::Path::new(workspace_root),
+    )
+    .await?;
     let (started, mut core_events) = server
         .inner
         .core
         .start_turn(TurnStartParams {
             thread_id: thread_id.clone(),
-            input: vec![UserInput::Text { text }],
+            input,
         })
         .await
         .map_err(|error| api_error(&error))?;
@@ -664,42 +715,6 @@ async fn stop_console_chat(
         .await
         .is_ok_and(|response| response.accepted);
     Json(json!({"stopped": stopped}))
-}
-
-fn console_input_text(input: &[Value]) -> Result<String, ApiError> {
-    let message = input
-        .iter()
-        .rev()
-        .find(|message| message.get("role").and_then(Value::as_str) == Some("user"))
-        .ok_or_else(|| bad_request("input must contain a user message"))?;
-    let Some(content) = message.get("content") else {
-        return Err(bad_request("user message content is required"));
-    };
-    if let Some(text) = content.as_str() {
-        return Ok(text.to_owned());
-    }
-    let parts = content
-        .as_array()
-        .ok_or_else(|| bad_request("user message content must be text or an array"))?;
-    if parts.iter().any(|part| {
-        part.get("type")
-            .and_then(Value::as_str)
-            .is_some_and(|kind| kind != "text")
-    }) {
-        return Err((
-            StatusCode::NOT_IMPLEMENTED,
-            Json(json!({"detail": "Rust Core Console chat currently accepts text content only"})),
-        ));
-    }
-    let text = parts
-        .iter()
-        .filter_map(|part| part.get("text").and_then(Value::as_str))
-        .collect::<Vec<_>>()
-        .join("\n");
-    if text.trim().is_empty() {
-        return Err(bad_request("user message text must not be empty"));
-    }
-    Ok(text)
 }
 
 async fn resolve_console_thread(

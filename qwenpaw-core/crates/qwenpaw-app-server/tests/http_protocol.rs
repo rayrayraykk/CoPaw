@@ -240,6 +240,7 @@ async fn serves_the_console_and_requires_the_desktop_shutdown_token() {
 #[tokio::test]
 async fn serves_the_unchanged_console_bootstrap_contracts() {
     let console = tempfile::tempdir().expect("temporary Console should be created");
+    let desktop_data = tempfile::tempdir().expect("temporary Desktop data should be created");
     std::fs::write(console.path().join("index.html"), "<html>console</html>")
         .expect("Console index should be written");
     let core = Core::new(ModelConfig {
@@ -262,11 +263,12 @@ async fn serves_the_unchanged_console_bootstrap_contracts() {
         .local_addr()
         .expect("Desktop listener should have an address");
     let credentials = Arc::new(MemoryCredentialStore::default());
-    let server = AppServer::new_desktop_with_credential_store(
+    let server = AppServer::new_desktop_with_credential_store_and_data_dir(
         core,
         console.path(),
         String::from("desktop-bootstrap-token"),
         credentials.clone(),
+        desktop_data.path(),
     )
     .expect("Desktop server should configure");
     let task = tokio::spawn(server.run_http(listener));
@@ -285,6 +287,7 @@ async fn serves_the_unchanged_console_bootstrap_contracts() {
 async fn streams_console_chat_with_the_unchanged_frontend_sse_contract() {
     let model_base_url = start_model_server().await;
     let console = tempfile::tempdir().expect("temporary Console should be created");
+    let desktop_data = tempfile::tempdir().expect("temporary Desktop data should be created");
     std::fs::write(console.path().join("index.html"), "<html>console</html>")
         .expect("Console index should be written");
     let core = Core::new(ModelConfig {
@@ -298,8 +301,14 @@ async fn streams_console_chat_with_the_unchanged_frontend_sse_contract() {
     let address = listener
         .local_addr()
         .expect("Desktop listener should have an address");
-    let server = AppServer::new_desktop(core, console.path(), String::from("desktop-stream-token"))
-        .expect("Desktop server should configure");
+    let server = AppServer::new_desktop_with_credential_store_and_data_dir(
+        core,
+        console.path(),
+        String::from("desktop-stream-token"),
+        Arc::new(MemoryCredentialStore::default()),
+        desktop_data.path(),
+    )
+    .expect("Desktop server should configure");
     let task = tokio::spawn(server.run_http(listener));
     let client = reqwest::Client::new();
     let workspace = console.path().join("workspace");
@@ -350,7 +359,94 @@ async fn streams_console_chat_with_the_unchanged_frontend_sse_contract() {
     );
 
     assert_streamed_chat_persisted(&client, address, &workspace).await;
+    assert_attachment_chat_contract(&client, address, &workspace).await;
     task.abort();
+}
+
+async fn assert_attachment_chat_contract(
+    client: &reqwest::Client,
+    address: SocketAddr,
+    workspace: &std::path::Path,
+) {
+    let upload = multipart_request(
+        client,
+        format!("http://{address}/api/console/upload"),
+        "file",
+        "brief.txt",
+        b"attachment body",
+    )
+    .await;
+    assert_eq!(upload.status(), reqwest::StatusCode::OK);
+    let upload = upload
+        .json::<Value>()
+        .await
+        .expect("attachment upload should be JSON");
+    assert_eq!(upload["file_name"], json!("brief.txt"));
+    let stored_name = upload["url"]
+        .as_str()
+        .expect("attachment upload should return a stored name");
+
+    let preview = client
+        .get(format!(
+            "http://{address}/api/files/preview/{stored_name}?token=ignored"
+        ))
+        .send()
+        .await
+        .expect("attachment preview should send");
+    assert_eq!(preview.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        preview
+            .bytes()
+            .await
+            .expect("attachment preview should read")
+            .as_ref(),
+        b"attachment body"
+    );
+
+    let response = client
+        .post(format!("http://{address}/api/console/chat"))
+        .json(&json!({
+            "input": [{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Read the attachment"},
+                    {
+                        "type": "file",
+                        "file_url": stored_name,
+                        "file_name": "brief.txt"
+                    }
+                ]
+            }],
+            "session_id": "1700000000000-local",
+            "stream": true,
+            "request_context": {
+                "session_project_dirs": [{"path": workspace}]
+            }
+        }))
+        .send()
+        .await
+        .expect("attachment chat should send");
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let events = parse_sse_events(
+        &response
+            .text()
+            .await
+            .expect("attachment chat stream should read"),
+    );
+    assert_eq!(
+        events.last().expect("attachment chat should complete")["status"],
+        json!("completed")
+    );
+    assert_eq!(
+        std::fs::read(
+            workspace
+                .join(".qwenpaw")
+                .join("attachments")
+                .join(stored_name)
+        )
+        .expect("attachment should be copied into the Workspace"),
+        b"attachment body"
+    );
 }
 
 async fn assert_streamed_chat_persisted(
@@ -550,11 +646,36 @@ async fn assert_bootstrap_json_contracts(address: SocketAddr) {
         ("/api/settings/language", json!({"language": "en"})),
         (
             "/api/settings/upload-limit",
-            json!({"upload_max_size_mb": null}),
+            json!({"upload_max_size_mb": 32}),
         ),
         (
             "/api/coding-mode",
             json!({"enabled": false, "agent_id": "default"}),
+        ),
+        (
+            "/api/loops",
+            json!([{
+                "id": "default",
+                "name": "default",
+                "slash_command": "",
+                "description": "The standard guarded agent loop.",
+                "source": "builtin",
+                "name_i18n": null,
+                "description_i18n": null
+            }]),
+        ),
+        (
+            "/api/loops/status?session_id=new",
+            json!({"state": "idle", "mode": null}),
+        ),
+        ("/api/skills", json!([])),
+        (
+            "/api/workspace/running-config",
+            json!({"approval_level": "AUTO"}),
+        ),
+        (
+            "/api/workspace/transcription-provider-type",
+            json!({"transcription_provider_type": "disabled"}),
         ),
         (
             "/api/console/push-messages",
@@ -792,8 +913,299 @@ async fn assert_workspace_contract(address: SocketAddr, thread_id: &str) {
     std::fs::create_dir(selected.join("visible")).expect("visible directory should be created");
     std::fs::create_dir(selected.join(".hidden")).expect("hidden directory should be created");
     let selected = assert_global_workspace_contract(&client, address, &selected).await;
+    assert_workspace_file_contract(&client, address, &selected).await;
     assert_chat_workspace_contract(&client, address, thread_id, &selected, &rebound).await;
     assert_workspace_rejections(&client, address, thread_id, &selected, &rebound).await;
+}
+
+async fn assert_workspace_file_contract(
+    client: &reqwest::Client,
+    address: SocketAddr,
+    selected: &std::path::Path,
+) {
+    std::fs::write(selected.join("notes.md"), "héllo")
+        .expect("Workspace text fixture should be written");
+    std::fs::write(selected.join("page.html"), "<h1>QwenPaw</h1>")
+        .expect("Workspace HTML fixture should be written");
+    std::fs::write(selected.join("binary.bin"), [0_u8, 1, 2, 3])
+        .expect("Workspace binary fixture should be written");
+    assert_workspace_tree_and_content(client, address, selected).await;
+    assert_workspace_upload_and_rejections(client, address, selected).await;
+    assert_workspace_watch_contract(client, address, selected).await;
+}
+
+async fn assert_workspace_tree_and_content(
+    client: &reqwest::Client,
+    address: SocketAddr,
+    selected: &std::path::Path,
+) {
+    assert_workspace_tree(client, address).await;
+    assert_workspace_text_content(client, address, selected).await;
+    assert_workspace_binary_and_html(client, address).await;
+}
+
+async fn assert_workspace_tree(client: &reqwest::Client, address: SocketAddr) {
+    let first_page = client
+        .get(format!(
+            "http://{address}/api/workspace/tree?path=&root=project&limit=2"
+        ))
+        .send()
+        .await
+        .expect("Workspace tree should send")
+        .json::<Value>()
+        .await
+        .expect("Workspace tree should be JSON");
+    assert_eq!(first_page["entries"].as_array().map(Vec::len), Some(2));
+    assert_eq!(first_page["has_more"], json!(true));
+    let cursor = first_page["next_cursor"]
+        .as_str()
+        .expect("Workspace tree should return a cursor");
+    let second_page = client
+        .get(format!(
+            "http://{address}/api/workspace/tree?path=&root=project&limit=20&cursor={cursor}"
+        ))
+        .send()
+        .await
+        .expect("Workspace tree continuation should send")
+        .json::<Value>()
+        .await
+        .expect("Workspace tree continuation should be JSON");
+    assert_eq!(second_page["has_more"], json!(false));
+}
+
+async fn assert_workspace_text_content(
+    client: &reqwest::Client,
+    address: SocketAddr,
+    selected: &std::path::Path,
+) {
+    let metadata = client
+        .get(format!(
+            "http://{address}/api/workspace/file-metadata?path=notes.md&root=project"
+        ))
+        .send()
+        .await
+        .expect("Workspace metadata should send")
+        .json::<Value>()
+        .await
+        .expect("Workspace metadata should be JSON");
+    assert_eq!(metadata["path"], json!("notes.md"));
+    assert_eq!(metadata["size"], json!(6));
+    assert_eq!(metadata["preview_kind"], json!("text"));
+
+    let content = client
+        .get(format!(
+            "http://{address}/api/workspace/file-content?path=notes.md&root=project&offset=0&limit=3"
+        ))
+        .send()
+        .await
+        .expect("Workspace content should send")
+        .json::<Value>()
+        .await
+        .expect("Workspace content should be JSON");
+    assert_eq!(content["content"], json!("hé"));
+    assert_eq!(content["next_offset"], json!(3));
+    assert_eq!(content["eof"], json!(false));
+    let etag = content["etag"]
+        .as_str()
+        .expect("Workspace content should include an ETag");
+    let unicode_chunk = client
+        .get(format!(
+            "http://{address}/api/workspace/file-content?path=notes.md&root=project&offset=1&limit=1"
+        ))
+        .send()
+        .await
+        .expect("Workspace Unicode chunk should send")
+        .json::<Value>()
+        .await
+        .expect("Workspace Unicode chunk should be JSON");
+    assert_eq!(unicode_chunk["content"], json!("é"));
+    assert_eq!(unicode_chunk["next_offset"], json!(3));
+
+    let saved = client
+        .put(format!(
+            "http://{address}/api/workspace/file-content?path=notes.md&root=project"
+        ))
+        .header(reqwest::header::IF_MATCH, etag)
+        .json(&json!({"content": "updated"}))
+        .send()
+        .await
+        .expect("Workspace save should send");
+    assert_eq!(saved.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        std::fs::read_to_string(selected.join("notes.md"))
+            .expect("saved Workspace file should read"),
+        "updated"
+    );
+    let stale = client
+        .put(format!(
+            "http://{address}/api/workspace/file-content?path=notes.md&root=project"
+        ))
+        .header(reqwest::header::IF_MATCH, etag)
+        .json(&json!({"content": "must not win"}))
+        .send()
+        .await
+        .expect("stale Workspace save should send");
+    assert_eq!(stale.status(), reqwest::StatusCode::PRECONDITION_FAILED);
+}
+
+async fn assert_workspace_binary_and_html(client: &reqwest::Client, address: SocketAddr) {
+    let download = client
+        .get(format!(
+            "http://{address}/api/workspace/file-download?path=binary.bin&root=project"
+        ))
+        .send()
+        .await
+        .expect("Workspace download should send");
+    assert_eq!(download.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        download
+            .bytes()
+            .await
+            .expect("Workspace download should read")
+            .as_ref(),
+        [0_u8, 1, 2, 3]
+    );
+
+    let html = client
+        .get(format!(
+            "http://{address}/api/workspace/html-file-uri?path=page.html&root=project"
+        ))
+        .send()
+        .await
+        .expect("Workspace HTML resolver should send")
+        .json::<Value>()
+        .await
+        .expect("Workspace HTML resolver should be JSON");
+    assert!(
+        html["uri"]
+            .as_str()
+            .is_some_and(|uri| uri.starts_with("file:"))
+    );
+}
+
+async fn assert_workspace_upload_and_rejections(
+    client: &reqwest::Client,
+    address: SocketAddr,
+    selected: &std::path::Path,
+) {
+    let uploaded = multipart_request(
+        client,
+        format!("http://{address}/api/workspace/file-upload?path=&root=project"),
+        "files",
+        "upload.txt",
+        b"first upload",
+    )
+    .await;
+    assert_eq!(uploaded.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        std::fs::read(selected.join("upload.txt")).expect("upload should be written"),
+        b"first upload"
+    );
+    let conflict = multipart_request(
+        client,
+        format!("http://{address}/api/workspace/file-upload?path=&root=project"),
+        "files",
+        "upload.txt",
+        b"second upload",
+    )
+    .await;
+    assert_eq!(conflict.status(), reqwest::StatusCode::CONFLICT);
+    let renamed = multipart_request(
+        client,
+        format!("http://{address}/api/workspace/file-upload?path=&root=project&conflict=rename"),
+        "files",
+        "upload.txt",
+        b"second upload",
+    )
+    .await;
+    assert_eq!(renamed.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        std::fs::read(selected.join("upload (1).txt")).expect("renamed upload should be written"),
+        b"second upload"
+    );
+
+    let traversal = client
+        .get(format!(
+            "http://{address}/api/workspace/file-content?path=../outside.txt&root=project"
+        ))
+        .send()
+        .await
+        .expect("Workspace traversal request should send");
+    assert_eq!(traversal.status(), reqwest::StatusCode::BAD_REQUEST);
+}
+
+async fn assert_workspace_watch_contract(
+    client: &reqwest::Client,
+    address: SocketAddr,
+    selected: &std::path::Path,
+) {
+    let mut response = client
+        .get(format!("http://{address}/api/workspace/watch?root=project"))
+        .send()
+        .await
+        .expect("Workspace watch should connect");
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        response.headers()[reqwest::header::CONTENT_TYPE],
+        "text/event-stream"
+    );
+    std::fs::write(selected.join("watch.txt"), "watched").expect("watched file should be written");
+    let payload = tokio::time::timeout(Duration::from_secs(10), async {
+        let mut buffer = String::new();
+        loop {
+            let chunk = response
+                .chunk()
+                .await
+                .expect("Workspace watch chunk should read")
+                .expect("Workspace watch should remain open");
+            buffer.push_str(
+                std::str::from_utf8(&chunk).expect("Workspace watch should return UTF-8 SSE"),
+            );
+            if let Some(payload) = find_workspace_event(&buffer, "watch.txt") {
+                return payload;
+            }
+        }
+    })
+    .await
+    .expect("Workspace watch should report a change before timeout");
+    assert_eq!(payload["type"], json!("file_change"));
+}
+
+fn find_workspace_event(buffer: &str, expected_path: &str) -> Option<Value> {
+    buffer.split("\n\n").find_map(|frame| {
+        let data = frame.lines().find_map(|line| line.strip_prefix("data: "))?;
+        let payload = serde_json::from_str::<Value>(data).ok()?;
+        payload["events"]
+            .as_array()
+            .is_some_and(|events| events.iter().any(|event| event["path"] == expected_path))
+            .then_some(payload)
+    })
+}
+
+async fn multipart_request(
+    client: &reqwest::Client,
+    url: String,
+    field: &str,
+    file_name: &str,
+    contents: &[u8],
+) -> reqwest::Response {
+    let boundary = "qwenpaw-test-boundary";
+    let mut body = format!(
+        "--{boundary}\r\nContent-Disposition: form-data; name=\"{field}\"; filename=\"{file_name}\"\r\nContent-Type: application/octet-stream\r\n\r\n"
+    )
+    .into_bytes();
+    body.extend_from_slice(contents);
+    body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+    client
+        .post(url)
+        .header(
+            reqwest::header::CONTENT_TYPE,
+            format!("multipart/form-data; boundary={boundary}"),
+        )
+        .body(body)
+        .send()
+        .await
+        .expect("multipart request should send")
 }
 
 async fn assert_global_workspace_contract(
