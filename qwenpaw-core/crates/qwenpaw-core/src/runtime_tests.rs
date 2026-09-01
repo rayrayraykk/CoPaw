@@ -476,6 +476,51 @@ fn persists_desktop_coding_mode_in_the_core_store() {
     );
 }
 
+#[test]
+fn persists_and_validates_the_desktop_ui_language() {
+    let directory = tempfile::tempdir().expect("temporary directory should be created");
+    let database_path = directory.path().join("threads.sqlite3");
+    let model_config = ModelConfig {
+        api_key: None,
+        base_url: String::from("http://127.0.0.1:1"),
+        default_model: String::from("qwen-test"),
+    };
+    let core = Core::persistent(model_config.clone(), &database_path)
+        .expect("persistent Core should open");
+    assert_eq!(
+        core.read_ui_language()
+            .expect("default UI language should read"),
+        "en"
+    );
+    assert_eq!(
+        core.write_ui_language(" pt-BR ")
+            .expect("supported UI language should persist"),
+        "pt-BR"
+    );
+    assert_eq!(
+        core.write_ui_language("vi")
+            .expect("Console Vietnamese option should persist"),
+        "vi"
+    );
+    assert_eq!(
+        core.write_ui_language("en-US")
+            .expect_err("unsupported UI language should be rejected"),
+        CoreError::Config(String::from(
+            "UI language must be one of: en, zh, ja, ru, pt-BR, id, vi"
+        ))
+    );
+    drop(core);
+
+    let reopened =
+        Core::persistent(model_config, &database_path).expect("persistent Core should reopen");
+    assert_eq!(
+        reopened
+            .read_ui_language()
+            .expect("persisted UI language should reload"),
+        "vi"
+    );
+}
+
 #[tokio::test]
 async fn lists_and_reads_only_registered_workspaces() {
     let directory = tempfile::tempdir().expect("temporary directory should be created");

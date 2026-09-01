@@ -42,7 +42,7 @@ pub(super) fn router() -> Router<AppServer> {
     Router::new()
         .route("/api/auth/status", get(auth_status))
         .route("/api/auth/verify", get(auth_verify))
-        .route("/api/settings/language", get(language))
+        .route("/api/settings/language", get(language).put(set_language))
         .route("/api/settings/upload-limit", get(upload_limit))
         .route("/api/agents", get(agents))
         .route("/api/models", get(models))
@@ -113,8 +113,30 @@ async fn auth_verify() -> Json<Value> {
     Json(json!({"valid": true, "username": ""}))
 }
 
-async fn language() -> Json<Value> {
-    Json(json!({"language": "en"}))
+async fn language(State(server): State<AppServer>) -> Result<Json<Value>, ApiError> {
+    let language = server
+        .inner
+        .core
+        .read_ui_language()
+        .map_err(|error| api_error(&error))?;
+    Ok(Json(json!({"language": language})))
+}
+
+#[derive(Debug, Deserialize)]
+struct UiLanguageRequest {
+    language: String,
+}
+
+async fn set_language(
+    State(server): State<AppServer>,
+    Json(request): Json<UiLanguageRequest>,
+) -> Result<Json<Value>, ApiError> {
+    let language = server
+        .inner
+        .core
+        .write_ui_language(&request.language)
+        .map_err(|error| api_error(&error))?;
+    Ok(Json(json!({"language": language})))
 }
 
 async fn upload_limit() -> Json<Value> {
@@ -1156,9 +1178,10 @@ fn api_error(error: &CoreError) -> ApiError {
     let status = match error {
         CoreError::ThreadNotFound(_) => StatusCode::NOT_FOUND,
         CoreError::ThreadBusy(_) | CoreError::ThreadArchived(_) => StatusCode::CONFLICT,
-        CoreError::EmptyInput | CoreError::FileReference(_) | CoreError::Workspace(_) => {
-            StatusCode::BAD_REQUEST
-        }
+        CoreError::Config(_)
+        | CoreError::EmptyInput
+        | CoreError::FileReference(_)
+        | CoreError::Workspace(_) => StatusCode::BAD_REQUEST,
         CoreError::InputTooLarge { .. } => StatusCode::PAYLOAD_TOO_LARGE,
         CoreError::Model(_) => StatusCode::BAD_GATEWAY,
         _ => StatusCode::INTERNAL_SERVER_ERROR,

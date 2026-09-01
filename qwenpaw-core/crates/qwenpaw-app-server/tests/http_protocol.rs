@@ -274,6 +274,7 @@ async fn serves_the_unchanged_console_bootstrap_contracts() {
     let task = tokio::spawn(server.run_http(listener));
 
     assert_bootstrap_json_contracts(address).await;
+    assert_language_write_contract(address).await;
     assert_navigation_json_contracts(address).await;
     assert_agent_contract(address).await;
     assert_model_contract(address).await;
@@ -282,6 +283,121 @@ async fn serves_the_unchanged_console_bootstrap_contracts() {
     assert_workspace_contract(address, &thread.id).await;
 
     task.abort();
+}
+
+async fn assert_language_write_contract(address: SocketAddr) {
+    let client = reqwest::Client::new();
+    let url = format!("http://{address}/api/settings/language");
+    let updated = client
+        .put(&url)
+        .json(&json!({"language": "pt-BR"}))
+        .send()
+        .await
+        .expect("language update should send");
+    assert_eq!(updated.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        updated
+            .json::<Value>()
+            .await
+            .expect("language update should be JSON"),
+        json!({"language": "pt-BR"})
+    );
+    assert_eq!(
+        get_json(&client, url.clone()).await,
+        json!({"language": "pt-BR"})
+    );
+
+    let rejected = client
+        .put(url)
+        .json(&json!({"language": "invalid"}))
+        .send()
+        .await
+        .expect("invalid language update should send");
+    assert_eq!(rejected.status(), reqwest::StatusCode::BAD_REQUEST);
+    assert_eq!(
+        rejected
+            .json::<Value>()
+            .await
+            .expect("invalid language response should be JSON"),
+        json!({
+            "detail": concat!(
+                "configuration is invalid: UI language must be one of: ",
+                "en, zh, ja, ru, pt-BR, id, vi"
+            )
+        })
+    );
+}
+
+#[tokio::test]
+async fn persists_the_console_language_across_desktop_restarts() {
+    let console = tempfile::tempdir().expect("temporary Console should be created");
+    let desktop_data = tempfile::tempdir().expect("temporary Desktop data should be created");
+    let database = desktop_data.path().join("threads.sqlite3");
+    std::fs::write(console.path().join("index.html"), "<html>console</html>")
+        .expect("Console index should be written");
+    let model_config = ModelConfig {
+        api_key: None,
+        base_url: String::from("http://127.0.0.1:1"),
+        default_model: String::from("qwen-test"),
+    };
+    let first_core =
+        Core::persistent(model_config.clone(), &database).expect("first Core should open");
+    let first_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("first Desktop listener should bind");
+    let first_address = first_listener
+        .local_addr()
+        .expect("first Desktop listener should have an address");
+    let first_server = AppServer::new_desktop_with_credential_store_and_data_dir(
+        first_core,
+        console.path(),
+        String::from("desktop-language-first-token"),
+        Arc::new(MemoryCredentialStore::default()),
+        desktop_data.path(),
+    )
+    .expect("first Desktop server should configure");
+    let first_task = tokio::spawn(first_server.run_http(first_listener));
+    let client = reqwest::Client::new();
+    assert_eq!(
+        client
+            .put(format!("http://{first_address}/api/settings/language"))
+            .json(&json!({"language": "ja"}))
+            .send()
+            .await
+            .expect("first language update should send")
+            .json::<Value>()
+            .await
+            .expect("first language update should be JSON"),
+        json!({"language": "ja"})
+    );
+    first_task.abort();
+    let _ = first_task.await;
+
+    let second_core = Core::persistent(model_config, &database).expect("second Core should open");
+    let second_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("second Desktop listener should bind");
+    let second_address = second_listener
+        .local_addr()
+        .expect("second Desktop listener should have an address");
+    let second_server = AppServer::new_desktop_with_credential_store_and_data_dir(
+        second_core,
+        console.path(),
+        String::from("desktop-language-second-token"),
+        Arc::new(MemoryCredentialStore::default()),
+        desktop_data.path(),
+    )
+    .expect("second Desktop server should configure");
+    let second_task = tokio::spawn(second_server.run_http(second_listener));
+    assert_eq!(
+        get_json(
+            &client,
+            format!("http://{second_address}/api/settings/language"),
+        )
+        .await,
+        json!({"language": "ja"})
+    );
+    second_task.abort();
 }
 
 #[tokio::test]

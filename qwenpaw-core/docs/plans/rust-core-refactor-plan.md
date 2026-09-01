@@ -895,6 +895,8 @@ MVP 至少提供：
 - [x] 将 Coding Mode 开关持久化到 Rust SQLite，并实现现有 Console 的 11 个 Workspace Git 读写契约；
 - [x] 使用真实临时 Git 仓库覆盖 init、status、diff、stage/unstage、commit、branch、discard、revert 与注入拒绝；
 - [x] 初始化 Git 时不自动 stage/commit 用户内容，并验证嵌套 Workspace 不会误操作父仓库；
+- [x] 将全局 UI language GET/PUT 持久化到 Rust SQLite，验证七种现有 Console 语言、非法输入和 Desktop 重启恢复；
+- [x] 使用全新 Chrome profile 验证持久化语言驱动现有 Console 本地化，且启动 API 与浏览器错误均为零；
 - [x] 补齐已观察 Chat 启动调用图，并用真实 headless Chrome 验证页面渲染、0 个 API 404 和 0 个浏览器错误；
 - [ ] 支持多 project-directory、memory/profile 与剩余 Coding 文件契约；
 - [x] 完成非 Chat 导航页的调用图、空/禁用状态响应和 24 页真实浏览器 E2E 契约；

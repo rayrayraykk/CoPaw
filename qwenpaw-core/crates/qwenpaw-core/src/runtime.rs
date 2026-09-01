@@ -87,6 +87,9 @@ const BASE_URL_SETTING: &str = "base_url";
 const DEFAULT_MODEL_SETTING: &str = "default_model";
 const PREFERRED_WORKSPACE_SETTING: &str = "preferred_workspace";
 const CODING_MODE_SETTING: &str = "coding_mode";
+const UI_LANGUAGE_SETTING: &str = "ui_language";
+const DEFAULT_UI_LANGUAGE: &str = "en";
+const SUPPORTED_UI_LANGUAGES: [&str; 7] = ["en", "zh", "ja", "ru", "pt-BR", "id", "vi"];
 
 pub type TurnEventStream = mpsc::Receiver<CoreEvent>;
 
@@ -530,6 +533,39 @@ impl Core {
             .write_settings(&[(CODING_MODE_SETTING, value)])
             .map_err(CoreError::storage)?;
         Ok(enabled)
+    }
+
+    /// Reads the global language preference used by Desktop/WebUI clients.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when SQLite cannot be read or the stored value is not
+    /// supported by the unchanged Console.
+    pub fn read_ui_language(&self) -> Result<String, CoreError> {
+        let language = self
+            .inner
+            .store
+            .read_setting(UI_LANGUAGE_SETTING)
+            .map_err(CoreError::storage)?
+            .unwrap_or_else(|| String::from(DEFAULT_UI_LANGUAGE));
+        validate_ui_language(&language)?;
+        Ok(language)
+    }
+
+    /// Validates and persists the global Desktop/WebUI language preference.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the language is unsupported or SQLite
+    /// persistence fails.
+    pub fn write_ui_language(&self, language: &str) -> Result<String, CoreError> {
+        let language = language.trim();
+        validate_ui_language(language)?;
+        self.inner
+            .store
+            .write_settings(&[(UI_LANGUAGE_SETTING, language)])
+            .map_err(CoreError::storage)?;
+        Ok(language.to_owned())
     }
 
     pub async fn list_workspaces(&self) -> WorkspaceListResponse {
@@ -1312,6 +1348,16 @@ impl Core {
         )
         .await;
     }
+}
+
+fn validate_ui_language(language: &str) -> Result<(), CoreError> {
+    if SUPPORTED_UI_LANGUAGES.contains(&language) {
+        return Ok(());
+    }
+    Err(CoreError::Config(format!(
+        "UI language must be one of: {}",
+        SUPPORTED_UI_LANGUAGES.join(", ")
+    )))
 }
 
 #[derive(Debug)]

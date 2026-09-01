@@ -11,6 +11,8 @@ Console over a random loopback HTTP port. Transitional bundles can explicitly
 select the legacy Python backend with `QWENPAW_DESKTOP_RUST_CORE=0`.
 The built-in Desktop agent persists Coding Mode in Core SQLite and uses the
 unchanged Files/Source Control UI against Rust-owned Workspace Git endpoints.
+The unchanged language switcher also persists its seven current UI language
+choices through Rust Core and restores the preference after a Core restart.
 
 ## Architecture and migration
 
@@ -115,7 +117,8 @@ same SQLite database and those values win on later Core restarts. A client that
 owns the process, such as the VS Code extension, synchronizes its current
 window settings immediately after initialization. API keys are never persisted
 by Core and must continue to come from the process environment or a client's
-secure credential store.
+secure credential store. Desktop UI language, Coding Mode, and the preferred
+Workspace are separate non-secret Core settings in that database.
 
 Logs are written to stderr so that stdout remains a clean JSONL protocol
 transport.
