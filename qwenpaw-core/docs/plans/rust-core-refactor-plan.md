@@ -902,6 +902,16 @@ MVP 至少提供：
 - [x] 完成非 Chat 导航页的调用图、空/禁用状态响应和 24 页真实浏览器 E2E 契约；
 - [x] 默认切换 Desktop 到 Rust Core，并保留 `QWENPAW_DESKTOP_RUST_CORE=0` 显式 legacy 回退；
 
+### 14.2.19 当前开发切片：Rust-only Desktop 收口
+
+- [x] Desktop 开发和发布模式只启动 Rust Core，不再读取 Python backend 切换环境变量；
+- [x] Tauri 安装包不再包含 PyInstaller backend、Python runtime 或仅供 Python backend 使用的 Node runtime；
+- [x] Computer Use 原生 helper 使用独立资源目录，不依赖 legacy backend 目录；
+- [x] Windows 安装器的 CLI PATH 和进程清理只指向 Desktop、Rust Core 与原生 helper；
+- [x] macOS/Windows 打包脚本只构建 Console、Rust Core、Tauri 和原生 helper；
+- [x] 更新 Fresh Start、系统架构和迁移矩阵，明确新 Desktop 不提供 Python fallback；
+- [ ] 通过 Rust Core、Tauri、Console 本地门禁及 macOS/Windows 原生 runner 打包验证；
+
 ### 14.3 客户端与发布
 
 - [x] WebUI 启动与导航契约测试通过；

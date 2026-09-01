@@ -240,10 +240,7 @@ impl BackendState {
     }
 }
 
-/// Requests a graceful shutdown from the desktop-only backend endpoint.
-///
-/// The endpoint sets uvicorn's `should_exit`, letting the sidecar run its
-/// normal lifespan shutdown instead of being force-killed.
+/// Requests a graceful shutdown from the desktop-only Core endpoint.
 async fn request_graceful_shutdown(port: u16, shutdown_token: &str) -> Result<(), String> {
     let url = format!("http://127.0.0.1:{port}{DESKTOP_SHUTDOWN_PATH}");
     let client = reqwest::Client::builder()
@@ -365,11 +362,6 @@ fn start(app: &tauri::AppHandle) {
             return;
         }
     }
-    .env("PYTHONUTF8", "1")
-    .env("PYTHONIOENCODING", "utf-8")
-    .env("PYTHONUNBUFFERED", "1")
-    .env("PYTHONFAULTHANDLER", "1")
-    .env("QWENPAW_DESKTOP_APP", "1")
     .env(DESKTOP_SHUTDOWN_TOKEN_ENV, &shutdown_token);
 
     log::info!("[backend] starting generation={generation}");

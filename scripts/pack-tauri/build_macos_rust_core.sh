@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# Build QwenPaw with Tauri for macOS (PyInstaller backend)
-# Creates a self-contained desktop app with bundled Python backend
+# Build the Rust-only QwenPaw Desktop package for macOS.
 #
 # Usage:
-#   ./scripts/pack-tauri/build_macos_pyinstaller.sh
+#   ./scripts/pack-tauri/build_macos_rust_core.sh
 
-set -e
+set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
@@ -13,7 +12,7 @@ cd "$REPO_ROOT"
 VERSION=$(sed -n 's/^__version__[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' src/qwenpaw/__version__.py)
 
 echo "========================================="
-echo "QwenPaw Tauri Build - macOS (PyInstaller)"
+echo "QwenPaw Tauri Build - macOS (Rust Core)"
 echo "========================================="
 echo "Version: ${VERSION}"
 echo ""
@@ -40,14 +39,6 @@ else
     missing+=("rustc")
 fi
 
-if command -v uv &>/dev/null; then
-    echo "  [OK] uv ($(uv --version))"
-else
-    echo "  [MISSING] uv"
-    echo "    Install: https://docs.astral.sh/uv/getting-started/installation/"
-    missing+=("uv")
-fi
-
 if [ ${#missing[@]} -gt 0 ]; then
     echo ""
     echo "Missing prerequisites: ${missing[*]}"
@@ -62,17 +53,11 @@ if [ ! -f "${SIGN_MACOS_BUNDLE}" ]; then
 fi
 
 if [ -z "${APPLE_SIGNING_IDENTITY:-}" ] && [ -z "${APPLE_CERTIFICATE:-}" ]; then
-    # The Tauri app and PyInstaller sidecar are native Mach-O executables.
-    # Keep their signature state consistent with ad-hoc signatures when no
-    # Developer ID certificate is configured. This matches the legacy desktop
-    # package behavior: signed enough for local loading, not notarized.
+    # Keep the app, Rust Core, and native helper consistently ad-hoc signed
+    # when a Developer ID certificate is not configured. This is suitable for
+    # local validation only and is not a notarized release.
     export APPLE_SIGNING_IDENTITY="-"
     echo "Using ad-hoc macOS code signing"
-fi
-if [ -z "${PYINSTALLER_CODESIGN_IDENTITY:-}" ]; then
-    # PyInstaller uses the same identity as the final app for bundled Mach-O
-    # files; "-" means ad-hoc signing on macOS.
-    export PYINSTALLER_CODESIGN_IDENTITY="${APPLE_SIGNING_IDENTITY:-}"
 fi
 echo ""
 
@@ -95,21 +80,8 @@ bash scripts/pack-tauri/stage_rust_core.sh
 echo "Rust Core sidecar staged"
 echo ""
 
-# Step 2: Build PyInstaller backend
-echo "== Step 2: Building PyInstaller Backend =="
-bash scripts/pack-tauri/build_pyinstaller.sh
-echo "PyInstaller backend built"
-echo ""
-
-echo "== Step 2b: Signing PyInstaller Backend =="
-bash "${SIGN_MACOS_BUNDLE}" \
-    "${REPO_ROOT}/console/src-tauri/binaries/qwenpaw-backend" \
-    "${APPLE_SIGNING_IDENTITY}"
-echo "PyInstaller backend signed"
-echo ""
-
-# Step 3: Build Tauri app
-echo "== Step 3: Building Tauri App =="
+# Step 2: Build Tauri app and its native Computer Use helper
+echo "== Step 2: Building Tauri App =="
 BUNDLE_DIR="${REPO_ROOT}/console/src-tauri/target/release/bundle"
 rm -rf "${BUNDLE_DIR}/dmg" "${BUNDLE_DIR}/macos"
 cd console
@@ -132,15 +104,15 @@ if [ ! -x "${HELPER_PATH}" ]; then
     exit 1
 fi
 
-echo "== Step 3b: Signing Final macOS App =="
+echo "== Step 2b: Signing Final macOS App =="
 bash "${SIGN_MACOS_BUNDLE}" \
     "${APP_PATH}" \
     "${APPLE_SIGNING_IDENTITY}"
 echo "Final macOS app signed and verified"
 echo ""
 
-# Step 4: Collect distribution artifacts
-echo "== Step 4: Collecting Distribution Artifacts =="
+# Step 3: Collect distribution artifacts
+echo "== Step 3: Collecting Distribution Artifacts =="
 DIST="${DIST:-dist}"
 if [[ "${DIST}" = /* ]]; then
     DIST_ROOT="${DIST}"

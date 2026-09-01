@@ -40,12 +40,7 @@
       "../../scripts/pack/assets/icon.icns",
       "../../scripts/pack/assets/icon.ico"
     ],
-    "resources": [
-      "binaries/qwenpaw-backend",
-      "binaries/qwenpaw-core",
-      "binaries/python-runtime",
-      "binaries/node-runtime"
-    ],
+    "resources": ["binaries/qwenpaw-core"],
     "windows": {
       "webviewInstallMode": {
         "type": "downloadBootstrapper",

@@ -33,6 +33,7 @@ use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
+#[cfg(any(debug_assertions, not(target_os = "macos"), test))]
 use crate::computer_use_protocol::VERSION as PROTOCOL_VERSION;
 
 #[cfg(windows)]
@@ -48,7 +49,7 @@ const CONTROL_PORT_ENV: &str = "QWENPAW_COMPUTER_USE_CONTROL_PORT";
 const CONTROL_TOKEN_ENV: &str = "QWENPAW_COMPUTER_USE_CONTROL_TOKEN";
 const CONTROL_MAX_MESSAGE_BYTES: usize = 4096;
 // This is emitted by the direct helper child after it has created an endpoint
-// that the Python client can connect to. Keep it in step with the helper's
+// that the controlled client can connect to. Keep it in step with the helper's
 // `computer_use_server::connection::HELPER_READY_PREFIX` constant.
 #[cfg(not(all(not(debug_assertions), target_os = "macos")))]
 const HELPER_READY_PREFIX: &str = "QWENPAW_COMPUTER_USE_READY ";
@@ -675,50 +676,6 @@ fn assign_helper_to_job(state: &ComputerUseRuntimeState, child: &Child) {
     }
 }
 
-/// Return the sidecar-only environment used by the controlled client.
-pub(crate) fn backend_environment(app: &tauri::AppHandle) -> Vec<(String, String)> {
-    let mut environment = Vec::new();
-    if let Ok(control) = app.state::<ComputerUseRuntimeState>().control.lock() {
-        if let Some(control) = control.as_ref() {
-            environment.extend([
-                (
-                    "QWENPAW_COMPUTER_USE_CONTROL_HOST".to_string(),
-                    Ipv4Addr::LOCALHOST.to_string(),
-                ),
-                (
-                    "QWENPAW_COMPUTER_USE_CONTROL_PORT".to_string(),
-                    control.port.to_string(),
-                ),
-                (
-                    "QWENPAW_COMPUTER_USE_CONTROL_TOKEN".to_string(),
-                    control.token.clone(),
-                ),
-            ]);
-        }
-    }
-
-    let state = app.state::<ComputerUseRuntimeState>();
-    if let Ok(inner) = state.inner.lock() {
-        if let Some(capability) = inner.capability.as_ref() {
-            environment.extend([
-                (
-                    "QWENPAW_COMPUTER_USE_PIPE".to_string(),
-                    capability.pipe_name.clone(),
-                ),
-                (
-                    "QWENPAW_COMPUTER_USE_CAPABILITY".to_string(),
-                    capability.secret.clone(),
-                ),
-                (
-                    "QWENPAW_COMPUTER_USE_PROTOCOL".to_string(),
-                    PROTOCOL_VERSION.to_string(),
-                ),
-            ]);
-        }
-    }
-    environment
-}
-
 /// Stop the helper when the desktop host exits.
 pub(crate) fn stop(app: &tauri::AppHandle) {
     let state = app.state::<ComputerUseRuntimeState>();
@@ -1207,14 +1164,16 @@ fn helper_path(_app: &tauri::AppHandle) -> Result<PathBuf, String> {
 }
 
 #[cfg(all(not(debug_assertions), not(target_os = "macos")))]
-fn helper_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let path = app
-        .path()
-        .resource_dir()
-        .map_err(|err| format!("failed to resolve resources: {err}"))?
-        .join("binaries")
-        .join("qwenpaw-backend")
-        .join(helper_name());
+fn helper_path(_app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let executable = std::env::current_exe()
+        .map_err(|err| format!("failed to resolve desktop executable: {err}"))?;
+    let directory = executable.parent().ok_or_else(|| {
+        format!(
+            "desktop executable has no containing directory: {}",
+            executable.display()
+        )
+    })?;
+    let path = directory.join(helper_name());
     path.is_file()
         .then_some(path.clone())
         .ok_or_else(|| format!("Computer Use helper not found at {}", path.display()))

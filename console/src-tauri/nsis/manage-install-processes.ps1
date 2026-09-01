@@ -147,9 +147,8 @@ function Test-IsQwenPawInstall {
     $evidence = 0
     foreach ($path in @(
         (Join-Path $Root "qwenpaw-desktop.exe"),
-        (Join-Path $Root "binaries\qwenpaw-backend\qwenpaw-backend.exe"),
-        (Join-Path $Root "binaries\qwenpaw-core\qwenpaw-core.exe"),
-        (Join-Path $Root "binaries\python-runtime\python\python.exe")
+        (Join-Path $Root "qwenpaw-computer-use-helper.exe"),
+        (Join-Path $Root "binaries\qwenpaw-core\qwenpaw-core.exe")
     )) {
         if (Test-Path -LiteralPath $path -PathType Leaf) {
             $evidence++
@@ -201,17 +200,8 @@ function Test-IsAutomaticProcess {
 
     $relative = $Process.ExecutablePath.Substring($Root.Length).TrimStart("\")
     if ($relative -ieq "qwenpaw-desktop.exe" -or
-        $relative -ieq "binaries\qwenpaw-backend\qwenpaw-backend.exe" -or
-        $relative -ieq "binaries\qwenpaw-backend\qwenpaw.exe" -or
+        $relative -ieq "qwenpaw-computer-use-helper.exe" -or
         $relative -ieq "binaries\qwenpaw-core\qwenpaw-core.exe") {
-        return $true
-    }
-    $isBundledPython = (
-        $relative -ieq "binaries\python-runtime\python\python.exe" -or
-        $relative -ieq "binaries\python-runtime\python\pythonw.exe"
-    )
-    if ($isBundledPython -and
-        $Process.CommandLine.ToLowerInvariant().Contains("qwenpaw-nm-host.py")) {
         return $true
     }
     return $false

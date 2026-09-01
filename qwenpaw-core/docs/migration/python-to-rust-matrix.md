@@ -1,6 +1,6 @@
 # Python to Rust Capability Migration Matrix
 
-> Baseline: 2026-09-01. Rust Core serves VS Code and is now the default Desktop backend; the unchanged WebUI uses a compatibility edge while incomplete product domains remain explicitly partial or deferred.
+> Baseline: 2026-09-01. Rust Core serves VS Code and is the only backend packaged by the new Desktop; the unchanged WebUI uses a compatibility edge while incomplete product domains remain explicitly partial or deferred.
 
 ## Status definitions
 
@@ -33,7 +33,7 @@
 | VS Code client | No original equivalent | Rust MVP: Chat Participant and native commands | Native target VSIX CI succeeds on macOS/Linux/Windows; signed macOS artifact validated |
 | Core WebSocket | Python HTTP service | Loopback plaintext transport plus explicit TLS/bearer-authenticated remote WSS with token-file rotation for new handshakes | Deployment hardening, reverse-proxy interoperability, and multi-user authorization are accepted |
 | Console REST/SSE compatibility | Python FastAPI | Partial: observed bootstrap/navigation reads, Thread-backed chats, Chat SSE/stop, bounded attachments, single-Workspace files/watch, and one-time approvals; all 24 built-in pages pass the navigation browser matrix | Settings mutations, multi-root behavior, feature-complete domains, and golden fixtures are complete |
-| Desktop sidecar lifecycle | Python sidecar plus Tauri commands | Partial: Rust is the default with ready marker and authenticated graceful shutdown; `QWENPAW_DESKTOP_RUST_CORE=0` retains a transitional Python fallback | Native packaged Tauri starts/stops/updates a signed Rust sidecar on every supported runner and compatibility routes pass |
+| Desktop sidecar lifecycle | Python sidecar plus Tauri commands | Rust-only Desktop: development and packaged Tauri start the Rust ready-marker/authenticated-shutdown lifecycle and no longer bundle or select Python | Native packaged Tauri starts/stops/updates a signed Rust sidecar on every supported runner and compatibility routes pass |
 | WebUI static serving | Python FastAPI | Partial: Rust Desktop mode serves the unchanged build with no-cache headers and SPA fallback | Required legacy API/auth/streaming routes pass differential tests and production cutover is approved |
 | Agents and multi-agent isolation | Python agent manager/scoped routers | Deferred | Agent CRUD, per-agent storage/config, scoped routes, approval routing, and isolation tests pass |
 | Channels and mail | Python channel/mail services | Deferred | Each external webhook/socket, credential, allowlist, retry, and delivery contract has parity fixtures |
@@ -51,7 +51,7 @@
 ## Data-authority rules
 
 1. New VS Code Threads are owned only by Rust Core SQLite.
-2. Default Desktop/WebUI sessions are owned only by the new Rust store; the explicit legacy fallback continues to own only its unchanged Python store.
+2. New Desktop/WebUI sessions are owned only by the Rust store; an old Python-based release continues to own only its unchanged Python store.
 3. No import, background synchronization, or shared writer is introduced between the two stores.
 4. The Rust product starts from a new data directory and does not scan Python `chats.json`, `sessions/`, memory, or configuration.
 5. Rollback means launching the old product against its unchanged Python data, not writing Rust state back into it.

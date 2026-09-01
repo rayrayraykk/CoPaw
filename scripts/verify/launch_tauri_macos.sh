@@ -14,10 +14,30 @@ if [ -z "$APP" ]; then
 fi
 echo "[launch_tauri_macos] Found app: $APP"
 
-# 2. Remove macOS quarantine (CI download marks it).
+# 2. Verify the app contains the Rust-only payload before launch.
+CORE="$APP/Contents/Resources/binaries/qwenpaw-core/qwenpaw-core"
+HELPER="$APP/Contents/MacOS/qwenpaw-computer-use-helper"
+for required in "$CORE" "$HELPER"; do
+  if [ ! -x "$required" ]; then
+    echo "::error::Required Rust Desktop executable is missing: $required"
+    exit 1
+  fi
+done
+for legacy in \
+  "$APP/Contents/Resources/binaries/qwenpaw-backend" \
+  "$APP/Contents/Resources/binaries/python-runtime" \
+  "$APP/Contents/Resources/binaries/node-runtime"; do
+  if [ -e "$legacy" ]; then
+    echo "::error::Legacy runtime must not be present: $legacy"
+    exit 1
+  fi
+done
+echo "[launch_tauri_macos] Rust-only Desktop payload verified"
+
+# 3. Remove macOS quarantine (CI download marks it).
 xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true
 
-# 3. Launch the full Tauri shell (matches real user double-click).
+# 4. Launch the full Tauri shell (matches real user double-click).
 echo "[launch_tauri_macos] Launching Tauri shell..."
 open "$APP"
 echo "[launch_tauri_macos] open exit=$?"
@@ -25,7 +45,7 @@ sleep 3
 echo "[launch_tauri_macos] Process snapshot after launch:"
 ps -ef | grep -iE "qwenpaw|tauri" | grep -v grep || echo "  (no matching processes)"
 
-# 4. Wait for the sidecar to write the port file and respond.
+# 5. Wait for the sidecar to write the port file and respond.
 #    The sidecar writes desktop_port at WORKING_DIR root (~/.qwenpaw),
 #    not inside the workspace dir.
 PORT_FILE="$HOME/.qwenpaw/desktop_port"
@@ -54,7 +74,7 @@ for i in $(seq 1 60); do
   sleep 2
 done
 
-# 5. Auto-init creates BOOTSTRAP.md during startup. Remove it afterwards so
+# 6. Auto-init creates BOOTSTRAP.md during startup. Remove it afterwards so
 #    the verifier can drive the agent in normal QA mode.
 rm -f "$HOME/.qwenpaw/workspaces/default/BOOTSTRAP.md"
 

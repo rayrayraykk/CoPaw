@@ -4,10 +4,10 @@ mod backend;
 mod backend_download;
 #[cfg(all(target_os = "macos", not(debug_assertions)))]
 mod computer_use_helper;
+#[cfg(any(debug_assertions, not(target_os = "macos"), test))]
 mod computer_use_protocol;
 mod computer_use_runtime;
 mod external_link;
-mod runtime_env;
 mod tray;
 mod updates;
 #[cfg(windows)]

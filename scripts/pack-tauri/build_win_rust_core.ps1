@@ -1,8 +1,7 @@
-# Build QwenPaw with Tauri for Windows (PyInstaller backend)
-# Creates a self-contained desktop app with bundled Python backend
+# Build the Rust-only QwenPaw Desktop package for Windows.
 #
 # Usage:
-#   powershell ./scripts/pack-tauri/build_win_pyinstaller.ps1
+#   powershell ./scripts/pack-tauri/build_win_rust_core.ps1
 
 param()
 
@@ -56,7 +55,7 @@ if (Test-Path $VERSION_FILE) {
 }
 
 Write-Host "=========================================" -ForegroundColor Cyan
-Write-Host "QwenPaw Tauri Build - Windows (PyInstaller)" -ForegroundColor Cyan
+Write-Host "QwenPaw Tauri Build - Windows (Rust Core)" -ForegroundColor Cyan
 Write-Host "=========================================" -ForegroundColor Cyan
 Write-Host "Version: $VERSION"
 Write-Host ""
@@ -153,7 +152,7 @@ Set-Location $REPO_ROOT
 Write-Host "Console static assets built" -ForegroundColor Green
 Write-Host ""
 
-# Step 1b: Build and stage the Rust Core migration sidecar
+# Step 1b: Build and stage the Rust Core sidecar
 Write-Host "== Step 1b: Staging Rust Core Sidecar ==" -ForegroundColor Yellow
 & (Join-Path $REPO_ROOT "scripts\pack-tauri\stage_rust_core.ps1")
 if ($LASTEXITCODE -ne 0) {
@@ -162,19 +161,8 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "Rust Core sidecar staged" -ForegroundColor Green
 Write-Host ""
 
-# Step 2: Build PyInstaller backend
-Write-Host "== Step 2: Building PyInstaller Backend ==" -ForegroundColor Yellow
-$PYINSTALLER_SCRIPT = Join-Path $REPO_ROOT "scripts\pack-tauri\build_pyinstaller.ps1"
-& $PYINSTALLER_SCRIPT
-
-if ($LASTEXITCODE -ne 0) {
-    throw "PyInstaller build failed"
-}
-Write-Host "PyInstaller backend ready" -ForegroundColor Green
-Write-Host ""
-
-# Step 2b: Fetch Tauri Rust dependencies
-Write-Host "== Step 2b: Fetching Tauri Rust Dependencies ==" -ForegroundColor Yellow
+# Step 2: Fetch Tauri Rust dependencies
+Write-Host "== Step 2: Fetching Tauri Rust Dependencies ==" -ForegroundColor Yellow
 if (-not $env:CARGO_NET_RETRY) {
     $env:CARGO_NET_RETRY = "10"
 }
@@ -190,7 +178,7 @@ $env:CARGO_NET_OFFLINE = "true"
 Write-Host "Tauri Rust dependencies fetched; Cargo offline mode enabled" -ForegroundColor Green
 Write-Host ""
 
-# Step 3: Build Tauri app
+# Step 3: Build the Tauri app and native Computer Use helper
 Write-Host "== Step 3: Building Tauri App ==" -ForegroundColor Yellow
 $BUNDLE_DIR = Join-Path $REPO_ROOT "console\src-tauri\target\release\bundle"
 $NSIS_DIR = Join-Path $BUNDLE_DIR "nsis"

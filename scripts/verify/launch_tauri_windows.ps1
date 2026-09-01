@@ -71,8 +71,27 @@ if (-not $tauriExe) {
 }
 Write-Host "Installed at: $tauriExe"
 
-# 2b. Verify WebView2 bootstrapper is bundled in the install.
+# 2b. Verify the installed package is Rust-only and contains both native bins.
 $installRoot = Split-Path $tauriExe -Parent
+$coreExe = Join-Path $installRoot "binaries\qwenpaw-core\qwenpaw-core.exe"
+$helperExe = Join-Path $installRoot "qwenpaw-computer-use-helper.exe"
+foreach ($required in @($coreExe, $helperExe)) {
+  if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
+    throw "Required Rust Desktop executable is missing: $required"
+  }
+}
+foreach ($legacy in @(
+  (Join-Path $installRoot "binaries\qwenpaw-backend"),
+  (Join-Path $installRoot "binaries\python-runtime"),
+  (Join-Path $installRoot "binaries\node-runtime")
+)) {
+  if (Test-Path -LiteralPath $legacy) {
+    throw "Legacy runtime must not be present in the Rust-only install: $legacy"
+  }
+}
+Write-Host "Rust-only Desktop payload verified"
+
+# 2c. Verify WebView2 bootstrapper is bundled in the install.
 $wv2Files = Get-ChildItem -Path $installRoot -Filter "*WebView2*" `
   -Recurse -Depth 3 -ErrorAction SilentlyContinue
 if ($wv2Files) {

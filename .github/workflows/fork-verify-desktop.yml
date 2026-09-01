@@ -58,9 +58,6 @@ jobs:
       - name: Install packaging helper dependencies
         run: python -m pip install packaging
 
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v5
-
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
@@ -74,17 +71,14 @@ jobs:
       - name: Build Tauri macOS package
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
-          # Authenticate the python-build-standalone release lookup in
-          # stage_python_runtime.py to avoid anonymous API rate limits.
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Optional. Forks only need a matching minisign key pair when
           # validating updater artifacts; regular app packages do not need it.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           TAURI_UPDATER_PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
         run: |
-          chmod +x scripts/pack-tauri/build_macos_pyinstaller.sh
-          bash scripts/pack-tauri/build_macos_pyinstaller.sh
+          chmod +x scripts/pack-tauri/build_macos_rust_core.sh
+          bash scripts/pack-tauri/build_macos_rust_core.sh
 
       - name: Verify desktop (Tauri macOS)
         timeout-minutes: 10
@@ -97,11 +91,11 @@ jobs:
         if: always()
         run: |
           pkill -f "QwenPaw Desktop" 2>/dev/null || true
-          pkill -f "qwenpaw-backend" 2>/dev/null || true
+          pkill -f "qwenpaw-computer-use-helper" 2>/dev/null || true
           pkill -f "qwenpaw-core" 2>/dev/null || true
           sleep 2
           pkill -9 -f "QwenPaw Desktop" 2>/dev/null || true
-          pkill -9 -f "qwenpaw-backend" 2>/dev/null || true
+          pkill -9 -f "qwenpaw-computer-use-helper" 2>/dev/null || true
           pkill -9 -f "qwenpaw-core" 2>/dev/null || true
 
   tauri-windows:
@@ -129,9 +123,6 @@ jobs:
       - name: Install packaging helper dependencies
         run: python -m pip install packaging
 
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v5
-
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
@@ -147,11 +138,7 @@ jobs:
 
       - name: Build Tauri Windows package
         shell: pwsh
-        env:
-          # Authenticate the python-build-standalone release lookup in
-          # stage_python_runtime.py to avoid anonymous API rate limits.
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: ./scripts/pack-tauri/build_win_pyinstaller.ps1
+        run: ./scripts/pack-tauri/build_win_rust_core.ps1
 
       - name: Stage Tauri Windows installer
         shell: pwsh
@@ -178,14 +165,14 @@ jobs:
           $ErrorActionPreference = "Continue"
           Get-Process -Name "qwenpaw-desktop" -ErrorAction SilentlyContinue |
             Stop-Process -Force -ErrorAction SilentlyContinue
-          Get-Process -Name "qwenpaw-backend" -ErrorAction SilentlyContinue |
+          Get-Process -Name "qwenpaw-computer-use-helper" -ErrorAction SilentlyContinue |
             Stop-Process -Force -ErrorAction SilentlyContinue
           Get-Process -Name "qwenpaw-core" -ErrorAction SilentlyContinue |
             Stop-Process -Force -ErrorAction SilentlyContinue
           Start-Sleep -Seconds 2
           Get-Process -Name "qwenpaw-desktop" -ErrorAction SilentlyContinue |
             Stop-Process -Force -ErrorAction SilentlyContinue
-          Get-Process -Name "qwenpaw-backend" -ErrorAction SilentlyContinue |
+          Get-Process -Name "qwenpaw-computer-use-helper" -ErrorAction SilentlyContinue |
             Stop-Process -Force -ErrorAction SilentlyContinue
           Get-Process -Name "qwenpaw-core" -ErrorAction SilentlyContinue |
             Stop-Process -Force -ErrorAction SilentlyContinue

@@ -9,7 +9,7 @@ Page custom QWENPAW_CLI_PATH_PAGE QWENPAW_CLI_PATH_PAGE_LEAVE
 !macro QWENPAW_UPDATE_CLI_PATH ACTION
   InitPluginsDir
   File /oname=$PLUGINSDIR\qwenpaw-update-path.ps1 "..\..\..\..\nsis\update-qwenpaw-path.ps1"
-  nsExec::ExecToStack `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\qwenpaw-update-path.ps1" -Action "${ACTION}" -Path "$INSTDIR\binaries\qwenpaw-backend"`
+  nsExec::ExecToStack `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\qwenpaw-update-path.ps1" -Action "${ACTION}" -Path "$INSTDIR\binaries\qwenpaw-core"`
   Pop $0
   Pop $1
 !macroend
@@ -18,7 +18,7 @@ Page custom QWENPAW_CLI_PATH_PAGE QWENPAW_CLI_PATH_PAGE_LEAVE
   ${If} $QwenPawCliPathState == 0
     DetailPrint "$(qwenpawCliPathSkipped)"
   ${Else}
-    IfFileExists "$INSTDIR\binaries\qwenpaw-backend\qwenpaw.exe" 0 qwenpaw_cli_path_missing
+    IfFileExists "$INSTDIR\binaries\qwenpaw-core\qwenpaw-core.exe" 0 qwenpaw_cli_path_missing
     !insertmacro QWENPAW_UPDATE_CLI_PATH "Add"
     ${If} $0 == 0
       DetailPrint "$(qwenpawCliPathAdded)"
