@@ -27,6 +27,7 @@ type ClientSocket = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
 struct MemoryCredentialStore {
     api_key: Mutex<Option<String>>,
     environment: Mutex<BTreeMap<String, String>>,
+    agent_settings: Mutex<BTreeMap<String, String>>,
 }
 
 impl DesktopCredentialStore for MemoryCredentialStore {
@@ -66,6 +67,31 @@ impl DesktopCredentialStore for MemoryCredentialStore {
             }
             None => {
                 environment.remove(key);
+            }
+        }
+        Ok(())
+    }
+
+    fn load_agent_setting_secret(&self, key: &str) -> anyhow::Result<Option<String>> {
+        Ok(self
+            .agent_settings
+            .lock()
+            .expect("test Agent credential lock should be available")
+            .get(key)
+            .cloned())
+    }
+
+    fn save_agent_setting_secret(&self, key: &str, value: Option<&str>) -> anyhow::Result<()> {
+        let mut settings = self
+            .agent_settings
+            .lock()
+            .expect("test Agent credential lock should be available");
+        match value {
+            Some(value) => {
+                settings.insert(key.to_owned(), value.to_owned());
+            }
+            None => {
+                settings.remove(key);
             }
         }
         Ok(())
@@ -2280,6 +2306,422 @@ async fn persists_environment_credentials_across_desktop_restarts() {
 }
 
 #[tokio::test]
+#[allow(clippy::too_many_lines)]
+async fn persists_and_applies_agent_and_voice_settings_without_storing_secrets() {
+    let console = tempfile::tempdir().expect("temporary Console should be created");
+    let desktop_data = tempfile::tempdir().expect("temporary Desktop data should be created");
+    let workspace = tempfile::tempdir().expect("temporary Workspace should be created");
+    let database = desktop_data.path().join("threads.sqlite3");
+    std::fs::write(console.path().join("index.html"), "<html>console</html>")
+        .expect("Console index should be written");
+    let transcription_requests = Arc::new(Mutex::new(Vec::<(String, String)>::new()));
+    let transcription_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("transcription listener should bind");
+    let transcription_address = transcription_listener
+        .local_addr()
+        .expect("transcription listener should have an address");
+    let captured_requests = transcription_requests.clone();
+    let transcription_app = axum::Router::new().route(
+        "/v1/audio/transcriptions",
+        axum::routing::post(
+            move |headers: axum::http::HeaderMap, body: axum::body::Bytes| {
+                let captured_requests = captured_requests.clone();
+                async move {
+                    let authorization = headers
+                        .get(axum::http::header::AUTHORIZATION)
+                        .and_then(|value| value.to_str().ok())
+                        .unwrap_or_default()
+                        .to_owned();
+                    captured_requests
+                        .lock()
+                        .expect("transcription request lock should be available")
+                        .push((authorization, String::from_utf8_lossy(&body).into_owned()));
+                    axum::Json(json!({"text": "mock transcript"}))
+                }
+            },
+        ),
+    );
+    let transcription_task = tokio::spawn(async move {
+        axum::serve(transcription_listener, transcription_app)
+            .await
+            .expect("transcription server should run");
+    });
+    let model_config = ModelConfig {
+        api_key: Some(String::from("transcription-test-key")),
+        base_url: format!("http://{transcription_address}/v1"),
+        default_model: String::from("qwen-test"),
+    };
+    let credentials = Arc::new(MemoryCredentialStore::default());
+    *credentials
+        .api_key
+        .lock()
+        .expect("test API key lock should be available") =
+        Some(String::from("transcription-test-key"));
+    let first_core =
+        Core::persistent(model_config.clone(), &database).expect("first Core should open");
+    let runtime_probe = first_core.clone();
+    let first_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("first Desktop listener should bind");
+    let first_address = first_listener
+        .local_addr()
+        .expect("first Desktop listener should have an address");
+    let first_server = AppServer::new_desktop_with_stores_and_workspace(
+        first_core,
+        console.path(),
+        String::from("desktop-agent-settings-first-token"),
+        credentials.clone(),
+        desktop_data.path(),
+        workspace.path(),
+    )
+    .expect("first Desktop server should configure");
+    let first_task = tokio::spawn(first_server.run_http(first_listener));
+    let client = reqwest::Client::new();
+    let base = format!("http://{first_address}/api");
+
+    let initial = get_json(&client, format!("{base}/workspace/running-config")).await;
+    assert_eq!(initial["max_iters"], json!(100));
+    assert_eq!(initial["approval_level"], json!("AUTO"));
+    assert_eq!(
+        initial["reme_light_memory_config"]["embedding_model_config"]["health_check_timeout"],
+        json!(15.0)
+    );
+
+    let embedding_secret = "embedding-secret-not-in-sqlite";
+    let adbpg_secret = "adbpg-secret-not-in-sqlite";
+    let updated = client
+        .put(format!("{base}/workspace/running-config"))
+        .json(&json!({
+            "max_iters": 7,
+            "loop": {"iteration": {"enabled": true, "max_iterations": 3}},
+            "shell_command_timeout": 2.5,
+            "shell_command_executable": "/bin/sh",
+            "approval_level": "OFF",
+            "reme_light_memory_config": {
+                "embedding_model_config": {"api_key": embedding_secret}
+            },
+            "adbpg_memory_config": {
+                "rest_base_url": "https://memory.example.test",
+                "rest_api_key": adbpg_secret,
+                "memory_isolation": true,
+                "search_timeout": 10.0,
+                "auto_memory_search_config": {"enabled": true, "max_results": 3}
+            }
+        }))
+        .send()
+        .await
+        .expect("running config update should send");
+    assert_eq!(updated.status(), reqwest::StatusCode::OK);
+    let updated = updated
+        .json::<Value>()
+        .await
+        .expect("running config update should return JSON");
+    assert_eq!(updated["max_iters"], json!(7));
+    assert_eq!(updated["loop"]["iteration"]["max_iterations"], json!(3));
+    assert_eq!(updated["approval_level"], json!("OFF"));
+    assert_eq!(
+        updated["reme_light_memory_config"]["embedding_model_config"]["api_key"],
+        json!(embedding_secret)
+    );
+    assert_eq!(
+        updated["adbpg_memory_config"]["rest_api_key"],
+        json!(adbpg_secret)
+    );
+    assert_eq!(
+        runtime_probe
+            .agent_runtime_config()
+            .expect("runtime config should read"),
+        qwenpaw_core::AgentRuntimeConfig {
+            max_agent_steps: 3,
+            shell_timeout_ms: 2_500,
+            shell_executable: String::from("/bin/sh"),
+            approval_level: qwenpaw_core::ToolApprovalLevel::Off,
+        }
+    );
+
+    let disabled_transcription = multipart_request(
+        &client,
+        format!("{base}/workspace/transcribe"),
+        "file",
+        "voice.wav",
+        b"not-real-audio",
+    )
+    .await;
+    assert_eq!(
+        disabled_transcription.status(),
+        reqwest::StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        disabled_transcription
+            .json::<Value>()
+            .await
+            .expect("disabled transcription error should be JSON"),
+        json!({
+            "detail": {
+                "code": "TRANSCRIPTION_DISABLED",
+                "message": "Transcription is disabled. Configure a transcription provider in Settings."
+            }
+        })
+    );
+
+    for invalid in [
+        json!({"shell_command_timeout": 0}),
+        json!({"llm_backoff_base": 4.0, "llm_backoff_cap": 3.0}),
+        json!({"approval_level": "sometimes"}),
+        json!({
+            "reme_light_memory_config": {
+                "embedding_model_config": {"api_key": "line\nbreak"}
+            }
+        }),
+    ] {
+        let response = client
+            .put(format!("{base}/workspace/running-config"))
+            .json(&invalid)
+            .send()
+            .await
+            .expect("invalid running config update should send");
+        assert_eq!(response.status(), reqwest::StatusCode::BAD_REQUEST);
+    }
+
+    assert_eq!(
+        client
+            .put(format!("{base}/workspace/language"))
+            .json(&json!({"language": "ID"}))
+            .send()
+            .await
+            .expect("language update should send")
+            .json::<Value>()
+            .await
+            .expect("language update should return JSON"),
+        json!({
+            "language": "id",
+            "copied_files": [
+                "AGENTS.md",
+                "BOOTSTRAP.md",
+                "CONTACTS.md",
+                "HEARTBEAT.md",
+                "MAIL_TRIAGE.md",
+                "MEMORY.md",
+                "PROFILE.md",
+                "SOUL.md"
+            ],
+            "agent_id": "default"
+        })
+    );
+    assert_eq!(
+        std::fs::read_to_string(workspace.path().join("SOUL.md"))
+            .expect("Indonesian SOUL template should be installed"),
+        include_str!("../../../../src/qwenpaw/agents/md_files/id/SOUL.md")
+    );
+    assert_eq!(
+        client
+            .put(format!("{base}/config/user-timezone"))
+            .json(&json!({"timezone": "Asia/Shanghai"}))
+            .send()
+            .await
+            .expect("timezone update should send")
+            .json::<Value>()
+            .await
+            .expect("timezone update should return JSON"),
+        json!({"timezone": "Asia/Shanghai"})
+    );
+    assert_eq!(
+        client
+            .put(format!("{base}/workspace/audio-mode"))
+            .json(&json!({"audio_mode": "native"}))
+            .send()
+            .await
+            .expect("audio mode update should send")
+            .json::<Value>()
+            .await
+            .expect("audio mode update should return JSON"),
+        json!({"audio_mode": "native"})
+    );
+    assert_eq!(
+        client
+            .put(format!("{base}/workspace/transcription-provider-type"))
+            .json(&json!({"transcription_provider_type": "whisper_api"}))
+            .send()
+            .await
+            .expect("provider type update should send")
+            .json::<Value>()
+            .await
+            .expect("provider type update should return JSON"),
+        json!({"transcription_provider_type": "whisper_api"})
+    );
+    assert_eq!(
+        client
+            .put(format!("{base}/workspace/transcription-provider"))
+            .json(&json!({"provider_id": "openai-compatible"}))
+            .send()
+            .await
+            .expect("provider update should send")
+            .json::<Value>()
+            .await
+            .expect("provider update should return JSON"),
+        json!({"provider_id": "openai-compatible"})
+    );
+    let completed_transcription = multipart_request(
+        &client,
+        format!("{base}/workspace/transcribe"),
+        "file",
+        "voice.wav",
+        b"not-real-audio",
+    )
+    .await;
+    assert_eq!(completed_transcription.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        completed_transcription
+            .json::<Value>()
+            .await
+            .expect("completed transcription should be JSON"),
+        json!({"text": "mock transcript"})
+    );
+    {
+        let captured = transcription_requests
+            .lock()
+            .expect("transcription request lock should be available");
+        assert_eq!(captured.len(), 1);
+        assert_eq!(captured[0].0, "Bearer transcription-test-key");
+        assert!(captured[0].1.contains("name=\"model\""));
+        assert!(captured[0].1.contains("whisper-1"));
+        assert!(captured[0].1.contains("not-real-audio"));
+    }
+
+    let invalid_language = client
+        .put(format!("{base}/workspace/language"))
+        .json(&json!({"language": "xx"}))
+        .send()
+        .await
+        .expect("invalid language update should send");
+    assert_eq!(invalid_language.status(), reqwest::StatusCode::BAD_REQUEST);
+    let invalid_timezone = client
+        .put(format!("{base}/config/user-timezone"))
+        .json(&json!({"timezone": "../secret"}))
+        .send()
+        .await
+        .expect("invalid timezone update should send");
+    assert_eq!(invalid_timezone.status(), reqwest::StatusCode::BAD_REQUEST);
+
+    let concurrent_audio = client
+        .put(format!("{base}/workspace/audio-mode"))
+        .json(&json!({"audio_mode": "auto"}))
+        .send();
+    let concurrent_provider = client
+        .put(format!("{base}/workspace/transcription-provider-type"))
+        .json(&json!({"transcription_provider_type": "disabled"}))
+        .send();
+    let (audio_response, provider_response) = tokio::join!(concurrent_audio, concurrent_provider);
+    assert_eq!(
+        audio_response
+            .expect("concurrent audio update should send")
+            .status(),
+        reqwest::StatusCode::OK
+    );
+    assert_eq!(
+        provider_response
+            .expect("concurrent provider update should send")
+            .status(),
+        reqwest::StatusCode::OK
+    );
+
+    first_task.abort();
+    let _ = first_task.await;
+    drop(runtime_probe);
+    for entry in
+        std::fs::read_dir(desktop_data.path()).expect("Desktop data directory should be readable")
+    {
+        let entry = entry.expect("Desktop data entry should be readable");
+        if !entry.path().is_file() {
+            continue;
+        }
+        let data = std::fs::read(entry.path()).expect("Desktop data file should be readable");
+        assert!(
+            !data
+                .windows(embedding_secret.len())
+                .any(|window| { window == embedding_secret.as_bytes() })
+        );
+        assert!(
+            !data
+                .windows(adbpg_secret.len())
+                .any(|window| window == adbpg_secret.as_bytes())
+        );
+    }
+
+    let second_core = Core::persistent(model_config, &database).expect("second Core should open");
+    let second_runtime_probe = second_core.clone();
+    let second_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("second Desktop listener should bind");
+    let second_address = second_listener
+        .local_addr()
+        .expect("second Desktop listener should have an address");
+    let second_server = AppServer::new_desktop_with_stores_and_workspace(
+        second_core,
+        console.path(),
+        String::from("desktop-agent-settings-second-token"),
+        credentials,
+        desktop_data.path(),
+        workspace.path(),
+    )
+    .expect("second Desktop server should configure");
+    let second_task = tokio::spawn(second_server.run_http(second_listener));
+    let second_base = format!("http://{second_address}/api");
+    let restarted = get_json(&client, format!("{second_base}/workspace/running-config")).await;
+    assert_eq!(restarted["max_iters"], json!(7));
+    assert_eq!(restarted["approval_level"], json!("OFF"));
+    assert_eq!(
+        restarted["reme_light_memory_config"]["embedding_model_config"]["api_key"],
+        json!(embedding_secret)
+    );
+    assert_eq!(
+        second_runtime_probe
+            .agent_runtime_config()
+            .expect("restarted runtime config should read")
+            .max_agent_steps,
+        3
+    );
+    assert_eq!(
+        get_json(&client, format!("{second_base}/workspace/language")).await,
+        json!({"language": "id", "agent_id": "default"})
+    );
+    assert_eq!(
+        get_json(&client, format!("{second_base}/config/user-timezone")).await,
+        json!({"timezone": "Asia/Shanghai"})
+    );
+    assert_eq!(
+        get_json(&client, format!("{second_base}/workspace/audio-mode")).await,
+        json!({"audio_mode": "auto"})
+    );
+    assert_eq!(
+        get_json(
+            &client,
+            format!("{second_base}/workspace/transcription-provider-type"),
+        )
+        .await,
+        json!({"transcription_provider_type": "disabled"})
+    );
+    assert_eq!(
+        get_json(
+            &client,
+            format!("{second_base}/workspace/transcription-providers"),
+        )
+        .await,
+        json!({
+            "providers": [{
+                "id": "openai-compatible",
+                "name": "OpenAI Compatible",
+                "available": true
+            }],
+            "configured_provider_id": "openai-compatible"
+        })
+    );
+    second_task.abort();
+    transcription_task.abort();
+}
+
+#[tokio::test]
 async fn persists_access_control_across_desktop_restarts() {
     let console = tempfile::tempdir().expect("temporary Console should be created");
     let desktop_data = tempfile::tempdir().expect("temporary Desktop data should be created");
@@ -3258,7 +3700,10 @@ async fn assert_navigation_agent_contracts(address: SocketAddr) {
                     "runtime": memory_runtime
                 }),
             ),
-            ("/api/workspace/language", json!({"language": "en"})),
+            (
+                "/api/workspace/language",
+                json!({"language": "en", "agent_id": "default"}),
+            ),
             (
                 "/api/agent-stats?start_date=2026-08-25&end_date=2026-09-01",
                 json!({
@@ -3362,16 +3807,15 @@ async fn assert_navigation_settings_contracts(address: SocketAddr) {
             ("/api/token-usage/details", json!([])),
             ("/api/workspace/audio-mode", json!({"audio_mode": "auto"})),
             (
-                "/api/workspace/local-whisper-status",
-                json!({
-                    "available": false,
-                    "ffmpeg_installed": false,
-                    "whisper_installed": false
-                }),
-            ),
-            (
                 "/api/workspace/transcription-providers",
-                json!({"providers": [], "configured_provider_id": ""}),
+                json!({
+                    "providers": [{
+                        "id": "openai-compatible",
+                        "name": "OpenAI Compatible",
+                        "available": false
+                    }],
+                    "configured_provider_id": ""
+                }),
             ),
             (
                 "/api/console/debug/backend-logs?lines=200",
@@ -3389,6 +3833,20 @@ async fn assert_navigation_settings_contracts(address: SocketAddr) {
         ],
     )
     .await;
+    let local_whisper = get_json(
+        &reqwest::Client::new(),
+        format!("http://{address}/api/workspace/local-whisper-status"),
+    )
+    .await;
+    assert!(local_whisper["ffmpeg_installed"].is_boolean());
+    assert!(local_whisper["whisper_installed"].is_boolean());
+    assert_eq!(
+        local_whisper["available"],
+        json!(
+            local_whisper["ffmpeg_installed"] == json!(true)
+                && local_whisper["whisper_installed"] == json!(true)
+        )
+    );
 }
 
 async fn assert_json_contracts(address: SocketAddr, contracts: Vec<(&str, Value)>) {

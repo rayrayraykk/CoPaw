@@ -867,6 +867,118 @@ async fn waits_for_shell_approval_before_execution() {
 }
 
 #[tokio::test]
+async fn strict_agent_runtime_requires_approval_for_read_tools() {
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let base_url = start_tool_model_server(Arc::clone(&requests), "read_file").await;
+    let directory = tempfile::tempdir().expect("temporary directory should be created");
+    std::fs::write(directory.path().join("notes.txt"), "strict read")
+        .expect("fixture should be written");
+    let core = Core::new(ModelConfig {
+        api_key: None,
+        base_url,
+        default_model: String::from("qwen-test"),
+    });
+    core.replace_agent_runtime_config(AgentRuntimeConfig {
+        approval_level: ToolApprovalLevel::Strict,
+        ..AgentRuntimeConfig::default()
+    })
+    .expect("strict runtime config should apply");
+    let started = core
+        .start_thread(ThreadStartParams {
+            model: None,
+            workspace_root: Some(directory.path().to_string_lossy().into_owned()),
+        })
+        .await
+        .expect("thread should start");
+    let (_, mut events) = core
+        .start_turn(TurnStartParams {
+            thread_id: started.thread.id.clone(),
+            input: vec![UserInput::Text {
+                text: String::from("Read the file"),
+            }],
+        })
+        .await
+        .expect("turn should start");
+    let mut requested = false;
+    while let Some(event) = events.recv().await {
+        match event {
+            CoreEvent::ToolApprovalRequested(notification) => {
+                requested = true;
+                assert_eq!(notification.tool_name, "read_file");
+                assert!(
+                    core.respond_tool_approval(ToolApprovalRespondParams {
+                        approval_id: notification.approval_id,
+                        decision: ApprovalDecision::Approved,
+                    })
+                    .await
+                    .accepted
+                );
+            }
+            CoreEvent::TurnCompleted(notification) => {
+                assert_eq!(notification.turn.status, TurnStatus::Completed);
+                break;
+            }
+            _ => {}
+        }
+    }
+    assert!(requested);
+}
+
+#[tokio::test]
+async fn off_agent_runtime_executes_guarded_tools_without_approval() {
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let base_url = start_tool_model_server(Arc::clone(&requests), "shell").await;
+    let directory = tempfile::tempdir().expect("temporary directory should be created");
+    let core = Core::new(ModelConfig {
+        api_key: None,
+        base_url,
+        default_model: String::from("qwen-test"),
+    });
+    core.replace_agent_runtime_config(AgentRuntimeConfig {
+        approval_level: ToolApprovalLevel::Off,
+        ..AgentRuntimeConfig::default()
+    })
+    .expect("off runtime config should apply");
+    let started = core
+        .start_thread(ThreadStartParams {
+            model: None,
+            workspace_root: Some(directory.path().to_string_lossy().into_owned()),
+        })
+        .await
+        .expect("thread should start");
+    let (_, mut events) = core
+        .start_turn(TurnStartParams {
+            thread_id: started.thread.id.clone(),
+            input: vec![UserInput::Text {
+                text: String::from("Run without approval"),
+            }],
+        })
+        .await
+        .expect("turn should start");
+    let mut requested = false;
+    while let Some(event) = events.recv().await {
+        match event {
+            CoreEvent::ToolApprovalRequested(_) => requested = true,
+            CoreEvent::TurnCompleted(notification) => {
+                assert_eq!(notification.turn.status, TurnStatus::Completed);
+                break;
+            }
+            _ => {}
+        }
+    }
+    assert!(!requested);
+    let read = core
+        .read_thread(&started.thread.id)
+        .await
+        .expect("thread should be readable");
+    assert!(matches!(
+        &read.turns[0].items[2],
+        Item::ToolResult { content, is_error: false, .. }
+            if content.contains("approved")
+    ));
+}
+
+#[tokio::test]
 async fn returns_a_denied_shell_result_to_the_model() {
     let requests = Arc::new(Mutex::new(Vec::new()));
     let base_url = start_tool_model_server(Arc::clone(&requests), "shell").await;

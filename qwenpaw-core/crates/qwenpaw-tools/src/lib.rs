@@ -100,13 +100,34 @@ impl Workspace {
     /// Returns an error for unknown tools, malformed arguments, filesystem
     /// failures, or paths outside the workspace.
     pub async fn execute(&self, call: &ToolCall) -> Result<ToolOutput, ToolError> {
+        self.execute_with_shell_config(call, DEFAULT_SHELL_TIMEOUT_MS, None)
+            .await
+    }
+
+    /// Executes one built-in tool with the current Agent shell defaults.
+    ///
+    /// A timeout explicitly supplied by a tool call still takes precedence.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for unknown tools, malformed arguments, invalid shell
+    /// settings, filesystem failures, or paths outside the Workspace.
+    pub async fn execute_with_shell_config(
+        &self,
+        call: &ToolCall,
+        default_shell_timeout_ms: u64,
+        shell_executable: Option<&str>,
+    ) -> Result<ToolOutput, ToolError> {
         match call.name.as_str() {
             "list_files" => discovery::list_files(&self.root, &call.arguments),
             "read_file" => self.read_file(&call.arguments).await,
             "replace_text" => self.replace_text(&call.arguments).await,
             "search_text" => discovery::search_text(&self.root, &call.arguments),
             "write_file" => self.write_file(&call.arguments).await,
-            "shell" => self.shell(&call.arguments).await,
+            "shell" => {
+                self.shell(&call.arguments, default_shell_timeout_ms, shell_executable)
+                    .await
+            }
             _ => Err(ToolError::UnknownTool(call.name.clone())),
         }
     }
@@ -125,16 +146,21 @@ impl Workspace {
         })
     }
 
-    async fn shell(&self, arguments: &str) -> Result<ToolOutput, ToolError> {
+    async fn shell(
+        &self,
+        arguments: &str,
+        default_timeout_ms: u64,
+        shell_executable: Option<&str>,
+    ) -> Result<ToolOutput, ToolError> {
         let arguments: ShellArguments = serde_json::from_str(arguments)?;
         if arguments.command.trim().is_empty() {
             return Err(ToolError::EmptyCommand);
         }
         let timeout_ms = arguments
             .timeout_ms
-            .unwrap_or(DEFAULT_SHELL_TIMEOUT_MS)
+            .unwrap_or(default_timeout_ms)
             .clamp(MIN_SHELL_TIMEOUT_MS, MAX_SHELL_TIMEOUT_MS);
-        let mut command = platform_shell(&arguments.command);
+        let mut command = configured_shell(&arguments.command, shell_executable)?;
         command
             .kill_on_drop(true)
             .current_dir(&self.root)
@@ -248,6 +274,44 @@ impl Workspace {
     }
 }
 
+fn configured_shell(command: &str, executable: Option<&str>) -> Result<Command, ToolError> {
+    let Some(executable) = executable.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(platform_shell(command));
+    };
+    if executable.len() > 4_096 || executable.chars().any(char::is_control) {
+        return Err(ToolError::InvalidShellExecutable);
+    }
+    let mut process = Command::new(executable);
+    configure_shell_arguments(&mut process, executable, command);
+    Ok(process)
+}
+
+#[cfg(windows)]
+fn configure_shell_arguments(process: &mut Command, executable: &str, command: &str) {
+    let name = Path::new(executable)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    if name.eq_ignore_ascii_case("powershell.exe") || name.eq_ignore_ascii_case("pwsh.exe") {
+        process.args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            command,
+        ]);
+    } else if name.eq_ignore_ascii_case("cmd.exe") {
+        process.args(["/D", "/S", "/C", command]);
+    } else {
+        process.args(["-lc", command]);
+    }
+}
+
+#[cfg(not(windows))]
+fn configure_shell_arguments(process: &mut Command, _executable: &str, command: &str) {
+    process.args(["-lc", command]);
+}
+
 #[must_use]
 pub fn definitions() -> Vec<Value> {
     definitions::all()
@@ -350,6 +414,8 @@ pub enum ToolError {
     EmptyCommand,
     #[error("shell command timed out after {timeout_ms} ms")]
     ShellTimedOut { timeout_ms: u64 },
+    #[error("configured shell executable is invalid")]
+    InvalidShellExecutable,
     #[error("unknown tool: {0}")]
     UnknownTool(String),
 }

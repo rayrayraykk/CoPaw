@@ -16,7 +16,6 @@ pub(super) fn router() -> Router<AppServer> {
         .route("/api/workspace/files", get(empty_array))
         .route("/api/workspace/system-prompt-files", get(empty_array))
         .route("/api/pawapps", get(pawapps))
-        .route("/api/config/user-timezone", get(user_timezone))
         .route("/api/config/heartbeat", get(heartbeat))
         .route("/api/tools", get(empty_array))
         .route("/api/config/acp", get(acp))
@@ -25,7 +24,6 @@ pub(super) fn router() -> Router<AppServer> {
             get(memory_runtime_status),
         )
         .route("/api/agents/{agent_id}/memory/status", get(memory_status))
-        .route("/api/workspace/language", get(workspace_language))
         .route("/api/agent-stats", get(agent_stats))
         .route("/api/agent-stats/llm-tool-trend", get(empty_array))
         .route("/api/workspace/checkpoints/status", get(checkpoint_status))
@@ -42,15 +40,6 @@ pub(super) fn router() -> Router<AppServer> {
             get(empty_array),
         )
         .route("/api/token-usage/details", get(empty_array))
-        .route("/api/workspace/audio-mode", get(audio_mode))
-        .route(
-            "/api/workspace/local-whisper-status",
-            get(local_whisper_status),
-        )
-        .route(
-            "/api/workspace/transcription-providers",
-            get(transcription_providers),
-        )
         .route("/api/console/debug/backend-logs", get(backend_logs))
         .route("/api/backups", get(empty_array))
         .route("/api/backups/jobs/active", get(empty_value))
@@ -66,10 +55,6 @@ async fn empty_value() -> Json<Value> {
 
 async fn pawapps() -> Json<Value> {
     Json(json!({"apps": [], "total": 0}))
-}
-
-async fn user_timezone() -> Json<Value> {
-    Json(json!({"timezone": "UTC"}))
 }
 
 async fn heartbeat() -> Json<Value> {
@@ -113,10 +98,6 @@ fn memory_runtime_value() -> Value {
         "embedding_reindex_required": false,
         "embedding_reindex_undo_available": false
     })
-}
-
-async fn workspace_language() -> Json<Value> {
-    Json(json!({"language": "en"}))
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -215,22 +196,6 @@ async fn tool_guard() -> Json<Value> {
         "auto_denied_rules": [],
         "shell_evasion_checks": {}
     }))
-}
-
-async fn audio_mode() -> Json<Value> {
-    Json(json!({"audio_mode": "auto"}))
-}
-
-async fn local_whisper_status() -> Json<Value> {
-    Json(json!({
-        "available": false,
-        "ffmpeg_installed": false,
-        "whisper_installed": false
-    }))
-}
-
-async fn transcription_providers() -> Json<Value> {
-    Json(json!({"providers": [], "configured_provider_id": ""}))
 }
 
 async fn backend_logs() -> Json<Value> {

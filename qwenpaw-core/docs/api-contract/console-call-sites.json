@@ -3,11 +3,11 @@
   "source": "console/src production TypeScript call sites",
   "callCount": 370,
   "unresolvedCount": 11,
-  "rustRouteCount": 168,
-  "registeredCallCount": 159,
-  "placeholderCallCount": 23,
-  "nonPlaceholderRegisteredCallCount": 136,
-  "missingCallCount": 211,
+  "rustRouteCount": 175,
+  "registeredCallCount": 166,
+  "placeholderCallCount": 18,
+  "nonPlaceholderRegisteredCallCount": 148,
+  "missingCallCount": 204,
   "rustRoutes": [
     {
       "method": "ANY",
@@ -446,9 +446,16 @@
     {
       "method": "GET",
       "path": "/api/config/user-timezone",
-      "handler": "user_timezone",
-      "placeholder": true,
-      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_navigation.rs"
+      "handler": "get_timezone",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_agent_settings.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/config/user-timezone",
+      "handler": "put_timezone",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_agent_settings.rs"
     },
     {
       "method": "POST",
@@ -873,9 +880,16 @@
     {
       "method": "GET",
       "path": "/api/workspace/audio-mode",
-      "handler": "audio_mode",
-      "placeholder": true,
-      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_navigation.rs"
+      "handler": "get_audio_mode",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_agent_settings.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/workspace/audio-mode",
+      "handler": "put_audio_mode",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_agent_settings.rs"
     },
     {
       "method": "GET",
@@ -1027,16 +1041,23 @@
     {
       "method": "GET",
       "path": "/api/workspace/language",
-      "handler": "workspace_language",
-      "placeholder": true,
-      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_navigation.rs"
+      "handler": "get_language",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_agent_settings.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/workspace/language",
+      "handler": "put_language",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_agent_settings.rs"
     },
     {
       "method": "GET",
       "path": "/api/workspace/local-whisper-status",
-      "handler": "local_whisper_status",
-      "placeholder": true,
-      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_navigation.rs"
+      "handler": "get_local_whisper_status",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_agent_settings.rs"
     },
     {
       "method": "GET",
@@ -1104,9 +1125,16 @@
     {
       "method": "GET",
       "path": "/api/workspace/running-config",
-      "handler": "running_config",
+      "handler": "get_running_config",
       "placeholder": false,
-      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_api.rs"
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_agent_settings.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/workspace/running-config",
+      "handler": "put_running_config",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_agent_settings.rs"
     },
     {
       "method": "GET",
@@ -1116,18 +1144,39 @@
       "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_navigation.rs"
     },
     {
+      "method": "POST",
+      "path": "/api/workspace/transcribe",
+      "handler": "transcribe_audio",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_agent_settings.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/workspace/transcription-provider",
+      "handler": "put_transcription_provider",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_agent_settings.rs"
+    },
+    {
       "method": "GET",
       "path": "/api/workspace/transcription-provider-type",
-      "handler": "transcription_provider_type",
+      "handler": "get_provider_type",
       "placeholder": false,
-      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_api.rs"
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_agent_settings.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/workspace/transcription-provider-type",
+      "handler": "put_provider_type",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_agent_settings.rs"
     },
     {
       "method": "GET",
       "path": "/api/workspace/transcription-providers",
-      "handler": "transcription_providers",
-      "placeholder": true,
-      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_navigation.rs"
+      "handler": "get_transcription_providers",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_agent_settings.rs"
     },
     {
       "method": "GET",
@@ -1508,7 +1557,7 @@
       "line": 62,
       "resolved": true,
       "apiPath": "/api/workspace/running-config",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -1533,7 +1582,7 @@
       "resolved": true,
       "apiPath": "/api/workspace/language",
       "registered": true,
-      "placeholder": true
+      "placeholder": false
     },
     {
       "method": "PUT",
@@ -1544,7 +1593,7 @@
       "line": 78,
       "resolved": true,
       "apiPath": "/api/workspace/language",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -1557,7 +1606,7 @@
       "resolved": true,
       "apiPath": "/api/workspace/audio-mode",
       "registered": true,
-      "placeholder": true
+      "placeholder": false
     },
     {
       "method": "PUT",
@@ -1568,7 +1617,7 @@
       "line": 89,
       "resolved": true,
       "apiPath": "/api/workspace/audio-mode",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -1581,7 +1630,7 @@
       "resolved": true,
       "apiPath": "/api/workspace/transcription-providers",
       "registered": true,
-      "placeholder": true
+      "placeholder": false
     },
     {
       "method": "PUT",
@@ -1592,7 +1641,7 @@
       "line": 101,
       "resolved": true,
       "apiPath": "/api/workspace/transcription-provider",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -1616,7 +1665,7 @@
       "line": 112,
       "resolved": true,
       "apiPath": "/api/workspace/transcription-provider-type",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -1629,7 +1678,7 @@
       "resolved": true,
       "apiPath": "/api/workspace/local-whisper-status",
       "registered": true,
-      "placeholder": true
+      "placeholder": false
     },
     {
       "method": "POST",
@@ -1640,7 +1689,7 @@
       "line": 130,
       "resolved": true,
       "apiPath": "/api/workspace/transcribe",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5169,7 +5218,7 @@
       "resolved": true,
       "apiPath": "/api/config/user-timezone",
       "registered": true,
-      "placeholder": true
+      "placeholder": false
     },
     {
       "method": "PUT",
@@ -5180,7 +5229,7 @@
       "line": 11,
       "resolved": true,
       "apiPath": "/api/config/user-timezone",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {

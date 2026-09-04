@@ -1062,6 +1062,23 @@ Inbox 读取、状态和持久化契约已完成；真实 Agent Cron、Heartbeat
 
 原弹窗所在的 Configuration 页面还依赖 `/workspace/running-config` 完整默认结构；本切片同步修复了该既有不足，否则原页面会在读取 `reme_light_memory_config.needs_reindex` 时崩溃。未修改 Console 的 Chromium E2E 已在 production Console 与 release Core 上完成创建、浏览器目录 ZIP 导入、Clone、Recent Projects、活动项目回显与 Core 重启恢复，精确请求记录保存在本机隔离 QA 目录；浏览器错误为 0。Playwright WebKit 1.61 与 1.63 均在当前 macOS 企业安全环境的 XPC 页面创建阶段挂起、尚未向 Core 发出请求，WebKit 项保持未完成并等待在原生 runner 复测，不能用 Chromium 结果冒充通过。当前 inventory 为 370 个调用点、168 条 Rust 路由、159 个已注册调用点，其中 136 个非占位、23 个占位、211 个未注册和 11 个静态未解析表达式。
 
+#### 14.2.24.5 当前子切片：Agent 运行配置与 Voice 设置
+
+本子切片保持原 Configuration 与 Voice Transcription 页面不变，把现有只读固定值替换成持久化、可校验的 Rust Core 设置。配置中的 API Key 不进入 SQLite 或响应日志，统一使用 Desktop 平台凭据存储；不具备实际运行能力的转写后端不得通过伪造成功状态冒充可用。
+
+- [x] 建立有界、版本化的 Agent 运行设置存储，Core 重启后恢复且损坏数据 fail-closed；
+- [x] 完成 `/workspace/running-config` GET/PUT，返回完整默认结构、校验原表单约束并安全处理嵌入与 ADBPG Key；
+- [x] 完成 Agent language GET/PUT，校验原支持语言、保持原响应字段，并将原版 8 个语言模板逐文件覆盖到当前工作区；
+- [x] 完成 audio mode、transcription provider type 与 provider selection 的 GET/PUT，并保持三者重启一致；
+- [ ] 将可直接生效的运行参数接入 Rust agent loop/shell 执行；尚未具备的 memory/voice runtime 明确报告限制，不伪装热应用；
+- [x] 补齐 HTTP 正常、非法输入、秘密不落盘、并发更新和 Core 重启恢复测试；
+- [x] 使用未修改的原 Configuration 与 Voice Transcription 页面完成读取、保存、刷新回显与错误态 E2E；
+- [x] 更新 inventory，确认 `console/src` 零改动并通过全量回归与全部客户端/产物重建。
+
+当前已把 iteration/max steps、Shell timeout、Shell executable 与 STRICT/SMART/AUTO/OFF 审批模式热应用到 Rust runtime；OpenAI-compatible Whisper 转写走真实 multipart 请求，本地 Whisper 缺少依赖时明确返回 unavailable。Memory manager、LLM 限流/重试、context compact 等表单字段目前只做有界持久化，尚未全部接入对应 Rust runtime，因此运行参数总项继续保持未完成，不能把“保存成功”记作“全部热应用”。
+
+2026-09-05 本机验收：Rust workspace 126 个测试与严格 Clippy 通过；Console 295 个测试文件、2453 个测试、production build 和 inventory 防漂移通过。未修改的原页面完成语言、IANA 时区、Shell timeout/executable、STRICT 审批、Whisper API、Auto/Native Audio 保存及刷新回显，9 次页面写请求均为 200 且浏览器错误为 0；Core 重启后状态恢复，印尼语 8 个模板与原资源逐字一致。当前 inventory 为 370 个调用点、175 条 Rust 路由、166 个已注册调用点，其中 148 个非占位、18 个占位、204 个未注册和 11 个静态未解析表达式。macOS App/ZIP/QA DMG、Core archive、WebUI archive、TypeScript/Python SDK、universal/platform VSIX 与 legacy wheel 均使用本切片源码重建并完成反向安装或解包校验，`dist/SHA256SUMS` 全部通过。
+
 ### 14.3 客户端与发布
 
 - [x] WebUI 启动与导航契约测试通过；

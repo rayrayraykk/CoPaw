@@ -73,7 +73,6 @@ use crate::model::ModelEvent;
 const EVENT_CHANNEL_CAPACITY: usize = 64;
 const DEFAULT_LIST_LIMIT: u32 = 50;
 const MAX_LIST_LIMIT: usize = 200;
-const MAX_AGENT_STEPS: usize = 8;
 const MAX_TURN_INPUT_BYTES: usize = 262_144;
 const MAX_FILE_REFERENCES: usize = 32;
 const MAX_FILE_REFERENCE_PATH_BYTES: usize = 4_096;
@@ -96,6 +95,7 @@ const MAIL_ACCESS_CONTROL_DATA_SETTING: &str = "desktop_mail_access_control_data
 const INBOX_DATA_SETTING: &str = "desktop_inbox_data";
 const CHAT_CATALOG_DATA_SETTING: &str = "desktop_chat_catalog_data";
 const CHANNEL_CONFIG_DATA_SETTING: &str = "desktop_channel_config_data";
+const AGENT_SETTINGS_DATA_SETTING: &str = "desktop_agent_settings_data";
 const DEFAULT_UI_LANGUAGE: &str = "en";
 const SUPPORTED_UI_LANGUAGES: [&str; 7] = ["en", "zh", "ja", "ru", "pt-BR", "id", "vi"];
 const MAX_ENVIRONMENT_VARIABLES: usize = 256;
@@ -103,6 +103,35 @@ const MAX_ENVIRONMENT_KEY_BYTES: usize = 256;
 const MAX_ENVIRONMENT_VALUE_BYTES: usize = 65_536;
 
 pub type TurnEventStream = mpsc::Receiver<CoreEvent>;
+
+/// Tool approval behavior selected by the active Agent profile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolApprovalLevel {
+    Strict,
+    Smart,
+    Auto,
+    Off,
+}
+
+/// Runtime settings that can be applied without restarting Rust Core.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentRuntimeConfig {
+    pub max_agent_steps: usize,
+    pub shell_timeout_ms: u64,
+    pub shell_executable: String,
+    pub approval_level: ToolApprovalLevel,
+}
+
+impl Default for AgentRuntimeConfig {
+    fn default() -> Self {
+        Self {
+            max_agent_steps: 100,
+            shell_timeout_ms: 60_000,
+            shell_executable: String::new(),
+            approval_level: ToolApprovalLevel::Auto,
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct Core {
@@ -115,6 +144,7 @@ struct CoreInner {
     store: ThreadStore,
     state: Mutex<State>,
     runtime_environment: SyncRwLock<BTreeMap<String, String>>,
+    agent_runtime_config: SyncRwLock<AgentRuntimeConfig>,
 }
 
 #[derive(Default)]
@@ -224,6 +254,7 @@ impl Core {
                     approvals: HashMap::new(),
                 }),
                 runtime_environment: SyncRwLock::new(BTreeMap::new()),
+                agent_runtime_config: SyncRwLock::new(AgentRuntimeConfig::default()),
             }),
         })
     }
@@ -799,6 +830,79 @@ impl Core {
             .map_err(CoreError::storage)
     }
 
+    /// Reads the serialized non-secret Desktop Agent settings.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Core settings store cannot be read.
+    pub fn read_agent_settings_data(&self) -> Result<Option<String>, CoreError> {
+        self.inner
+            .store
+            .read_setting(AGENT_SETTINGS_DATA_SETTING)
+            .map_err(CoreError::storage)
+    }
+
+    /// Atomically persists serialized non-secret Desktop Agent settings.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Core settings store cannot be written.
+    pub fn write_agent_settings_data(&self, value: &str) -> Result<(), CoreError> {
+        self.inner
+            .store
+            .write_settings(&[(AGENT_SETTINGS_DATA_SETTING, value)])
+            .map_err(CoreError::storage)
+    }
+
+    /// Returns the settings used by future Agent turns.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the runtime settings lock is unavailable.
+    pub fn agent_runtime_config(&self) -> Result<AgentRuntimeConfig, CoreError> {
+        self.inner
+            .agent_runtime_config
+            .read()
+            .map(|config| config.clone())
+            .map_err(|_| CoreError::Config(String::from("Agent runtime settings lock failed")))
+    }
+
+    /// Replaces settings used by future Agent turns without restarting Core.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a value is unsafe or the runtime lock is
+    /// unavailable.
+    pub fn replace_agent_runtime_config(
+        &self,
+        config: AgentRuntimeConfig,
+    ) -> Result<(), CoreError> {
+        if !(1..=500).contains(&config.max_agent_steps) {
+            return Err(CoreError::Config(String::from(
+                "Agent max steps must be between 1 and 500",
+            )));
+        }
+        if !(1_000..=600_000).contains(&config.shell_timeout_ms) {
+            return Err(CoreError::Config(String::from(
+                "Agent shell timeout must be between 1 and 600 seconds",
+            )));
+        }
+        if config.shell_executable.len() > 4_096
+            || config.shell_executable.chars().any(char::is_control)
+        {
+            return Err(CoreError::Config(String::from(
+                "Agent shell executable is invalid",
+            )));
+        }
+        *self
+            .inner
+            .agent_runtime_config
+            .write()
+            .map_err(|_| CoreError::Config(String::from("Agent runtime settings lock failed")))? =
+            config;
+        Ok(())
+    }
+
     /// Replaces the environment inherited by future Agent child processes.
     ///
     /// # Errors
@@ -1084,16 +1188,16 @@ impl Core {
             CoreEvent::TurnStarted(TurnStartedNotification { turn }),
         )
         .await;
-        let workspace = match self.open_runtime_workspace(&workspace_root) {
-            Ok(workspace) => workspace,
+        let (workspace, runtime_config) = match self
+            .open_runtime_workspace(&workspace_root)
+            .and_then(|workspace| {
+                self.agent_runtime_config()
+                    .map(|config| (workspace, config))
+            }) {
+            Ok(runtime) => runtime,
             Err(error) => {
-                self.finish_turn(
-                    &thread_id,
-                    &turn_id,
-                    TurnOutcome::Failed(error.to_string()),
-                    &event_tx,
-                )
-                .await;
+                self.fail_turn(&thread_id, &turn_id, error.to_string(), &event_tx)
+                    .await;
                 return;
             }
         };
@@ -1113,7 +1217,7 @@ impl Core {
         };
         tools.extend(mcp_tools);
         let mut outcome = TurnOutcome::Failed(String::from("agent exceeded maximum steps"));
-        for _ in 0..MAX_AGENT_STEPS {
+        for _ in 0..runtime_config.max_agent_steps {
             let messages = self.messages_snapshot(&thread_id).await;
             let step = self
                 .run_model_step(
@@ -1152,12 +1256,15 @@ impl Core {
             }
             if let Err(tool_outcome) = self
                 .execute_tool_calls(
-                    &thread_id,
-                    &turn_id,
-                    &workspace,
                     step.tool_calls,
-                    &cancellation,
-                    &event_tx,
+                    ToolExecutionRequest {
+                        thread_id: &thread_id,
+                        turn_id: &turn_id,
+                        workspace: &workspace,
+                        runtime_config: &runtime_config,
+                        cancellation: &cancellation,
+                        event_tx: &event_tx,
+                    },
                 )
                 .await
             {
@@ -1172,24 +1279,34 @@ impl Core {
 
     async fn execute_tool_calls(
         &self,
-        thread_id: &str,
-        turn_id: &str,
-        workspace: &Workspace,
         calls: Vec<ToolCall>,
-        cancellation: &CancellationToken,
-        event_tx: &mpsc::Sender<CoreEvent>,
+        request: ToolExecutionRequest<'_>,
     ) -> Result<(), TurnOutcome> {
+        let ToolExecutionRequest {
+            thread_id,
+            turn_id,
+            workspace,
+            runtime_config,
+            cancellation,
+            event_tx,
+        } = request;
         for call in calls {
-            let requires_approval = Workspace::approval_requirement(&call)
+            let normally_requires_approval = Workspace::approval_requirement(&call)
                 == ApprovalRequirement::Required
                 || self.inner.mcp.contains_tool(&call.name).await;
+            let requires_approval = match runtime_config.approval_level {
+                ToolApprovalLevel::Strict => true,
+                ToolApprovalLevel::Smart | ToolApprovalLevel::Auto => normally_requires_approval,
+                ToolApprovalLevel::Off => false,
+            };
             let output = if requires_approval {
                 match self
                     .request_approval(thread_id, turn_id, workspace, &call, cancellation, event_tx)
                     .await
                 {
                     ApprovalOutcome::Approved => {
-                        self.execute_tool(workspace, &call, cancellation).await?
+                        self.execute_tool(workspace, &call, runtime_config, cancellation)
+                            .await?
                     }
                     ApprovalOutcome::Denied => Ok(ToolOutput {
                         content: String::from("Tool execution was denied by the user."),
@@ -1198,7 +1315,8 @@ impl Core {
                     ApprovalOutcome::Interrupted => return Err(TurnOutcome::Interrupted),
                 }
             } else {
-                self.execute_tool(workspace, &call, cancellation).await?
+                self.execute_tool(workspace, &call, runtime_config, cancellation)
+                    .await?
             };
             let output = output.unwrap_or_else(|error| ToolOutput {
                 content: error,
@@ -1309,6 +1427,7 @@ impl Core {
         &self,
         workspace: &Workspace,
         call: &ToolCall,
+        runtime_config: &AgentRuntimeConfig,
         cancellation: &CancellationToken,
     ) -> Result<Result<ToolOutput, String>, TurnOutcome> {
         if self.inner.mcp.contains_tool(&call.name).await {
@@ -1329,7 +1448,12 @@ impl Core {
         }
         tokio::select! {
             () = cancellation.cancelled() => Err(TurnOutcome::Interrupted),
-            output = workspace.execute(call) => Ok(output.map_err(|error| error.to_string())),
+            output = workspace.execute_with_shell_config(
+                call,
+                runtime_config.shell_timeout_ms,
+                (!runtime_config.shell_executable.is_empty())
+                    .then_some(runtime_config.shell_executable.as_str()),
+            ) => Ok(output.map_err(|error| error.to_string())),
         }
     }
 
@@ -1568,6 +1692,17 @@ impl Core {
             .retain(|_, pending| pending.thread_id != thread_id || pending.turn_id != turn_id);
     }
 
+    async fn fail_turn(
+        &self,
+        thread_id: &str,
+        turn_id: &str,
+        message: String,
+        event_tx: &mpsc::Sender<CoreEvent>,
+    ) {
+        self.finish_turn(thread_id, turn_id, TurnOutcome::Failed(message), event_tx)
+            .await;
+    }
+
     async fn finish_turn(
         &self,
         thread_id: &str,
@@ -1688,6 +1823,15 @@ struct ModelStepRequest<'a> {
     model: &'a str,
     messages: &'a [StoredMessage],
     tools: &'a [serde_json::Value],
+}
+
+struct ToolExecutionRequest<'a> {
+    thread_id: &'a str,
+    turn_id: &'a str,
+    workspace: &'a Workspace,
+    runtime_config: &'a AgentRuntimeConfig,
+    cancellation: &'a CancellationToken,
+    event_tx: &'a mpsc::Sender<CoreEvent>,
 }
 
 #[derive(Debug, Default)]

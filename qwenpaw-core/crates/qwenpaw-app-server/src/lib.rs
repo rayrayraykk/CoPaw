@@ -77,6 +77,7 @@ use tower_http::set_header::SetResponseHeaderLayer;
 use tracing::warn;
 
 mod desktop_access_control;
+mod desktop_agent_settings;
 mod desktop_api;
 mod desktop_channels;
 mod desktop_chats;
@@ -114,6 +115,7 @@ struct AppServerInner {
     desktop_pending_approvals: tokio::sync::RwLock<HashMap<String, DesktopPendingApproval>>,
     desktop_push_messages: tokio::sync::RwLock<Vec<DesktopPushMessage>>,
     desktop_access_control_lock: tokio::sync::Mutex<()>,
+    desktop_agent_settings_lock: tokio::sync::Mutex<()>,
     desktop_mail_access_control_lock: tokio::sync::Mutex<()>,
     desktop_inbox_lock: tokio::sync::Mutex<()>,
     desktop_channel_config_lock: tokio::sync::Mutex<()>,
@@ -179,6 +181,7 @@ impl AppServer {
                 desktop_pending_approvals: tokio::sync::RwLock::new(HashMap::new()),
                 desktop_push_messages: tokio::sync::RwLock::new(Vec::new()),
                 desktop_access_control_lock: tokio::sync::Mutex::new(()),
+                desktop_agent_settings_lock: tokio::sync::Mutex::new(()),
                 desktop_mail_access_control_lock: tokio::sync::Mutex::new(()),
                 desktop_inbox_lock: tokio::sync::Mutex::new(()),
                 desktop_channel_config_lock: tokio::sync::Mutex::new(()),
@@ -350,6 +353,7 @@ impl AppServer {
         let desktop_workspace =
             desktop_workspace_from_env(&core, desktop_data_dir, default_workspace)?;
         desktop_environment::initialize(&core, desktop_credentials.as_ref())?;
+        desktop_agent_settings::initialize(&core, desktop_credentials.as_ref())?;
         Ok(Self {
             inner: Arc::new(AppServerInner {
                 core,
@@ -357,6 +361,7 @@ impl AppServer {
                 desktop_pending_approvals: tokio::sync::RwLock::new(HashMap::new()),
                 desktop_push_messages: tokio::sync::RwLock::new(Vec::new()),
                 desktop_access_control_lock: tokio::sync::Mutex::new(()),
+                desktop_agent_settings_lock: tokio::sync::Mutex::new(()),
                 desktop_mail_access_control_lock: tokio::sync::Mutex::new(()),
                 desktop_inbox_lock: tokio::sync::Mutex::new(()),
                 desktop_channel_config_lock: tokio::sync::Mutex::new(()),
@@ -519,6 +524,7 @@ impl AppServer {
             let index = directory.join("index.html");
             router = router
                 .merge(desktop_access_control::router())
+                .merge(desktop_agent_settings::router())
                 .merge(desktop_channels::router())
                 .merge(desktop_api::router())
                 .merge(desktop_cron::router())

@@ -151,6 +151,55 @@ async fn terminates_shell_commands_at_the_requested_timeout() {
 }
 
 #[tokio::test]
+async fn uses_the_agent_default_shell_timeout_when_the_call_omits_one() {
+    let directory = tempfile::tempdir().expect("temporary directory should be created");
+    let workspace = Workspace::open(directory.path()).expect("workspace should open");
+
+    let error = workspace
+        .execute_with_shell_config(
+            &ToolCall {
+                id: String::from("call-1"),
+                name: String::from("shell"),
+                arguments: serde_json::json!({
+                    "command": LONG_RUNNING_COMMAND
+                })
+                .to_string(),
+            },
+            100,
+            None,
+        )
+        .await
+        .expect_err("Agent default timeout should terminate the command");
+
+    assert!(matches!(
+        error,
+        ToolError::ShellTimedOut { timeout_ms: 100 }
+    ));
+}
+
+#[cfg(not(windows))]
+#[tokio::test]
+async fn uses_the_configured_agent_shell_executable() {
+    let directory = tempfile::tempdir().expect("temporary directory should be created");
+    let workspace = Workspace::open(directory.path()).expect("workspace should open");
+    let output = workspace
+        .execute_with_shell_config(
+            &ToolCall {
+                id: String::from("call-1"),
+                name: String::from("shell"),
+                arguments: String::from("{\"command\":\"printf configured\"}"),
+            },
+            1_000,
+            Some("/bin/sh"),
+        )
+        .await
+        .expect("configured shell should execute");
+
+    assert!(!output.is_error);
+    assert!(output.content.contains("configured"));
+}
+
+#[tokio::test]
 async fn writes_files_inside_the_workspace() {
     let directory = tempfile::tempdir().expect("temporary directory should be created");
     let workspace = Workspace::open(directory.path()).expect("workspace should open");
