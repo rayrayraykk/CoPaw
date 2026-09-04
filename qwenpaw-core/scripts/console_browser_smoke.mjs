@@ -126,12 +126,260 @@ function navigationPaths(arguments_) {
 
 function smokeOptions(arguments_) {
   const codingGit = arguments_.includes("--coding-git");
+  const mcpCrud = arguments_.includes("--mcp-crud");
   const navigationArguments = arguments_.filter(
-    (argument) => argument !== "--coding-git",
+    (argument) => argument !== "--coding-git" && argument !== "--mcp-crud",
   );
   return {
     codingGit,
+    mcpCrud,
     paths: navigationPaths(navigationArguments),
+  };
+}
+
+async function evaluateValue(client, expression) {
+  const evaluation = await client.send("Runtime.evaluate", {
+    expression,
+    awaitPromise: true,
+    returnByValue: true,
+  });
+  if (evaluation.exceptionDetails) {
+    throw new Error(evaluation.exceptionDetails.text);
+  }
+  return evaluation.result.value;
+}
+
+async function waitForValue(client, expression, message, timeoutMs = 10_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await evaluateValue(client, expression)) return;
+    await delay(100);
+  }
+  throw new Error(message);
+}
+
+async function clickButton(client, text) {
+  const clicked = await evaluateValue(
+    client,
+    `(() => {
+      const visible = (element) => Boolean(
+        element.offsetWidth || element.offsetHeight || element.getClientRects().length
+      );
+      const buttons = [...document.querySelectorAll("button")].filter(visible);
+      const button = buttons.findLast(
+        (item) => (item.innerText ?? "").trim() === ${JSON.stringify(text)}
+      );
+      button?.click();
+      return Boolean(button);
+    })()`,
+  );
+  if (!clicked) throw new Error(`MCP UI button did not render: ${text}`);
+}
+
+async function clickMcpClientButton(client, text) {
+  const clicked = await evaluateValue(
+    client,
+    `(() => {
+      const title = [...document.querySelectorAll("h3")].find(
+        (item) => item.innerText.trim() === "Browser MCP Updated"
+      );
+      let card = title;
+      while (card && ![...card.querySelectorAll("button")].some(
+        (button) => (button.innerText ?? "").trim() === "Delete"
+      )) card = card.parentElement;
+      const button = [...(card?.querySelectorAll("button") ?? [])].find(
+        (item) => (item.innerText ?? "").trim() === ${JSON.stringify(text)}
+      );
+      button?.click();
+      return Boolean(button);
+    })()`,
+  );
+  if (!clicked) throw new Error(`MCP client button did not render: ${text}`);
+}
+
+async function setVisibleTextarea(client, value, currentValueIncludes) {
+  const focused = await evaluateValue(
+    client,
+    `(() => {
+      const visible = (element) => Boolean(
+        element.offsetWidth || element.offsetHeight || element.getClientRects().length
+      );
+      const textareas = [...document.querySelectorAll("textarea")].filter(visible);
+      const textarea = textareas.find(
+        (item) => item.value.includes(${JSON.stringify(currentValueIncludes)})
+      ) ?? textareas.at(-1);
+      if (!textarea) return false;
+      textarea.focus();
+      textarea.select();
+      return true;
+    })()`,
+  );
+  if (!focused) throw new Error("MCP UI textarea did not render");
+  await client.send("Input.insertText", { text: value });
+}
+
+async function runMcpCrudScenario(client) {
+  const testServer = process.env.QWENPAW_MCP_TEST_SERVER ?? "/usr/bin/false";
+  const createdConfig = JSON.stringify(
+    {
+      key: "browser-mcp",
+      name: "Browser MCP",
+      description: "Created through the unchanged Console",
+      enabled: true,
+      transport: "stdio",
+      command: testServer,
+      env: { TOKEN: "browser-mcp-secret" },
+    },
+    null,
+    2,
+  );
+  await clickButton(client, "Create Client");
+  await waitForValue(
+    client,
+    `document.body.innerText.includes("Supported formats")`,
+    "MCP create modal did not open",
+  );
+  await setVisibleTextarea(client, createdConfig, "mcpServers");
+  await delay(200);
+  await clickButton(client, "Create");
+  await waitForValue(
+    client,
+    `document.body.innerText.includes("Browser MCP")`,
+    "MCP client card did not appear",
+  );
+
+  const cardOpened = await evaluateValue(
+    client,
+    `(() => {
+      const title = [...document.querySelectorAll("h3")].find(
+        (item) => item.innerText.trim() === "Browser MCP"
+      );
+      title?.click();
+      return Boolean(title);
+    })()`,
+  );
+  if (!cardOpened) throw new Error("MCP client card did not render");
+  await waitForValue(
+    client,
+    `document.body.innerText.includes("Browser MCP - Configuration")`,
+    "MCP configuration modal did not open",
+  );
+  await clickButton(client, "Edit");
+  const updatedConfig = await evaluateValue(
+    client,
+    `(() => {
+      const textarea = [...document.querySelectorAll("textarea")].findLast(
+        (item) => item.offsetWidth || item.offsetHeight || item.getClientRects().length
+      );
+      if (!textarea) return "";
+      const config = JSON.parse(textarea.value);
+      config.name = "Browser MCP Updated";
+      config.description = "Edited through the unchanged Console";
+      return JSON.stringify(config, null, 2);
+    })()`,
+  );
+  if (!updatedConfig) throw new Error("MCP configuration JSON did not render");
+  await setVisibleTextarea(client, updatedConfig, "Browser MCP");
+  await delay(200);
+  await clickButton(client, "Save");
+  await waitForValue(
+    client,
+    `document.body.innerText.includes("Browser MCP Updated")`,
+    "MCP edited name did not appear",
+  );
+
+  await clickMcpClientButton(client, "Tools & Permissions");
+  await waitForValue(
+    client,
+    `document.body.innerText.includes("Tool Access") &&
+      document.body.innerText.includes("echo")`,
+    "MCP access modal did not load the real MCP tool",
+  );
+  const denied = await evaluateValue(
+    client,
+    `(() => {
+      const visible = (element) => Boolean(
+        element.offsetWidth || element.offsetHeight || element.getClientRects().length
+      );
+      const label = [...document.querySelectorAll("body *")].find(
+        (element) => visible(element) &&
+          element.children.length === 0 &&
+          (element.innerText ?? "").trim() === "Deny"
+      );
+      const control = label?.closest("label") ?? label?.parentElement ?? label;
+      control?.click();
+      return Boolean(control);
+    })()`,
+  );
+  if (!denied) throw new Error("MCP Deny policy control did not render");
+  await clickButton(client, "Save");
+  await delay(500);
+  await client.send("Input.dispatchKeyEvent", {
+    type: "keyDown",
+    key: "Escape",
+    code: "Escape",
+  });
+  await client.send("Input.dispatchKeyEvent", {
+    type: "keyUp",
+    key: "Escape",
+    code: "Escape",
+  });
+  await delay(300);
+  const savedDefaultEffect = await evaluateValue(
+    client,
+    `fetch("/api/mcp/policy/browser-mcp")
+      .then((response) => response.json())
+      .then((policy) => policy.default_effect)`,
+  );
+  if (savedDefaultEffect !== "deny") {
+    throw new Error(
+      "MCP access policy did not persist the selected Deny value",
+    );
+  }
+
+  await clickMcpClientButton(client, "Disable");
+  await waitForValue(
+    client,
+    `[...document.querySelectorAll("h3")].some(
+      (item) => item.innerText.trim() === "Browser MCP Updated"
+    ) && document.body.innerText.includes("Disabled")`,
+    "MCP client did not disable",
+  );
+  await clickMcpClientButton(client, "Enable");
+  await waitForValue(
+    client,
+    `document.body.innerText.includes("Enabled")`,
+    "MCP client did not enable",
+  );
+  if (process.env.QWENPAW_MCP_KEEP === "1") {
+    return {
+      created: true,
+      editedWithMaskedSecret: true,
+      discoveredTool: "echo",
+      policySaved: savedDefaultEffect,
+      toggled: true,
+      deleted: false,
+    };
+  }
+  await clickMcpClientButton(client, "Delete");
+  await waitForValue(
+    client,
+    `document.body.innerText.includes("Are you sure you want to delete")`,
+    "MCP delete confirmation did not open",
+  );
+  await clickButton(client, "Confirm");
+  await waitForValue(
+    client,
+    `document.body.innerText.includes("No MCP clients configured yet")`,
+    "MCP client did not disappear after deletion",
+  );
+  return {
+    created: true,
+    editedWithMaskedSecret: true,
+    discoveredTool: "echo",
+    policySaved: savedDefaultEffect,
+    toggled: true,
+    deleted: true,
   };
 }
 
@@ -240,7 +488,7 @@ function apiPath(url, origin) {
 }
 
 async function inspectConsole(client, origin, options) {
-  const { codingGit, paths } = options;
+  const { codingGit, mcpCrud, paths } = options;
   let observation;
   client.on("Network.responseReceived", ({ response }) => {
     const requestPath = apiPath(response.url, origin);
@@ -279,6 +527,14 @@ async function inspectConsole(client, origin, options) {
     await delay(
       paths.length === 1 ? WAIT_AFTER_LOAD_MS : NAVIGATION_WAIT_AFTER_LOAD_MS,
     );
+    let mcpCrudResult;
+    if (mcpCrud && navigationPath === "/mcp") {
+      try {
+        mcpCrudResult = await runMcpCrudScenario(client);
+      } catch (error) {
+        observation.browserErrors.push(error.stack ?? String(error));
+      }
+    }
     if (codingGit && navigationPath === "/files") {
       const activated = await client.send("Runtime.evaluate", {
         expression: `(() => {
@@ -347,6 +603,7 @@ async function inspectConsole(client, origin, options) {
         hasComposer: page.hasComposer,
         textSample: page.bodyText.slice(0, 300),
       },
+      mcpCrud: mcpCrudResult,
       apiResponses: responses,
       failedApi,
       failures,

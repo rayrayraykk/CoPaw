@@ -90,6 +90,7 @@ mod desktop_git;
 mod desktop_heartbeat;
 mod desktop_inbox;
 mod desktop_mail_access_control;
+mod desktop_mcp;
 mod desktop_navigation;
 mod desktop_projects;
 mod desktop_stats;
@@ -122,6 +123,7 @@ struct AppServerInner {
     desktop_access_control_lock: tokio::sync::Mutex<()>,
     desktop_agent_settings_lock: tokio::sync::Mutex<()>,
     desktop_mail_access_control_lock: tokio::sync::Mutex<()>,
+    desktop_mcp_lock: tokio::sync::Mutex<()>,
     desktop_inbox_lock: tokio::sync::Mutex<()>,
     desktop_channel_config_lock: tokio::sync::Mutex<()>,
     desktop_chat_catalog_lock: tokio::sync::Mutex<()>,
@@ -192,6 +194,7 @@ impl AppServer {
                 desktop_access_control_lock: tokio::sync::Mutex::new(()),
                 desktop_agent_settings_lock: tokio::sync::Mutex::new(()),
                 desktop_mail_access_control_lock: tokio::sync::Mutex::new(()),
+                desktop_mcp_lock: tokio::sync::Mutex::new(()),
                 desktop_inbox_lock: tokio::sync::Mutex::new(()),
                 desktop_channel_config_lock: tokio::sync::Mutex::new(()),
                 desktop_chat_catalog_lock: tokio::sync::Mutex::new(()),
@@ -372,6 +375,7 @@ impl AppServer {
             desktop_credentials.as_ref(),
             &selected_workspace,
         )?;
+        desktop_mcp::initialize(&core, desktop_credentials.as_ref())?;
         Ok(Self {
             inner: Arc::new(AppServerInner {
                 core,
@@ -381,6 +385,7 @@ impl AppServer {
                 desktop_access_control_lock: tokio::sync::Mutex::new(()),
                 desktop_agent_settings_lock: tokio::sync::Mutex::new(()),
                 desktop_mail_access_control_lock: tokio::sync::Mutex::new(()),
+                desktop_mcp_lock: tokio::sync::Mutex::new(()),
                 desktop_inbox_lock: tokio::sync::Mutex::new(()),
                 desktop_channel_config_lock: tokio::sync::Mutex::new(()),
                 desktop_chat_catalog_lock: tokio::sync::Mutex::new(()),
@@ -567,6 +572,7 @@ impl AppServer {
                 .merge(desktop_heartbeat::router())
                 .merge(desktop_inbox::router())
                 .merge(desktop_mail_access_control::router())
+                .merge(desktop_mcp::router())
                 .merge(desktop_navigation::router())
                 .merge(desktop_projects::router())
                 .merge(desktop_stats::router())

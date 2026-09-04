@@ -48,6 +48,7 @@ struct MemoryCredentialStore {
     api_key: Mutex<Option<String>>,
     environment: Mutex<BTreeMap<String, String>>,
     agent_settings: Mutex<BTreeMap<String, String>>,
+    mcp_clients: Mutex<BTreeMap<String, String>>,
 }
 
 impl DesktopCredentialStore for MemoryCredentialStore {
@@ -112,6 +113,31 @@ impl DesktopCredentialStore for MemoryCredentialStore {
             }
             None => {
                 settings.remove(key);
+            }
+        }
+        Ok(())
+    }
+
+    fn load_mcp_client_secrets(&self, key: &str) -> anyhow::Result<Option<String>> {
+        Ok(self
+            .mcp_clients
+            .lock()
+            .expect("test MCP credential lock should be available")
+            .get(key)
+            .cloned())
+    }
+
+    fn save_mcp_client_secrets(&self, key: &str, value: Option<&str>) -> anyhow::Result<()> {
+        let mut clients = self
+            .mcp_clients
+            .lock()
+            .expect("test MCP credential lock should be available");
+        match value {
+            Some(value) => {
+                clients.insert(key.to_owned(), value.to_owned());
+            }
+            None => {
+                clients.remove(key);
             }
         }
         Ok(())
@@ -4351,6 +4377,211 @@ async fn persists_access_control_across_desktop_restarts() {
         )
         .await["whitelist"]["persisted-user"],
         json!({"remark": "persisted remark", "username": "Persisted User"})
+    );
+    second_task.abort();
+}
+
+#[tokio::test]
+#[allow(clippy::too_many_lines)]
+async fn manages_and_persists_mcp_clients_without_storing_secrets_in_sqlite() {
+    let console = tempfile::tempdir().expect("temporary Console should be created");
+    let desktop_data = tempfile::tempdir().expect("temporary Desktop data should be created");
+    let database = desktop_data.path().join("threads.sqlite3");
+    std::fs::write(console.path().join("index.html"), "<html>console</html>")
+        .expect("Console index should be written");
+    let model_config = ModelConfig {
+        api_key: None,
+        base_url: String::from("http://127.0.0.1:1"),
+        default_model: String::from("qwen-test"),
+    };
+    let credentials = Arc::new(MemoryCredentialStore::default());
+    let first_core =
+        Core::persistent(model_config.clone(), &database).expect("first Core should open");
+    let first_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("first Desktop listener should bind");
+    let first_address = first_listener
+        .local_addr()
+        .expect("first Desktop listener should have an address");
+    let first_server = new_isolated_desktop(
+        first_core,
+        console.path(),
+        String::from("desktop-mcp-first-token"),
+        credentials.clone(),
+        desktop_data.path(),
+    )
+    .expect("first Desktop server should configure");
+    let first_task = tokio::spawn(first_server.run_http(first_listener));
+    let client = reqwest::Client::new();
+    let base = format!("http://{first_address}/api/mcp");
+
+    assert_eq!(get_json(&client, base.clone()).await, json!([]));
+    let created = client
+        .post(&base)
+        .json(&json!({
+            "client_key": "remote",
+            "client": {
+                "name": "Remote Tools",
+                "description": "Managed by Rust Core",
+                "enabled": false,
+                "transport": "streamable_http",
+                "url": "https://example.test/mcp",
+                "headers": {"Authorization": "Bearer header-secret"},
+                "env": {"MCP_TOKEN": "environment-secret"}
+            }
+        }))
+        .send()
+        .await
+        .expect("MCP create should send");
+    assert_eq!(created.status(), reqwest::StatusCode::CREATED);
+    let created = created
+        .json::<Value>()
+        .await
+        .expect("MCP create response should be JSON");
+    assert_eq!(created["headers"]["Authorization"], json!("********"));
+    assert_eq!(created["env"]["MCP_TOKEN"], json!("********"));
+    assert_eq!(created["access_summary"]["default_effect"], json!("ask"));
+    assert_eq!(created["oauth_status"]["authorized"], json!(false));
+
+    let updated = client
+        .put(format!("{base}/remote"))
+        .json(&json!({
+            "name": "Remote Tools Updated",
+            "headers": {"Authorization": "********"},
+            "env": {"MCP_TOKEN": "********"},
+            "oauth_status": created["oauth_status"],
+            "access_summary": created["access_summary"]
+        }))
+        .send()
+        .await
+        .expect("MCP update should send")
+        .json::<Value>()
+        .await
+        .expect("MCP update response should be JSON");
+    assert_eq!(updated["name"], json!("Remote Tools Updated"));
+    assert_eq!(updated["headers"]["Authorization"], json!("********"));
+
+    let policy = json!({
+        "default_effect": "deny",
+        "client_overrides": [{
+            "source_type": "channel",
+            "source_value": "console",
+            "subject_type": "all",
+            "subject_value": "",
+            "effect": "ask"
+        }],
+        "tool_defaults": [{"tool_name": "read", "effect": "allow"}],
+        "tool_overrides": [],
+        "unmanaged_rules_count": 0
+    });
+    let saved_policy = client
+        .put(format!("{base}/policy/remote"))
+        .json(&policy)
+        .send()
+        .await
+        .expect("MCP policy update should send")
+        .json::<Value>()
+        .await
+        .expect("MCP policy response should be JSON");
+    assert_eq!(saved_policy, policy);
+    assert_eq!(
+        get_json(&client, format!("{base}/policy/remote")).await,
+        policy
+    );
+    assert_eq!(
+        client
+            .put(format!("{base}/tools/remote"))
+            .json(&json!({"tools": ["read"]}))
+            .send()
+            .await
+            .expect("MCP whitelist update should send")
+            .json::<Value>()
+            .await
+            .expect("MCP whitelist response should be JSON"),
+        json!([])
+    );
+    assert_eq!(
+        get_json(&client, format!("{base}/tools/remote")).await,
+        json!([])
+    );
+    assert_eq!(
+        get_json(&client, format!("{base}/access-principals")).await,
+        json!([])
+    );
+
+    let credential = credentials
+        .load_mcp_client_secrets("remote")
+        .expect("MCP credential should load")
+        .expect("MCP credential should exist");
+    assert!(credential.contains("header-secret"));
+    assert!(credential.contains("environment-secret"));
+    let database_bytes = std::fs::read(&database).expect("database should be readable");
+    assert!(
+        !database_bytes
+            .windows(b"header-secret".len())
+            .any(|value| value == b"header-secret")
+    );
+    assert!(
+        !database_bytes
+            .windows(b"environment-secret".len())
+            .any(|value| value == b"environment-secret")
+    );
+    first_task.abort();
+    let _ = first_task.await;
+
+    let second_core = Core::persistent(model_config, &database).expect("second Core should open");
+    let second_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("second Desktop listener should bind");
+    let second_address = second_listener
+        .local_addr()
+        .expect("second Desktop listener should have an address");
+    let second_server = new_isolated_desktop(
+        second_core,
+        console.path(),
+        String::from("desktop-mcp-second-token"),
+        credentials.clone(),
+        desktop_data.path(),
+    )
+    .expect("second Desktop server should restore MCP configuration");
+    let second_task = tokio::spawn(second_server.run_http(second_listener));
+    let second_base = format!("http://{second_address}/api/mcp");
+    let restored = get_json(&client, format!("{second_base}/remote")).await;
+    assert_eq!(restored["name"], json!("Remote Tools Updated"));
+    assert_eq!(restored["headers"]["Authorization"], json!("********"));
+    assert_eq!(restored["tools"], json!(["read"]));
+    assert_eq!(
+        restored["access_summary"],
+        json!({"default_effect": "deny", "overrides_count": 2})
+    );
+
+    let toggled = client
+        .patch(format!("{second_base}/toggle/remote"))
+        .send()
+        .await
+        .expect("MCP toggle should send")
+        .json::<Value>()
+        .await
+        .expect("MCP toggle response should be JSON");
+    assert_eq!(toggled["enabled"], json!(true));
+    let deleted = client
+        .delete(format!("{second_base}/remote"))
+        .send()
+        .await
+        .expect("MCP delete should send")
+        .json::<Value>()
+        .await
+        .expect("MCP delete response should be JSON");
+    assert_eq!(
+        deleted,
+        json!({"message": "MCP client 'remote' deleted successfully"})
+    );
+    assert_eq!(get_json(&client, second_base).await, json!([]));
+    assert_eq!(
+        credentials
+            .load_mcp_client_secrets("remote")
+            .expect("deleted MCP credential should load"),
+        None
     );
     second_task.abort();
 }

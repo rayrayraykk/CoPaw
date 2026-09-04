@@ -110,7 +110,6 @@ pub(super) fn router() -> Router<AppServer> {
         .route("/api/loops", get(loop_modes))
         .route("/api/loops/status", get(loop_status))
         .route("/api/skills", get(skills))
-        .route("/api/mcp", get(list_mcp_clients))
         .route("/api/mcp/oauth/start/{*client_key}", post(start_mcp_oauth))
         .route("/api/mcp/oauth/status/{*client_key}", get(mcp_oauth_status))
         .route("/api/mcp/oauth/{*client_key}", delete(revoke_mcp_oauth))
@@ -204,49 +203,6 @@ struct McpOAuthStartRequest {
     auth_endpoint: String,
     #[serde(default)]
     token_endpoint: String,
-}
-
-async fn list_mcp_clients(State(server): State<AppServer>) -> Result<Json<Value>, ApiError> {
-    let clients = server
-        .inner
-        .core
-        .list_mcp_clients()
-        .await
-        .map_err(|error| api_error(&error))?;
-    Ok(Json(Value::Array(
-        clients
-            .into_iter()
-            .map(|client| {
-                let oauth_status = client.oauth_status.map(|status| {
-                    json!({
-                        "authorized": status.authorized,
-                        "expires_at": status.expires_at,
-                        "scope": status.scope,
-                        "client_id": status.client_id
-                    })
-                });
-                json!({
-                    "key": client.key,
-                    "name": client.name,
-                    "description": client.description,
-                    "enabled": client.enabled,
-                    "transport": client.transport,
-                    "url": client.url,
-                    "headers": client.headers,
-                    "command": client.command,
-                    "args": client.args,
-                    "env": client.env,
-                    "cwd": client.cwd,
-                    "tools": client.tools,
-                    "oauth_status": oauth_status,
-                    "access_summary": {
-                        "default_effect": "ask",
-                        "overrides_count": 0
-                    }
-                })
-            })
-            .collect(),
-    )))
 }
 
 async fn start_mcp_oauth(

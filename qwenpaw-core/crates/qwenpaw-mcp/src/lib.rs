@@ -27,6 +27,7 @@ use rmcp::transport::Transport;
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransport;
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
 use serde::Deserialize;
+use serde::Serialize;
 use serde_json::Value;
 use serde_json::json;
 use tokio::io::AsyncBufReadExt;
@@ -90,6 +91,8 @@ struct McpClientConfig {
     tools: Option<Vec<String>>,
     #[serde(default)]
     oauth: Option<McpOAuthConfig>,
+    #[serde(default)]
+    access: McpAccessPolicy,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -109,6 +112,124 @@ struct McpOAuthConfig {
     token_endpoint: String,
     #[serde(default, alias = "authEndpoint")]
     authorization_endpoint: String,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum McpAccessEffect {
+    Allow,
+    #[default]
+    Ask,
+    Deny,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct McpAccessRule {
+    #[serde(default = "default_source_type")]
+    pub source_type: String,
+    #[serde(default = "default_source_value")]
+    pub source_value: String,
+    #[serde(default = "default_subject_type")]
+    pub subject_type: String,
+    #[serde(default)]
+    pub subject_value: String,
+    pub effect: McpAccessEffect,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct McpToolDefaultPolicy {
+    pub tool_name: String,
+    pub effect: McpAccessEffect,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct McpToolAccessOverride {
+    pub tool_name: String,
+    #[serde(flatten)]
+    pub rule: McpAccessRule,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct McpAccessPolicy {
+    #[serde(default = "default_access_effect")]
+    pub default_effect: McpAccessEffect,
+    #[serde(default)]
+    pub client_overrides: Vec<McpAccessRule>,
+    #[serde(default)]
+    pub tool_defaults: Vec<McpToolDefaultPolicy>,
+    #[serde(default)]
+    pub tool_overrides: Vec<McpToolAccessOverride>,
+    #[serde(default)]
+    pub unmanaged_rules_count: usize,
+}
+
+impl Default for McpAccessPolicy {
+    fn default() -> Self {
+        Self {
+            default_effect: McpAccessEffect::Ask,
+            client_overrides: Vec::new(),
+            tool_defaults: Vec::new(),
+            tool_overrides: Vec::new(),
+            unmanaged_rules_count: 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
+pub struct McpOAuthSettings {
+    #[serde(default)]
+    pub client_id: String,
+    #[serde(default)]
+    pub scope: String,
+    #[serde(default)]
+    pub access_token: String,
+    #[serde(default)]
+    pub refresh_token: String,
+    #[serde(default)]
+    pub expires_at: f64,
+    #[serde(default)]
+    pub token_endpoint: String,
+    #[serde(default)]
+    pub authorization_endpoint: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub struct McpClientSettings {
+    pub key: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub transport: String,
+    #[serde(default)]
+    pub url: String,
+    #[serde(default)]
+    pub headers: HashMap<String, String>,
+    #[serde(default)]
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub env: HashMap<String, String>,
+    #[serde(default)]
+    pub cwd: String,
+    #[serde(default)]
+    pub tools: Option<Vec<String>>,
+    #[serde(default)]
+    pub oauth: Option<McpOAuthSettings>,
+    #[serde(default)]
+    pub access: McpAccessPolicy,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct McpToolInfo {
+    pub name: String,
+    pub description: String,
+    pub enabled: bool,
+    pub input_schema: Value,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -166,6 +287,63 @@ pub struct McpClientInfo {
     pub cwd: String,
     pub tools: Option<Vec<String>>,
     pub oauth_status: Option<McpOAuthStatus>,
+}
+
+impl From<McpClientConfig> for McpClientSettings {
+    fn from(config: McpClientConfig) -> Self {
+        Self {
+            key: String::new(),
+            name: config.name,
+            description: config.description,
+            enabled: config.enabled,
+            transport: config.transport,
+            url: config.url,
+            headers: config.headers,
+            command: config.command,
+            args: config.args,
+            env: config.env,
+            cwd: config.cwd,
+            tools: config.tools,
+            oauth: config.oauth.map(|oauth| McpOAuthSettings {
+                client_id: oauth.client_id,
+                scope: oauth.scope,
+                access_token: oauth.access_token,
+                refresh_token: oauth.refresh_token,
+                expires_at: oauth.expires_at,
+                token_endpoint: oauth.token_endpoint,
+                authorization_endpoint: oauth.authorization_endpoint,
+            }),
+            access: config.access,
+        }
+    }
+}
+
+impl From<McpClientSettings> for McpClientConfig {
+    fn from(settings: McpClientSettings) -> Self {
+        Self {
+            name: settings.name,
+            description: settings.description,
+            enabled: settings.enabled,
+            transport: settings.transport,
+            url: settings.url,
+            headers: settings.headers,
+            command: settings.command,
+            args: settings.args,
+            env: settings.env,
+            cwd: settings.cwd,
+            tools: settings.tools,
+            oauth: settings.oauth.map(|oauth| McpOAuthConfig {
+                client_id: oauth.client_id,
+                scope: oauth.scope,
+                access_token: oauth.access_token,
+                refresh_token: oauth.refresh_token,
+                expires_at: oauth.expires_at,
+                token_endpoint: oauth.token_endpoint,
+                authorization_endpoint: oauth.authorization_endpoint,
+            }),
+            access: settings.access,
+        }
+    }
 }
 
 impl McpManager {
@@ -256,6 +434,54 @@ impl McpManager {
             .all(|client| !client.enabled || !transport_is_supported(&client.transport))
     }
 
+    #[must_use]
+    pub fn settings(&self) -> Vec<McpClientSettings> {
+        self.inner
+            .clients
+            .iter()
+            .map(|(key, config)| {
+                let mut settings = McpClientSettings::from(config.clone());
+                settings.key.clone_from(key);
+                settings
+            })
+            .collect()
+    }
+
+    /// Builds a validated manager that shares the current OAuth credential
+    /// store but owns independent connections and tool routes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for duplicate keys, invalid clients, or policies.
+    pub fn reconfigured(&self, settings: Vec<McpClientSettings>) -> Result<Self, McpError> {
+        if settings.len() > MAX_CLIENTS {
+            return Err(McpError::TooManyClients(settings.len()));
+        }
+        let mut clients = BTreeMap::new();
+        for setting in settings {
+            let key = setting.key.trim().to_owned();
+            if clients.contains_key(&key) {
+                return Err(McpError::InvalidConfig(format!(
+                    "duplicate MCP client id: {key}"
+                )));
+            }
+            let mut config = McpClientConfig::from(setting);
+            normalize_transport(&mut config);
+            validate_client(&key, &config)?;
+            validate_access_policy(&config.access)?;
+            clients.insert(key, config);
+        }
+        Ok(Self::new(clients, Arc::clone(&self.inner.oauth_store)))
+    }
+
+    #[must_use]
+    pub fn access_policy(&self, server_id: &str) -> Option<McpAccessPolicy> {
+        self.inner
+            .clients
+            .get(server_id)
+            .map(|config| config.access.clone())
+    }
+
     /// Returns a redacted snapshot of configured MCP clients.
     ///
     /// # Errors
@@ -290,6 +516,39 @@ impl McpManager {
             });
         }
         Ok(clients)
+    }
+
+    /// Returns all remotely advertised tools and marks whitelist membership.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an unknown client or failed discovery.
+    pub async fn tools(&self, server_id: &str) -> Result<Vec<McpToolInfo>, McpError> {
+        let config = self
+            .inner
+            .clients
+            .get(server_id)
+            .ok_or_else(|| McpError::UnknownServer(server_id.to_owned()))?;
+        if !config.enabled {
+            return Ok(Vec::new());
+        }
+        let tools = self.discover_tools(server_id, config).await?;
+        Ok(tools
+            .into_iter()
+            .map(|tool| {
+                let name = tool.name.to_string();
+                let enabled = config
+                    .tools
+                    .as_ref()
+                    .is_none_or(|allowed| allowed.contains(&name));
+                McpToolInfo {
+                    name,
+                    description: tool.description.unwrap_or_default().to_string(),
+                    enabled,
+                    input_schema: Value::Object(tool.input_schema.as_ref().clone()),
+                }
+            })
+            .collect())
     }
 
     /// Discovers enabled MCP tools and returns OpenAI-compatible definitions.
@@ -347,6 +606,24 @@ impl McpManager {
     #[must_use]
     pub async fn contains_tool(&self, name: &str) -> bool {
         self.inner.routes.read().await.contains_key(name)
+    }
+
+    /// Resolves the access effect for a previously discovered MCP tool.
+    #[must_use]
+    pub async fn tool_access_effect(
+        &self,
+        name: &str,
+        source_value: &str,
+        subject_value: &str,
+    ) -> Option<McpAccessEffect> {
+        let route = self.inner.routes.read().await.get(name).cloned()?;
+        let policy = &self.inner.clients.get(&route.server_id)?.access;
+        Some(resolve_access_effect(
+            policy,
+            &route.remote_name,
+            source_value,
+            subject_value,
+        ))
     }
 
     /// Calls a previously discovered namespaced MCP tool.
@@ -415,12 +692,7 @@ impl McpManager {
         server_id: &str,
         config: &McpClientConfig,
     ) -> Result<Vec<(Value, ToolRoute)>, McpError> {
-        let connection = self.connection(server_id).await?;
-        let client = connection.client.lock().await;
-        let tools = tokio::time::timeout(STARTUP_TIMEOUT, client.list_all_tools())
-            .await
-            .map_err(|_| McpError::DiscoveryTimedOut(server_id.to_owned()))?
-            .map_err(|error| request_error(&config.transport, &error.to_string()))?;
+        let tools = self.discover_tools(server_id, config).await?;
         let mut result = Vec::new();
         for tool in tools.into_iter().take(MAX_TOOLS_PER_SERVER) {
             let remote_name = tool.name.to_string();
@@ -456,6 +728,20 @@ impl McpManager {
             ));
         }
         Ok(result)
+    }
+
+    async fn discover_tools(
+        &self,
+        server_id: &str,
+        config: &McpClientConfig,
+    ) -> Result<Vec<rmcp::model::Tool>, McpError> {
+        let connection = self.connection(server_id).await?;
+        let client = connection.client.lock().await;
+        tokio::time::timeout(STARTUP_TIMEOUT, client.list_all_tools())
+            .await
+            .map_err(|_| McpError::DiscoveryTimedOut(server_id.to_owned()))?
+            .map_err(|error| request_error(&config.transport, &error.to_string()))
+            .map(|tools| tools.into_iter().take(MAX_TOOLS_PER_SERVER).collect())
     }
 
     async fn connection(&self, server_id: &str) -> Result<Arc<Connection>, McpError> {
@@ -874,6 +1160,102 @@ fn default_true() -> bool {
     true
 }
 
+fn default_source_type() -> String {
+    String::from("channel")
+}
+
+fn default_source_value() -> String {
+    String::from("console")
+}
+
+fn default_subject_type() -> String {
+    String::from("all")
+}
+
+fn default_access_effect() -> McpAccessEffect {
+    McpAccessEffect::Ask
+}
+
+fn validate_access_policy(policy: &McpAccessPolicy) -> Result<(), McpError> {
+    for default in &policy.tool_defaults {
+        if default.tool_name.trim().is_empty() || default.tool_name.trim() == "*" {
+            return Err(McpError::InvalidConfig(String::from(
+                "MCP tool default name is empty",
+            )));
+        }
+    }
+    for rule in &policy.client_overrides {
+        validate_access_rule(rule)?;
+    }
+    for rule in &policy.tool_overrides {
+        if rule.tool_name.trim().is_empty() || rule.tool_name.trim() == "*" {
+            return Err(McpError::InvalidConfig(String::from(
+                "MCP tool override name is empty",
+            )));
+        }
+        validate_access_rule(&rule.rule)?;
+    }
+    Ok(())
+}
+
+fn validate_access_rule(rule: &McpAccessRule) -> Result<(), McpError> {
+    if rule.source_type.trim().is_empty() || rule.source_value.trim().is_empty() {
+        return Err(McpError::InvalidConfig(String::from(
+            "MCP policy source value is empty",
+        )));
+    }
+    match rule.subject_type.as_str() {
+        "all" => Ok(()),
+        "user" if !rule.subject_value.trim().is_empty() => Ok(()),
+        "user" => Err(McpError::InvalidConfig(String::from(
+            "MCP policy user value is empty",
+        ))),
+        _ => Err(McpError::InvalidConfig(String::from(
+            "MCP policy subject type must be all or user",
+        ))),
+    }
+}
+
+fn resolve_access_effect(
+    policy: &McpAccessPolicy,
+    tool_name: &str,
+    source_value: &str,
+    subject_value: &str,
+) -> McpAccessEffect {
+    let matching_rule = |rule: &McpAccessRule| {
+        rule.source_type == "channel"
+            && rule.source_value == source_value
+            && (rule.subject_type == "all"
+                || (rule.subject_type == "user" && rule.subject_value == subject_value))
+    };
+    for user_only in [true, false] {
+        if let Some(rule) = policy.tool_overrides.iter().find(|override_| {
+            override_.tool_name == tool_name
+                && matching_rule(&override_.rule)
+                && (override_.rule.subject_type == "user") == user_only
+        }) {
+            return rule.rule.effect;
+        }
+    }
+    if let Some(default) = policy
+        .tool_defaults
+        .iter()
+        .find(|default| default.tool_name == tool_name)
+    {
+        return default.effect;
+    }
+    for user_only in [true, false] {
+        if let Some(rule) = policy
+            .client_overrides
+            .iter()
+            .find(|rule| matching_rule(rule) && (rule.subject_type == "user") == user_only)
+        {
+            return rule.effect;
+        }
+    }
+    policy.default_effect
+}
+
 fn redact_values(values: &HashMap<String, String>) -> HashMap<String, String> {
     values
         .keys()
@@ -914,14 +1296,14 @@ fn validate_client(id: &str, config: &McpClientConfig) -> Result<(), McpError> {
             "MCP client id cannot be empty",
         )));
     }
-    if !config.enabled {
-        return Ok(());
-    }
     if !transport_is_supported(&config.transport) {
         return Err(McpError::UnsupportedTransport {
             id: id.to_owned(),
             transport: config.transport.clone(),
         });
+    }
+    if !config.enabled {
+        return Ok(());
     }
     if config.transport == "stdio" && config.command.trim().is_empty() {
         return Err(McpError::InvalidConfig(format!(

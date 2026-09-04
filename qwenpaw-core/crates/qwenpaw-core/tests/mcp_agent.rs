@@ -11,6 +11,7 @@ use axum::response::Response;
 use axum::routing::post;
 use pretty_assertions::assert_eq;
 use qwenpaw_core::Core;
+use qwenpaw_core::McpAccessEffect;
 use qwenpaw_core::McpManager;
 use qwenpaw_core::ModelConfig;
 use qwenpaw_protocol::ApprovalDecision;
@@ -26,6 +27,7 @@ use serde_json::Value;
 use serde_json::json;
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
+use tokio::sync::oneshot;
 
 #[tokio::test]
 async fn discovers_approves_and_calls_mcp_through_the_agent_loop() {
@@ -38,6 +40,130 @@ async fn discovers_approves_and_calls_http_mcp_through_the_agent_loop() {
     let directory = tempfile::tempdir().expect("temporary directory");
     let mcp = test_http_mcp_manager(&directory).await;
     run_mcp_agent_loop(&directory, mcp).await;
+}
+
+#[tokio::test]
+async fn enforces_allow_and_deny_mcp_policies_without_prompting() {
+    for (effect, expected_error) in [
+        (McpAccessEffect::Allow, false),
+        (McpAccessEffect::Deny, true),
+    ] {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let manager = test_mcp_manager(&directory);
+        let mut settings = manager.settings();
+        settings[0].access.default_effect = effect;
+        let manager = manager
+            .reconfigured(settings)
+            .expect("policy should reconfigure");
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let base_url = start_model_server(Arc::clone(&requests)).await;
+        let core = Core::new_with_mcp(
+            ModelConfig {
+                api_key: None,
+                base_url,
+                default_model: String::from("qwen-test"),
+            },
+            manager,
+        );
+        let thread = core
+            .start_thread(ThreadStartParams {
+                model: None,
+                workspace_root: Some(directory.path().to_string_lossy().into_owned()),
+            })
+            .await
+            .expect("start thread");
+        let (_, mut events) = core
+            .start_turn(TurnStartParams {
+                thread_id: thread.thread.id.clone(),
+                input: vec![UserInput::Text {
+                    text: String::from("Use the MCP echo tool"),
+                }],
+            })
+            .await
+            .expect("start turn");
+
+        while let Some(event) = events.recv().await {
+            assert!(!matches!(event, CoreEvent::ToolApprovalRequested(_)));
+            if matches!(event, CoreEvent::TurnCompleted(_)) {
+                break;
+            }
+        }
+        let read = core
+            .read_thread(&thread.thread.id)
+            .await
+            .expect("read completed thread");
+        assert!(matches!(
+            &read.turns[0].items[2],
+            Item::ToolResult { is_error, .. } if *is_error == expected_error
+        ));
+        if expected_error {
+            assert!(matches!(
+                &read.turns[0].items[2],
+                Item::ToolResult { content, .. }
+                    if content == "Tool execution was denied by the MCP access policy."
+            ));
+        }
+    }
+}
+
+#[tokio::test]
+async fn keeps_the_starting_mcp_snapshot_for_an_in_flight_turn() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let manager = test_mcp_manager(&directory);
+    let mut settings = manager.settings();
+    settings[0].access.default_effect = McpAccessEffect::Allow;
+    let manager = manager
+        .reconfigured(settings)
+        .expect("policy should reconfigure");
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let (entered_tx, entered_rx) = oneshot::channel();
+    let (resume_tx, resume_rx) = oneshot::channel();
+    let base_url = start_paused_model_server(Arc::clone(&requests), entered_tx, resume_rx).await;
+    let core = Core::new_with_mcp(
+        ModelConfig {
+            api_key: None,
+            base_url,
+            default_model: String::from("qwen-test"),
+        },
+        manager,
+    );
+    let thread = core
+        .start_thread(ThreadStartParams {
+            model: None,
+            workspace_root: Some(directory.path().to_string_lossy().into_owned()),
+        })
+        .await
+        .expect("start thread");
+    let (_, mut events) = core
+        .start_turn(TurnStartParams {
+            thread_id: thread.thread.id.clone(),
+            input: vec![UserInput::Text {
+                text: String::from("Use the MCP echo tool"),
+            }],
+        })
+        .await
+        .expect("start turn");
+
+    entered_rx.await.expect("model request should pause");
+    core.replace_mcp_client_settings(Vec::new())
+        .expect("new MCP configuration should activate");
+    resume_tx.send(()).expect("model request should resume");
+    while let Some(event) = events.recv().await {
+        if matches!(event, CoreEvent::TurnCompleted(_)) {
+            break;
+        }
+    }
+
+    assert!(core.mcp_client_settings().is_empty());
+    let read = core
+        .read_thread(&thread.thread.id)
+        .await
+        .expect("read completed thread");
+    assert!(matches!(
+        &read.turns[0].items[2],
+        Item::ToolResult { content, is_error: false, .. }
+            if content == r#"{"echo":"hello"}"#
+    ));
 }
 
 async fn run_mcp_agent_loop(directory: &tempfile::TempDir, mcp: McpManager) {
@@ -185,6 +311,54 @@ async fn interrupts_a_running_mcp_call_and_terminates_its_server() {
 
 async fn start_model_server(requests: Arc<Mutex<Vec<Value>>>) -> String {
     start_model_server_with_argument(requests, "hello").await
+}
+
+async fn start_paused_model_server(
+    requests: Arc<Mutex<Vec<Value>>>,
+    entered_tx: oneshot::Sender<()>,
+    resume_rx: oneshot::Receiver<()>,
+) -> String {
+    let entered_tx = Arc::new(Mutex::new(Some(entered_tx)));
+    let resume_rx = Arc::new(Mutex::new(Some(resume_rx)));
+    let app = Router::new().route(
+        "/chat/completions",
+        post(move |body: axum::Json<Value>| {
+            let requests = Arc::clone(&requests);
+            let entered_tx = Arc::clone(&entered_tx);
+            let resume_rx = Arc::clone(&resume_rx);
+            async move {
+                let request_number = {
+                    let mut requests = requests.lock().await;
+                    requests.push(body.0);
+                    requests.len()
+                };
+                let response = if request_number == 1 {
+                    if let Some(sender) = entered_tx.lock().await.take() {
+                        let _ = sender.send(());
+                    }
+                    if let Some(receiver) = resume_rx.lock().await.take() {
+                        let _ = receiver.await;
+                    }
+                    tool_call_response("hello")
+                } else {
+                    text_response("MCP echo completed")
+                };
+                Response::builder()
+                    .status(StatusCode::OK)
+                    .header(CONTENT_TYPE, "text/event-stream")
+                    .body(Body::from(response))
+                    .expect("mock response")
+            }
+        }),
+    );
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind model server");
+    let address = listener.local_addr().expect("model server address");
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.expect("serve mock model");
+    });
+    format!("http://{address}")
 }
 
 async fn start_model_server_with_argument(

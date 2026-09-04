@@ -3,11 +3,11 @@
   "source": "console/src production TypeScript call sites",
   "callCount": 370,
   "unresolvedCount": 11,
-  "rustRouteCount": 210,
-  "registeredCallCount": 206,
+  "rustRouteCount": 220,
+  "registeredCallCount": 216,
   "placeholderCallCount": 8,
-  "nonPlaceholderRegisteredCallCount": 198,
-  "missingCallCount": 164,
+  "nonPlaceholderRegisteredCallCount": 208,
+  "missingCallCount": 154,
   "rustRoutes": [
     {
       "method": "ANY",
@@ -768,9 +768,44 @@
     {
       "method": "GET",
       "path": "/api/mcp",
-      "handler": "list_mcp_clients",
+      "handler": "list_clients",
       "placeholder": false,
-      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_api.rs"
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_mcp.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/mcp",
+      "handler": "create_client",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_mcp.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/mcp/{*client_key}",
+      "handler": "delete_client",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_mcp.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/mcp/{*client_key}",
+      "handler": "get_client",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_mcp.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/mcp/{*client_key}",
+      "handler": "update_client",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_mcp.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/mcp/access-principals",
+      "handler": "list_access_principals",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_mcp.rs"
     },
     {
       "method": "DELETE",
@@ -792,6 +827,41 @@
       "handler": "mcp_oauth_status",
       "placeholder": false,
       "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_api.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/mcp/policy/{*client_key}",
+      "handler": "get_policy",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_mcp.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/mcp/policy/{*client_key}",
+      "handler": "update_policy",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_mcp.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/mcp/toggle/{*client_key}",
+      "handler": "toggle_client",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_mcp.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/mcp/tools/{*client_key}",
+      "handler": "list_tools",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_mcp.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/mcp/tools/{*client_key}",
+      "handler": "update_tool_whitelist",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_mcp.rs"
     },
     {
       "method": "GET",
@@ -3914,7 +3984,7 @@
       "line": 24,
       "resolved": true,
       "apiPath": "/api/mcp/{clientKey}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -3926,7 +3996,7 @@
       "line": 30,
       "resolved": true,
       "apiPath": "/api/mcp",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -3938,7 +4008,7 @@
       "line": 39,
       "resolved": true,
       "apiPath": "/api/mcp/{clientKey}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -3950,7 +4020,7 @@
       "line": 48,
       "resolved": true,
       "apiPath": "/api/mcp/toggle/{clientKey}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -3962,7 +4032,7 @@
       "line": 56,
       "resolved": true,
       "apiPath": "/api/mcp/{clientKey}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -3974,7 +4044,7 @@
       "line": 64,
       "resolved": true,
       "apiPath": "/api/mcp/tools/{clientKey}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -3986,7 +4056,7 @@
       "line": 70,
       "resolved": true,
       "apiPath": "/api/mcp/access-principals",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -3998,7 +4068,7 @@
       "line": 76,
       "resolved": true,
       "apiPath": "/api/mcp/policy/{clientKey}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -4010,7 +4080,7 @@
       "line": 82,
       "resolved": true,
       "apiPath": "/api/mcp/policy/{clientKey}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -4022,7 +4092,7 @@
       "line": 91,
       "resolved": true,
       "apiPath": "/api/mcp/tools/{clientKey}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {

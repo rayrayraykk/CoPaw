@@ -119,3 +119,102 @@ async fn plain_http_clients_do_not_access_the_oauth_credential_store() {
         Some(String::from("configured-token"))
     );
 }
+
+fn test_settings(key: &str) -> McpClientSettings {
+    McpClientSettings {
+        key: key.to_owned(),
+        name: String::from("Test MCP"),
+        description: String::new(),
+        enabled: false,
+        transport: String::from("http"),
+        url: String::from("https://example.test/mcp"),
+        headers: HashMap::from([(String::from("Authorization"), String::from("secret"))]),
+        command: String::new(),
+        args: Vec::new(),
+        env: HashMap::from([(String::from("TOKEN"), String::from("secret"))]),
+        cwd: String::new(),
+        tools: None,
+        oauth: Some(McpOAuthSettings::default()),
+        access: McpAccessPolicy::default(),
+    }
+}
+
+#[tokio::test]
+async fn reconfiguration_normalizes_transport_and_redacts_secrets() {
+    let manager = McpManager::empty()
+        .reconfigured(vec![test_settings("remote")])
+        .expect("configuration should be valid");
+
+    let settings = manager.settings();
+    assert_eq!(settings[0].transport, "streamable_http");
+    assert_eq!(settings[0].headers["Authorization"], "secret");
+    assert_eq!(settings[0].env["TOKEN"], "secret");
+    let clients = manager.clients().await.expect("clients should list");
+    assert_eq!(clients[0].headers["Authorization"], "********");
+    assert_eq!(clients[0].env["TOKEN"], "********");
+}
+
+#[test]
+fn access_policy_uses_most_specific_console_rule() {
+    let policy = McpAccessPolicy {
+        default_effect: McpAccessEffect::Deny,
+        client_overrides: vec![McpAccessRule {
+            source_type: String::from("channel"),
+            source_value: String::from("console"),
+            subject_type: String::from("all"),
+            subject_value: String::new(),
+            effect: McpAccessEffect::Ask,
+        }],
+        tool_defaults: vec![McpToolDefaultPolicy {
+            tool_name: String::from("read"),
+            effect: McpAccessEffect::Allow,
+        }],
+        tool_overrides: vec![McpToolAccessOverride {
+            tool_name: String::from("read"),
+            rule: McpAccessRule {
+                source_type: String::from("channel"),
+                source_value: String::from("console"),
+                subject_type: String::from("user"),
+                subject_value: String::from("thread-1"),
+                effect: McpAccessEffect::Deny,
+            },
+        }],
+        unmanaged_rules_count: 0,
+    };
+
+    assert_eq!(
+        resolve_access_effect(&policy, "read", "console", "thread-1"),
+        McpAccessEffect::Deny
+    );
+    assert_eq!(
+        resolve_access_effect(&policy, "read", "console", "thread-2"),
+        McpAccessEffect::Allow
+    );
+    assert_eq!(
+        resolve_access_effect(&policy, "write", "console", "thread-2"),
+        McpAccessEffect::Ask
+    );
+    assert_eq!(
+        resolve_access_effect(&policy, "write", "remote", "thread-2"),
+        McpAccessEffect::Deny
+    );
+}
+
+#[test]
+fn reconfiguration_rejects_invalid_policy_and_duplicate_keys() {
+    let manager = McpManager::empty();
+    let mut invalid = test_settings("remote");
+    invalid.access.client_overrides.push(McpAccessRule {
+        source_type: String::from("channel"),
+        source_value: String::from("console"),
+        subject_type: String::from("user"),
+        subject_value: String::new(),
+        effect: McpAccessEffect::Allow,
+    });
+    assert!(manager.reconfigured(vec![invalid]).is_err());
+    assert!(
+        manager
+            .reconfigured(vec![test_settings("same"), test_settings("same")])
+            .is_err()
+    );
+}

@@ -9,6 +9,8 @@ use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
 use futures_util::StreamExt;
+use qwenpaw_mcp::McpAccessEffect;
+use qwenpaw_mcp::McpClientSettings;
 use qwenpaw_mcp::McpManager;
 use qwenpaw_protocol::AgentMessageDeltaNotification;
 use qwenpaw_protocol::ApprovalDecision;
@@ -114,6 +116,7 @@ const CHAT_CATALOG_DATA_SETTING: &str = "desktop_chat_catalog_data";
 const CHANNEL_CONFIG_DATA_SETTING: &str = "desktop_channel_config_data";
 const AGENT_SETTINGS_DATA_SETTING: &str = "desktop_agent_settings_data";
 const HEARTBEAT_DATA_SETTING: &str = "desktop_heartbeat_data";
+const MCP_DATA_SETTING: &str = "desktop_mcp_data";
 const BUILTIN_TOOL_OVERRIDES_SETTING: &str = "builtin_tool_overrides";
 const TOOL_OFFLOAD_POLICY_SETTING: &str = "tool_offload_policy";
 const DEFAULT_UI_LANGUAGE: &str = "en";
@@ -168,7 +171,7 @@ pub struct Core {
 
 struct CoreInner {
     model: ModelClient,
-    mcp: McpManager,
+    mcp: SyncRwLock<McpManager>,
     store: ThreadStore,
     state: Mutex<State>,
     runtime_environment: SyncRwLock<BTreeMap<String, String>>,
@@ -320,7 +323,7 @@ impl Core {
         Ok(Self {
             inner: Arc::new(CoreInner {
                 model: ModelClient::new(model_config).map_err(|error| CoreError::model(&error))?,
-                mcp,
+                mcp: SyncRwLock::new(mcp),
                 store,
                 state: Mutex::new(State {
                     threads,
@@ -1069,6 +1072,30 @@ impl Core {
             .map_err(CoreError::storage)
     }
 
+    /// Reads serialized non-secret Desktop MCP configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Core settings store cannot be read.
+    pub fn read_mcp_data(&self) -> Result<Option<String>, CoreError> {
+        self.inner
+            .store
+            .read_setting(MCP_DATA_SETTING)
+            .map_err(CoreError::storage)
+    }
+
+    /// Atomically persists serialized non-secret Desktop MCP configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Core settings store cannot be written.
+    pub fn write_mcp_data(&self, value: &str) -> Result<(), CoreError> {
+        self.inner
+            .store
+            .write_settings(&[(MCP_DATA_SETTING, value)])
+            .map_err(CoreError::storage)
+    }
+
     /// Returns the ordered Markdown files used to compose the Agent system prompt.
     ///
     /// # Errors
@@ -1591,7 +1618,74 @@ impl Core {
     ///
     /// Returns an error when the secure OAuth credential store cannot be read.
     pub async fn list_mcp_clients(&self) -> Result<Vec<qwenpaw_mcp::McpClientInfo>, CoreError> {
-        self.inner.mcp.clients().await.map_err(CoreError::mcp)
+        self.mcp_manager().clients().await.map_err(CoreError::mcp)
+    }
+
+    #[must_use]
+    pub fn mcp_client_settings(&self) -> Vec<McpClientSettings> {
+        self.mcp_manager().settings()
+    }
+
+    /// Validates a complete MCP configuration without activating it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a client or access policy is invalid.
+    pub fn validate_mcp_client_settings(
+        &self,
+        settings: Vec<McpClientSettings>,
+    ) -> Result<(), CoreError> {
+        self.mcp_manager()
+            .reconfigured(settings)
+            .map(|_| ())
+            .map_err(CoreError::mcp)
+    }
+
+    /// Atomically activates a complete MCP configuration for new turns.
+    ///
+    /// Existing turns retain the manager snapshot they started with.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when validation fails or the runtime lock is poisoned.
+    pub fn replace_mcp_client_settings(
+        &self,
+        settings: Vec<McpClientSettings>,
+    ) -> Result<(), CoreError> {
+        let manager = self
+            .mcp_manager()
+            .reconfigured(settings)
+            .map_err(CoreError::mcp)?;
+        *self
+            .inner
+            .mcp
+            .write()
+            .map_err(|_| CoreError::Config(String::from("MCP runtime lock is poisoned")))? =
+            manager;
+        Ok(())
+    }
+
+    /// Discovers all tools exposed by one configured MCP client.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the client is unknown or discovery fails.
+    pub async fn list_mcp_tools(
+        &self,
+        server_id: &str,
+    ) -> Result<Vec<qwenpaw_mcp::McpToolInfo>, CoreError> {
+        self.mcp_manager()
+            .tools(server_id)
+            .await
+            .map_err(CoreError::mcp)
+    }
+
+    fn mcp_manager(&self) -> McpManager {
+        self.inner
+            .mcp
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 
     /// Starts interactive OAuth for a configured remote MCP client.
@@ -1604,8 +1698,7 @@ impl Core {
         server_id: &str,
         options: qwenpaw_mcp::McpOAuthStartOptions,
     ) -> Result<qwenpaw_mcp::McpOAuthStartResponse, CoreError> {
-        self.inner
-            .mcp
+        self.mcp_manager()
             .start_oauth(server_id, options)
             .await
             .map_err(CoreError::mcp)
@@ -1620,8 +1713,7 @@ impl Core {
         &self,
         server_id: &str,
     ) -> Result<qwenpaw_mcp::McpOAuthStatus, CoreError> {
-        self.inner
-            .mcp
+        self.mcp_manager()
             .oauth_status(server_id)
             .await
             .map_err(CoreError::mcp)
@@ -1633,8 +1725,7 @@ impl Core {
     ///
     /// Returns an error for an unknown client or credential-store failure.
     pub async fn revoke_mcp_oauth(&self, server_id: &str) -> Result<(), CoreError> {
-        self.inner
-            .mcp
+        self.mcp_manager()
             .revoke_oauth(server_id)
             .await
             .map_err(CoreError::mcp)
@@ -1653,6 +1744,7 @@ impl Core {
         else {
             return;
         };
+        let mcp = self.mcp_manager();
         let mcp_tools = tokio::select! {
             () = cancellation.cancelled() => {
                 self.finish_turn(
@@ -1664,7 +1756,7 @@ impl Core {
                 .await;
                 return;
             }
-            definitions = self.inner.mcp.definitions() => definitions,
+            definitions = mcp.definitions() => definitions,
         };
         let mut outcome = TurnOutcome::Failed(String::from("agent exceeded maximum steps"));
         for _ in 0..runtime_config.max_agent_steps {
@@ -1720,6 +1812,7 @@ impl Core {
                         turn_id: &turn_id,
                         workspace: &workspace,
                         runtime_config: &runtime_config,
+                        mcp: &mcp,
                         cancellation: &cancellation,
                         event_tx: &event_tx,
                     },
@@ -1824,19 +1917,30 @@ impl Core {
             turn_id,
             workspace,
             runtime_config,
+            mcp,
             cancellation,
             event_tx,
         } = request;
         for call in calls {
-            let normally_requires_approval = Workspace::approval_requirement(&call)
-                == ApprovalRequirement::Required
-                || self.inner.mcp.contains_tool(&call.name).await;
+            let mcp_effect = mcp
+                .tool_access_effect(&call.name, "console", thread_id)
+                .await;
+            let normally_requires_approval = match mcp_effect {
+                Some(McpAccessEffect::Ask) => true,
+                Some(McpAccessEffect::Allow | McpAccessEffect::Deny) => false,
+                None => Workspace::approval_requirement(&call) == ApprovalRequirement::Required,
+            };
             let requires_approval = match runtime_config.approval_level {
                 ToolApprovalLevel::Strict => true,
                 ToolApprovalLevel::Smart | ToolApprovalLevel::Auto => normally_requires_approval,
                 ToolApprovalLevel::Off => false,
             };
-            let output = if requires_approval {
+            let output = if mcp_effect == Some(McpAccessEffect::Deny) {
+                Ok(ToolOutput {
+                    content: String::from("Tool execution was denied by the MCP access policy."),
+                    is_error: true,
+                })
+            } else if requires_approval {
                 match self
                     .request_approval(thread_id, turn_id, workspace, &call, cancellation, event_tx)
                     .await
@@ -1847,6 +1951,7 @@ impl Core {
                             workspace,
                             &call,
                             runtime_config,
+                            mcp,
                             cancellation,
                         )
                         .await?
@@ -1858,8 +1963,15 @@ impl Core {
                     ApprovalOutcome::Interrupted => return Err(TurnOutcome::Interrupted),
                 }
             } else {
-                self.execute_tracked_tool(thread_id, workspace, &call, runtime_config, cancellation)
-                    .await?
+                self.execute_tracked_tool(
+                    thread_id,
+                    workspace,
+                    &call,
+                    runtime_config,
+                    mcp,
+                    cancellation,
+                )
+                .await?
             };
             let output = output.unwrap_or_else(|error| ToolOutput {
                 content: error,
@@ -1977,6 +2089,7 @@ impl Core {
         workspace: &Workspace,
         call: &ToolCall,
         runtime_config: &AgentRuntimeConfig,
+        mcp: &McpManager,
         turn_cancellation: &CancellationToken,
     ) -> Result<Result<ToolOutput, String>, TurnOutcome> {
         let timeout =
@@ -2001,6 +2114,7 @@ impl Core {
         let workspace = workspace.clone();
         let call_for_execution = call.clone();
         let runtime_config = runtime_config.clone();
+        let mcp = mcp.clone();
         let turn_cancellation = turn_cancellation.clone();
         let tool_cancellation = lease.cancellation.clone();
         let mut execution = tokio::spawn(async move {
@@ -2008,6 +2122,7 @@ impl Core {
                 &workspace,
                 &call_for_execution,
                 &runtime_config,
+                &mcp,
                 &turn_cancellation,
                 &tool_cancellation,
             )
@@ -2095,21 +2210,22 @@ impl Core {
         workspace: &Workspace,
         call: &ToolCall,
         runtime_config: &AgentRuntimeConfig,
+        mcp: &McpManager,
         turn_cancellation: &CancellationToken,
         tool_cancellation: &CancellationToken,
     ) -> Result<Result<ToolOutput, String>, TurnOutcome> {
-        if self.inner.mcp.contains_tool(&call.name).await {
+        if mcp.contains_tool(&call.name).await {
             return tokio::select! {
                 biased;
                 () = turn_cancellation.cancelled() => {
-                    self.inner.mcp.cancel_tool(&call.name).await;
+                    mcp.cancel_tool(&call.name).await;
                     Err(TurnOutcome::Interrupted)
                 }
                 () = tool_cancellation.cancelled() => {
-                    self.inner.mcp.cancel_tool(&call.name).await;
+                    mcp.cancel_tool(&call.name).await;
                     Ok(Err(self.tool_cancellation_message(&call.id).await))
                 }
-                output = self.inner.mcp.call_tool(&call.name, &call.arguments) => {
+                output = mcp.call_tool(&call.name, &call.arguments) => {
                     Ok(output
                         .map(|output| ToolOutput {
                             content: output.content,
@@ -2628,6 +2744,7 @@ struct ToolExecutionRequest<'a> {
     turn_id: &'a str,
     workspace: &'a Workspace,
     runtime_config: &'a AgentRuntimeConfig,
+    mcp: &'a McpManager,
     cancellation: &'a CancellationToken,
     event_tx: &'a mpsc::Sender<CoreEvent>,
 }

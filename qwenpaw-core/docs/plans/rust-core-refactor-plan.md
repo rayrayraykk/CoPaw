@@ -1186,6 +1186,22 @@ Inbox 读取、状态和持久化契约已完成；真实 Agent Cron、Heartbeat
 
 2026-09-05 本机验收：Rust workspace 153 个测试、格式检查与严格 Clippy 通过；Console 295 个测试文件、2453 个测试、production build 和 inventory 防漂移通过，`console/src` 保持零改动。未修改的原 Heartbeat 与 Inbox 页面连接 release Rust Core，完成配置保存/刷新、自动调度、真实 Agent Turn、Inbox trace 展示和 Core 重启恢复；18 个 Heartbeat 请求均成功，浏览器错误为 0。HTTP 契约另覆盖 `main`、`last`、`inbox`、缺失/空 `HEARTBEAT.md`、跨午夜活动时段、热重排、并发抑制和执行超时。当前 inventory 为 370 个调用点、210 条 Rust 路由、206 个已注册调用点，其中 198 个非占位、8 个占位、164 个未注册和 11 个静态未解析表达式；Heartbeat 的 3 个调用点已全部注册且均非占位。TypeScript SDK 3 个、Python SDK 4 个真实 Core 测试与 VS Code 57 个测试全部通过。macOS App/ZIP/QA DMG、Core archive、WebUI archive、TypeScript/Python SDK、universal/platform VSIX 与 legacy wheel 均使用本切片源码重建；9 个产物逐个完成执行、安装、解包、清单校验、签名检查或只读挂载反向验证，`dist/SHA256SUMS` 全部通过。QA DMG 当前为 ad-hoc 签名，待用户提供 Apple 发布凭据后才能生成 Developer ID 签名和 notarized 正式包。
 
+#### 14.2.24.13 当前子切片：MCP 客户端与访问策略管理
+
+本子切片保持原 MCP 页面不变，补齐客户端详情、新建、编辑、启停、删除、工具发现、工具白名单、访问主体与访问策略接口。Desktop 管理的 `headers` / `env` 值只能进入系统凭据库，SQLite 仅保存名称和非敏感配置；API 继续返回原页面识别的 `********`，JSON 编辑原样提交遮罩值时必须保留已有密钥。更新采用每个 Turn 的 MCP 快照：新 Turn 立即使用新配置，进行中的 Turn 不被中途换表破坏。
+
+- [x] 固化原 10 个未注册调用点、Python 成功/错误响应、默认 `ask` 和遮罩字段更新契约；
+- [x] 为 Rust MCP Manager 提供有界配置快照、完整工具发现和 `allow` / `ask` / `deny` 策略求值；
+- [x] 在 Core 增加 MCP 快照热替换，使新 Turn 使用最新配置且在途 Turn 保持一致；
+- [x] 使用版本化 SQLite 元数据和系统凭据库存储 Desktop MCP 配置，完成失败回滚与重启恢复；
+- [x] 实现详情、CRUD、toggle、tools、whitelist、access-principals 和 policy 的原 HTTP 契约；
+- [x] 覆盖重复键/名称、保留遮罩密钥、路径/大小限制、断线重连、策略执行和 Core 重启测试；
+- [x] 使用未修改的原 MCP 页面验证新建、编辑、启停、工具白名单、访问策略、删除和重启恢复；
+- [x] 更新 inventory，确认 `console/src` 零改动并通过 Rust、Console 和客户端全量回归；
+- [x] 重建 Desktop、Core、WebUI、SDK、VSIX 与 legacy 全部 9 个发布产物，并逐个反向验证。
+
+2026-09-05 本机验收：Rust workspace 159 个测试、格式检查与严格 Clippy 通过；Console 295 个测试文件、2453 个测试、production build 和 inventory 防漂移通过，`console/src` 保持零改动。未修改的原 MCP 页面连接 release Rust Core，完成客户端新建、遮罩密钥编辑、真实 `echo` 工具发现、默认访问策略切换为 `deny`、启停、删除和 Core 重启恢复，相关请求全部返回 200 且浏览器错误为 0；HTTP 与 Core 契约另覆盖密钥不落 SQLite、工具白名单、策略优先级、审批边界、断线重连和在途 Turn 的确定性配置快照。当前 inventory 为 370 个调用点、220 条 Rust 路由、216 个已注册调用点，其中 208 个非占位、8 个占位、154 个未注册和 11 个静态未解析表达式；MCP 管理的 10 个调用点已全部注册且均非占位。TypeScript SDK 3 个、Python SDK 4 个真实 Core 测试与 VS Code 57 个测试全部通过。macOS App/ZIP/QA DMG、Core archive、WebUI archive、TypeScript/Python SDK、universal/platform VSIX 与 legacy wheel 均使用本切片源码重建；9 个产物逐个完成执行、真实 Core 静态服务、安装、解包、清单与哈希校验、签名检查或只读挂载反向验证，`dist/SHA256SUMS` 全部通过。QA DMG 当前为 ad-hoc 签名，待用户提供 Apple 发布凭据后才能生成 Developer ID 签名和 notarized 正式包。
+
 ### 14.3 客户端与发布
 
 - [x] WebUI 启动与导航契约测试通过；

@@ -86,6 +86,20 @@ async fn discovers_calls_and_cancels_streamable_http_tools() {
     .expect("config should write");
     let manager = McpManager::from_path(&config_path).expect("config should load");
 
+    let tools = manager.tools("remote").await.expect("tools should list");
+    assert_eq!(tools.len(), 1);
+    assert_eq!(tools[0].name, "echo");
+    assert_eq!(tools[0].description, "Echo over HTTP");
+    assert!(tools[0].enabled);
+    assert_eq!(
+        tools[0].input_schema,
+        json!({
+            "type": "object",
+            "properties": {"text": {"type": "string"}},
+            "required": ["text"]
+        })
+    );
+
     assert_eq!(
         manager.definitions().await,
         vec![json!({

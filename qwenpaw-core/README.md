@@ -186,8 +186,10 @@ QwenPaw client shape under either `{"clients": ...}` or
 `headers`, and the same whitelist. Environment placeholders such as `${TOKEN}`
 are resolved only when the client starts.
 
-Discovered tools are exposed as `mcp__<client>__<tool>` and always require a
-one-time client approval. Core bounds client and tool counts, serialized tool
+Discovered tools are exposed as `mcp__<client>__<tool>`. Each client has a
+persisted `allow`, `ask`, or `deny` access policy; the default remains `ask`,
+and a Turn keeps one MCP manager snapshot so a hot configuration update cannot
+change its connections midway through execution. Core bounds client and tool counts, serialized tool
 definitions, results, HTTP headers, SSE events, OAuth token responses, startup,
 discovery, and call duration. Remote redirects are disabled; legacy SSE POST
 endpoints must remain same-origin. HTTP headers are held as sensitive values,
@@ -202,3 +204,7 @@ The response is bounded to 64 KiB and must return a Bearer token. A remote
 client with `"oauth": {}` explicitly enables interactive browser OAuth through
 the Console or App Protocol. Access and refresh tokens stay in the operating
 system credential store; plain HTTP MCP clients never access that store.
+Desktop-managed header and environment values use the same platform credential
+boundary, while SQLite stores only versioned non-secret MCP metadata. The
+unchanged Console can create, edit, enable, discover/filter tools, edit access
+policy, and delete clients through the Rust compatibility API.
