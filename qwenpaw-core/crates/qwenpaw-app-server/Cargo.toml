@@ -19,6 +19,7 @@ mime_guess.workspace = true
 notify.workspace = true
 qwenpaw-core = { path = "../qwenpaw-core" }
 qwenpaw-protocol = { path = "../qwenpaw-protocol" }
+qwenpaw-storage = { path = "../qwenpaw-storage" }
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true

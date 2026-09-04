@@ -40,6 +40,17 @@ pub(crate) enum ModelEvent {
         name: Option<String>,
         arguments: Option<String>,
     },
+    Usage(ModelUsage),
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct ModelUsage {
+    pub(crate) prompt_tokens: u64,
+    pub(crate) completion_tokens: u64,
+    pub(crate) cache_read_tokens: u64,
+    pub(crate) cache_write_tokens: u64,
+    pub(crate) cache_eligible_input_tokens: u64,
+    pub(crate) cache_observed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -160,6 +171,9 @@ impl ModelClient {
             model,
             messages: &context,
             stream: true,
+            stream_options: ChatCompletionStreamOptions {
+                include_usage: true,
+            },
             tools,
             tool_choice: "auto",
         };
@@ -437,13 +451,22 @@ struct ChatCompletionRequest<'a> {
     model: &'a str,
     messages: &'a [StoredMessage],
     stream: bool,
+    stream_options: ChatCompletionStreamOptions,
     tools: &'a [Value],
     tool_choice: &'static str,
 }
 
+#[derive(Debug, Clone, Copy, Serialize)]
+struct ChatCompletionStreamOptions {
+    include_usage: bool,
+}
+
 #[derive(Debug, Deserialize)]
 struct ChatCompletionChunk {
+    #[serde(default)]
     choices: Vec<ChatCompletionChoice>,
+    #[serde(default)]
+    usage: Option<ChatCompletionUsage>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -476,32 +499,88 @@ struct ChatCompletionFunctionDelta {
     arguments: Option<String>,
 }
 
+#[derive(Debug, Default, Deserialize)]
+struct ChatCompletionUsage {
+    #[serde(default, alias = "input_tokens")]
+    prompt_tokens: u64,
+    #[serde(default, alias = "output_tokens")]
+    completion_tokens: u64,
+    #[serde(default, alias = "input_tokens_details")]
+    prompt_tokens_details: Option<PromptTokenDetails>,
+    #[serde(default)]
+    cache_read_input_tokens: Option<u64>,
+    #[serde(default)]
+    cache_creation_input_tokens: Option<u64>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct PromptTokenDetails {
+    #[serde(default)]
+    cached_tokens: u64,
+}
+
 fn parse_delta(data: &str) -> Result<Vec<ModelEvent>, ModelError> {
     let chunk: ChatCompletionChunk = serde_json::from_str(data)?;
-    let Some(choice) = chunk.choices.first() else {
-        return Ok(Vec::new());
-    };
     let mut events = Vec::new();
-    if let Some(content) = &choice.delta.content
-        && !content.is_empty()
-    {
-        events.push(ModelEvent::TextDelta(content.clone()));
-    }
-    events.extend(choice.delta.tool_calls.iter().map(|call| {
-        ModelEvent::ToolCallDelta {
-            index: call.index,
-            id: call.id.clone(),
-            name: call
-                .function
-                .as_ref()
-                .and_then(|function| function.name.clone()),
-            arguments: call
-                .function
-                .as_ref()
-                .and_then(|function| function.arguments.clone()),
+    if let Some(choice) = chunk.choices.first() {
+        if let Some(content) = &choice.delta.content
+            && !content.is_empty()
+        {
+            events.push(ModelEvent::TextDelta(content.clone()));
         }
-    }));
+        events.extend(choice.delta.tool_calls.iter().map(|call| {
+            ModelEvent::ToolCallDelta {
+                index: call.index,
+                id: call.id.clone(),
+                name: call
+                    .function
+                    .as_ref()
+                    .and_then(|function| function.name.clone()),
+                arguments: call
+                    .function
+                    .as_ref()
+                    .and_then(|function| function.arguments.clone()),
+            }
+        }));
+    }
+    if let Some(usage) = chunk.usage {
+        events.push(ModelEvent::Usage(normalize_usage(usage)));
+    }
     Ok(events)
+}
+
+fn normalize_usage(usage: ChatCompletionUsage) -> ModelUsage {
+    let details_observed = usage.prompt_tokens_details.is_some();
+    let detail_cache_read = usage
+        .prompt_tokens_details
+        .map_or(0, |details| details.cached_tokens);
+    let cache_read_tokens = usage.cache_read_input_tokens.unwrap_or(detail_cache_read);
+    let cache_write_tokens = usage.cache_creation_input_tokens.unwrap_or_default();
+    let cache_observed = details_observed
+        || usage.cache_read_input_tokens.is_some()
+        || usage.cache_creation_input_tokens.is_some();
+    let cache_is_valid =
+        cache_read_tokens.saturating_add(cache_write_tokens) <= usage.prompt_tokens;
+    ModelUsage {
+        prompt_tokens: usage.prompt_tokens,
+        completion_tokens: usage.completion_tokens,
+        cache_read_tokens: if cache_observed && cache_is_valid {
+            cache_read_tokens
+        } else {
+            0
+        },
+        cache_write_tokens: if cache_observed && cache_is_valid {
+            cache_write_tokens
+        } else {
+            0
+        },
+        cache_eligible_input_tokens: if cache_observed && cache_is_valid {
+            usage.prompt_tokens
+        } else {
+            0
+        },
+        cache_observed: cache_observed && cache_is_valid,
+    }
 }
 
 #[derive(Debug, thiserror::Error)]

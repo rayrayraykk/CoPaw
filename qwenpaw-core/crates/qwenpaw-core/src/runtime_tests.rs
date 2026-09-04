@@ -25,6 +25,9 @@ use qwenpaw_protocol::TurnStartParams;
 use qwenpaw_protocol::TurnStatus;
 use qwenpaw_protocol::UserInput;
 use qwenpaw_protocol::WorkspaceInfo;
+use qwenpaw_storage::StoredModelCall;
+use qwenpaw_storage::StoredThread;
+use qwenpaw_storage::StoredTurnMetadata;
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 
@@ -107,7 +110,15 @@ async fn completes_a_streaming_turn_and_persists_history() {
             error: None,
         }]
     );
-    assert_eq!(requests.lock().await.len(), 1);
+    let requests = requests.lock().await;
+    assert_eq!(requests.len(), 1);
+    assert_eq!(
+        requests[0]["stream_options"],
+        serde_json::json!({"include_usage": true})
+    );
+    drop(requests);
+    let snapshots = core.statistics_snapshots().await;
+    assert_persisted_model_metadata(&snapshots, &read);
 
     drop(core);
     let reopened =
@@ -118,6 +129,38 @@ async fn completes_a_streaming_turn_and_persists_history() {
             .await
             .expect("reopened thread should be readable"),
         read
+    );
+    assert_eq!(reopened.statistics_snapshots().await, snapshots);
+}
+
+fn assert_persisted_model_metadata(
+    snapshots: &[StoredThread],
+    read: &qwenpaw_protocol::ThreadReadResponse,
+) {
+    let started_at = snapshots[0].turn_metadata[0].started_at;
+    let completed_at = snapshots[0].turn_metadata[0]
+        .completed_at
+        .expect("completed Turn should have a completion time");
+    assert!(started_at >= snapshots[0].thread.created_at);
+    assert!(completed_at >= started_at);
+    assert_eq!(
+        snapshots[0].turn_metadata,
+        vec![StoredTurnMetadata {
+            turn_id: read.turns[0].id.clone(),
+            started_at,
+            completed_at: Some(completed_at),
+            model_calls: vec![StoredModelCall {
+                provider_id: String::from("openai-compatible"),
+                model: String::from("qwen-test"),
+                prompt_tokens: 0,
+                completion_tokens: 0,
+                cache_read_tokens: 0,
+                cache_write_tokens: 0,
+                cache_eligible_input_tokens: 0,
+                cache_observed: false,
+                usage_observed: false,
+            }],
+        }]
     );
 }
 

@@ -91,6 +91,7 @@ mod desktop_inbox;
 mod desktop_mail_access_control;
 mod desktop_navigation;
 mod desktop_projects;
+mod desktop_stats;
 
 pub use desktop_credentials::DesktopCredentialStore;
 pub use desktop_credentials::SystemDesktopCredentialStore;
@@ -545,6 +546,7 @@ impl AppServer {
                 .merge(desktop_mail_access_control::router())
                 .merge(desktop_navigation::router())
                 .merge(desktop_projects::router())
+                .merge(desktop_stats::router())
                 .route("/api", any(api_not_found))
                 .route("/api/{*path}", any(api_not_found))
                 .fallback_service(ServeDir::new(directory).fallback(ServeFile::new(index)))

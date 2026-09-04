@@ -70,6 +70,41 @@ pub struct StoredThread {
     pub thread: Thread,
     pub turns: Vec<Turn>,
     pub messages: Vec<StoredMessage>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub turn_metadata: Vec<StoredTurnMetadata>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StoredTurnMetadata {
+    pub turn_id: String,
+    pub started_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub model_calls: Vec<StoredModelCall>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StoredModelCall {
+    pub provider_id: String,
+    pub model: String,
+    pub prompt_tokens: u64,
+    pub completion_tokens: u64,
+    pub cache_read_tokens: u64,
+    pub cache_write_tokens: u64,
+    pub cache_eligible_input_tokens: u64,
+    pub cache_observed: bool,
+    pub usage_observed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StoredUsageRecord {
+    pub id: String,
+    pub thread_id: String,
+    pub turn_id: String,
+    pub agent_id: String,
+    pub recorded_at: i64,
+    pub call: StoredModelCall,
 }
 
 #[derive(Clone)]
@@ -135,6 +170,58 @@ impl ThreadStore {
         Ok(())
     }
 
+    /// Persists a Thread snapshot and one immutable model usage record.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when serialization or the atomic database write fails.
+    pub fn upsert_with_usage(
+        &self,
+        snapshot: &StoredThread,
+        usage: &StoredUsageRecord,
+    ) -> Result<(), StorageError> {
+        let serialized_snapshot = serde_json::to_string(snapshot)?;
+        let serialized_usage = serde_json::to_string(usage)?;
+        let mut connection = self.lock()?;
+        let transaction = connection.transaction()?;
+        transaction.execute(
+            "INSERT INTO threads (id, updated_at, snapshot)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(id) DO UPDATE SET
+                updated_at = excluded.updated_at,
+                snapshot = excluded.snapshot",
+            params![
+                snapshot.thread.id,
+                snapshot.thread.updated_at,
+                serialized_snapshot
+            ],
+        )?;
+        transaction.execute(
+            "INSERT INTO model_usage (id, recorded_at, record)
+             VALUES (?1, ?2, ?3)",
+            params![usage.id, usage.recorded_at, serialized_usage],
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    /// Loads the immutable model usage ledger in chronological order.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the query fails or a stored record is invalid.
+    pub fn load_usage(&self) -> Result<Vec<StoredUsageRecord>, StorageError> {
+        let connection = self.lock()?;
+        let mut statement = connection
+            .prepare("SELECT record FROM model_usage ORDER BY recorded_at ASC, id ASC")?;
+        let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+        let mut records = Vec::new();
+        for row in rows {
+            records.push(serde_json::from_str(&row?)?);
+        }
+        Ok(records)
+    }
+
     /// Deletes one complete thread snapshot.
     ///
     /// # Errors
@@ -195,7 +282,15 @@ impl ThreadStore {
              CREATE TABLE IF NOT EXISTS core_settings (
                 key TEXT PRIMARY KEY NOT NULL,
                 value TEXT NOT NULL
-             );",
+             );
+             CREATE TABLE IF NOT EXISTS model_usage (
+                id TEXT PRIMARY KEY NOT NULL,
+                recorded_at INTEGER NOT NULL,
+                record TEXT NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS idx_model_usage_recorded_at
+                ON model_usage(recorded_at ASC, id ASC);
+             ",
         )?;
         Ok(Self {
             connection: Arc::new(Mutex::new(connection)),

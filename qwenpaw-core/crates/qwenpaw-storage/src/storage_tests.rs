@@ -30,6 +30,22 @@ fn persists_and_reopens_complete_thread_snapshots() {
             error: None,
         }],
         messages: vec![StoredMessage::text("assistant", "hello")],
+        turn_metadata: vec![StoredTurnMetadata {
+            turn_id: String::from("turn-1"),
+            started_at: 10,
+            completed_at: Some(20),
+            model_calls: vec![StoredModelCall {
+                provider_id: String::from("openai-compatible"),
+                model: String::from("qwen-test"),
+                prompt_tokens: 12,
+                completion_tokens: 3,
+                cache_read_tokens: 4,
+                cache_write_tokens: 0,
+                cache_eligible_input_tokens: 12,
+                cache_observed: true,
+                usage_observed: true,
+            }],
+        }],
     };
     ThreadStore::open(&path)
         .expect("store should open")
@@ -63,6 +79,7 @@ fn reads_snapshots_written_before_the_archived_field_existed() {
         serde_json::from_value(legacy).expect("legacy snapshot should deserialize");
 
     assert!(!snapshot.thread.archived);
+    assert!(snapshot.turn_metadata.is_empty());
 }
 
 #[test]
@@ -112,6 +129,7 @@ fn deletes_only_the_requested_thread_snapshot() {
                 },
                 turns: Vec::new(),
                 messages: Vec::new(),
+                turn_metadata: Vec::new(),
             })
             .expect("snapshot should persist");
     }
@@ -127,4 +145,52 @@ fn deletes_only_the_requested_thread_snapshot() {
             .collect::<Vec<_>>(),
         vec![String::from("thread-2")]
     );
+}
+
+#[test]
+fn keeps_usage_records_when_the_source_thread_is_deleted() {
+    let store = ThreadStore::in_memory().expect("store should open");
+    let snapshot = StoredThread {
+        thread: Thread {
+            id: String::from("thread-usage"),
+            model: String::from("qwen-test"),
+            workspace_root: Some(String::from("/workspace")),
+            status: ThreadStatus::Idle,
+            archived: false,
+            created_at: 10,
+            updated_at: 20,
+        },
+        turns: Vec::new(),
+        messages: Vec::new(),
+        turn_metadata: Vec::new(),
+    };
+    let usage = StoredUsageRecord {
+        id: String::from("usage-1"),
+        thread_id: snapshot.thread.id.clone(),
+        turn_id: String::from("turn-1"),
+        agent_id: String::from("default"),
+        recorded_at: 20,
+        call: StoredModelCall {
+            provider_id: String::from("openai-compatible"),
+            model: String::from("qwen-test"),
+            prompt_tokens: 12,
+            completion_tokens: 3,
+            cache_read_tokens: 4,
+            cache_write_tokens: 0,
+            cache_eligible_input_tokens: 12,
+            cache_observed: true,
+            usage_observed: true,
+        },
+    };
+    store
+        .upsert_with_usage(&snapshot, &usage)
+        .expect("snapshot and usage should persist");
+    assert!(
+        store
+            .delete(&snapshot.thread.id)
+            .expect("Thread should delete")
+    );
+
+    assert_eq!(store.load_all().expect("Threads should load"), Vec::new());
+    assert_eq!(store.load_usage().expect("usage should load"), vec![usage]);
 }

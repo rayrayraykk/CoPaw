@@ -21,8 +21,6 @@ pub(super) fn router() -> Router<AppServer> {
             get(memory_runtime_status),
         )
         .route("/api/agents/{agent_id}/memory/status", get(memory_status))
-        .route("/api/agent-stats", get(agent_stats))
-        .route("/api/agent-stats/llm-tool-trend", get(empty_array))
         .route("/api/settings/offload-policy", get(offload_policy))
         .route("/api/config/security/sandbox", get(sandbox_status))
         .route(
@@ -34,7 +32,6 @@ pub(super) fn router() -> Router<AppServer> {
             "/api/config/security/tool-guard/builtin-rules",
             get(empty_array),
         )
-        .route("/api/token-usage/details", get(empty_array))
         .route("/api/console/debug/backend-logs", get(backend_logs))
         .route("/api/backups", get(empty_array))
         .route("/api/backups/jobs/active", get(empty_value))
@@ -93,37 +90,6 @@ fn memory_runtime_value() -> Value {
         "embedding_reindex_required": false,
         "embedding_reindex_undo_available": false
     })
-}
-
-#[derive(Debug, Default, Deserialize)]
-struct DateRange {
-    #[serde(default)]
-    start_date: String,
-    #[serde(default)]
-    end_date: String,
-}
-
-async fn agent_stats(Query(range): Query<DateRange>) -> Json<Value> {
-    Json(json!({
-        "total_active_sessions": 0,
-        "total_messages": 0,
-        "total_user_messages": 0,
-        "total_assistant_messages": 0,
-        "total_prompt_tokens": 0,
-        "total_completion_tokens": 0,
-        "total_llm_calls": 0,
-        "total_tool_calls": 0,
-        "agent_prompt_tokens": 0,
-        "agent_completion_tokens": 0,
-        "agent_llm_calls": 0,
-        "agent_cache_read_tokens": 0,
-        "agent_cache_eligible_input_tokens": 0,
-        "agent_cache_hit_rate": null,
-        "by_date": [],
-        "channel_stats": [],
-        "start_date": range.start_date,
-        "end_date": range.end_date
-    }))
 }
 
 async fn offload_policy() -> Json<Value> {

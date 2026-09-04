@@ -407,6 +407,237 @@ async fn serves_the_unchanged_console_bootstrap_contracts() {
 
 #[tokio::test]
 #[allow(clippy::too_many_lines)]
+async fn persists_real_model_usage_for_the_unchanged_statistics_pages() {
+    let console = tempfile::tempdir().expect("temporary Console should be created");
+    let desktop_data = tempfile::tempdir().expect("temporary Desktop data should be created");
+    let workspace = tempfile::tempdir().expect("temporary Workspace should be created");
+    std::fs::write(console.path().join("index.html"), "<html>console</html>")
+        .expect("Console index should be written");
+    let database = desktop_data.path().join("threads.sqlite3");
+    let model_config = ModelConfig {
+        api_key: None,
+        base_url: start_usage_model_server().await,
+        default_model: String::from("qwen-usage-test"),
+    };
+    let first_core =
+        Core::persistent(model_config.clone(), &database).expect("first Core should open");
+    let thread = first_core
+        .start_thread(ThreadStartParams {
+            model: None,
+            workspace_root: Some(workspace.path().to_string_lossy().into_owned()),
+        })
+        .await
+        .expect("statistics Thread should start")
+        .thread;
+    let thread_id = thread.id.clone();
+    let (_turn, mut events) = first_core
+        .start_turn(qwenpaw_protocol::TurnStartParams {
+            thread_id: thread_id.clone(),
+            input: vec![qwenpaw_protocol::UserInput::Text {
+                text: String::from("Count this usage"),
+            }],
+        })
+        .await
+        .expect("statistics Turn should start");
+    while let Some(event) = events.recv().await {
+        if matches!(event, qwenpaw_protocol::CoreEvent::TurnCompleted(_)) {
+            break;
+        }
+    }
+    let date = chrono::Local::now().date_naive().to_string();
+    let expected_details = json!([{
+        "date": date,
+        "provider_id": "openai-compatible",
+        "model": "qwen-usage-test",
+        "prompt_tokens": 20,
+        "completion_tokens": 5,
+        "cache_read_tokens": 8,
+        "cache_write_tokens": 0,
+        "cache_eligible_input_tokens": 20,
+        "cache_observed_calls": 1,
+        "call_count": 1,
+        "agent_id": "default"
+    }]);
+    let expected_summary = json!({
+        "total_prompt_tokens": 20,
+        "total_completion_tokens": 5,
+        "total_cache_read_tokens": 8,
+        "total_cache_write_tokens": 0,
+        "total_cache_eligible_input_tokens": 20,
+        "cache_observed_calls": 1,
+        "cache_hit_rate": 40.0,
+        "total_calls": 1,
+        "by_model": {
+            "openai-compatible:qwen-usage-test": {
+                "provider_id": "openai-compatible",
+                "model": "qwen-usage-test",
+                "prompt_tokens": 20,
+                "completion_tokens": 5,
+                "cache_read_tokens": 8,
+                "cache_write_tokens": 0,
+                "cache_eligible_input_tokens": 20,
+                "cache_observed_calls": 1,
+                "call_count": 1
+            }
+        },
+        "by_date": {
+            date.clone(): {
+                "prompt_tokens": 20,
+                "completion_tokens": 5,
+                "cache_read_tokens": 8,
+                "cache_write_tokens": 0,
+                "cache_eligible_input_tokens": 20,
+                "cache_observed_calls": 1,
+                "call_count": 1
+            }
+        }
+    });
+    let expected_agent_stats = json!({
+        "total_active_sessions": 1,
+        "total_messages": 2,
+        "total_user_messages": 1,
+        "total_assistant_messages": 1,
+        "total_prompt_tokens": 20,
+        "total_completion_tokens": 5,
+        "total_llm_calls": 1,
+        "total_tool_calls": 0,
+        "by_date": [{
+            "date": date,
+            "chats": 1,
+            "active_sessions": 1,
+            "user_messages": 1,
+            "assistant_messages": 1,
+            "total_messages": 2,
+            "prompt_tokens": 20,
+            "completion_tokens": 5,
+            "llm_calls": 1,
+            "tool_calls": 0,
+            "agent_prompt_tokens": 20,
+            "agent_completion_tokens": 5,
+            "agent_llm_calls": 1,
+            "agent_cache_read_tokens": 8
+        }],
+        "channel_stats": [{
+            "channel": "console",
+            "session_count": 1,
+            "user_messages": 1,
+            "assistant_messages": 1,
+            "total_messages": 2
+        }],
+        "start_date": date,
+        "end_date": date,
+        "agent_prompt_tokens": 20,
+        "agent_completion_tokens": 5,
+        "agent_llm_calls": 1,
+        "agent_cache_read_tokens": 8,
+        "agent_cache_eligible_input_tokens": 20,
+        "agent_cache_hit_rate": 40.0
+    });
+    let query = format!("start_date={date}&end_date={date}");
+
+    let first_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("first statistics listener should bind");
+    let first_address = first_listener
+        .local_addr()
+        .expect("first statistics listener should have an address");
+    let first_server = new_isolated_desktop(
+        first_core.clone(),
+        console.path(),
+        String::from("desktop-stats-first-token"),
+        Arc::new(MemoryCredentialStore::default()),
+        desktop_data.path(),
+    )
+    .expect("first statistics server should configure");
+    let first_task = tokio::spawn(first_server.run_http(first_listener));
+    let client = reqwest::Client::new();
+    assert_eq!(
+        get_json(
+            &client,
+            format!("http://{first_address}/api/token-usage/details?{query}"),
+        )
+        .await,
+        expected_details
+    );
+    assert_eq!(
+        get_json(
+            &client,
+            format!("http://{first_address}/api/token-usage?{query}"),
+        )
+        .await,
+        expected_summary
+    );
+    assert_eq!(
+        get_json(
+            &client,
+            format!("http://{first_address}/api/agent-stats?{query}"),
+        )
+        .await,
+        expected_agent_stats
+    );
+    assert_eq!(
+        get_json(
+            &client,
+            format!("http://{first_address}/api/agent-stats/llm-tool-trend?{query}"),
+        )
+        .await,
+        json!([{"date": date, "agent_llm_calls": 1, "tool_calls": 0}])
+    );
+    assert_eq!(
+        get_json(
+            &client,
+            format!(
+                "http://{first_address}/api/token-usage/details?{query}&model=other&provider=openai-compatible"
+            ),
+        )
+        .await,
+        json!([])
+    );
+    first_core
+        .delete_thread(&thread_id)
+        .await
+        .expect("statistics Thread should delete");
+    assert_eq!(
+        get_json(
+            &client,
+            format!("http://{first_address}/api/token-usage/details?{query}"),
+        )
+        .await,
+        expected_details
+    );
+    first_task.abort();
+    let _ = first_task.await;
+
+    let second_core = Core::persistent(model_config, &database).expect("second Core should reopen");
+    let second_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("second statistics listener should bind");
+    let second_address = second_listener
+        .local_addr()
+        .expect("second statistics listener should have an address");
+    let second_server = new_isolated_desktop(
+        second_core,
+        console.path(),
+        String::from("desktop-stats-second-token"),
+        Arc::new(MemoryCredentialStore::default()),
+        desktop_data.path(),
+    )
+    .expect("second statistics server should configure");
+    let second_task = tokio::spawn(second_server.run_http(second_listener));
+    assert_eq!(
+        get_json(
+            &client,
+            format!("http://{second_address}/api/token-usage/details?{query}"),
+        )
+        .await,
+        expected_details
+    );
+    second_task.abort();
+    let _ = second_task.await;
+}
+
+#[tokio::test]
+#[allow(clippy::too_many_lines)]
 async fn creates_imports_uploads_clones_and_persists_projects() {
     let console = tempfile::tempdir().expect("temporary Console should be created");
     let desktop_data = tempfile::tempdir().expect("temporary Desktop data should be created");
@@ -4945,13 +5176,27 @@ async fn assert_navigation_agent_contracts(address: SocketAddr) {
                     "agent_cache_read_tokens": 0,
                     "agent_cache_eligible_input_tokens": 0,
                     "agent_cache_hit_rate": null,
-                    "by_date": [],
+                    "by_date": empty_agent_stats_days("2026-08-25", "2026-09-01"),
                     "channel_stats": [],
                     "start_date": "2026-08-25",
                     "end_date": "2026-09-01"
                 }),
             ),
-            ("/api/agent-stats/llm-tool-trend", json!([])),
+            (
+                "/api/agent-stats/llm-tool-trend?start_date=2026-08-25&end_date=2026-08-26",
+                json!([
+                    {
+                        "date": "2026-08-25",
+                        "agent_llm_calls": 0,
+                        "tool_calls": 0
+                    },
+                    {
+                        "date": "2026-08-26",
+                        "agent_llm_calls": 0,
+                        "tool_calls": 0
+                    }
+                ]),
+            ),
             (
                 "/api/workspace/checkpoints/graph?limit=500",
                 json!({
@@ -4986,6 +5231,36 @@ fn memory_runtime_contract() -> Value {
         "embedding_reindex_required": false,
         "embedding_reindex_undo_available": false
     })
+}
+
+fn empty_agent_stats_days(start: &str, end: &str) -> Vec<Value> {
+    let mut date =
+        chrono::NaiveDate::parse_from_str(start, "%Y-%m-%d").expect("start date should be valid");
+    let end = chrono::NaiveDate::parse_from_str(end, "%Y-%m-%d").expect("end date should be valid");
+    let mut days = Vec::new();
+    loop {
+        days.push(json!({
+            "date": date.to_string(),
+            "chats": 0,
+            "active_sessions": 0,
+            "user_messages": 0,
+            "assistant_messages": 0,
+            "total_messages": 0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "llm_calls": 0,
+            "tool_calls": 0,
+            "agent_prompt_tokens": 0,
+            "agent_completion_tokens": 0,
+            "agent_llm_calls": 0,
+            "agent_cache_read_tokens": 0
+        }));
+        if date == end {
+            break;
+        }
+        date = date.succ_opt().expect("date range should advance");
+    }
+    days
 }
 
 async fn assert_navigation_settings_contracts(address: SocketAddr) {
@@ -5029,6 +5304,21 @@ async fn assert_navigation_settings_contracts(address: SocketAddr) {
             ),
             ("/api/config/security/tool-guard/builtin-rules", json!([])),
             ("/api/token-usage/details", json!([])),
+            (
+                "/api/token-usage?start_date=2026-08-25&end_date=2026-09-01",
+                json!({
+                    "total_prompt_tokens": 0,
+                    "total_completion_tokens": 0,
+                    "total_cache_read_tokens": 0,
+                    "total_cache_write_tokens": 0,
+                    "total_cache_eligible_input_tokens": 0,
+                    "cache_observed_calls": 0,
+                    "cache_hit_rate": null,
+                    "total_calls": 0,
+                    "by_model": {},
+                    "by_date": {}
+                }),
+            ),
             ("/api/workspace/audio-mode", json!({"audio_mode": "auto"})),
             (
                 "/api/workspace/transcription-providers",
@@ -5858,6 +6148,37 @@ async fn start_model_server() -> String {
         axum::serve(listener, app)
             .await
             .expect("mock model server should run");
+    });
+    format!("http://{address}")
+}
+
+async fn start_usage_model_server() -> String {
+    let app = axum::Router::new().route(
+        "/chat/completions",
+        axum::routing::post(|axum::Json(body): axum::Json<Value>| async move {
+            assert_eq!(body["stream"], json!(true));
+            assert_eq!(body["stream_options"], json!({"include_usage": true}));
+            axum::response::Response::builder()
+                .status(axum::http::StatusCode::OK)
+                .header(axum::http::header::CONTENT_TYPE, "text/event-stream")
+                .body(axum::body::Body::from(concat!(
+                    "data: {\"choices\":[{\"delta\":{\"content\":\"Counted\"}}]}\n\n",
+                    "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":5,\"prompt_tokens_details\":{\"cached_tokens\":8}}}\n\n",
+                    "data: [DONE]\n\n"
+                )))
+                .expect("usage model response should build")
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("usage model listener should bind");
+    let address = listener
+        .local_addr()
+        .expect("usage model listener should have an address");
+    tokio::spawn(async move {
+        axum::serve(listener, app)
+            .await
+            .expect("usage model server should run");
     });
     format!("http://{address}")
 }

@@ -3,11 +3,11 @@
   "source": "console/src production TypeScript call sites",
   "callCount": 370,
   "unresolvedCount": 11,
-  "rustRouteCount": 195,
-  "registeredCallCount": 189,
-  "placeholderCallCount": 14,
-  "nonPlaceholderRegisteredCallCount": 175,
-  "missingCallCount": 181,
+  "rustRouteCount": 196,
+  "registeredCallCount": 190,
+  "placeholderCallCount": 11,
+  "nonPlaceholderRegisteredCallCount": 179,
+  "missingCallCount": 180,
   "rustRoutes": [
     {
       "method": "ANY",
@@ -118,15 +118,15 @@
       "method": "GET",
       "path": "/api/agent-stats",
       "handler": "agent_stats",
-      "placeholder": true,
-      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_navigation.rs"
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_stats.rs"
     },
     {
       "method": "GET",
       "path": "/api/agent-stats/llm-tool-trend",
-      "handler": "empty_array",
-      "placeholder": true,
-      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_navigation.rs"
+      "handler": "llm_tool_trend",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_stats.rs"
     },
     {
       "method": "GET",
@@ -858,10 +858,17 @@
     },
     {
       "method": "GET",
+      "path": "/api/token-usage",
+      "handler": "token_usage",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_stats.rs"
+    },
+    {
+      "method": "GET",
       "path": "/api/token-usage/details",
-      "handler": "empty_array",
-      "placeholder": true,
-      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_navigation.rs"
+      "handler": "token_usage_details",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_stats.rs"
     },
     {
       "method": "GET",
@@ -2058,7 +2065,7 @@
       "resolved": true,
       "apiPath": "/api/agent-stats{query}",
       "registered": true,
-      "placeholder": true
+      "placeholder": false
     },
     {
       "method": "GET",
@@ -2070,7 +2077,7 @@
       "resolved": true,
       "apiPath": "/api/agent-stats/llm-tool-trend{query}",
       "registered": true,
-      "placeholder": true
+      "placeholder": false
     },
     {
       "method": "POST",
@@ -5141,7 +5148,7 @@
       "line": 24,
       "resolved": true,
       "apiPath": "/api/token-usage{query}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5154,7 +5161,7 @@
       "resolved": true,
       "apiPath": "/api/token-usage/details{query}",
       "registered": true,
-      "placeholder": true
+      "placeholder": false
     },
     {
       "method": "GET",

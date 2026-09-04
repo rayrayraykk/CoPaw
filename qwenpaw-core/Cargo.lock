@@ -2164,6 +2164,7 @@ dependencies = [
  "pretty_assertions",
  "qwenpaw-core",
  "qwenpaw-protocol",
+ "qwenpaw-storage",
  "rcgen",
  "reqwest",
  "rustls",

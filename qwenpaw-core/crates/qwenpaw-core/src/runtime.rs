@@ -52,8 +52,11 @@ use qwenpaw_protocol::WorkspaceListResponse;
 use qwenpaw_protocol::WorkspaceReadResponse;
 use qwenpaw_storage::StoredFunctionCall;
 use qwenpaw_storage::StoredMessage;
+use qwenpaw_storage::StoredModelCall;
 use qwenpaw_storage::StoredThread;
 use qwenpaw_storage::StoredToolCall;
+use qwenpaw_storage::StoredTurnMetadata;
+use qwenpaw_storage::StoredUsageRecord;
 use qwenpaw_storage::ThreadStore;
 use qwenpaw_tools::ApprovalRequirement;
 use qwenpaw_tools::ToolCall;
@@ -70,6 +73,7 @@ use crate::model::ModelClient;
 use crate::model::ModelConfig;
 use crate::model::ModelConfigError;
 use crate::model::ModelEvent;
+use crate::model::ModelUsage;
 
 const EVENT_CHANNEL_CAPACITY: usize = 64;
 const DEFAULT_LIST_LIMIT: u32 = 50;
@@ -160,12 +164,14 @@ struct CoreInner {
 struct State {
     threads: HashMap<String, ThreadRecord>,
     approvals: HashMap<String, PendingApproval>,
+    usage_records: Vec<StoredUsageRecord>,
 }
 
 struct ThreadRecord {
     thread: Thread,
     turns: Vec<Turn>,
     messages: Vec<StoredMessage>,
+    turn_metadata: Vec<StoredTurnMetadata>,
     active_turn: Option<ActiveTurn>,
 }
 
@@ -251,6 +257,7 @@ impl Core {
             None => default_system_prompt_files(),
         };
         let snapshots = store.load_all().map_err(CoreError::storage)?;
+        let usage_records = store.load_usage().map_err(CoreError::storage)?;
         let mut threads = HashMap::new();
         for mut snapshot in snapshots {
             recover_interrupted_turns(&mut snapshot);
@@ -262,6 +269,7 @@ impl Core {
                     thread: snapshot.thread,
                     turns: snapshot.turns,
                     messages: snapshot.messages,
+                    turn_metadata: snapshot.turn_metadata,
                     active_turn: None,
                 },
             );
@@ -274,6 +282,7 @@ impl Core {
                 state: Mutex::new(State {
                     threads,
                     approvals: HashMap::new(),
+                    usage_records,
                 }),
                 runtime_environment: SyncRwLock::new(BTreeMap::new()),
                 agent_runtime_config: SyncRwLock::new(AgentRuntimeConfig::default()),
@@ -315,6 +324,7 @@ impl Core {
             thread: thread.clone(),
             turns: Vec::new(),
             messages: vec![StoredMessage::text("system", system_prompt)],
+            turn_metadata: Vec::new(),
             active_turn: None,
         };
         self.inner
@@ -447,6 +457,26 @@ impl Core {
         })
     }
 
+    /// Returns immutable Thread snapshots for in-process statistics adapters.
+    ///
+    /// The snapshots include no credentials and preserve the same persisted
+    /// data used for restart recovery.
+    pub async fn statistics_snapshots(&self) -> Vec<StoredThread> {
+        let state = self.inner.state.lock().await;
+        let mut snapshots = state
+            .threads
+            .values()
+            .map(ThreadRecord::snapshot)
+            .collect::<Vec<_>>();
+        snapshots.sort_by(|left, right| left.thread.id.cmp(&right.thread.id));
+        snapshots
+    }
+
+    /// Returns the immutable global model usage ledger.
+    pub async fn usage_records(&self) -> Vec<StoredUsageRecord> {
+        self.inner.state.lock().await.usage_records.clone()
+    }
+
     /// Exports one idle Thread as a complete in-memory checkpoint.
     ///
     /// # Errors
@@ -523,6 +553,7 @@ impl Core {
             thread: thread.clone(),
             turns: checkpoint.turns,
             messages: checkpoint.messages,
+            turn_metadata: checkpoint.turn_metadata,
             active_turn: None,
         };
         self.inner
@@ -1168,6 +1199,7 @@ impl Core {
             });
         }
         let turn_id = new_id("turn");
+        let started_at = now();
         let turn = Turn {
             id: turn_id.clone(),
             thread_id: thread_id.clone(),
@@ -1193,8 +1225,14 @@ impl Core {
             }
             record.messages.push(StoredMessage::text("user", text));
             record.turns.push(turn.clone());
+            record.turn_metadata.push(StoredTurnMetadata {
+                turn_id: turn_id.clone(),
+                started_at,
+                completed_at: None,
+                model_calls: Vec::new(),
+            });
             record.thread.status = ThreadStatus::Active;
-            record.thread.updated_at = now();
+            record.thread.updated_at = started_at;
             record.active_turn = Some(ActiveTurn {
                 id: turn_id.clone(),
                 cancellation: cancellation.clone(),
@@ -1563,6 +1601,7 @@ impl Core {
         let mut agent_started = false;
         let mut text = String::new();
         let mut calls = BTreeMap::<usize, ToolCallBuilder>::new();
+        let mut usage = None;
         loop {
             tokio::select! {
                 () = cancellation.cancelled() => return Err(ModelStepError::Interrupted),
@@ -1616,6 +1655,9 @@ impl Core {
                             }
                             calls.entry(index).or_default().push(id, name, arguments)?;
                         }
+                        Some(Ok(ModelEvent::Usage(value))) => {
+                            usage = Some(value);
+                        }
                         Some(Err(error)) => {
                             return Err(ModelStepError::Failed(error.to_string()));
                         }
@@ -1632,6 +1674,7 @@ impl Core {
             agent_item_id,
             text,
             tool_calls,
+            usage,
         })
     }
 
@@ -1702,7 +1745,10 @@ impl Core {
                 },
             })
             .collect();
-        let snapshot = {
+        let usage_observed = step.usage.is_some();
+        let usage = step.usage.clone().unwrap_or_default();
+        let recorded_at = now();
+        let (snapshot, usage_record) = {
             let mut state = self.inner.state.lock().await;
             let record = state
                 .threads
@@ -1721,43 +1767,36 @@ impl Core {
                 turn.items.push(item.clone());
             }
             turn.items.extend(tool_items.clone());
-            record.snapshot()
+            let metadata = record
+                .turn_metadata
+                .iter_mut()
+                .find(|metadata| metadata.turn_id == turn_id)
+                .ok_or_else(|| CoreError::TurnNotFound(turn_id.to_owned()))?;
+            let model_call = stored_model_call(&record.thread.model, &usage, usage_observed);
+            metadata.model_calls.push(model_call.clone());
+            let usage_record = usage_record(thread_id, turn_id, recorded_at, model_call);
+            (record.snapshot(), usage_record)
         };
-        self.inner
-            .store
-            .upsert(&snapshot)
-            .map_err(CoreError::storage)?;
-        if let Some(item) = agent_item {
-            send_event(
-                event_tx,
-                CoreEvent::ItemCompleted(ItemCompletedNotification {
-                    thread_id: thread_id.to_owned(),
-                    turn_id: turn_id.to_owned(),
-                    item,
-                }),
-            )
-            .await;
+        if let Some(usage_record) = &usage_record {
+            self.inner
+                .store
+                .upsert_with_usage(&snapshot, usage_record)
+                .map_err(CoreError::storage)?;
+        } else {
+            self.inner
+                .store
+                .upsert(&snapshot)
+                .map_err(CoreError::storage)?;
         }
-        for item in tool_items {
-            send_event(
-                event_tx,
-                CoreEvent::ItemStarted(ItemStartedNotification {
-                    thread_id: thread_id.to_owned(),
-                    turn_id: turn_id.to_owned(),
-                    item: item.clone(),
-                }),
-            )
-            .await;
-            send_event(
-                event_tx,
-                CoreEvent::ItemCompleted(ItemCompletedNotification {
-                    thread_id: thread_id.to_owned(),
-                    turn_id: turn_id.to_owned(),
-                    item,
-                }),
-            )
-            .await;
+        if let Some(usage_record) = usage_record {
+            self.inner
+                .state
+                .lock()
+                .await
+                .usage_records
+                .push(usage_record);
         }
+        send_model_step_events(thread_id, turn_id, agent_item, tool_items, event_tx).await;
         Ok(())
     }
 
@@ -1922,6 +1961,7 @@ impl Core {
         outcome: TurnOutcome,
         event_tx: &mpsc::Sender<CoreEvent>,
     ) {
+        let completed_at = now();
         let (completed_turn, snapshot) = {
             let mut state = self.inner.state.lock().await;
             let Some(record) = state.threads.get_mut(thread_id) else {
@@ -1945,7 +1985,14 @@ impl Core {
                     record.thread.status = ThreadStatus::Error;
                 }
             }
-            record.thread.updated_at = now();
+            if let Some(metadata) = record
+                .turn_metadata
+                .iter_mut()
+                .find(|metadata| metadata.turn_id == turn_id)
+            {
+                metadata.completed_at = Some(completed_at);
+            }
+            record.thread.updated_at = completed_at;
             record.active_turn = None;
             let completed_turn = turn.clone();
             (completed_turn, record.snapshot())
@@ -2027,6 +2074,7 @@ struct ModelStep {
     agent_item_id: String,
     text: String,
     tool_calls: Vec<ToolCall>,
+    usage: Option<ModelUsage>,
 }
 
 struct ModelStepRequest<'a> {
@@ -2035,6 +2083,78 @@ struct ModelStepRequest<'a> {
     model: &'a str,
     messages: &'a [StoredMessage],
     tools: &'a [serde_json::Value],
+}
+
+fn stored_model_call(model: &str, usage: &ModelUsage, usage_observed: bool) -> StoredModelCall {
+    StoredModelCall {
+        provider_id: String::from("openai-compatible"),
+        model: model.to_owned(),
+        prompt_tokens: usage.prompt_tokens,
+        completion_tokens: usage.completion_tokens,
+        cache_read_tokens: usage.cache_read_tokens,
+        cache_write_tokens: usage.cache_write_tokens,
+        cache_eligible_input_tokens: usage.cache_eligible_input_tokens,
+        cache_observed: usage.cache_observed,
+        usage_observed,
+    }
+}
+
+fn usage_record(
+    thread_id: &str,
+    turn_id: &str,
+    recorded_at: i64,
+    call: StoredModelCall,
+) -> Option<StoredUsageRecord> {
+    (call.usage_observed && (call.prompt_tokens > 0 || call.completion_tokens > 0)).then(|| {
+        StoredUsageRecord {
+            id: new_id("usage"),
+            thread_id: thread_id.to_owned(),
+            turn_id: turn_id.to_owned(),
+            agent_id: String::from("default"),
+            recorded_at,
+            call,
+        }
+    })
+}
+
+async fn send_model_step_events(
+    thread_id: &str,
+    turn_id: &str,
+    agent_item: Option<Item>,
+    tool_items: Vec<Item>,
+    event_tx: &mpsc::Sender<CoreEvent>,
+) {
+    if let Some(item) = agent_item {
+        send_event(
+            event_tx,
+            CoreEvent::ItemCompleted(ItemCompletedNotification {
+                thread_id: thread_id.to_owned(),
+                turn_id: turn_id.to_owned(),
+                item,
+            }),
+        )
+        .await;
+    }
+    for item in tool_items {
+        send_event(
+            event_tx,
+            CoreEvent::ItemStarted(ItemStartedNotification {
+                thread_id: thread_id.to_owned(),
+                turn_id: turn_id.to_owned(),
+                item: item.clone(),
+            }),
+        )
+        .await;
+        send_event(
+            event_tx,
+            CoreEvent::ItemCompleted(ItemCompletedNotification {
+                thread_id: thread_id.to_owned(),
+                turn_id: turn_id.to_owned(),
+                item,
+            }),
+        )
+        .await;
+    }
 }
 
 struct ToolExecutionRequest<'a> {
@@ -2225,6 +2345,7 @@ impl ThreadRecord {
             thread: self.thread.clone(),
             turns: self.turns.clone(),
             messages: self.messages.clone(),
+            turn_metadata: self.turn_metadata.clone(),
         }
     }
 }

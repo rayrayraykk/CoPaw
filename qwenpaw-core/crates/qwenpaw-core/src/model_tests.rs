@@ -61,6 +61,38 @@ fn rejects_an_sse_event_over_the_transport_limit() {
     assert!(matches!(error, ModelError::EventTooLarge));
 }
 
+#[test]
+fn parses_usage_only_chunks_and_normalizes_cache_metrics() {
+    assert_eq!(
+        parse_delta(
+            r#"{"choices":[],"usage":{"prompt_tokens":20,"completion_tokens":5,"prompt_tokens_details":{"cached_tokens":8}}}"#,
+        )
+        .expect("usage chunk should parse"),
+        vec![ModelEvent::Usage(ModelUsage {
+            prompt_tokens: 20,
+            completion_tokens: 5,
+            cache_read_tokens: 8,
+            cache_write_tokens: 0,
+            cache_eligible_input_tokens: 20,
+            cache_observed: true,
+        })]
+    );
+    assert_eq!(
+        parse_delta(
+            r#"{"choices":[],"usage":{"input_tokens":3,"output_tokens":2,"cache_read_input_tokens":4}}"#,
+        )
+        .expect("invalid cache metrics should fail closed"),
+        vec![ModelEvent::Usage(ModelUsage {
+            prompt_tokens: 3,
+            completion_tokens: 2,
+            cache_read_tokens: 0,
+            cache_write_tokens: 0,
+            cache_eligible_input_tokens: 0,
+            cache_observed: false,
+        })]
+    );
+}
+
 #[tokio::test]
 async fn returns_a_bounded_rate_limit_error() {
     let base_url = start_server(Router::new().route(
