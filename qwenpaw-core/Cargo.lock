@@ -2134,6 +2134,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "qwenpaw-app-server-client"
+version = "0.2.0"
+dependencies = [
+ "pretty_assertions",
+ "qwenpaw-protocol",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "qwenpaw-cli"
 version = "0.2.0"
 dependencies = [
@@ -2142,7 +2154,9 @@ dependencies = [
  "dirs",
  "pretty_assertions",
  "qwenpaw-app-server",
+ "qwenpaw-app-server-client",
  "qwenpaw-core",
+ "qwenpaw-protocol",
  "serde_json",
  "tempfile",
  "tokio",

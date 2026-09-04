@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/qwenpaw-app-server",
+    "crates/qwenpaw-app-server-client",
     "crates/qwenpaw-cli",
     "crates/qwenpaw-core",
     "crates/qwenpaw-mcp",

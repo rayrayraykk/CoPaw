@@ -16,31 +16,41 @@ VS Code and Desktop now start the same Rust Core. Desktop serves the unchanged C
 ## Runtime topology
 
 ```text
-VS Code Chat
-    │ JSONL over child-process stdio
-    ▼
-qwenpaw-core app-server ───────────────┐
-    │ App Protocol v3                  │ optional loopback HTTP health
-    ▼                                  │ and WebSocket transport
-Core runtime                           │
-    ├── bounded agent loop             │
-    ├── approvals and cancellation     │
-    ├── Workspace tools                │
-    ├── MCP clients                    │
-    ├── SQLite thread/config storage   │
-    └── OpenAI-compatible model API    │
-                                       │
-Desktop ───────── random loopback HTTP ┘
-    ├── unchanged Console assets and SPA fallback
-    ├── version, health, authenticated shutdown
-    ├── bootstrap/model/Workspace APIs, files/watch, attachments, Chat SSE, stop, and one-time approval
-    └── explicit 404 for unsupported `/api` routes
+VS Code ── TypeScript SDK ── stdio ────────────────┐
+Python integrations ── Python SDK ── stdio ───────┤
+Rust integrations ── app-server-client ── stdio ──┤ App Protocol v3
+Remote App Protocol clients ── authenticated WSS ─┘
+                                                   │
+Existing React WebUI ── HTTP/SSE compatibility ────┤
+Tauri Desktop ── sidecar lifecycle ────────────────┤
+                                                   ▼
+                                       qwenpaw-core app-server
+                                       transport / routing / events
+                                       approval / cancellation
+                                                   │
+                                                   ▼
+                                           qwenpaw-core crate
+                                       Thread / Turn / Agent loop
+                                       Model / Tools / MCP / Storage
 
-Legacy Python release ── HTTP/SSE ── Python QwenPaw service
-    └── retained separately for users who deliberately run the old product
-
-Remote native client ── TLS + bearer-authenticated WSS ── Core App Protocol
+Existing CLI / TUI / channels / hub ── current Python product paths
+Legacy Python release ── HTTP/SSE ───── Python QwenPaw service
+    └── both remain runnable until each replacement reaches feature parity
 ```
+
+The App Server is the stable client host, not the domain kernel. SDKs own
+transport lifecycle, initialization, typed request correlation, notifications,
+and language-friendly Thread/Turn APIs. They do not own the agent loop or read
+Core storage directly. The unchanged WebUI remains the deliberate exception at
+the client edge: its legacy HTTP/SSE contract is adapted inside the same App
+Server into the same Rust Core model.
+
+CLI, TUI, remote access, and channel integrations are existing product
+capabilities. This diagram shows their target Core connection boundary; it does
+not classify them as future features or authorize removing their current
+implementations before equivalent Rust-backed paths pass regression tests.
+The exact preservation boundary is recorded in
+[Existing Client Compatibility Boundary](client-compatibility.md).
 
 The two server paths are deliberately separate in the MVP. VS Code never calls the Python Web API. The existing Console uses a narrow HTTP/SSE adapter in Rust Desktop mode; that adapter translates at the transport edge into the same Core Thread/Turn/approval model used by App Protocol.
 
@@ -50,7 +60,10 @@ The two server paths are deliberately separate in the MVP. VS Code never calls t
 | --- | --- | --- | --- |
 | `qwenpaw-cli` | `qwenpaw-core/` | Native `qwenpaw-core` executable, configuration bootstrap, logging, process entrypoints | Implemented |
 | `qwenpaw-app-server` | `qwenpaw-core/` | JSONL stdio, loopback HTTP/WebSocket, authenticated remote WSS, Desktop static serving/lifecycle, initialization, health probes, and Console compatibility adapter | Implemented for App Protocol plus the first Desktop bootstrap/chat/approval slice |
-| `qwenpaw-protocol` | `qwenpaw-core/` | Rust protocol types, version, JSON Schema, fixtures, inventory, TypeScript SDK | Implemented, App Protocol v3 |
+| `qwenpaw-protocol` | `qwenpaw-core/` | Rust protocol types, version, JSON Schema, fixtures, inventory, generated language types | Implemented, App Protocol v3 |
+| `qwenpaw-app-server-client` | `qwenpaw-core/` | Reusable Rust App Server stdio lifecycle and typed client | Implemented and covered against the real App Server |
+| `sdk/typescript` | `qwenpaw-core/` | Node/VS Code App Server client, Thread/Turn facade, and generated TypeScript protocol types | Implemented for stdio; consumed by VS Code |
+| `sdk/python` | `qwenpaw-core/` | Python App Server stdio client and Thread/Turn facade | Implemented for stdio |
 | `qwenpaw-core` | `qwenpaw-core/` | Thread/Turn state machine, bounded context, model streaming, tool loop, approval and cancellation orchestration | Implemented for MVP |
 | `qwenpaw-storage` | `qwenpaw-core/` | SQLite snapshots and non-secret effective configuration | Implemented for MVP |
 | `qwenpaw-tools` | `qwenpaw-core/` | Workspace path boundary and built-in file/Shell tools | Implemented for MVP |

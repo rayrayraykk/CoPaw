@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -37,6 +38,7 @@ pub struct ToolOutput {
 #[derive(Debug, Clone)]
 pub struct Workspace {
     root: PathBuf,
+    environment: BTreeMap<String, String>,
 }
 
 impl Workspace {
@@ -51,12 +53,22 @@ impl Workspace {
         if !root.is_dir() {
             return Err(ToolError::WorkspaceNotDirectory { path: root });
         }
-        Ok(Self { root })
+        Ok(Self {
+            root,
+            environment: BTreeMap::new(),
+        })
     }
 
     #[must_use]
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    /// Adds environment variables inherited by Workspace child processes.
+    #[must_use]
+    pub fn with_environment(mut self, environment: BTreeMap<String, String>) -> Self {
+        self.environment = environment;
+        self
     }
 
     /// Resolves an existing file and returns its portable Workspace-relative path.
@@ -126,6 +138,7 @@ impl Workspace {
         command
             .kill_on_drop(true)
             .current_dir(&self.root)
+            .envs(&self.environment)
             .stdin(Stdio::null());
         let output = tokio::time::timeout(Duration::from_millis(timeout_ms), command.output())
             .await

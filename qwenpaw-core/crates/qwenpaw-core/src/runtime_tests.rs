@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
@@ -363,6 +364,53 @@ async fn archives_persists_and_resumes_a_thread() {
     );
 }
 
+#[tokio::test]
+async fn deletes_a_thread_from_runtime_and_persistent_storage() {
+    let directory = tempfile::tempdir().expect("temporary directory should be created");
+    let database_path = directory.path().join("threads.sqlite3");
+    let model_config = ModelConfig {
+        api_key: None,
+        base_url: String::from("http://127.0.0.1:1"),
+        default_model: String::from("qwen-test"),
+    };
+    let core = Core::persistent(model_config.clone(), &database_path)
+        .expect("persistent core should open");
+    let started = core
+        .start_thread(ThreadStartParams {
+            model: None,
+            workspace_root: Some(directory.path().to_string_lossy().into_owned()),
+        })
+        .await
+        .expect("thread should start");
+
+    assert_eq!(
+        core.delete_thread(&started.thread.id)
+            .await
+            .expect("thread should delete"),
+        started.thread
+    );
+    assert_eq!(
+        core.read_thread(&started.thread.id)
+            .await
+            .expect_err("deleted thread should be absent"),
+        CoreError::ThreadNotFound(started.thread.id.clone())
+    );
+
+    drop(core);
+    let reopened =
+        Core::persistent(model_config, &database_path).expect("persistent core should reopen");
+    assert_eq!(
+        reopened
+            .list_threads(ThreadListParams {
+                include_archived: true,
+                ..ThreadListParams::default()
+            })
+            .await
+            .data,
+        Vec::new()
+    );
+}
+
 #[test]
 fn persists_and_hot_reloads_non_secret_model_configuration() {
     let directory = tempfile::tempdir().expect("temporary directory should be created");
@@ -518,6 +566,50 @@ fn persists_and_validates_the_desktop_ui_language() {
             .read_ui_language()
             .expect("persisted UI language should reload"),
         "vi"
+    );
+}
+
+#[test]
+fn persists_environment_names_without_persisting_values() {
+    let directory = tempfile::tempdir().expect("temporary directory should be created");
+    let database_path = directory.path().join("threads.sqlite3");
+    let model_config = ModelConfig {
+        api_key: None,
+        base_url: String::from("http://127.0.0.1:1"),
+        default_model: String::from("qwen-test"),
+    };
+    let core = Core::persistent(model_config.clone(), &database_path)
+        .expect("persistent Core should open");
+
+    assert_eq!(
+        core.write_environment_keys(&[String::from("SECOND_VALUE"), String::from("FIRST_VALUE"),])
+            .expect("environment keys should persist"),
+        vec![String::from("FIRST_VALUE"), String::from("SECOND_VALUE")]
+    );
+    core.replace_runtime_environment(BTreeMap::from([(
+        String::from("FIRST_VALUE"),
+        String::from("secret-value"),
+    )]))
+    .expect("runtime environment should update");
+    drop(core);
+
+    let database = std::fs::read(&database_path).expect("database should be readable");
+    assert!(!String::from_utf8_lossy(&database).contains("secret-value"));
+    let reopened =
+        Core::persistent(model_config, &database_path).expect("persistent Core should reopen");
+    assert_eq!(
+        reopened
+            .read_environment_keys()
+            .expect("environment keys should reload"),
+        vec![String::from("FIRST_VALUE"), String::from("SECOND_VALUE")]
+    );
+    assert_eq!(
+        reopened
+            .write_environment_keys(&[String::from("INVALID-NAME")])
+            .expect_err("invalid environment name should be rejected"),
+        CoreError::Config(String::from(
+            "environment variable name is invalid: INVALID-NAME"
+        ))
     );
 }
 

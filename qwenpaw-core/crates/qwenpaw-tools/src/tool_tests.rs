@@ -1,4 +1,5 @@
 use pretty_assertions::assert_eq;
+use std::collections::BTreeMap;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -89,6 +90,38 @@ fn shell_always_requires_approval() {
         }),
         ApprovalRequirement::Required
     );
+}
+
+#[cfg(windows)]
+const PRINT_ENVIRONMENT_COMMAND: &str = "echo %QWENPAW_TEST_ENV%";
+
+#[cfg(not(windows))]
+const PRINT_ENVIRONMENT_COMMAND: &str = "printf %s \"$QWENPAW_TEST_ENV\"";
+
+#[tokio::test]
+async fn passes_workspace_environment_to_shell_commands() {
+    let directory = tempfile::tempdir().expect("temporary directory should be created");
+    let workspace = Workspace::open(directory.path())
+        .expect("workspace should open")
+        .with_environment(BTreeMap::from([(
+            String::from("QWENPAW_TEST_ENV"),
+            String::from("available-to-child"),
+        )]));
+
+    let output = workspace
+        .execute(&ToolCall {
+            id: String::from("call-1"),
+            name: String::from("shell"),
+            arguments: serde_json::json!({
+                "command": PRINT_ENVIRONMENT_COMMAND
+            })
+            .to_string(),
+        })
+        .await
+        .expect("shell should receive the Workspace environment");
+
+    assert!(!output.is_error);
+    assert!(output.content.contains("available-to-child"));
 }
 
 #[tokio::test]

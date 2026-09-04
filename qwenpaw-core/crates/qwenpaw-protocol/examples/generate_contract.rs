@@ -4,6 +4,7 @@ use std::path::Path;
 use qwenpaw_protocol::app_protocol_fixtures;
 use qwenpaw_protocol::json_schema_contract;
 use qwenpaw_protocol::protocol_inventory;
+use qwenpaw_protocol::python_contract;
 use qwenpaw_protocol::typescript_contract;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -11,6 +12,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     write(
         &root.join("sdk/typescript/src/protocol.ts"),
         &typescript_contract(),
+    )?;
+    write(
+        &root.join("sdk/python/src/qwenpaw_sdk/protocol.py"),
+        &python_contract(),
     )?;
     write_json(
         &root.join("docs/api-contract/app-protocol-v3.schema.json"),

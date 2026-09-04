@@ -7,6 +7,7 @@ use qwenpaw_core::ModelConfig;
 use qwenpaw_protocol::ThreadStartParams;
 use serde_json::Value;
 use serde_json::json;
+use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -25,6 +26,7 @@ type ClientSocket = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
 #[derive(Default)]
 struct MemoryCredentialStore {
     api_key: Mutex<Option<String>>,
+    environment: Mutex<BTreeMap<String, String>>,
 }
 
 impl DesktopCredentialStore for MemoryCredentialStore {
@@ -41,6 +43,31 @@ impl DesktopCredentialStore for MemoryCredentialStore {
             .api_key
             .lock()
             .expect("test credential lock should be available") = api_key.map(str::to_owned);
+        Ok(())
+    }
+
+    fn load_environment_value(&self, key: &str) -> anyhow::Result<Option<String>> {
+        Ok(self
+            .environment
+            .lock()
+            .expect("test environment credential lock should be available")
+            .get(key)
+            .cloned())
+    }
+
+    fn save_environment_value(&self, key: &str, value: Option<&str>) -> anyhow::Result<()> {
+        let mut environment = self
+            .environment
+            .lock()
+            .expect("test environment credential lock should be available");
+        match value {
+            Some(value) => {
+                environment.insert(key.to_owned(), value.to_owned());
+            }
+            None => {
+                environment.remove(key);
+            }
+        }
         Ok(())
     }
 }
@@ -256,6 +283,48 @@ async fn serves_the_unchanged_console_bootstrap_contracts() {
         .await
         .expect("Core thread should start")
         .thread;
+    core.write_mail_access_control_data(
+        &json!({
+            "version": 1,
+            "agents": {
+                "default": {
+                    "whitelist": {},
+                    "blacklist": {},
+                    "pending": [
+                        {
+                            "sender_address": "approve@example.com",
+                            "agent_id": "default",
+                            "display_name": "Approved Sender",
+                            "subject": "approve me",
+                            "body_preview": "approval preview",
+                            "timestamp": 3.0,
+                            "remark": "pending approve",
+                            "uid": 101,
+                            "date": "2026-09-04",
+                            "messages": [{"uid": 101, "subject": "approve me"}]
+                        },
+                        {
+                            "sender_address": "deny@example.com",
+                            "agent_id": "default",
+                            "display_name": "Denied Sender",
+                            "subject": "deny me",
+                            "body_preview": "denial preview",
+                            "timestamp": 2.0,
+                            "remark": "pending deny"
+                        },
+                        {
+                            "sender_address": "dismiss@example.com",
+                            "agent_id": "default",
+                            "timestamp": 1.0
+                        }
+                    ],
+                    "approved_replay": []
+                }
+            }
+        })
+        .to_string(),
+    )
+    .expect("mail access-control fixture should persist");
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("Desktop listener should bind");
@@ -279,10 +348,350 @@ async fn serves_the_unchanged_console_bootstrap_contracts() {
     assert_agent_contract(address).await;
     assert_model_contract(address).await;
     assert_model_write_contract(address, &credentials).await;
+    assert_environment_contract(address).await;
+    assert_access_control_contract(address).await;
+    assert_mail_access_control_contract(address).await;
+    assert_channel_contract(address).await;
+    assert_cron_contract(address).await;
     assert_chat_contract(address, &thread.id).await;
     assert_workspace_contract(address, &thread.id).await;
 
     task.abort();
+}
+
+#[tokio::test]
+async fn serves_and_persists_the_inbox_event_contracts() {
+    let console = tempfile::tempdir().expect("temporary Console should be created");
+    let desktop_data = tempfile::tempdir().expect("temporary Desktop data should be created");
+    let database = desktop_data.path().join("threads.sqlite3");
+    std::fs::write(console.path().join("index.html"), "<html>console</html>")
+        .expect("Console index should be written");
+    let model_config = ModelConfig {
+        api_key: None,
+        base_url: String::from("http://127.0.0.1:1"),
+        default_model: String::from("qwen-test"),
+    };
+    let first_core =
+        Core::persistent(model_config.clone(), &database).expect("first Core should open");
+    first_core
+        .write_inbox_data(&inbox_fixture().to_string())
+        .expect("Inbox fixture should persist");
+    first_core
+        .write_mail_access_control_data(
+            &json!({
+                "version": 1,
+                "agents": {
+                    "default": {
+                        "whitelist": {},
+                        "blacklist": {},
+                        "pending": [{
+                            "sender_address": "pending@example.com",
+                            "agent_id": "default",
+                            "timestamp": 1.0
+                        }],
+                        "approved_replay": []
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .expect("mail fixture should persist");
+    let first_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("first Desktop listener should bind");
+    let first_address = first_listener
+        .local_addr()
+        .expect("first Desktop listener should have an address");
+    let first_server = AppServer::new_desktop_with_credential_store_and_data_dir(
+        first_core,
+        console.path(),
+        String::from("desktop-inbox-first-token"),
+        Arc::new(MemoryCredentialStore::default()),
+        desktop_data.path(),
+    )
+    .expect("first Desktop server should configure");
+    let first_task = tokio::spawn(first_server.run_http(first_listener));
+    let client = reqwest::Client::new();
+    assert_inbox_query_and_read_contract(&client, first_address).await;
+    assert_inbox_delete_and_validation_contract(&client, first_address).await;
+    first_task.abort();
+    let _ = first_task.await;
+
+    let second_core = Core::persistent(model_config, &database).expect("second Core should open");
+    let second_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("second Desktop listener should bind");
+    let second_address = second_listener
+        .local_addr()
+        .expect("second Desktop listener should have an address");
+    let second_server = AppServer::new_desktop_with_credential_store_and_data_dir(
+        second_core,
+        console.path(),
+        String::from("desktop-inbox-second-token"),
+        Arc::new(MemoryCredentialStore::default()),
+        desktop_data.path(),
+    )
+    .expect("second Desktop server should configure");
+    let second_task = tokio::spawn(second_server.run_http(second_listener));
+    let mut persisted_mail = inbox_fixture()["events"][3].clone();
+    persisted_mail["read"] = json!(true);
+    assert_eq!(
+        get_json(
+            &client,
+            format!("http://{second_address}/api/console/inbox/events"),
+        )
+        .await,
+        json!({
+            "events": [inbox_fixture()["events"][2], persisted_mail],
+            "total": 2,
+            "unread_count": 0
+        })
+    );
+    assert_eq!(
+        get_json(
+            &client,
+            format!("http://{second_address}/api/console/inbox/traces/run-heartbeat"),
+        )
+        .await,
+        inbox_fixture()["traces"]["run-heartbeat"]
+    );
+    second_task.abort();
+}
+
+async fn assert_inbox_query_and_read_contract(client: &reqwest::Client, address: SocketAddr) {
+    let base = format!("http://{address}/api/console/inbox");
+    assert_eq!(
+        get_json(client, format!("{base}/events")).await,
+        json!({
+            "events": inbox_fixture()["events"],
+            "total": 4,
+            "unread_count": 3
+        })
+    );
+    assert_eq!(
+        get_json(
+            client,
+            format!(
+                "{base}/events?source_types=cron&source_types=memory&unread_only=true&limit=1&offset=1"
+            ),
+        )
+        .await,
+        json!({
+            "events": [inbox_fixture()["events"][1]],
+            "total": 2,
+            "unread_count": 2
+        })
+    );
+    assert_eq!(
+        get_json(
+            client,
+            format!("{base}/events?status=success&agent_id=researcher"),
+        )
+        .await,
+        json!({
+            "events": [inbox_fixture()["events"][1]],
+            "total": 1,
+            "unread_count": 1
+        })
+    );
+    assert_eq!(
+        get_json(client, format!("{base}/traces/run-shared")).await,
+        inbox_fixture()["traces"]["run-shared"]
+    );
+    assert_eq!(
+        post_json(
+            client,
+            format!("{base}/read"),
+            json!({"event_ids": ["event-cron", "event-cron"]}),
+        )
+        .await,
+        json!({"updated": 1})
+    );
+    assert_eq!(
+        post_json(
+            client,
+            format!("http://{address}/api/mail-access-control/pending/dismiss"),
+            json!({"entries": [{
+                "agent_id": "default",
+                "address": "PENDING@example.com"
+            }]}),
+        )
+        .await,
+        json!({"status": "ok", "count": 1})
+    );
+    assert_eq!(
+        get_json(client, format!("{base}/events?unread_only=true&limit=500")).await,
+        json!({
+            "events": [inbox_fixture()["events"][1]],
+            "total": 1,
+            "unread_count": 1
+        })
+    );
+    assert_eq!(
+        post_json(client, format!("{base}/read"), json!({"all": true})).await,
+        json!({"updated": 1})
+    );
+    assert_eq!(
+        post_json(client, format!("{base}/read"), json!({"all": true})).await,
+        json!({"updated": 0})
+    );
+}
+
+async fn assert_inbox_delete_and_validation_contract(
+    client: &reqwest::Client,
+    address: SocketAddr,
+) {
+    let base = format!("http://{address}/api/console/inbox");
+    let first_delete = client
+        .delete(format!("{base}/events/event-cron"))
+        .send()
+        .await
+        .expect("first Inbox delete should send");
+    assert_eq!(first_delete.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        first_delete
+            .json::<Value>()
+            .await
+            .expect("first Inbox delete should be JSON"),
+        json!({
+            "deleted": true,
+            "trace_deleted": false,
+            "run_id": "run-shared"
+        })
+    );
+    assert_eq!(
+        get_json(client, format!("{base}/traces/run-shared")).await,
+        inbox_fixture()["traces"]["run-shared"]
+    );
+    assert_eq!(
+        client
+            .delete(format!("{base}/events/event-memory"))
+            .send()
+            .await
+            .expect("second Inbox delete should send")
+            .json::<Value>()
+            .await
+            .expect("second Inbox delete should be JSON"),
+        json!({
+            "deleted": true,
+            "trace_deleted": true,
+            "run_id": "run-shared"
+        })
+    );
+    for (url, expected) in [
+        (
+            format!("{base}/traces/run-shared"),
+            reqwest::StatusCode::NOT_FOUND,
+        ),
+        (
+            format!("{base}/events?limit=0"),
+            reqwest::StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+    ] {
+        assert_eq!(
+            client
+                .get(url)
+                .send()
+                .await
+                .expect("invalid Inbox request should send")
+                .status(),
+            expected
+        );
+    }
+    assert_eq!(
+        client
+            .delete(format!("{base}/events/missing"))
+            .send()
+            .await
+            .expect("missing Inbox delete should send")
+            .status(),
+        reqwest::StatusCode::NOT_FOUND
+    );
+}
+
+fn inbox_fixture() -> Value {
+    json!({
+        "version": 1,
+        "events": [
+            {
+                "id": "event-cron",
+                "agent_id": "default",
+                "source_type": "cron",
+                "source_id": "daily-digest",
+                "event_type": "cron_result",
+                "status": "success",
+                "severity": "info",
+                "title": "Cron result: Daily digest",
+                "body": "Daily summary",
+                "payload": {"run_id": "run-shared", "trigger": "manual"},
+                "read": false,
+                "created_at": 40.0
+            },
+            {
+                "id": "event-memory",
+                "agent_id": "researcher",
+                "source_type": "memory",
+                "source_id": "memory-job",
+                "event_type": "memory_result",
+                "status": "success",
+                "severity": "info",
+                "title": "Memory result",
+                "body": "Memory summary",
+                "payload": {"run_id": "run-shared"},
+                "read": false,
+                "created_at": 30.0
+            },
+            {
+                "id": "event-heartbeat",
+                "agent_id": "default",
+                "source_type": "heartbeat",
+                "source_id": "heartbeat",
+                "event_type": "heartbeat_result",
+                "status": "success",
+                "severity": "info",
+                "title": "Heartbeat result",
+                "body": "Heartbeat task finished successfully.",
+                "payload": {"run_id": "run-heartbeat"},
+                "read": true,
+                "created_at": 20.0
+            },
+            {
+                "id": "event-mail-pending",
+                "agent_id": "default",
+                "source_type": "mail",
+                "source_id": "pending@example.com",
+                "event_type": "new_email",
+                "status": "success",
+                "severity": "info",
+                "title": "New email",
+                "body": "Pending mail",
+                "payload": {
+                    "acl_status": "pending",
+                    "acl_sender_address": "pending@example.com"
+                },
+                "read": false,
+                "created_at": 10.0
+            }
+        ],
+        "traces": {
+            "run-shared": {
+                "run_id": "run-shared",
+                "created_at": 1.0,
+                "completed_at": 2.0,
+                "status": "success",
+                "meta": {"kind": "shared"},
+                "events": [{"at": 1.5, "event": {"role": "assistant", "content": "Trace result"}}]
+            },
+            "run-heartbeat": {
+                "run_id": "run-heartbeat",
+                "created_at": 3.0,
+                "completed_at": 4.0,
+                "status": "success",
+                "meta": {"kind": "heartbeat"},
+                "events": []
+            }
+        }
+    })
 }
 
 async fn assert_language_write_contract(address: SocketAddr) {
@@ -326,6 +735,1028 @@ async fn assert_language_write_contract(address: SocketAddr) {
             )
         })
     );
+}
+
+async fn assert_environment_contract(address: SocketAddr) {
+    let client = reqwest::Client::new();
+    let url = format!("http://{address}/api/envs");
+    let saved = client
+        .put(&url)
+        .json(&json!({
+            "SECOND_VALUE": "two",
+            "FIRST_VALUE": "one"
+        }))
+        .send()
+        .await
+        .expect("environment update should send");
+    assert_eq!(saved.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        saved
+            .json::<Value>()
+            .await
+            .expect("environment update should be JSON"),
+        json!([
+            {"key": "FIRST_VALUE", "value": "one"},
+            {"key": "SECOND_VALUE", "value": "two"}
+        ])
+    );
+    assert_eq!(
+        get_json(&client, url.clone()).await,
+        json!([
+            {"key": "FIRST_VALUE", "value": "one"},
+            {"key": "SECOND_VALUE", "value": "two"}
+        ])
+    );
+
+    let invalid = client
+        .put(&url)
+        .json(&json!({"INVALID-NAME": "value"}))
+        .send()
+        .await
+        .expect("invalid environment update should send");
+    assert_eq!(invalid.status(), reqwest::StatusCode::BAD_REQUEST);
+    assert_eq!(
+        invalid
+            .json::<Value>()
+            .await
+            .expect("invalid environment response should be JSON"),
+        json!({
+            "detail": concat!(
+                "configuration is invalid: environment variable name is invalid: ",
+                "INVALID-NAME"
+            )
+        })
+    );
+
+    let deleted = client
+        .delete(format!("{url}/FIRST_VALUE"))
+        .send()
+        .await
+        .expect("environment delete should send");
+    assert_eq!(deleted.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        deleted
+            .json::<Value>()
+            .await
+            .expect("environment delete should be JSON"),
+        json!([{"key": "SECOND_VALUE", "value": "two"}])
+    );
+
+    let missing = client
+        .delete(format!("{url}/MISSING"))
+        .send()
+        .await
+        .expect("missing environment delete should send");
+    assert_eq!(missing.status(), reqwest::StatusCode::NOT_FOUND);
+    assert_eq!(
+        missing
+            .json::<Value>()
+            .await
+            .expect("missing environment response should be JSON"),
+        json!({"detail": "Env var 'MISSING' not found"})
+    );
+
+    let cleared = client
+        .put(url)
+        .json(&json!({}))
+        .send()
+        .await
+        .expect("environment clear should send");
+    assert_eq!(cleared.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        cleared
+            .json::<Value>()
+            .await
+            .expect("environment clear should be JSON"),
+        json!([])
+    );
+}
+
+async fn assert_cron_contract(address: SocketAddr) {
+    let client = reqwest::Client::new();
+    let collection_url = format!("http://{address}/api/cron/jobs");
+    let created_response = client
+        .post(&collection_url)
+        .json(&json!({
+            "id": "client-id-is-ignored",
+            "name": "Console reminder",
+            "schedule": {
+                "type": "cron",
+                "cron": "9 * * 0",
+                "timezone": "UTC"
+            },
+            "task_type": "text",
+            "text": "Time to stretch",
+            "save_result_to_inbox": true,
+            "dispatch": {
+                "target": {
+                    "user_id": "admin",
+                    "session_id": "cron-ui-session"
+                }
+            }
+        }))
+        .send()
+        .await
+        .expect("cron create should send");
+    assert_eq!(created_response.status(), reqwest::StatusCode::OK);
+    let created = created_response
+        .json::<Value>()
+        .await
+        .expect("cron create should be JSON");
+    let job_id = created["id"]
+        .as_str()
+        .expect("created cron should have an id")
+        .to_owned();
+    assert_ne!(job_id, "client-id-is-ignored");
+    assert_eq!(created["schedule"]["cron"], json!("0 9 * * sun"));
+    assert_eq!(created["enabled"], json!(true));
+    assert_eq!(created["save_result_to_inbox"], json!(true));
+    assert_eq!(created["runtime"]["timeout_seconds"], json!(120));
+    assert_eq!(
+        get_json(&client, collection_url.clone()).await,
+        json!([created])
+    );
+
+    let item_url = format!("{collection_url}/{job_id}");
+    let view = get_json(&client, item_url.clone()).await;
+    assert_eq!(view["spec"]["name"], json!("Console reminder"));
+    assert_eq!(
+        view["state"],
+        json!({
+            "next_run_at": null,
+            "last_run_at": null,
+            "last_status": null,
+            "last_error": null
+        })
+    );
+
+    assert_cron_execution_contract(&client, address, &collection_url, &item_url).await;
+    assert_invalid_cron_is_rejected(&client, &collection_url).await;
+
+    let deleted = client
+        .delete(item_url)
+        .send()
+        .await
+        .expect("cron delete should send");
+    assert_eq!(deleted.status(), reqwest::StatusCode::OK);
+    assert_eq!(get_json(&client, collection_url).await, json!([]));
+}
+
+async fn assert_access_control_contract(address: SocketAddr) {
+    let client = reqwest::Client::new();
+    let base = format!("http://{address}/api/access-control");
+    assert_eq!(
+        get_json(&client, base.clone()).await,
+        json!({
+            "console": {"whitelist": {}, "blacklist": {}, "pending": []}
+        })
+    );
+    assert_eq!(
+        get_json(&client, format!("{base}/telegram")).await,
+        json!({"whitelist": {}, "blacklist": {}, "pending": []})
+    );
+
+    assert_access_control_list_mutations(&client, &base).await;
+    assert_access_control_pending_actions(&client, &base).await;
+}
+
+async fn assert_mail_access_control_contract(address: SocketAddr) {
+    let client = reqwest::Client::new();
+    let base = format!("http://{address}/api/mail-access-control");
+    assert_mail_pending_contract(&client, &base).await;
+    assert_mail_list_contract(&client, &base).await;
+}
+
+async fn assert_mail_pending_contract(client: &reqwest::Client, base: &str) {
+    assert_eq!(
+        get_json(client, format!("{base}/agents")).await,
+        json!({"agents": ["default"]})
+    );
+    let initial = get_json(client, base.to_owned()).await;
+    assert_eq!(initial["default"]["whitelist"], json!({}));
+    assert_eq!(
+        initial["default"]["pending"].as_array().map(Vec::len),
+        Some(3)
+    );
+    let pending = get_json(client, format!("{base}/pending/all")).await;
+    assert_eq!(pending[0]["sender_address"], json!("approve@example.com"));
+    assert_eq!(pending[2]["sender_address"], json!("dismiss@example.com"));
+    assert_eq!(
+        get_json(client, format!("{base}/pending/count")).await,
+        json!({"count": 3})
+    );
+
+    assert_eq!(
+        post_json(
+            client,
+            format!("{base}/pending/remark"),
+            json!({
+                "agent_id": "default",
+                "address": "APPROVE@example.com",
+                "remark": "reviewed"
+            }),
+        )
+        .await,
+        json!({"status": "ok"})
+    );
+    for (action, address) in [
+        ("approve", "approve@example.com"),
+        ("deny", "deny@example.com"),
+        ("dismiss", "dismiss@example.com"),
+    ] {
+        assert_eq!(
+            post_json(
+                client,
+                format!("{base}/pending/{action}"),
+                json!({"entries": [{"agent_id": "default", "address": address}]}),
+            )
+            .await,
+            json!({"status": "ok", "count": 1})
+        );
+    }
+    let moved = get_json(client, base.to_owned()).await;
+    assert_eq!(
+        moved["default"]["whitelist"]["approve@example.com"],
+        json!({"remark": "reviewed", "display_name": "Approved Sender"})
+    );
+    assert_eq!(
+        moved["default"]["blacklist"]["deny@example.com"],
+        json!({"remark": "pending deny", "display_name": "Denied Sender"})
+    );
+    assert_eq!(moved["default"]["pending"], json!([]));
+    assert_eq!(
+        moved["default"]["approved_replay"][0]["sender_address"],
+        json!("approve@example.com")
+    );
+}
+
+async fn assert_mail_list_contract(client: &reqwest::Client, base: &str) {
+    assert_eq!(
+        post_json(
+            client,
+            format!("{base}/whitelist/add"),
+            json!({"entries": [
+                {
+                    "agent_id": "",
+                    "address": "Friend@Example.com",
+                    "display_name": "Friend",
+                    "remark": "trusted"
+                },
+                {"agent_id": "", "address": "*@trusted.example.com"}
+            ]}),
+        )
+        .await,
+        json!({"status": "ok", "count": 2})
+    );
+    assert_eq!(
+        post_json(
+            client,
+            format!("{base}/remark"),
+            json!({
+                "agent_id": "default",
+                "address": "friend@example.com",
+                "remark": "best friend"
+            }),
+        )
+        .await,
+        json!({"status": "ok"})
+    );
+    assert_eq!(
+        post_json(
+            client,
+            format!("{base}/blacklist/add"),
+            json!({"entries": [{
+                "agent_id": "default",
+                "address": "friend@example.com",
+                "display_name": "Blocked Friend"
+            }]}),
+        )
+        .await,
+        json!({"status": "ok", "count": 1})
+    );
+    let listed = get_json(client, base.to_owned()).await;
+    assert!(listed["default"]["whitelist"]["friend@example.com"].is_null());
+    assert_eq!(
+        listed["default"]["blacklist"]["friend@example.com"],
+        json!({"remark": "", "display_name": "Blocked Friend"})
+    );
+
+    let invalid = client
+        .post(format!("{base}/whitelist/add"))
+        .json(&json!({"entries": [
+            {"agent_id": "default", "address": "valid@example.com"},
+            {"agent_id": "default", "address": "not-an-email"}
+        ]}))
+        .send()
+        .await
+        .expect("invalid mail address request should send");
+    assert_eq!(invalid.status(), reqwest::StatusCode::BAD_REQUEST);
+    assert!(
+        get_json(client, base.to_owned()).await["default"]["whitelist"]["valid@example.com"]
+            .is_null()
+    );
+    assert_eq!(
+        post_json(
+            client,
+            format!("{base}/whitelist/add"),
+            json!({"entries": [{
+                "agent_id": "missing",
+                "address": "ignored@example.com"
+            }]}),
+        )
+        .await,
+        json!({"status": "ok", "count": 0})
+    );
+
+    let missing = client
+        .post(format!("{base}/pending/remark"))
+        .json(&json!({
+            "agent_id": "default",
+            "address": "missing@example.com",
+            "remark": "missing"
+        }))
+        .send()
+        .await
+        .expect("missing mail pending remark request should send");
+    assert_eq!(missing.status(), reqwest::StatusCode::NOT_FOUND);
+}
+
+async fn assert_channel_contract(address: SocketAddr) {
+    let client = reqwest::Client::new();
+    let channels = get_json(&client, format!("http://{address}/api/config/channels")).await;
+    let channels = channels
+        .as_object()
+        .expect("channel list should be an object");
+    assert_eq!(channels.len(), 18);
+    assert_eq!(channels["console"]["enabled"], json!(true));
+    assert_eq!(channels["console"]["isBuiltin"], json!(true));
+    assert_eq!(
+        channels["imessage"]["db_path"],
+        json!("~/Library/Messages/chat.db")
+    );
+    assert_eq!(channels["onebot"]["ws_host"], json!("127.0.0.1"));
+
+    assert_eq!(
+        get_json(
+            &client,
+            format!("http://{address}/api/config/channels/types"),
+        )
+        .await,
+        json!([
+            "imessage",
+            "discord",
+            "dingtalk",
+            "feishu",
+            "qq",
+            "telegram",
+            "mattermost",
+            "mqtt",
+            "console",
+            "matrix",
+            "slack",
+            "voice",
+            "sip",
+            "wecom",
+            "xiaoyi",
+            "yuanbao",
+            "wechat",
+            "onebot"
+        ])
+    );
+    assert_eq!(
+        get_json(
+            &client,
+            format!("http://{address}/api/config/channels/schemas"),
+        )
+        .await,
+        json!({})
+    );
+    let console_url = format!("http://{address}/api/config/channels/console");
+    let mut console = get_json(&client, console_url.clone()).await;
+    console["enabled"] = json!(false);
+    console["bot_prefix"] = json!("[core] ");
+    let updated = client
+        .put(&console_url)
+        .json(&console)
+        .send()
+        .await
+        .expect("Console channel update should send");
+    assert_eq!(updated.status(), reqwest::StatusCode::OK);
+    let updated = updated
+        .json::<Value>()
+        .await
+        .expect("Console channel update should be JSON");
+    assert_eq!(updated["enabled"], json!(true));
+    assert_eq!(updated["bot_prefix"], json!("[core] "));
+    assert_eq!(get_json(&client, console_url).await, updated);
+
+    assert_eq!(
+        post_json(
+            &client,
+            format!("http://{address}/api/config/channels/console/conflict-check"),
+            json!({"enabled": true}),
+        )
+        .await,
+        json!({"conflict": false, "agents": []})
+    );
+    let unsupported = client
+        .put(format!("http://{address}/api/config/channels/telegram"))
+        .json(&json!({"enabled": true, "bot_token": "must-not-persist"}))
+        .send()
+        .await
+        .expect("unsupported channel update should send");
+    assert_eq!(unsupported.status(), reqwest::StatusCode::NOT_IMPLEMENTED);
+    assert_eq!(
+        unsupported
+            .json::<Value>()
+            .await
+            .expect("unsupported response should be JSON"),
+        json!({
+            "detail": "Rust runtime for channel 'telegram' is not implemented"
+        })
+    );
+}
+
+async fn assert_access_control_list_mutations(client: &reqwest::Client, base: &str) {
+    let added = post_json(
+        client,
+        format!("{base}/whitelist/add"),
+        json!({"entries": [{
+            "channel": "console",
+            "user_id": "alice",
+            "remark": "owner",
+            "username": "Alice"
+        }]}),
+    )
+    .await;
+    assert_eq!(added, json!({"status": "ok", "count": 1}));
+
+    assert_eq!(
+        post_json(
+            client,
+            format!("{base}/remark"),
+            json!({"channel": "console", "user_id": "alice", "remark": "admin"}),
+        )
+        .await,
+        json!({"status": "ok"})
+    );
+    assert_eq!(
+        post_json(
+            client,
+            format!("{base}/username"),
+            json!({"channel": "console", "user_id": "alice", "username": "Alice A."}),
+        )
+        .await,
+        json!({"status": "ok"})
+    );
+    assert_eq!(
+        get_json(client, format!("{base}/console")).await,
+        json!({
+            "whitelist": {"alice": {"remark": "admin", "username": "Alice A."}},
+            "blacklist": {},
+            "pending": []
+        })
+    );
+
+    for (list, action) in [("blacklist", "add"), ("blacklist", "remove")] {
+        assert_eq!(
+            post_json(
+                client,
+                format!("{base}/{list}/{action}"),
+                json!({"entries": [{"channel": "telegram", "user_id": "blocked"}]}),
+            )
+            .await,
+            json!({"status": "ok", "count": 1})
+        );
+    }
+    assert_eq!(
+        post_json(
+            client,
+            format!("{base}/whitelist/remove"),
+            json!({"entries": [{"channel": "console", "user_id": "alice"}]}),
+        )
+        .await,
+        json!({"status": "ok", "count": 1})
+    );
+}
+
+async fn assert_access_control_pending_actions(client: &reqwest::Client, base: &str) {
+    for (action, user_id, expected_list) in [
+        ("approve", "approved", "whitelist"),
+        ("deny", "denied", "blacklist"),
+    ] {
+        assert_eq!(
+            post_json(
+                client,
+                format!("{base}/pending/{action}"),
+                json!({"entries": [{
+                    "channel": "console",
+                    "user_id": user_id,
+                    "remark": action
+                }]}),
+            )
+            .await,
+            json!({"status": "ok", "count": 1})
+        );
+        assert_eq!(
+            get_json(client, format!("{base}/console")).await[expected_list][user_id]["remark"],
+            json!(action)
+        );
+    }
+    assert_eq!(
+        post_json(
+            client,
+            format!("{base}/pending/dismiss"),
+            json!({"entries": [{"channel": "console", "user_id": "missing"}]}),
+        )
+        .await,
+        json!({"status": "ok", "count": 1})
+    );
+    assert_eq!(
+        get_json(client, format!("{base}/pending/all")).await,
+        json!([])
+    );
+
+    let missing = client
+        .post(format!("{base}/pending/remark"))
+        .json(&json!({
+            "channel": "console",
+            "user_id": "missing",
+            "remark": "none"
+        }))
+        .send()
+        .await
+        .expect("missing pending remark request should send");
+    assert_eq!(missing.status(), reqwest::StatusCode::NOT_FOUND);
+}
+
+async fn assert_cron_execution_contract(
+    client: &reqwest::Client,
+    address: SocketAddr,
+    collection_url: &str,
+    item_url: &str,
+) {
+    let paused = client
+        .post(format!("{item_url}/pause"))
+        .send()
+        .await
+        .expect("cron pause should send");
+    assert_eq!(paused.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        get_json(client, collection_url.to_owned()).await[0]["enabled"],
+        json!(false)
+    );
+    let resumed = client
+        .post(format!("{item_url}/resume"))
+        .send()
+        .await
+        .expect("cron resume should send");
+    assert_eq!(resumed.status(), reqwest::StatusCode::OK);
+
+    let run = client
+        .post(format!("{item_url}/run"))
+        .send()
+        .await
+        .expect("cron run should send");
+    assert_eq!(run.status(), reqwest::StatusCode::OK);
+    let messages = get_json(
+        client,
+        format!("http://{address}/api/console/push-messages?session_id=cron-ui-session"),
+    )
+    .await;
+    assert_eq!(messages["messages"].as_array().map(Vec::len), Some(1));
+    assert_eq!(messages["messages"][0]["text"], json!("Time to stretch"));
+    assert_eq!(
+        get_json(client, format!("{item_url}/state")).await["last_status"],
+        json!("success")
+    );
+    let history = get_json(client, format!("{item_url}/history")).await;
+    assert_eq!(history.as_array().map(Vec::len), Some(1));
+    assert_eq!(history[0]["status"], json!("success"));
+    assert_eq!(history[0]["trigger"], json!("manual"));
+    let inbox = get_json(
+        client,
+        format!("http://{address}/api/console/inbox/events?source_type=cron"),
+    )
+    .await;
+    let event_id = inbox["events"][0]["id"].clone();
+    let created_at = inbox["events"][0]["created_at"].clone();
+    let job_id = inbox["events"][0]["source_id"].clone();
+    assert_eq!(
+        inbox,
+        json!({
+            "events": [{
+                "id": event_id,
+                "agent_id": "default",
+                "source_type": "cron",
+                "source_id": job_id,
+                "event_type": "cron_result",
+                "status": "success",
+                "severity": "info",
+                "title": "Cron result: Console reminder",
+                "body": "Time to stretch",
+                "payload": {
+                    "job_id": job_id,
+                    "job_name": "Console reminder",
+                    "task_type": "text",
+                    "trigger": "manual",
+                    "run_id": null,
+                    "save_result_to_inbox": true
+                },
+                "read": false,
+                "created_at": created_at
+            }],
+            "total": 1,
+            "unread_count": 1
+        })
+    );
+}
+
+async fn assert_invalid_cron_is_rejected(client: &reqwest::Client, collection_url: &str) {
+    let invalid = client
+        .post(collection_url)
+        .json(&json!({
+            "name": "Invalid",
+            "schedule": {"type": "cron", "cron": "0 0 0 1 1 1"},
+            "task_type": "text",
+            "text": "invalid",
+            "dispatch": {"target": {"user_id": "admin", "session_id": "invalid"}}
+        }))
+        .send()
+        .await
+        .expect("invalid cron create should send");
+    assert_eq!(invalid.status(), reqwest::StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
+#[allow(clippy::too_many_lines)]
+async fn serves_and_persists_chat_catalog_management_contracts() {
+    let console = tempfile::tempdir().expect("temporary Console should be created");
+    let desktop_data = tempfile::tempdir().expect("temporary Desktop data should be created");
+    let database = desktop_data.path().join("threads.sqlite3");
+    let workspace = desktop_data.path().join("workspace");
+    std::fs::create_dir(&workspace).expect("Workspace should be created");
+    let workspace = workspace
+        .canonicalize()
+        .expect("Workspace should canonicalize");
+    std::fs::write(console.path().join("index.html"), "<html>console</html>")
+        .expect("Console index should be written");
+    let model_config = ModelConfig {
+        api_key: None,
+        base_url: String::from("http://127.0.0.1:1"),
+        default_model: String::from("qwen-test"),
+    };
+    let first_core =
+        Core::persistent(model_config.clone(), &database).expect("first Core should open");
+    let first_thread = first_core
+        .start_thread(ThreadStartParams {
+            model: None,
+            workspace_root: Some(workspace.to_string_lossy().into_owned()),
+        })
+        .await
+        .expect("first thread should start")
+        .thread;
+    let second_thread = first_core
+        .start_thread(ThreadStartParams {
+            model: None,
+            workspace_root: Some(workspace.to_string_lossy().into_owned()),
+        })
+        .await
+        .expect("second thread should start")
+        .thread;
+    let first_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("first Desktop listener should bind");
+    let first_address = first_listener
+        .local_addr()
+        .expect("first Desktop listener should have an address");
+    let first_server = AppServer::new_desktop_with_credential_store_and_data_dir(
+        first_core,
+        console.path(),
+        String::from("desktop-chats-first-token"),
+        Arc::new(MemoryCredentialStore::default()),
+        desktop_data.path(),
+    )
+    .expect("first Desktop server should configure");
+    let first_task = tokio::spawn(first_server.run_http(first_listener));
+    let client = reqwest::Client::new();
+    let first_base = format!("http://{first_address}/api/chats");
+
+    let chats = get_json(
+        &client,
+        format!("{first_base}?archived=false&user_id=desktop&channel=console"),
+    )
+    .await;
+    assert_eq!(chats.as_array().map(Vec::len), Some(2));
+    let first_spec = chats
+        .as_array()
+        .and_then(|items| items.iter().find(|item| item["id"] == first_thread.id))
+        .expect("first thread should be listed");
+    assert_eq!(first_spec["name"], json!("New Chat"));
+    assert_eq!(first_spec["group_id"], json!("default"));
+    assert_eq!(first_spec["pinned"], json!(false));
+    assert_eq!(first_spec["meta"]["workspace_root"], json!(workspace));
+
+    assert_eq!(
+        get_json(&client, format!("{first_base}/groups")).await,
+        json!([
+            {
+                "id": "default",
+                "name": "Uncategorized",
+                "order": 0,
+                "kind": "default",
+                "source": "chat",
+                "pinned": false
+            },
+            {
+                "id": "cron",
+                "name": "Scheduled tasks",
+                "order": 1,
+                "kind": "cron",
+                "source": "cron",
+                "pinned": false
+            },
+            {
+                "id": "subagents",
+                "name": "Subagents",
+                "order": 2,
+                "kind": "subagents",
+                "source": "subagent",
+                "pinned": false
+            }
+        ])
+    );
+    let custom = post_json(
+        &client,
+        format!("{first_base}/groups"),
+        json!({"name": "  Project Alpha  "}),
+    )
+    .await;
+    let custom_id = custom["id"]
+        .as_str()
+        .expect("custom group should have an ID")
+        .to_owned();
+    assert_eq!(
+        custom,
+        json!({
+            "id": custom_id,
+            "name": "Project Alpha",
+            "order": 3,
+            "kind": "custom",
+            "source": null,
+            "pinned": false
+        })
+    );
+    let renamed_group = client
+        .put(format!("{first_base}/groups/{custom_id}"))
+        .json(&json!({"name": "Important", "pinned": true}))
+        .send()
+        .await
+        .expect("group update should send");
+    assert_eq!(renamed_group.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        renamed_group
+            .json::<Value>()
+            .await
+            .expect("group update should be JSON"),
+        json!({
+            "id": custom_id,
+            "name": "Important",
+            "order": 3,
+            "kind": "custom",
+            "source": null,
+            "pinned": true
+        })
+    );
+    let reordered = client
+        .put(format!("{first_base}/groups/order"))
+        .json(&json!({
+            "group_ids": [custom_id, "default", "cron", "subagents"]
+        }))
+        .send()
+        .await
+        .expect("group reorder should send");
+    assert_eq!(reordered.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        reordered
+            .json::<Value>()
+            .await
+            .expect("group reorder should be JSON")
+            .as_array()
+            .expect("groups should be an array")
+            .iter()
+            .map(|group| group["id"].clone())
+            .collect::<Vec<_>>(),
+        vec![
+            json!(custom_id),
+            json!("default"),
+            json!("cron"),
+            json!("subagents")
+        ]
+    );
+
+    let updated = client
+        .put(format!("{first_base}/{}", first_thread.id))
+        .json(&json!({
+            "name": "Renamed conversation",
+            "pinned": true,
+            "group_id": custom_id
+        }))
+        .send()
+        .await
+        .expect("chat update should send");
+    assert_eq!(updated.status(), reqwest::StatusCode::OK);
+    let updated = updated
+        .json::<Value>()
+        .await
+        .expect("chat update should be JSON");
+    assert_eq!(updated["name"], json!("Renamed conversation"));
+    assert_eq!(updated["pinned"], json!(true));
+    assert_eq!(updated["group_id"], json!(custom_id));
+
+    let archived = post_json(
+        &client,
+        format!("{first_base}/actions/batch-archive"),
+        json!({"chat_ids": [first_thread.id, "missing"]}),
+    )
+    .await;
+    assert_eq!(
+        archived,
+        json!({
+            "succeeded": [first_thread.id],
+            "failed": [{
+                "chat_id": "missing",
+                "reason": "not_found",
+                "message": "Chat not found: missing"
+            }]
+        })
+    );
+    assert_eq!(
+        get_json(&client, format!("{first_base}?archived=true")).await[0]["id"],
+        json!(first_thread.id)
+    );
+    assert_eq!(
+        post_json(
+            &client,
+            format!("{first_base}/actions/batch-unarchive"),
+            json!({"chat_ids": [first_thread.id, "missing"]}),
+        )
+        .await,
+        json!({
+            "succeeded": [first_thread.id],
+            "failed": [{
+                "chat_id": "missing",
+                "reason": "not_found",
+                "message": "Chat not found: missing"
+            }]
+        })
+    );
+    first_task.abort();
+    let _ = first_task.await;
+
+    let second_core = Core::persistent(model_config, &database).expect("second Core should open");
+    let second_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("second Desktop listener should bind");
+    let second_address = second_listener
+        .local_addr()
+        .expect("second Desktop listener should have an address");
+    let second_server = AppServer::new_desktop_with_credential_store_and_data_dir(
+        second_core,
+        console.path(),
+        String::from("desktop-chats-second-token"),
+        Arc::new(MemoryCredentialStore::default()),
+        desktop_data.path(),
+    )
+    .expect("second Desktop server should configure");
+    let second_task = tokio::spawn(second_server.run_http(second_listener));
+    let second_base = format!("http://{second_address}/api/chats");
+    let restarted = get_json(&client, format!("{second_base}?archived=false")).await;
+    let restarted_spec = restarted
+        .as_array()
+        .and_then(|items| items.iter().find(|item| item["id"] == first_thread.id))
+        .expect("updated thread should survive restart");
+    assert_eq!(restarted_spec["name"], json!("Renamed conversation"));
+    assert_eq!(restarted_spec["pinned"], json!(true));
+    assert_eq!(restarted_spec["group_id"], json!(custom_id));
+    assert_eq!(
+        get_json(&client, format!("{second_base}/groups")).await[0]["id"],
+        json!(custom_id)
+    );
+
+    let deleted_group = client
+        .delete(format!("{second_base}/groups/{custom_id}"))
+        .send()
+        .await
+        .expect("group delete should send");
+    assert_eq!(deleted_group.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        deleted_group
+            .json::<Value>()
+            .await
+            .expect("group delete should be JSON"),
+        json!({"success": true, "group_id": custom_id})
+    );
+    let rehomed = get_json(&client, format!("{second_base}?archived=false")).await;
+    assert_eq!(
+        rehomed
+            .as_array()
+            .and_then(|items| items.iter().find(|item| item["id"] == first_thread.id))
+            .expect("re-homed thread should remain listed")["group_id"],
+        json!("default")
+    );
+
+    let created = post_json(
+        &client,
+        second_base.clone(),
+        json!({
+            "session_id": "created-session",
+            "user_id": "desktop",
+            "channel": "console",
+            "name": "Created through HTTP",
+            "meta": {"runtime_context": {"project_dir": workspace}},
+            "source": "chat"
+        }),
+    )
+    .await;
+    let created_id = created["id"]
+        .as_str()
+        .expect("created chat should have an ID")
+        .to_owned();
+    assert_eq!(created["session_id"], json!("created-session"));
+    assert_eq!(created["name"], json!("Created through HTTP"));
+    assert_eq!(created["group_id"], json!("default"));
+
+    assert_eq!(
+        post_json(
+            &client,
+            format!("{second_base}/batch-delete"),
+            json!([first_thread.id, "missing"]),
+        )
+        .await,
+        json!({"deleted": true})
+    );
+    let deleted_read = client
+        .get(format!("{second_base}/{}", first_thread.id))
+        .send()
+        .await
+        .expect("deleted chat read should send");
+    assert_eq!(deleted_read.status(), reqwest::StatusCode::NOT_FOUND);
+    let single_deleted = client
+        .delete(format!("{second_base}/{created_id}"))
+        .send()
+        .await
+        .expect("single chat delete should send");
+    assert_eq!(single_deleted.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        single_deleted
+            .json::<Value>()
+            .await
+            .expect("single delete should be JSON"),
+        json!({"deleted": true})
+    );
+    assert_eq!(
+        get_json(&client, format!("{second_base}?archived=false")).await,
+        json!([{
+            "id": second_thread.id,
+            "session_id": second_thread.id,
+            "user_id": "desktop",
+            "channel": "console",
+            "name": "New Chat",
+            "created_at": chrono::DateTime::from_timestamp(second_thread.created_at, 0)
+                .map(|value| value.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
+            "updated_at": chrono::DateTime::from_timestamp(second_thread.updated_at, 0)
+                .map(|value| value.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
+            "last_finished_at": null,
+            "meta": {"model": "qwen-test", "workspace_root": workspace},
+            "status": "idle",
+            "pinned": false,
+            "archived_at": null,
+            "archived": false,
+            "source": "chat",
+            "group_id": "default",
+            "parent_session_id": null,
+            "root_session_id": null
+        }])
+    );
+
+    let fixed_delete = client
+        .delete(format!("{second_base}/groups/default"))
+        .send()
+        .await
+        .expect("built-in group delete should send");
+    assert_eq!(fixed_delete.status(), reqwest::StatusCode::CONFLICT);
+    let oversized_batch = client
+        .post(format!("{second_base}/actions/batch-archive"))
+        .json(&json!({"chat_ids": vec!["id"; 501]}))
+        .send()
+        .await
+        .expect("oversized batch should send");
+    assert_eq!(
+        oversized_batch.status(),
+        reqwest::StatusCode::UNPROCESSABLE_ENTITY
+    );
+    second_task.abort();
 }
 
 #[tokio::test]
@@ -397,6 +1828,302 @@ async fn persists_the_console_language_across_desktop_restarts() {
         .await,
         json!({"language": "ja"})
     );
+    second_task.abort();
+}
+
+#[tokio::test]
+async fn persists_environment_credentials_across_desktop_restarts() {
+    let console = tempfile::tempdir().expect("temporary Console should be created");
+    let desktop_data = tempfile::tempdir().expect("temporary Desktop data should be created");
+    let database = desktop_data.path().join("threads.sqlite3");
+    std::fs::write(console.path().join("index.html"), "<html>console</html>")
+        .expect("Console index should be written");
+    let model_config = ModelConfig {
+        api_key: None,
+        base_url: String::from("http://127.0.0.1:1"),
+        default_model: String::from("qwen-test"),
+    };
+    let credentials = Arc::new(MemoryCredentialStore::default());
+    let first_core =
+        Core::persistent(model_config.clone(), &database).expect("first Core should open");
+    let first_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("first Desktop listener should bind");
+    let first_address = first_listener
+        .local_addr()
+        .expect("first Desktop listener should have an address");
+    let first_server = AppServer::new_desktop_with_credential_store_and_data_dir(
+        first_core,
+        console.path(),
+        String::from("desktop-environment-first-token"),
+        credentials.clone(),
+        desktop_data.path(),
+    )
+    .expect("first Desktop server should configure");
+    let first_task = tokio::spawn(first_server.run_http(first_listener));
+    let client = reqwest::Client::new();
+    let first_response = client
+        .put(format!("http://{first_address}/api/envs"))
+        .json(&json!({"PERSISTED_VALUE": "not-in-sqlite"}))
+        .send()
+        .await
+        .expect("environment update should send");
+    assert_eq!(first_response.status(), reqwest::StatusCode::OK);
+    first_task.abort();
+    let _ = first_task.await;
+
+    assert!(
+        !String::from_utf8_lossy(
+            &std::fs::read(&database).expect("environment database should be readable")
+        )
+        .contains("not-in-sqlite")
+    );
+    let second_core = Core::persistent(model_config, &database).expect("second Core should open");
+    let second_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("second Desktop listener should bind");
+    let second_address = second_listener
+        .local_addr()
+        .expect("second Desktop listener should have an address");
+    let second_server = AppServer::new_desktop_with_credential_store_and_data_dir(
+        second_core,
+        console.path(),
+        String::from("desktop-environment-second-token"),
+        credentials,
+        desktop_data.path(),
+    )
+    .expect("second Desktop server should configure");
+    let second_task = tokio::spawn(second_server.run_http(second_listener));
+    assert_eq!(
+        get_json(&client, format!("http://{second_address}/api/envs")).await,
+        json!([{"key": "PERSISTED_VALUE", "value": "not-in-sqlite"}])
+    );
+    second_task.abort();
+}
+
+#[tokio::test]
+async fn persists_access_control_across_desktop_restarts() {
+    let console = tempfile::tempdir().expect("temporary Console should be created");
+    let desktop_data = tempfile::tempdir().expect("temporary Desktop data should be created");
+    let database = desktop_data.path().join("threads.sqlite3");
+    std::fs::write(console.path().join("index.html"), "<html>console</html>")
+        .expect("Console index should be written");
+    let model_config = ModelConfig {
+        api_key: None,
+        base_url: String::from("http://127.0.0.1:1"),
+        default_model: String::from("qwen-test"),
+    };
+    let first_core =
+        Core::persistent(model_config.clone(), &database).expect("first Core should open");
+    let first_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("first Desktop listener should bind");
+    let first_address = first_listener
+        .local_addr()
+        .expect("first Desktop listener should have an address");
+    let first_server = AppServer::new_desktop_with_credential_store_and_data_dir(
+        first_core,
+        console.path(),
+        String::from("desktop-access-first-token"),
+        Arc::new(MemoryCredentialStore::default()),
+        desktop_data.path(),
+    )
+    .expect("first Desktop server should configure");
+    let first_task = tokio::spawn(first_server.run_http(first_listener));
+    let client = reqwest::Client::new();
+    let added = post_json(
+        &client,
+        format!("http://{first_address}/api/access-control/whitelist/add"),
+        json!({"entries": [{
+            "channel": "console",
+            "user_id": "persisted-user",
+            "remark": "persisted remark",
+            "username": "Persisted User"
+        }]}),
+    )
+    .await;
+    assert_eq!(added, json!({"status": "ok", "count": 1}));
+    first_task.abort();
+    let _ = first_task.await;
+
+    let second_core = Core::persistent(model_config, &database).expect("second Core should open");
+    let second_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("second Desktop listener should bind");
+    let second_address = second_listener
+        .local_addr()
+        .expect("second Desktop listener should have an address");
+    let second_server = AppServer::new_desktop_with_credential_store_and_data_dir(
+        second_core,
+        console.path(),
+        String::from("desktop-access-second-token"),
+        Arc::new(MemoryCredentialStore::default()),
+        desktop_data.path(),
+    )
+    .expect("second Desktop server should configure");
+    let second_task = tokio::spawn(second_server.run_http(second_listener));
+    assert_eq!(
+        get_json(
+            &client,
+            format!("http://{second_address}/api/access-control/console"),
+        )
+        .await["whitelist"]["persisted-user"],
+        json!({"remark": "persisted remark", "username": "Persisted User"})
+    );
+    second_task.abort();
+}
+
+#[tokio::test]
+async fn persists_mail_access_control_across_desktop_restarts() {
+    let console = tempfile::tempdir().expect("temporary Console should be created");
+    let desktop_data = tempfile::tempdir().expect("temporary Desktop data should be created");
+    let database = desktop_data.path().join("threads.sqlite3");
+    std::fs::write(console.path().join("index.html"), "<html>console</html>")
+        .expect("Console index should be written");
+    let model_config = ModelConfig {
+        api_key: None,
+        base_url: String::from("http://127.0.0.1:1"),
+        default_model: String::from("qwen-test"),
+    };
+    let first_core =
+        Core::persistent(model_config.clone(), &database).expect("first Core should open");
+    let first_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("first Desktop listener should bind");
+    let first_address = first_listener
+        .local_addr()
+        .expect("first Desktop listener should have an address");
+    let first_server = AppServer::new_desktop_with_credential_store_and_data_dir(
+        first_core,
+        console.path(),
+        String::from("desktop-mail-access-first-token"),
+        Arc::new(MemoryCredentialStore::default()),
+        desktop_data.path(),
+    )
+    .expect("first Desktop server should configure");
+    let first_task = tokio::spawn(first_server.run_http(first_listener));
+    let client = reqwest::Client::new();
+    assert_eq!(
+        post_json(
+            &client,
+            format!("http://{first_address}/api/mail-access-control/whitelist/add"),
+            json!({"entries": [{
+                "agent_id": "default",
+                "address": "Persisted@Example.com",
+                "remark": "persisted remark",
+                "display_name": "Persisted Sender"
+            }]}),
+        )
+        .await,
+        json!({"status": "ok", "count": 1})
+    );
+    first_task.abort();
+    let _ = first_task.await;
+
+    let second_core = Core::persistent(model_config, &database).expect("second Core should open");
+    let second_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("second Desktop listener should bind");
+    let second_address = second_listener
+        .local_addr()
+        .expect("second Desktop listener should have an address");
+    let second_server = AppServer::new_desktop_with_credential_store_and_data_dir(
+        second_core,
+        console.path(),
+        String::from("desktop-mail-access-second-token"),
+        Arc::new(MemoryCredentialStore::default()),
+        desktop_data.path(),
+    )
+    .expect("second Desktop server should configure");
+    let second_task = tokio::spawn(second_server.run_http(second_listener));
+    assert_eq!(
+        get_json(
+            &client,
+            format!("http://{second_address}/api/mail-access-control"),
+        )
+        .await["default"]["whitelist"]["persisted@example.com"],
+        json!({
+            "remark": "persisted remark",
+            "display_name": "Persisted Sender"
+        })
+    );
+    second_task.abort();
+}
+
+#[tokio::test]
+async fn persists_console_channel_configuration_across_desktop_restarts() {
+    let console = tempfile::tempdir().expect("temporary Console should be created");
+    let desktop_data = tempfile::tempdir().expect("temporary Desktop data should be created");
+    let database = desktop_data.path().join("threads.sqlite3");
+    std::fs::write(console.path().join("index.html"), "<html>console</html>")
+        .expect("Console index should be written");
+    let model_config = ModelConfig {
+        api_key: None,
+        base_url: String::from("http://127.0.0.1:1"),
+        default_model: String::from("qwen-test"),
+    };
+    let first_core =
+        Core::persistent(model_config.clone(), &database).expect("first Core should open");
+    let first_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("first Desktop listener should bind");
+    let first_address = first_listener
+        .local_addr()
+        .expect("first Desktop listener should have an address");
+    let first_server = AppServer::new_desktop_with_credential_store_and_data_dir(
+        first_core,
+        console.path(),
+        String::from("desktop-channel-first-token"),
+        Arc::new(MemoryCredentialStore::default()),
+        desktop_data.path(),
+    )
+    .expect("first Desktop server should configure");
+    let first_task = tokio::spawn(first_server.run_http(first_listener));
+    let client = reqwest::Client::new();
+    let channel_url = format!("http://{first_address}/api/config/channels/console");
+    let mut config = get_json(&client, channel_url.clone()).await;
+    config["bot_prefix"] = json!("persisted-prefix");
+    config["enabled"] = json!(false);
+    let response = client
+        .put(channel_url)
+        .json(&config)
+        .send()
+        .await
+        .expect("Console channel update should send");
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        response
+            .json::<Value>()
+            .await
+            .expect("Console channel response should be JSON")["enabled"],
+        json!(true)
+    );
+    first_task.abort();
+    let _ = first_task.await;
+
+    let second_core = Core::persistent(model_config, &database).expect("second Core should open");
+    let second_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("second Desktop listener should bind");
+    let second_address = second_listener
+        .local_addr()
+        .expect("second Desktop listener should have an address");
+    let second_server = AppServer::new_desktop_with_credential_store_and_data_dir(
+        second_core,
+        console.path(),
+        String::from("desktop-channel-second-token"),
+        Arc::new(MemoryCredentialStore::default()),
+        desktop_data.path(),
+    )
+    .expect("second Desktop server should configure");
+    let second_task = tokio::spawn(second_server.run_http(second_listener));
+    let persisted = get_json(
+        &client,
+        format!("http://{second_address}/api/config/channels/console"),
+    )
+    .await;
+    assert_eq!(persisted["bot_prefix"], json!("persisted-prefix"));
+    assert_eq!(persisted["enabled"], json!(true));
     second_task.abort();
 }
 
@@ -1102,12 +2829,8 @@ async fn assert_navigation_control_contracts(address: SocketAddr) {
         vec![
             ("/api/workspace/files", json!([])),
             ("/api/workspace/system-prompt-files", json!([])),
-            ("/api/mail-access-control/pending/all", json!([])),
             ("/api/access-control/pending/all", json!([])),
             ("/api/pawapps", json!({"apps": [], "total": 0})),
-            ("/api/config/channels", json!({})),
-            ("/api/config/channels/schemas", json!({})),
-            ("/api/config/channels/types", json!([])),
             ("/api/config/user-timezone", json!({"timezone": "UTC"})),
             (
                 "/api/cron/dispatch-targets",

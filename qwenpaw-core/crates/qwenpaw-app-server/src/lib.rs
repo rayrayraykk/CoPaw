@@ -74,10 +74,17 @@ use tower_http::services::ServeFile;
 use tower_http::set_header::SetResponseHeaderLayer;
 use tracing::warn;
 
+mod desktop_access_control;
 mod desktop_api;
+mod desktop_channels;
+mod desktop_chats;
 mod desktop_credentials;
+mod desktop_cron;
+mod desktop_environment;
 mod desktop_files;
 mod desktop_git;
+mod desktop_inbox;
+mod desktop_mail_access_control;
 mod desktop_navigation;
 
 pub use desktop_credentials::DesktopCredentialStore;
@@ -102,6 +109,14 @@ struct AppServerInner {
     core: Core,
     desktop_session_aliases: tokio::sync::RwLock<DesktopSessionAliases>,
     desktop_pending_approvals: tokio::sync::RwLock<HashMap<String, DesktopPendingApproval>>,
+    desktop_push_messages: tokio::sync::RwLock<Vec<DesktopPushMessage>>,
+    desktop_access_control_lock: tokio::sync::Mutex<()>,
+    desktop_mail_access_control_lock: tokio::sync::Mutex<()>,
+    desktop_inbox_lock: tokio::sync::Mutex<()>,
+    desktop_channel_config_lock: tokio::sync::Mutex<()>,
+    desktop_chat_catalog_lock: tokio::sync::Mutex<()>,
+    desktop_cron_lock: tokio::sync::Mutex<()>,
+    desktop_environment_lock: tokio::sync::Mutex<()>,
     desktop_git_lock: tokio::sync::Mutex<()>,
     desktop_credentials: Option<Arc<dyn DesktopCredentialStore>>,
     desktop_workspace: Option<DesktopWorkspace>,
@@ -130,6 +145,15 @@ struct DesktopPendingApproval {
     created_at: i64,
 }
 
+#[derive(Clone)]
+struct DesktopPushMessage {
+    id: String,
+    text: String,
+    sticky: bool,
+    session_id: String,
+    created_at: u64,
+}
+
 struct DesktopWorkspace {
     data_dir: PathBuf,
     initial: PathBuf,
@@ -149,6 +173,14 @@ impl AppServer {
                 core,
                 desktop_session_aliases: tokio::sync::RwLock::new(DesktopSessionAliases::default()),
                 desktop_pending_approvals: tokio::sync::RwLock::new(HashMap::new()),
+                desktop_push_messages: tokio::sync::RwLock::new(Vec::new()),
+                desktop_access_control_lock: tokio::sync::Mutex::new(()),
+                desktop_mail_access_control_lock: tokio::sync::Mutex::new(()),
+                desktop_inbox_lock: tokio::sync::Mutex::new(()),
+                desktop_channel_config_lock: tokio::sync::Mutex::new(()),
+                desktop_chat_catalog_lock: tokio::sync::Mutex::new(()),
+                desktop_cron_lock: tokio::sync::Mutex::new(()),
+                desktop_environment_lock: tokio::sync::Mutex::new(()),
                 desktop_git_lock: tokio::sync::Mutex::new(()),
                 desktop_credentials: None,
                 desktop_workspace: None,
@@ -269,11 +301,20 @@ impl AppServer {
             console_static_dir.display()
         );
         let desktop_workspace = desktop_workspace_from_env(&core, desktop_data_dir)?;
+        desktop_environment::initialize(&core, desktop_credentials.as_ref())?;
         Ok(Self {
             inner: Arc::new(AppServerInner {
                 core,
                 desktop_session_aliases: tokio::sync::RwLock::new(DesktopSessionAliases::default()),
                 desktop_pending_approvals: tokio::sync::RwLock::new(HashMap::new()),
+                desktop_push_messages: tokio::sync::RwLock::new(Vec::new()),
+                desktop_access_control_lock: tokio::sync::Mutex::new(()),
+                desktop_mail_access_control_lock: tokio::sync::Mutex::new(()),
+                desktop_inbox_lock: tokio::sync::Mutex::new(()),
+                desktop_channel_config_lock: tokio::sync::Mutex::new(()),
+                desktop_chat_catalog_lock: tokio::sync::Mutex::new(()),
+                desktop_cron_lock: tokio::sync::Mutex::new(()),
+                desktop_environment_lock: tokio::sync::Mutex::new(()),
                 desktop_git_lock: tokio::sync::Mutex::new(()),
                 desktop_credentials: Some(desktop_credentials),
                 desktop_workspace: Some(desktop_workspace),
@@ -428,9 +469,15 @@ impl AppServer {
         if let Some(directory) = console_static_dir {
             let index = directory.join("index.html");
             router = router
+                .merge(desktop_access_control::router())
+                .merge(desktop_channels::router())
                 .merge(desktop_api::router())
+                .merge(desktop_cron::router())
+                .merge(desktop_environment::router())
                 .merge(desktop_files::router())
                 .merge(desktop_git::router())
+                .merge(desktop_inbox::router())
+                .merge(desktop_mail_access_control::router())
                 .merge(desktop_navigation::router())
                 .route("/api", any(api_not_found))
                 .route("/api/{*path}", any(api_not_found))

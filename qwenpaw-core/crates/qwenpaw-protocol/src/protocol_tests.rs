@@ -151,6 +151,12 @@ fn checked_in_contract_artifacts_match_rust_types() {
         normalize_newlines(include_str!("../../../sdk/typescript/src/protocol.ts"))
     );
     assert_eq!(
+        normalize_newlines(&python_contract()),
+        normalize_newlines(include_str!(
+            "../../../sdk/python/src/qwenpaw_sdk/protocol.py"
+        ))
+    );
+    assert_eq!(
         json_schema_contract(),
         serde_json::from_str::<serde_json::Value>(include_str!(
             "../../../docs/api-contract/app-protocol-v3.schema.json"

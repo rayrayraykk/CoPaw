@@ -18,6 +18,7 @@ choices through Rust Core and restores the preference after a Core restart.
 
 - [System overview](docs/architecture/system-overview.md)
 - [App Protocol](docs/architecture/app-protocol.md)
+- [Existing client compatibility boundary](docs/architecture/client-compatibility.md)
 - [Generated App Protocol inventory](docs/api-contract/app-protocol-inventory.md)
 - [Existing QwenPaw Web API inventory](docs/api-contract/web-api-inventory.md)
 - [Python to Rust migration matrix](docs/migration/python-to-rust-matrix.md)
@@ -37,8 +38,8 @@ cargo build --workspace
 cargo test --workspace
 ```
 
-Regenerate the versioned App Protocol schema, fixtures, inventory, and
-TypeScript SDK after changing a protocol type:
+Regenerate the versioned App Protocol schema, fixtures, inventory, TypeScript
+types, and Python method registry after changing a protocol type:
 
 ```shell
 cargo run -p qwenpaw-protocol --example generate_contract
@@ -47,6 +48,23 @@ cargo run -p qwenpaw-protocol --example generate_contract
 Protocol tests fail when these checked-in artifacts drift from the Rust types.
 The VS Code repository consumes the generated SDK instead of maintaining
 parallel handwritten interfaces.
+
+Run the App Server SDK checks against the locally built Core:
+
+```shell
+cd sdk/typescript
+QWENPAW_CORE_BIN="../../target/debug/qwenpaw-core" npm run check
+
+cd ../python
+QWENPAW_CORE_BIN="../../target/debug/qwenpaw-core" \
+  PYTHONPATH=src \
+  conda run -n qwenpaw python -m unittest discover -s tests -v
+```
+
+These SDKs add stable client boundaries; they do not replace or remove the
+existing Python CLI, TUI, channel integrations, hub/remote access, or legacy
+release. Those paths remain supported until separately reviewed parity gates
+pass.
 
 Tagged Core releases build native archives for macOS arm64/x64, Linux x64, and
 Windows x64. macOS jobs require Developer ID signing and notarization secrets;

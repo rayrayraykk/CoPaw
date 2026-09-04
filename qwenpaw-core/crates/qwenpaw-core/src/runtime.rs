@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::RwLock as SyncRwLock;
 use std::time::Duration;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
@@ -88,8 +89,18 @@ const DEFAULT_MODEL_SETTING: &str = "default_model";
 const PREFERRED_WORKSPACE_SETTING: &str = "preferred_workspace";
 const CODING_MODE_SETTING: &str = "coding_mode";
 const UI_LANGUAGE_SETTING: &str = "ui_language";
+const ENVIRONMENT_KEYS_SETTING: &str = "desktop_environment_keys";
+const CRON_DATA_SETTING: &str = "desktop_cron_data";
+const ACCESS_CONTROL_DATA_SETTING: &str = "desktop_access_control_data";
+const MAIL_ACCESS_CONTROL_DATA_SETTING: &str = "desktop_mail_access_control_data";
+const INBOX_DATA_SETTING: &str = "desktop_inbox_data";
+const CHAT_CATALOG_DATA_SETTING: &str = "desktop_chat_catalog_data";
+const CHANNEL_CONFIG_DATA_SETTING: &str = "desktop_channel_config_data";
 const DEFAULT_UI_LANGUAGE: &str = "en";
 const SUPPORTED_UI_LANGUAGES: [&str; 7] = ["en", "zh", "ja", "ru", "pt-BR", "id", "vi"];
+const MAX_ENVIRONMENT_VARIABLES: usize = 256;
+const MAX_ENVIRONMENT_KEY_BYTES: usize = 256;
+const MAX_ENVIRONMENT_VALUE_BYTES: usize = 65_536;
 
 pub type TurnEventStream = mpsc::Receiver<CoreEvent>;
 
@@ -103,6 +114,7 @@ struct CoreInner {
     mcp: McpManager,
     store: ThreadStore,
     state: Mutex<State>,
+    runtime_environment: SyncRwLock<BTreeMap<String, String>>,
 }
 
 #[derive(Default)]
@@ -211,6 +223,7 @@ impl Core {
                     threads,
                     approvals: HashMap::new(),
                 }),
+                runtime_environment: SyncRwLock::new(BTreeMap::new()),
             }),
         })
     }
@@ -376,6 +389,39 @@ impl Core {
             thread: record.thread.clone(),
             turns: record.turns.clone(),
         })
+    }
+
+    /// Deletes an idle thread from runtime state and durable storage.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the thread is missing, active, or cannot be
+    /// removed from storage.
+    pub async fn delete_thread(&self, thread_id: &str) -> Result<Thread, CoreError> {
+        let mut state = self.inner.state.lock().await;
+        let thread = state
+            .threads
+            .get(thread_id)
+            .ok_or_else(|| CoreError::ThreadNotFound(thread_id.to_owned()))?
+            .thread
+            .clone();
+        if thread.status == ThreadStatus::Active
+            || state
+                .threads
+                .get(thread_id)
+                .is_some_and(|record| record.active_turn.is_some())
+        {
+            return Err(CoreError::ThreadBusy(thread_id.to_owned()));
+        }
+        self.inner
+            .store
+            .delete(thread_id)
+            .map_err(CoreError::storage)?;
+        state.threads.remove(thread_id);
+        state
+            .approvals
+            .retain(|_, approval| approval.thread_id != thread_id);
+        Ok(thread)
     }
 
     /// Rebinds an idle Thread to an explicitly selected Workspace directory.
@@ -566,6 +612,226 @@ impl Core {
             .write_settings(&[(UI_LANGUAGE_SETTING, language)])
             .map_err(CoreError::storage)?;
         Ok(language.to_owned())
+    }
+
+    /// Reads the names of Desktop environment variables stored in the secure
+    /// platform credential store.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when SQLite or the stored key list is invalid.
+    pub fn read_environment_keys(&self) -> Result<Vec<String>, CoreError> {
+        let Some(serialized) = self
+            .inner
+            .store
+            .read_setting(ENVIRONMENT_KEYS_SETTING)
+            .map_err(CoreError::storage)?
+        else {
+            return Ok(Vec::new());
+        };
+        let keys = serde_json::from_str::<Vec<String>>(&serialized).map_err(|_| {
+            CoreError::Config(String::from("stored environment key list is invalid"))
+        })?;
+        validate_environment_keys(&keys)?;
+        Ok(keys)
+    }
+
+    /// Persists the non-secret names of Desktop environment variables.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a name is invalid or SQLite cannot be written.
+    pub fn write_environment_keys(&self, keys: &[String]) -> Result<Vec<String>, CoreError> {
+        let mut keys = keys.to_vec();
+        keys.sort();
+        keys.dedup();
+        validate_environment_keys(&keys)?;
+        let serialized =
+            serde_json::to_string(&keys).map_err(|error| CoreError::Config(error.to_string()))?;
+        self.inner
+            .store
+            .write_settings(&[(ENVIRONMENT_KEYS_SETTING, &serialized)])
+            .map_err(CoreError::storage)?;
+        Ok(keys)
+    }
+
+    /// Reads the serialized Desktop cron configuration and runtime metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Core settings store cannot be read.
+    pub fn read_cron_data(&self) -> Result<Option<String>, CoreError> {
+        self.inner
+            .store
+            .read_setting(CRON_DATA_SETTING)
+            .map_err(CoreError::storage)
+    }
+
+    /// Atomically persists serialized Desktop cron configuration and metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Core settings store cannot be written.
+    pub fn write_cron_data(&self, value: &str) -> Result<(), CoreError> {
+        self.inner
+            .store
+            .write_settings(&[(CRON_DATA_SETTING, value)])
+            .map_err(CoreError::storage)
+    }
+
+    /// Reads the serialized Desktop channel access-control configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Core settings store cannot be read.
+    pub fn read_access_control_data(&self) -> Result<Option<String>, CoreError> {
+        self.inner
+            .store
+            .read_setting(ACCESS_CONTROL_DATA_SETTING)
+            .map_err(CoreError::storage)
+    }
+
+    /// Atomically persists serialized Desktop channel access-control data.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Core settings store cannot be written.
+    pub fn write_access_control_data(&self, value: &str) -> Result<(), CoreError> {
+        self.inner
+            .store
+            .write_settings(&[(ACCESS_CONTROL_DATA_SETTING, value)])
+            .map_err(CoreError::storage)
+    }
+
+    /// Reads the serialized Desktop mail access-control data.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Core settings store cannot be read.
+    pub fn read_mail_access_control_data(&self) -> Result<Option<String>, CoreError> {
+        self.inner
+            .store
+            .read_setting(MAIL_ACCESS_CONTROL_DATA_SETTING)
+            .map_err(CoreError::storage)
+    }
+
+    /// Atomically persists serialized Desktop mail access-control data.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Core settings store cannot be written.
+    pub fn write_mail_access_control_data(&self, value: &str) -> Result<(), CoreError> {
+        self.inner
+            .store
+            .write_settings(&[(MAIL_ACCESS_CONTROL_DATA_SETTING, value)])
+            .map_err(CoreError::storage)
+    }
+
+    /// Reads the serialized Desktop Inbox events and execution traces.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Core settings store cannot be read.
+    pub fn read_inbox_data(&self) -> Result<Option<String>, CoreError> {
+        self.inner
+            .store
+            .read_setting(INBOX_DATA_SETTING)
+            .map_err(CoreError::storage)
+    }
+
+    /// Atomically persists serialized Desktop Inbox events and traces.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Core settings store cannot be written.
+    pub fn write_inbox_data(&self, value: &str) -> Result<(), CoreError> {
+        self.inner
+            .store
+            .write_settings(&[(INBOX_DATA_SETTING, value)])
+            .map_err(CoreError::storage)
+    }
+
+    /// Reads serialized Desktop chat catalog metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Core settings store cannot be read.
+    pub fn read_chat_catalog_data(&self) -> Result<Option<String>, CoreError> {
+        self.inner
+            .store
+            .read_setting(CHAT_CATALOG_DATA_SETTING)
+            .map_err(CoreError::storage)
+    }
+
+    /// Atomically persists serialized Desktop chat catalog metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Core settings store cannot be written.
+    pub fn write_chat_catalog_data(&self, value: &str) -> Result<(), CoreError> {
+        self.inner
+            .store
+            .write_settings(&[(CHAT_CATALOG_DATA_SETTING, value)])
+            .map_err(CoreError::storage)
+    }
+
+    /// Reads the serialized Desktop channel configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Core settings store cannot be read.
+    pub fn read_channel_config_data(&self) -> Result<Option<String>, CoreError> {
+        self.inner
+            .store
+            .read_setting(CHANNEL_CONFIG_DATA_SETTING)
+            .map_err(CoreError::storage)
+    }
+
+    /// Atomically persists the serialized Desktop channel configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Core settings store cannot be written.
+    pub fn write_channel_config_data(&self, value: &str) -> Result<(), CoreError> {
+        self.inner
+            .store
+            .write_settings(&[(CHANNEL_CONFIG_DATA_SETTING, value)])
+            .map_err(CoreError::storage)
+    }
+
+    /// Replaces the environment inherited by future Agent child processes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a key/value is invalid or the runtime lock is
+    /// unavailable.
+    pub fn replace_runtime_environment(
+        &self,
+        environment: BTreeMap<String, String>,
+    ) -> Result<(), CoreError> {
+        validate_environment(&environment)?;
+        *self
+            .inner
+            .runtime_environment
+            .write()
+            .map_err(|_| CoreError::Config(String::from("environment runtime lock failed")))? =
+            environment;
+        Ok(())
+    }
+
+    fn runtime_environment(&self) -> Result<BTreeMap<String, String>, CoreError> {
+        self.inner
+            .runtime_environment
+            .read()
+            .map_err(|_| CoreError::Config(String::from("environment runtime lock failed")))
+            .map(|environment| environment.clone())
+    }
+
+    fn open_runtime_workspace(&self, root: &str) -> Result<Workspace, CoreError> {
+        let environment = self.runtime_environment()?;
+        Workspace::open(Path::new(root))
+            .map(|workspace| workspace.with_environment(environment))
+            .map_err(CoreError::workspace)
     }
 
     pub async fn list_workspaces(&self) -> WorkspaceListResponse {
@@ -818,7 +1084,7 @@ impl Core {
             CoreEvent::TurnStarted(TurnStartedNotification { turn }),
         )
         .await;
-        let workspace = match Workspace::open(Path::new(&workspace_root)) {
+        let workspace = match self.open_runtime_workspace(&workspace_root) {
             Ok(workspace) => workspace,
             Err(error) => {
                 self.finish_turn(
@@ -1358,6 +1624,55 @@ fn validate_ui_language(language: &str) -> Result<(), CoreError> {
         "UI language must be one of: {}",
         SUPPORTED_UI_LANGUAGES.join(", ")
     )))
+}
+
+fn validate_environment_keys(keys: &[String]) -> Result<(), CoreError> {
+    if keys.len() > MAX_ENVIRONMENT_VARIABLES {
+        return Err(CoreError::Config(format!(
+            "environment contains more than {MAX_ENVIRONMENT_VARIABLES} variables"
+        )));
+    }
+    let mut unique = keys.to_vec();
+    unique.sort();
+    unique.dedup();
+    if unique.len() != keys.len() {
+        return Err(CoreError::Config(String::from(
+            "environment contains duplicate variable names",
+        )));
+    }
+    for key in keys {
+        if !valid_environment_key(key) {
+            return Err(CoreError::Config(format!(
+                "environment variable name is invalid: {key}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_environment(environment: &BTreeMap<String, String>) -> Result<(), CoreError> {
+    let keys = environment.keys().cloned().collect::<Vec<_>>();
+    validate_environment_keys(&keys)?;
+    for (key, value) in environment {
+        if value.len() > MAX_ENVIRONMENT_VALUE_BYTES || value.contains('\0') {
+            return Err(CoreError::Config(format!(
+                "environment variable value is invalid: {key}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn valid_environment_key(key: &str) -> bool {
+    if key.is_empty() || key.len() > MAX_ENVIRONMENT_KEY_BYTES {
+        return false;
+    }
+    let mut characters = key.chars();
+    let Some(first) = characters.next() else {
+        return false;
+    };
+    (first == '_' || first.is_ascii_alphabetic())
+        && characters.all(|character| character == '_' || character.is_ascii_alphanumeric())
 }
 
 #[derive(Debug)]

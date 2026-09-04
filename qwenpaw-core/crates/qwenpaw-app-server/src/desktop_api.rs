@@ -1,5 +1,7 @@
 use std::convert::Infallible;
 use std::path::PathBuf;
+use std::time::SystemTime;
+use std::time::UNIX_EPOCH;
 
 use axum::Json;
 use axum::Router;
@@ -22,10 +24,6 @@ use qwenpaw_protocol::ApprovalDecision;
 use qwenpaw_protocol::ConfigWriteParams;
 use qwenpaw_protocol::CoreEvent;
 use qwenpaw_protocol::Item;
-use qwenpaw_protocol::Thread;
-use qwenpaw_protocol::ThreadArchiveParams;
-use qwenpaw_protocol::ThreadListParams;
-use qwenpaw_protocol::ThreadResumeParams;
 use qwenpaw_protocol::ThreadStartParams;
 use qwenpaw_protocol::ThreadStatus;
 use qwenpaw_protocol::TurnInterruptParams;
@@ -52,9 +50,40 @@ pub(super) fn router() -> Router<AppServer> {
         )
         .route("/api/models/{provider_id}/config", put(configure_provider))
         .route("/api/models/{provider_id}/models", post(add_model))
-        .route("/api/chats", get(chats))
-        .route("/api/chats/groups", get(chat_groups))
-        .route("/api/chats/{chat_id}", get(chat_history))
+        .route(
+            "/api/chats",
+            get(super::desktop_chats::list_chats).post(super::desktop_chats::create_chat),
+        )
+        .route(
+            "/api/chats/groups",
+            get(super::desktop_chats::list_groups).post(super::desktop_chats::create_group),
+        )
+        .route(
+            "/api/chats/groups/order",
+            put(super::desktop_chats::reorder_groups),
+        )
+        .route(
+            "/api/chats/groups/{group_id}",
+            put(super::desktop_chats::update_group).delete(super::desktop_chats::delete_group),
+        )
+        .route(
+            "/api/chats/batch-delete",
+            post(super::desktop_chats::batch_delete_chats),
+        )
+        .route(
+            "/api/chats/actions/batch-archive",
+            post(super::desktop_chats::batch_archive_chats),
+        )
+        .route(
+            "/api/chats/actions/batch-unarchive",
+            post(super::desktop_chats::batch_unarchive_chats),
+        )
+        .route(
+            "/api/chats/{chat_id}",
+            get(chat_history)
+                .put(super::desktop_chats::update_chat)
+                .delete(super::desktop_chats::delete_chat),
+        )
         .route(
             "/api/chats/{chat_id}/project-dir",
             get(chat_project_directory),
@@ -65,8 +94,14 @@ pub(super) fn router() -> Router<AppServer> {
                 .put(set_chat_project_directories)
                 .delete(clear_chat_project_directories),
         )
-        .route("/api/chats/{chat_id}/archive", post(archive_chat))
-        .route("/api/chats/{chat_id}/unarchive", post(unarchive_chat))
+        .route(
+            "/api/chats/{chat_id}/archive",
+            post(super::desktop_chats::archive_chat),
+        )
+        .route(
+            "/api/chats/{chat_id}/unarchive",
+            post(super::desktop_chats::unarchive_chat),
+        )
         .route("/api/console/chat", post(console_chat))
         .route("/api/console/chat/stop", post(stop_console_chat))
         .route("/api/approval/approve", post(approve_tool))
@@ -101,7 +136,6 @@ pub(super) fn router() -> Router<AppServer> {
             post(create_directory),
         )
         .route("/api/console/push-messages", get(push_messages))
-        .route("/api/console/inbox/events", get(inbox_events))
         .route("/api/frontend_plugin", get(frontend_plugins))
 }
 
@@ -518,82 +552,6 @@ fn credential_store_error() -> ApiError {
     )
 }
 
-#[derive(Debug, Default, Deserialize)]
-struct ChatListQuery {
-    archived: Option<bool>,
-}
-
-async fn chats(
-    State(server): State<AppServer>,
-    Query(query): Query<ChatListQuery>,
-) -> Json<Vec<Value>> {
-    let mut cursor = None;
-    let mut threads = Vec::new();
-    loop {
-        let page = server
-            .inner
-            .core
-            .list_threads(ThreadListParams {
-                cursor,
-                limit: Some(200),
-                include_archived: true,
-            })
-            .await;
-        threads.extend(page.data);
-        let Some(next_cursor) = page.next_cursor else {
-            break;
-        };
-        cursor = Some(next_cursor);
-    }
-    let aliases = server.inner.desktop_session_aliases.read().await;
-    Json(
-        threads
-            .into_iter()
-            .filter(|thread| {
-                query
-                    .archived
-                    .is_none_or(|archived| thread.archived == archived)
-            })
-            .map(|thread| {
-                let session_id = aliases.thread_to_client.get(&thread.id).map(String::as_str);
-                chat_from_thread(&thread, session_id)
-            })
-            .collect(),
-    )
-}
-
-fn chat_from_thread(thread: &Thread, session_id: Option<&str>) -> Value {
-    let status = match thread.status {
-        ThreadStatus::Active => "running",
-        ThreadStatus::Idle | ThreadStatus::Error => "idle",
-    };
-    let created_at = timestamp(thread.created_at);
-    let updated_at = timestamp(thread.updated_at);
-    let archived_at = thread.archived.then(|| updated_at.clone()).flatten();
-    json!({
-        "id": thread.id,
-        "session_id": session_id.unwrap_or(&thread.id),
-        "user_id": "desktop",
-        "channel": "console",
-        "name": null,
-        "created_at": created_at,
-        "updated_at": updated_at,
-        "last_finished_at": null,
-        "meta": {
-            "model": thread.model,
-            "workspace_root": thread.workspace_root,
-        },
-        "status": status,
-        "pinned": false,
-        "archived_at": archived_at,
-        "archived": thread.archived,
-        "source": "chat",
-        "group_id": null,
-        "parent_session_id": null,
-        "root_session_id": null,
-    })
-}
-
 fn timestamp(seconds: i64) -> Option<String> {
     DateTime::from_timestamp(seconds, 0)
         .map(|value| value.to_rfc3339_opts(SecondsFormat::Secs, true))
@@ -925,6 +883,12 @@ async fn resolve_console_thread(
             .thread_to_client
             .insert(thread.id.clone(), requested.to_owned());
     }
+    let session_id = if requested.is_empty() {
+        thread.id.as_str()
+    } else {
+        requested
+    };
+    super::desktop_chats::ensure_thread_metadata(server, &thread, session_id).await?;
     Ok(thread.id)
 }
 
@@ -1138,42 +1102,6 @@ fn message_from_item(item: &Item, timestamp: &str) -> Value {
     }
 }
 
-async fn archive_chat(
-    State(server): State<AppServer>,
-    Path(chat_id): Path<String>,
-) -> Result<Json<Value>, ApiError> {
-    let response = server
-        .inner
-        .core
-        .archive_thread(&ThreadArchiveParams { thread_id: chat_id })
-        .await
-        .map_err(|error| api_error(&error))?;
-    let aliases = server.inner.desktop_session_aliases.read().await;
-    let session_id = aliases
-        .thread_to_client
-        .get(&response.thread.id)
-        .map(String::as_str);
-    Ok(Json(chat_from_thread(&response.thread, session_id)))
-}
-
-async fn unarchive_chat(
-    State(server): State<AppServer>,
-    Path(chat_id): Path<String>,
-) -> Result<Json<Value>, ApiError> {
-    let response = server
-        .inner
-        .core
-        .resume_thread(&ThreadResumeParams { thread_id: chat_id })
-        .await
-        .map_err(|error| api_error(&error))?;
-    let aliases = server.inner.desktop_session_aliases.read().await;
-    let session_id = aliases
-        .thread_to_client
-        .get(&response.thread.id)
-        .map(String::as_str);
-    Ok(Json(chat_from_thread(&response.thread, session_id)))
-}
-
 fn api_error(error: &CoreError) -> ApiError {
     let status = match error {
         CoreError::ThreadNotFound(_) => StatusCode::NOT_FOUND,
@@ -1187,35 +1115,6 @@ fn api_error(error: &CoreError) -> ApiError {
         _ => StatusCode::INTERNAL_SERVER_ERROR,
     };
     (status, Json(json!({"detail": error.to_string()})))
-}
-
-async fn chat_groups() -> Json<Value> {
-    Json(json!([
-        {
-            "id": "default",
-            "name": "Uncategorized",
-            "order": 0,
-            "kind": "default",
-            "source": "chat",
-            "pinned": true
-        },
-        {
-            "id": "cron",
-            "name": "Cron",
-            "order": 1,
-            "kind": "cron",
-            "source": "cron",
-            "pinned": false
-        },
-        {
-            "id": "subagents",
-            "name": "Subagents",
-            "order": 2,
-            "kind": "subagents",
-            "source": "subagent",
-            "pinned": false
-        }
-    ]))
 }
 
 async fn coding_mode(State(server): State<AppServer>) -> Result<Json<Value>, ApiError> {
@@ -1535,7 +1434,47 @@ fn path_name(path: &std::path::Path) -> String {
     )
 }
 
-async fn push_messages(State(server): State<AppServer>) -> Json<Value> {
+#[derive(Debug, Default, Deserialize)]
+struct PushMessagesQuery {
+    session_id: Option<String>,
+}
+
+async fn push_messages(
+    State(server): State<AppServer>,
+    Query(query): Query<PushMessagesQuery>,
+) -> Json<Value> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let mut stored_messages = server.inner.desktop_push_messages.write().await;
+    stored_messages.retain(|message| now.saturating_sub(message.created_at) <= 60);
+    let selected_messages = match query.session_id.as_deref() {
+        Some(session_id) => {
+            let mut selected = Vec::new();
+            stored_messages.retain(|message| {
+                if message.session_id == session_id {
+                    selected.push(message.clone());
+                    false
+                } else {
+                    true
+                }
+            });
+            selected
+        }
+        None => stored_messages.clone(),
+    };
+    drop(stored_messages);
+    let messages = selected_messages
+        .into_iter()
+        .map(|message| {
+            json!({
+                "id": message.id,
+                "text": message.text,
+                "sticky": message.sticky
+            })
+        })
+        .collect::<Vec<_>>();
     let pending = server.inner.desktop_pending_approvals.read().await;
     let mut approvals = pending.iter().collect::<Vec<_>>();
     approvals.sort_by(|(left_id, left), (right_id, right)| {
@@ -1576,11 +1515,7 @@ async fn push_messages(State(server): State<AppServer>) -> Json<Value> {
             })
         })
         .collect::<Vec<_>>();
-    Json(json!({"messages": [], "pending_approvals": pending_approvals}))
-}
-
-async fn inbox_events() -> Json<Value> {
-    Json(json!({"events": [], "total": 0, "unread_count": 0}))
+    Json(json!({"messages": messages, "pending_approvals": pending_approvals}))
 }
 
 async fn frontend_plugins() -> Json<Value> {

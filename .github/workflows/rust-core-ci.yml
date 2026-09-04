@@ -5,16 +5,38 @@ on:
     branches: [main]
     paths:
       - "qwenpaw-core/**"
+      - "console/src/**"
+      - "console/scripts/generate-rust-api-inventory.mjs"
+      - "console/package.json"
+      - "console/package-lock.json"
       - ".github/workflows/rust-core-ci.yml"
   pull_request:
     paths:
       - "qwenpaw-core/**"
+      - "console/src/**"
+      - "console/scripts/generate-rust-api-inventory.mjs"
+      - "console/package.json"
+      - "console/package-lock.json"
       - ".github/workflows/rust-core-ci.yml"
 
 permissions:
   contents: read
 
 jobs:
+  web-api-inventory:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: console/package-lock.json
+      - run: npm ci
+        working-directory: console
+      - run: npm run verify:api-inventory
+        working-directory: console
+
   audit:
     runs-on: ubuntu-latest
     permissions:
@@ -72,3 +94,42 @@ jobs:
         with:
           workspaces: qwenpaw-core -> target
       - run: cargo test --workspace
+
+  sdk:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            binary: qwenpaw-core
+          - os: macos-latest
+            binary: qwenpaw-core
+          - os: windows-latest
+            binary: qwenpaw-core.exe
+    runs-on: ${{ matrix.os }}
+    env:
+      QWENPAW_CORE_BIN: ${{ format('{0}/qwenpaw-core/target/debug/{1}', github.workspace, matrix.binary) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: qwenpaw-core/sdk/typescript/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: qwenpaw-core -> target
+      - run: cargo build --locked -p qwenpaw-cli
+        working-directory: qwenpaw-core
+      - run: npm ci
+        working-directory: qwenpaw-core/sdk/typescript
+      - run: npm run check
+        working-directory: qwenpaw-core/sdk/typescript
+      - run: python -m unittest discover -s tests -v
+        working-directory: qwenpaw-core/sdk/python
+        env:
+          PYTHONPATH: src

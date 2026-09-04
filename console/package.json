@@ -15,6 +15,8 @@
     "verify:monaco-css": "node scripts/verify-monaco-css.mjs",
     "precompress": "node scripts/precompress-assets.mjs",
     "verify:initial-bundle": "node scripts/verify-initial-bundle.mjs",
+    "api:inventory": "node scripts/generate-rust-api-inventory.mjs --write",
+    "verify:api-inventory": "node scripts/generate-rust-api-inventory.mjs --check",
     "preview": "vite preview",
     "preview:prod": "vite preview --mode production",
     "preview:test": "vite preview --mode test",

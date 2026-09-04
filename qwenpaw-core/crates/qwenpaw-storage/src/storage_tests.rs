@@ -94,3 +94,37 @@ fn persists_non_secret_core_settings_atomically() {
         None
     );
 }
+
+#[test]
+fn deletes_only_the_requested_thread_snapshot() {
+    let store = ThreadStore::in_memory().expect("store should open");
+    for id in ["thread-1", "thread-2"] {
+        store
+            .upsert(&StoredThread {
+                thread: Thread {
+                    id: String::from(id),
+                    model: String::from("qwen-test"),
+                    workspace_root: Some(String::from("/workspace")),
+                    status: ThreadStatus::Idle,
+                    archived: false,
+                    created_at: 10,
+                    updated_at: 20,
+                },
+                turns: Vec::new(),
+                messages: Vec::new(),
+            })
+            .expect("snapshot should persist");
+    }
+
+    assert!(store.delete("thread-1").expect("snapshot should delete"));
+    assert!(!store.delete("missing").expect("missing delete should work"));
+    assert_eq!(
+        store
+            .load_all()
+            .expect("remaining snapshots should load")
+            .into_iter()
+            .map(|snapshot| snapshot.thread.id)
+            .collect::<Vec<_>>(),
+        vec![String::from("thread-2")]
+    );
+}

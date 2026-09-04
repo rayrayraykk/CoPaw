@@ -135,6 +135,17 @@ impl ThreadStore {
         Ok(())
     }
 
+    /// Deletes one complete thread snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the database write fails.
+    pub fn delete(&self, thread_id: &str) -> Result<bool, StorageError> {
+        let connection = self.lock()?;
+        let deleted = connection.execute("DELETE FROM threads WHERE id = ?1", [thread_id])?;
+        Ok(deleted > 0)
+    }
+
     /// Reads a non-secret Core setting by key.
     ///
     /// # Errors

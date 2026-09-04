@@ -1,0 +1,29 @@
+{
+  "name": "@qwenpaw/sdk",
+  "version": "0.2.0",
+  "description": "Typed client SDK for qwenpaw-core app-server",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rayrayraykk/CoPaw.git",
+    "directory": "qwenpaw-core/sdk/typescript"
+  },
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "files": [
+    "dist/src",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p .",
+    "test": "node --test dist/test/*.test.js",
+    "check": "npm run build && npm test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "typescript": "~5.8.3"
+  }
+}

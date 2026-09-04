@@ -151,3 +151,36 @@ export interface AppProtocolServerNotifications {
 }
 
 export const PROTOCOL_VERSION = 3 as const;
+
+
+export const APP_PROTOCOL_REQUEST_METHODS = [
+  "initialize",
+  "thread/start",
+  "thread/resume",
+  "thread/archive",
+  "thread/list",
+  "thread/read",
+  "turn/start",
+  "turn/interrupt",
+  "tool/approval/respond",
+  "model/list",
+  "config/read",
+  "config/write",
+  "workspace/list",
+  "workspace/read",
+  "mcp/list",
+  "mcp/oauth/start",
+  "mcp/oauth/status",
+  "mcp/oauth/revoke",
+] as const;
+
+export const APP_PROTOCOL_SERVER_NOTIFICATION_METHODS = [
+  "thread/started",
+  "turn/started",
+  "item/started",
+  "item/agentMessage/delta",
+  "item/completed",
+  "tool/approval/requested",
+  "tool/approval/resolved",
+  "turn/completed",
+] as const;

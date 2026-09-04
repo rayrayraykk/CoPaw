@@ -15,15 +15,8 @@ pub(super) fn router() -> Router<AppServer> {
     Router::new()
         .route("/api/workspace/files", get(empty_array))
         .route("/api/workspace/system-prompt-files", get(empty_array))
-        .route("/api/mail-access-control/pending/all", get(empty_array))
-        .route("/api/access-control/pending/all", get(empty_array))
         .route("/api/pawapps", get(pawapps))
-        .route("/api/config/channels", get(empty_object))
-        .route("/api/config/channels/schemas", get(empty_object))
-        .route("/api/config/channels/types", get(empty_array))
         .route("/api/config/user-timezone", get(user_timezone))
-        .route("/api/cron/dispatch-targets", get(cron_dispatch_targets))
-        .route("/api/cron/jobs", get(empty_array))
         .route("/api/config/heartbeat", get(heartbeat))
         .route("/api/tools", get(empty_array))
         .route("/api/config/acp", get(acp))
@@ -37,7 +30,6 @@ pub(super) fn router() -> Router<AppServer> {
         .route("/api/agent-stats/llm-tool-trend", get(empty_array))
         .route("/api/workspace/checkpoints/status", get(checkpoint_status))
         .route("/api/workspace/checkpoints/graph", get(checkpoint_graph))
-        .route("/api/envs", get(empty_array))
         .route("/api/settings/offload-policy", get(offload_policy))
         .route("/api/config/security/sandbox", get(sandbox_status))
         .route(
@@ -68,10 +60,6 @@ async fn empty_array() -> Json<Value> {
     Json(json!([]))
 }
 
-async fn empty_object() -> Json<Value> {
-    Json(json!({}))
-}
-
 async fn empty_value() -> Json<Value> {
     Json(Value::Null)
 }
@@ -82,10 +70,6 @@ async fn pawapps() -> Json<Value> {
 
 async fn user_timezone() -> Json<Value> {
     Json(json!({"timezone": "UTC"}))
-}
-
-async fn cron_dispatch_targets() -> Json<Value> {
-    Json(json!({"channels": ["console"], "items": []}))
 }
 
 async fn heartbeat() -> Json<Value> {

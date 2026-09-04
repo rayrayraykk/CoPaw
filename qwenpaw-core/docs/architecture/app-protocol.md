@@ -1,6 +1,6 @@
 # QwenPaw App Protocol
 
-> Status: MVP v2
+> Status: App Protocol v3
 
 ## Purpose
 
@@ -91,6 +91,10 @@ invalid lifecycle state uses `-32000`.
 - `config/write`
 - `workspace/list`
 - `workspace/read`
+- `mcp/list`
+- `mcp/oauth/start`
+- `mcp/oauth/status`
+- `mcp/oauth/revoke`
 
 `thread/archive` is recoverable: it rejects active Turns, persists the archived
 state, and removes the Thread from default `thread/list` results. Clients can
@@ -126,6 +130,8 @@ otherwise probe arbitrary filesystem paths.
 `qwenpaw-protocol` is the source of truth. Its generator produces:
 
 - `sdk/typescript/src/protocol.ts` for TypeScript clients;
+- `sdk/python/src/qwenpaw_sdk/protocol.py` for Python protocol version and
+  method registries;
 - `docs/api-contract/app-protocol-v3.schema.json` for machine-readable payload
   validation;
 - `docs/api-contract/fixtures/app-protocol-v3.json` with typed examples for
@@ -134,8 +140,9 @@ otherwise probe arbitrary filesystem paths.
 
 Run `cargo run -p qwenpaw-protocol --example generate_contract` after changing
 a protocol type. Rust tests compare all checked-in artifacts to fresh generator
-output. The VS Code extension additionally locks its copied SDK by protocol
-version and SHA-256.
+output. The Rust, TypeScript, and Python client packages test against the same
+fixtures. The VS Code extension additionally locks its copied TypeScript SDK
+wire layer by protocol version and SHA-256.
 
 ## Workspace and tools
 

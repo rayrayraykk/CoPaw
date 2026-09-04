@@ -28,7 +28,7 @@
 1. VS Code 插件；
 2. Tauri 桌面应用；
 3. 现有 WebUI；
-4. 后续可能增加的 CLI、TUI 和远程客户端。
+4. 现有 CLI、TUI、远程访问和消息渠道客户端。
 
 现有前端的页面、交互和视觉不在本次重构范围内。重构过程中应优先保持现有 WebUI 的 API 契约和用户行为。
 
@@ -152,23 +152,17 @@ qwenpaw/qwenpaw-core/
 │   └── codex/                   # openai/codex，只读参考
 ├── Cargo.toml
 ├── crates/
-│   ├── qwenpaw-domain/
-│   ├── qwenpaw-protocol/
-│   ├── qwenpaw-server/
-│   ├── qwenpaw-runtime/
-│   ├── qwenpaw-models/
+│   ├── qwenpaw-protocol/          # App Protocol 的 Rust 类型源
+│   ├── qwenpaw-app-server/        # stdio / WS / WSS 与 Web 兼容边缘
+│   ├── qwenpaw-app-server-client/ # Rust 客户端，不包含 Agent 业务逻辑
+│   ├── qwenpaw-core/              # Thread / Turn / Agent Runtime
 │   ├── qwenpaw-tools/
+│   ├── qwenpaw-mcp/
 │   ├── qwenpaw-storage/
-│   ├── qwenpaw-governance/
-│   ├── qwenpaw-platform/
-│   └── qwenpaw-cli/
+│   └── qwenpaw-cli/               # `qwenpaw-core app-server`
 ├── sdk/
-│   └── typescript/
-├── packaging/
-│   ├── desktop/
-│   ├── macos/
-│   ├── linux/
-│   └── windows/
+│   ├── typescript/                # Node/VS Code SDK
+│   └── python/                    # Python SDK
 └── scripts/
 
 qwenpaw/
@@ -193,25 +187,54 @@ qwenpaw/
 ## 6. 目标架构
 
 ```text
-VS Code Extension ─┐
-Tauri Desktop ─────┼──── QwenPaw App Protocol ────┐
-Future CLI/TUI ────┘                              │
-                                                  │
-Existing WebUI ───── Web Compatibility API ───────┤
-                                                  ▼
-                                         QwenPaw Rust Core
-                                                  │
-             ┌──────────────────┬─────────────────┼─────────────────┐
-             ▼                  ▼                 ▼                 ▼
-        Agent Runtime       Tool Runtime       Storage          Platform
-        Model Providers     MCP / Skills       Sessions         Process
-        Context / Loop      Approval           Memory           Filesystem
-        Event Stream        Governance         Config           Sandbox
+┌────────────────────────────── Client / Product Layer ──────────────────────────────┐
+│                                                                                    │
+│  VS Code Extension       Python application    Existing CLI / TUI*   Remote client │
+│          │                       │                      │                   │         │
+│          ▼                       ▼                      ▼                   ▼         │
+│  TypeScript SDK           Python SDK        Rust app-server-client   language SDK  │
+│          └───────────────────────┴──────────────────────┴───────────────────┘         │
+│                                          │                                         │
+│                              QwenPaw App Protocol v3                               │
+│                              stdio / WS / authenticated WSS                        │
+│                                          │                                         │
+│  Existing React WebUI ── unchanged HTTP/SSE ── Web Compatibility Adapter           │
+│                                          │                                         │
+│  Tauri Desktop ───────────── process ownership / lifecycle ────────────────┐        │
+└────────────────────────────────────────────────────────────────────────────┼────────┘
+                                                                             ▼
+┌────────────────────────────── App Server Host ─────────────────────────────────────┐
+│ qwenpaw-core app-server                                                            │
+│ initialize · request routing · notifications · approval · cancellation · transport │
+└──────────────────────────────────────────┬─────────────────────────────────────────┘
+                                           ▼
+┌────────────────────────────── Rust Core Runtime ───────────────────────────────────┐
+│ Thread / Turn / Item state machine · Agent loop · Model · Tools · MCP · Storage     │
+│ Workspace boundary · credential boundary · bounded execution                        │
+└────────────────────────────────────────────────────────────────────────────────────┘
 ```
+
+`*` CLI、TUI、消息渠道和 Hub/远程能力已经存在。图中的 SDK 是逐入口迁移边界；
+当前 Python 实现继续保留，只有在对应能力清单和回归测试达到等价后才允许切换。
+
+该分层对齐 Codex 的核心思路：SDK 不实现 Agent Loop，也不直连数据库；SDK
+负责启动或连接 App Server、完成 initialize、关联请求/响应、消费通知并暴露
+语言友好的 Thread/Turn API。App Server 是稳定宿主边界，`qwenpaw-core` crate
+才是领域运行时。现有 WebUI 为保持业务源码不变，继续通过 App Server 内的
+HTTP/SSE 兼容适配器进入同一个 Rust Core。
+
+SDK 首批只实现有真实消费者的 Rust、TypeScript 和 Python。Go、Java 等语言
+必须等到出现调用方后再增加，避免复制尚未稳定的高层 API。
+
+这里的 SDK 改造是接入层重构，不是产品功能裁剪。现有 CLI、TUI、远程访问、
+消息渠道及旧 Python 版本在对应 Rust 接入完成前必须继续可用；任何入口切换
+都必须先有等价能力清单和回归测试，禁止以“后续客户端”为由移除既有功能。
 
 ### 6.1 App Protocol
 
 内部协议参考 Codex app-server 的资源化命名，但只实现 QwenPaw 需要的部分。
+`qwenpaw-protocol` 是唯一协议类型源；各语言 SDK 只能消费生成物和固定的
+方法表，不得各自发明 wire payload。
 
 初始资源：
 
@@ -279,7 +302,7 @@ Server 发起的初始请求：
 | 场景 | 默认传输 | 说明 |
 |---|---|---|
 | VS Code 本地插件 | stdio | 插件启动 Core，部署简单 |
-| Desktop | Unix socket / named pipe | Tauri 管理 Core sidecar |
+| Desktop | loopback HTTP/SSE | Tauri 管理 Core sidecar，现有 WebUI 通过兼容适配器接入 |
 | WebUI | HTTP + WebSocket/SSE | 兼容现有前端 |
 | 本地调试 | stdio / WebSocket | 可使用协议检查客户端 |
 | 远程连接 | WSS | 必须启用认证与 TLS |
@@ -361,7 +384,7 @@ Rust 新版本使用全新的 SQLite，不兼容或导入现有 Python 数据库
 4. 实现请求、响应、通知和 Server Request；
 5. 实现 stdio 传输；
 6. 实现有界队列、背压、超时和取消；
-7. 生成 JSON Schema 和 TypeScript 类型；
+7. 生成 JSON Schema 和 TypeScript 协议类型；
 8. 提供协议测试客户端；
 9. 建立 tracing 和结构化日志。
 
@@ -613,6 +636,7 @@ MVP 至少提供：
 - [x] D9：迁移期间 Rust Server 是新客户端唯一 Core 入口；
 - [x] D10：确认后续实现按阶段开发、构建和测试，不进行一次性大改。
 - [x] D11：确认 Rust 新版本从空数据启动，不实现 Python 数据迁移或自动导入。
+- [x] D12：用户于 2026-09-04 将最终目标扩大为现有 QwenPaw 前端全部交互等价；此前“页面可导航、空响应或禁用状态”不再视为完成，实现状态必须由真实行为和原前端 E2E 共同证明。
 
 ## 14. 执行 Checklist
 
@@ -644,7 +668,7 @@ MVP 至少提供：
 - [x] 完成 platform 边界评审，平台代码保留在各自所有组件；
 - [x] 创建 CLI；
 - [x] 生成 JSON Schema；
-- [x] 生成 TypeScript SDK；
+- [x] 生成 TypeScript 协议类型；
 - [x] 实现 stdio；
 - [x] 实现 loopback HTTP health / WebSocket App Protocol；
 - [x] 实现 Desktop/WebUI 当前范围的 HTTP/SSE 兼容层，未实现产品域显式返回空/禁用或 404；
@@ -735,7 +759,7 @@ MVP 至少提供：
 - [x] 生成版本化 App Protocol JSON Schema（当前 v3）；
 - [x] 生成包含全部稳定消息的 typed contract fixtures；
 - [x] 生成可审阅的方法与通知 inventory；
-- [x] 生成 TypeScript SDK 并由 VS Code 替换手写协议接口；
+- [x] 生成 TypeScript 协议类型并由 VS Code 替换手写 payload 接口；
 - [x] Rust 测试校验生成物与类型源无漂移；
 - [x] VS Code 使用协议版本和 SHA-256 锁定 SDK 快照；
 - [x] `Item` variant 字段统一为 camelCase 并补充序列化测试；
@@ -941,6 +965,87 @@ MVP 至少提供：
 - [x] 原生发布 QA：四平台 Core 归档通过 [Core Release #33548216424](https://github.com/rayrayraykk/CoPaw/actions/runs/33548216424)，四平台 VSIX 通过 [VSIX #33549602153](https://github.com/rayrayraykk/CoPaw/actions/runs/33549602153)；
 - [x] 生产发布脚本在缺失 Apple/Tauri 凭据时 fail-closed，不会发布 ad-hoc macOS 产物；
 - [ ] 外部阻塞：仓库配置 Apple/Tauri 凭据后，完成 Core、平台 VSIX 与 Desktop 的真实 Developer ID 签名/公证发布验收；
+
+### 14.2.23 当前开发切片：Codex 式 App Server SDK 分层
+
+- [x] 用户确认 App Server 作为统一客户端宿主，SDK 不承载 Agent Runtime；
+- [x] 更新目标架构图，明确 Core、App Server、SDK、产品壳和 Web 兼容层；
+- [x] 新增 Rust `qwenpaw-app-server-client`，提供有类型的请求、通知和 stdio 生命周期；
+- [x] 将 `sdk/typescript` 从协议类型快照扩展为可独立构建和测试的客户端 SDK；
+- [x] VS Code 复用 TypeScript SDK 的 RPC/initialize 层，不再维护独立 wire client；
+- [x] 新增 Python SDK，通过 stdio 启动或连接 `qwenpaw-core app-server`；
+- [x] Rust、TypeScript、Python SDK 共用 App Protocol v3 fixtures 做一致性校验；
+- [x] 建立现有 CLI、TUI、远程访问和消息渠道入口的非退化清单与回归门禁；
+- [x] 更新 SDK 使用说明、兼容策略和本机验证命令；
+- [x] 通过 Rust workspace、SDK、VS Code、Tauri 与 Console 本机回归；
+
+### 14.2.24 当前开发切片：原前端全交互等价
+
+完成标准不是页面能打开，也不是接口不返回 404。每个原前端可触发的读取、写入、流式响应、取消、错误和重启恢复行为都必须由 Rust Core 提供，并以原前端实际操作验证。占位空数组、固定对象和无效果成功响应均按未实现处理。
+
+- [x] 从 `console/src` 生产调用点生成 HTTP、SSE、WebSocket 和下载/上传调用清单，并建立防漂移检查；
+- [ ] 为每个调用标记 Rust 实现、真实行为测试、原前端 E2E 和跨平台状态，且完成门禁要求不存在占位或未知项；
+- [ ] Chat、会话、分组、附件、审批、工具调用和 Inbox 全交互等价；
+- [ ] Workspace、Memory、Profile、系统提示词、Coding 文件、Git 和 Checkpoint 全交互等价；
+- [ ] 模型、Provider、OAuth、本地模型、Agent、多 Agent、统计和 Token Usage 全交互等价；
+- [ ] MCP、Skills、Tools、Plugins、PawApps、Market 和 Harnesses 全交互等价；
+- [ ] Channels、Access Control、Mail Access Control、Messages、Voice 和 Browser Control 全交互等价；
+- [ ] Cron、Heartbeat、Env、Security、Backup、Debug、ACP 和 Hub 全交互等价；
+- [x] Env 的原前端 CRUD、安全凭据持久化、重启恢复和 Rust Agent Shell 继承已实现；其他运行时适配器继承仍由上一项跟踪；
+- [ ] Cron 已完成原前端任务 CRUD、启停、Console 文本立即执行、可选 Inbox 结果、状态/历史、投递目标和重启恢复；后台调度、Agent 任务、其他 Channel 和 Heartbeat 仍由上一项跟踪；
+- [ ] Access Control 已完成原前端白名单/黑名单读取、新增、删除、元数据修改、审批动作契约和重启恢复；非 Console Channel 接入、入站消息拦截及运行时生成 pending 记录仍由 Channels 项跟踪；
+- [ ] Mail Access Control 已完成原前端 13 条路由、地址与域通配符校验、批量白黑名单、pending 备注/批准/拒绝/忽略、隐藏批准重放状态、Inbox 已读联动和重启恢复；邮件监听、入站 pending 生成及批准邮件实际重放仍由 Mail Runtime 跟踪；
+- [ ] Channels 已恢复与旧版一致的 18 个内置通道目录、默认配置、单 Agent 冲突检查和 Console 配置保存/重启恢复；17 个外部通道 runtime、凭据安全存储、健康检查、重启及 QR 登录仍待逐个移植，当前启用请求明确失败而不会伪装成功；
+- [ ] 原 Console 业务源码保持不变，全部原交互用例在 Rust Core 上通过；
+- [ ] Desktop、WebUI、VS Code、Rust/TypeScript/Python SDK、CLI 和 TUI 逐个构建及回归；
+- [ ] macOS、Windows 和 Linux 原生制品完成安装态回归；
+
+#### 14.2.24.1 2026-09-04 本机验收记录
+
+- [x] 生成并锁定 370 个 Console 生产调用点，CI 校验调用清单与 Rust 路由漂移；
+- [x] Rust workspace 120 个测试、严格 Clippy 和格式检查通过；
+- [x] Console 295 个测试文件、2453 个测试及 production build 通过；
+- [x] 使用原 Console 的 Environment 页面完成新增、保存、刷新回显和删除 WebKit E2E；
+- [x] 累计使用未修改的 Console 与对应 release Rust Core 完成 Environment、Cron、Access Control、Mail Access Control、Channels、Inbox Messages 与 Chat Catalog 七组 WebKit E2E；
+- [x] 使用原 Console 的 Cron 页面完成创建、启停、立即执行、历史、编辑和删除 WebKit E2E，并验证 Core 重启后任务仍可读取；
+- [x] 使用原 Console 的 Access Control 抽屉完成白名单新增、刷新回显、删除和黑名单新增/删除 WebKit E2E，并验证 Core 重启持久化契约；
+- [x] 使用原 Inbox 的 Mail Access Control 抽屉完成 pending 备注、批准、拉黑、忽略，以及白名单/黑名单新增、刷新回显和删除 WebKit E2E，并验证 Core 重启持久化契约；
+- [x] 使用未修改的原 Inbox 页面完成来源筛选、分页、单条/全部已读、trace 查看、单条/批量删除、空态和刷新恢复 WebKit E2E；
+- [x] 使用未修改的原 Chat 抽屉和 Sessions 页面完成分组新建/重命名/置顶/删除回迁，以及会话重命名/置顶/移动、单条归档、批量归档/恢复和批量物理删除 WebKit E2E；
+- [x] 使用原 Console 的 Channels 页面验证 18 个内置通道目录，并完成 Console Bot Prefix 保存、刷新回显和清空 WebKit E2E；
+- [x] TypeScript SDK、Python SDK、VS Code extension 均通过真实 Rust Core 测试；
+- [x] legacy CLI/TUI 专项 893 个测试通过；初次运行因 `qwenpaw` conda 环境漏装已声明的 `pytest-asyncio` 产生 73 个收集/执行失败，补齐开发依赖后全量重跑通过；
+- [x] macOS App/ZIP/DMG、Core archive、WebUI archive、两个 SDK 包、两个 VSIX 和 legacy wheel 完成本机构建及包结构校验；最新 Chat Catalog Core 已重新嵌入 App、ZIP、DMG 和 darwin-arm64 VSIX，原 Chat 抽屉与 Sessions 管理页已在 release Core 上通过 WebKit E2E 和重启恢复验证，并更新全部 SHA-256；
+- [x] legacy wheel 安装后 CLI 与现有 TUI 入口可用；
+- [ ] macOS DMG 安装态启动：镜像校验、挂载、包结构、深度签名及内嵌 arm64 Core 均通过；但 ad-hoc QA 包从分发目录/DMG 启动时被当前阿里企业安全 EDR 以 exit 137 终止，Gatekeeper 也按预期拒绝无 Developer ID 的包，等待签名与公证后复测；
+- [ ] Windows/Linux 原生安装态构建与交互回归：必须在对应原生 runner 完成，不能用 macOS 结果替代；
+- [ ] 语义等价门禁：当前仍有 215 个调用点未注册、23 个明显占位实现和 11 个静态未解析表达式；
+
+#### 14.2.24.2 当前子切片：Inbox Messages
+
+`/api/messages/send` 是外部客户端的主动通道投递接口，原 Console 不调用它；原前端的 Messages 交互实际由 `/api/console/inbox/*` 提供。本子切片先完成用户可见的 Inbox，再在 Channels runtime 切片实现主动外部投递。
+
+- [x] 用 SQLite 持久化有界 Inbox event 与 trace 数据，重启后恢复；
+- [x] 完成事件分页、来源/状态/Agent/未读筛选，并返回精确 total 与 unread_count；
+- [x] 完成单条/全部已读、删除、共享 trace 引用和最后引用删除语义；
+- [x] 将 Cron 保存到 Inbox 的行为接入同一事件存储；
+- [x] 补齐 HTTP 契约、非法输入、容量限制和重启恢复测试；
+- [x] 使用未修改的原 Inbox 页面验证查看、单条已读、全部已读、删除、筛选和 trace 交互；
+- [x] 更新 API inventory，确认原 Console 业务源码零改动并通过完整回归；
+
+Inbox 读取、状态和持久化契约已完成；真实 Agent Cron、Heartbeat、Memory 与 Mail Monitor 产生 trace/event 的运行时仍分别由对应未完成切片跟踪，不能用测试种子替代。
+
+#### 14.2.24.3 当前子切片：Chat Catalog 与分组管理
+
+本子切片只迁移原 Console 已使用的会话目录管理行为。消息与 turn 继续以 Core Thread 为唯一事实来源；名称、置顶、来源、分组和展示时间等目录元数据使用独立的有界 SQLite setting 持久化，避免把旧 Python `ChatSpec` 数据结构侵入 App Protocol。
+
+- [x] 为已有及新建 Core Thread 提供持久化 ChatSpec 元数据，并保持列表筛选、排序、状态和重启恢复；
+- [x] 完成会话创建、重命名、置顶、移动分组、单删和批删，删除后同步清理 Core Thread 与本地 session alias；
+- [x] 完成自定义分组创建、重命名、置顶、顺序调整和删除回迁，严格保护 Cron/Subagents 固定分组；
+- [x] 完成单条及批量归档/恢复、运行中冲突、部分失败和幂等语义；
+- [x] 为元数据容量、非法输入、未知对象、并发锁顺序和重启恢复补齐 Rust HTTP 测试；
+- [x] 使用未修改的原 Chat 抽屉与 Sessions 页面完成新建分组、重命名、置顶、移动分组、归档、恢复和删除 WebKit E2E；
+- [x] 更新 API inventory，确认 `console/src` 零改动并通过全量回归；
 
 ### 14.3 客户端与发布
 

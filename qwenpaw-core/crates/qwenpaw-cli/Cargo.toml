@@ -23,6 +23,8 @@ tracing-subscriber.workspace = true
 
 [dev-dependencies]
 pretty_assertions.workspace = true
+qwenpaw-app-server-client = { path = "../qwenpaw-app-server-client" }
+qwenpaw-protocol = { path = "../qwenpaw-protocol" }
 tempfile.workspace = true
 
 [lints]

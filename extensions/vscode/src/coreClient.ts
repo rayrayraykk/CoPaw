@@ -4,46 +4,32 @@ import * as vscode from "vscode";
 import { AsyncResourceManager } from "./asyncResourceManager";
 import { resolveCoreExecutable } from "./coreExecutable";
 import { API_KEY_SECRET, createCoreEnvironment } from "./environment";
+import { AppServerClient } from "./generated/appServerClient";
 import {
   type AgentMessageDeltaNotification,
   type ConfigReadResponse,
   type ConfigWriteParams,
   type ConfigWriteResponse,
-  type InitializeResponse,
   type ItemCompletedNotification,
   type ItemStartedNotification,
   type McpClientInfo,
-  type McpListResponse,
-  type McpOAuthRevokeResponse,
   type McpOAuthStartResponse,
   type McpOAuthStatus,
-  type McpOAuthStatusResponse,
   type ModelInfo,
-  type ModelListResponse,
-  PROTOCOL_VERSION,
   type Thread,
-  type ThreadArchiveResponse,
-  type ThreadListResponse,
-  type ThreadResumeResponse,
-  type ThreadStartResponse,
   type ToolApprovalRequestedNotification,
   type ToolApprovalResolvedNotification,
-  type ToolApprovalRespondResponse,
   type TurnCompletedNotification,
-  type TurnStartResponse,
   type UserInput,
   type WorkspaceInfo,
-  type WorkspaceListResponse,
-  type WorkspaceReadResponse,
 } from "./generated/protocol";
-import { RpcClient } from "./rpcClient";
 import { collectCursorPages } from "./pagination";
 import { TurnProgressTracker, turnOutcome } from "./turnProgress";
 
 export class CoreClient implements vscode.Disposable {
   private constructor(
     private readonly process: ChildProcessWithoutNullStreams,
-    private readonly rpc: RpcClient,
+    private readonly rpc: AppServerClient,
     private readonly output: vscode.OutputChannel,
   ) {}
 
@@ -84,39 +70,39 @@ export class CoreClient implements vscode.Disposable {
     });
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk: string) => output.append(chunk));
-    const rpc = new RpcClient(child.stdout, child.stdin);
-    child.on("error", (error) => rpc.dispose());
+    const rpcPromise = AppServerClient.connect(child.stdout, child.stdin, {
+      clientInfo: {
+        name: "qwenpaw_vscode",
+        title: "QwenPaw VS Code Extension",
+        version: "0.2.0",
+      },
+    });
+    const disposeRpc = (): void => {
+      void rpcPromise.then(
+        (rpc) => rpc.dispose(),
+        () => undefined,
+      );
+    };
+    child.on("error", disposeRpc);
     child.on("exit", (code, signal) => {
       output.appendLine(
         `QwenPaw Core exited (code=${String(code)}, signal=${String(signal)})`,
       );
-      rpc.dispose();
+      disposeRpc();
     });
-    const client = new CoreClient(child, rpc, output);
     try {
-      const initialized = await rpc.request<InitializeResponse>("initialize", {
-        clientInfo: {
-          name: "qwenpaw_vscode",
-          title: "QwenPaw VS Code Extension",
-          version: "0.2.0",
-        },
-      });
-      if (initialized.protocolVersion !== PROTOCOL_VERSION) {
-        throw new Error(
-          `Unsupported QwenPaw protocol version: ${initialized.protocolVersion}`,
-        );
-      }
-      rpc.notify("initialized", {});
+      const rpc = await rpcPromise;
+      const client = new CoreClient(child, rpc, output);
       await client.updateConfig({
         baseUrl,
         defaultModel: model,
       });
       output.appendLine(
-        `Connected to ${initialized.serverInfo.name} ${initialized.serverInfo.version}`,
+        `Connected to ${rpc.serverInfo.name} ${rpc.serverInfo.version}`,
       );
       return client;
     } catch (error) {
-      client.dispose();
+      child.kill();
       throw error;
     }
   }
@@ -125,29 +111,20 @@ export class CoreClient implements vscode.Disposable {
     const model = vscode.workspace
       .getConfiguration("qwenpaw")
       .get<string>("model", "qwen3-coder-plus");
-    const response = await this.rpc.request<ThreadStartResponse>(
-      "thread/start",
-      {
-        model,
-        workspaceRoot,
-      },
-    );
+    const response = await this.rpc.request("thread/start", {
+      model,
+      workspaceRoot: workspaceRoot ?? null,
+    });
     return response.thread.id;
   }
 
   public async listModels(): Promise<readonly ModelInfo[]> {
-    const response = await this.rpc.request<ModelListResponse>(
-      "model/list",
-      {},
-    );
+    const response = await this.rpc.request("model/list", {});
     return response.data;
   }
 
   public async readConfig(): Promise<ConfigReadResponse["config"]> {
-    const response = await this.rpc.request<ConfigReadResponse>(
-      "config/read",
-      {},
-    );
+    const response = await this.rpc.request("config/read", {});
     return response.config;
   }
 
@@ -159,10 +136,7 @@ export class CoreClient implements vscode.Disposable {
       baseUrl: values.baseUrl ?? null,
       defaultModel: values.defaultModel ?? null,
     };
-    const response = await this.rpc.request<ConfigWriteResponse>(
-      "config/write",
-      params,
-    );
+    const response = await this.rpc.request("config/write", params);
     return response.config;
   }
 
@@ -170,7 +144,7 @@ export class CoreClient implements vscode.Disposable {
     includeArchived = false,
   ): Promise<readonly Thread[]> {
     return collectCursorPages(async (cursor) =>
-      this.rpc.request<ThreadListResponse>("thread/list", {
+      this.rpc.request("thread/list", {
         cursor,
         limit: 200,
         includeArchived,
@@ -179,61 +153,48 @@ export class CoreClient implements vscode.Disposable {
   }
 
   public async resumeThread(threadId: string): Promise<Thread> {
-    const response = await this.rpc.request<ThreadResumeResponse>(
-      "thread/resume",
-      { threadId },
-    );
+    const response = await this.rpc.request("thread/resume", { threadId });
     return response.thread;
   }
 
   public async archiveThread(threadId: string): Promise<Thread> {
-    const response = await this.rpc.request<ThreadArchiveResponse>(
-      "thread/archive",
-      { threadId },
-    );
+    const response = await this.rpc.request("thread/archive", { threadId });
     return response.thread;
   }
 
   public async listWorkspaces(): Promise<readonly WorkspaceInfo[]> {
-    const response = await this.rpc.request<WorkspaceListResponse>(
-      "workspace/list",
-      {},
-    );
+    const response = await this.rpc.request("workspace/list", {});
     return response.data;
   }
 
   public async readWorkspace(root: string): Promise<WorkspaceInfo> {
-    const response = await this.rpc.request<WorkspaceReadResponse>(
-      "workspace/read",
-      { root },
-    );
+    const response = await this.rpc.request("workspace/read", { root });
     return response.workspace;
   }
 
   public async listMcpClients(): Promise<readonly McpClientInfo[]> {
-    const response = await this.rpc.request<McpListResponse>("mcp/list", {});
+    const response = await this.rpc.request("mcp/list", {});
     return response.data;
   }
 
   public async startMcpOAuth(serverId: string): Promise<McpOAuthStartResponse> {
-    return this.rpc.request<McpOAuthStartResponse>("mcp/oauth/start", {
+    return this.rpc.request("mcp/oauth/start", {
       serverId,
+      url: null,
+      scope: null,
+      clientId: null,
+      authorizationEndpoint: null,
+      tokenEndpoint: null,
     });
   }
 
   public async readMcpOAuthStatus(serverId: string): Promise<McpOAuthStatus> {
-    const response = await this.rpc.request<McpOAuthStatusResponse>(
-      "mcp/oauth/status",
-      { serverId },
-    );
+    const response = await this.rpc.request("mcp/oauth/status", { serverId });
     return response.status;
   }
 
   public async revokeMcpOAuth(serverId: string): Promise<boolean> {
-    const response = await this.rpc.request<McpOAuthRevokeResponse>(
-      "mcp/oauth/revoke",
-      { serverId },
-    );
+    const response = await this.rpc.request("mcp/oauth/revoke", { serverId });
     return response.revoked;
   }
 
@@ -252,7 +213,7 @@ export class CoreClient implements vscode.Disposable {
       resolveCompletion = resolve;
       rejectCompletion = reject;
     });
-    const notifications = this.rpc.onNotification((method, params) => {
+    const notifications = this.rpc.onAnyNotification((method, params) => {
       if (method === "item/agentMessage/delta") {
         const delta = params as AgentMessageDeltaNotification;
         if (delta.threadId === threadId && delta.turnId === turnId) {
@@ -330,7 +291,7 @@ export class CoreClient implements vscode.Disposable {
     let connection: vscode.Disposable | undefined;
 
     try {
-      const response = await this.rpc.request<TurnStartResponse>("turn/start", {
+      const response = await this.rpc.request("turn/start", {
         threadId,
         input: [...input],
       });
@@ -389,10 +350,10 @@ export class CoreClient implements vscode.Disposable {
       selection === "Allow once" && !cancellation.isCancellationRequested
         ? "approved"
         : "denied";
-    const response = await this.rpc.request<ToolApprovalRespondResponse>(
-      "tool/approval/respond",
-      { approvalId: approval.approvalId, decision },
-    );
+    const response = await this.rpc.request("tool/approval/respond", {
+      approvalId: approval.approvalId,
+      decision,
+    });
     if (!response.accepted) {
       this.output.appendLine(
         `Tool approval was no longer pending: ${approval.approvalId}`,
