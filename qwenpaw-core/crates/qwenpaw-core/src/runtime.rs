@@ -62,6 +62,7 @@ use qwenpaw_tools::ApprovalRequirement;
 use qwenpaw_tools::ToolCall;
 use qwenpaw_tools::ToolOutput;
 use qwenpaw_tools::Workspace;
+use serde_json::Value;
 use tokio::sync::Mutex;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
@@ -107,6 +108,7 @@ const INBOX_DATA_SETTING: &str = "desktop_inbox_data";
 const CHAT_CATALOG_DATA_SETTING: &str = "desktop_chat_catalog_data";
 const CHANNEL_CONFIG_DATA_SETTING: &str = "desktop_channel_config_data";
 const AGENT_SETTINGS_DATA_SETTING: &str = "desktop_agent_settings_data";
+const BUILTIN_TOOL_OVERRIDES_SETTING: &str = "builtin_tool_overrides";
 const DEFAULT_UI_LANGUAGE: &str = "en";
 const SUPPORTED_UI_LANGUAGES: [&str; 7] = ["en", "zh", "ja", "ru", "pt-BR", "id", "vi"];
 const MAX_ENVIRONMENT_VARIABLES: usize = 256;
@@ -134,6 +136,13 @@ pub struct AgentRuntimeConfig {
     pub approval_level: ToolApprovalLevel,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuiltinToolStatus {
+    pub name: String,
+    pub description: String,
+    pub enabled: bool,
+}
+
 impl Default for AgentRuntimeConfig {
     fn default() -> Self {
         Self {
@@ -157,6 +166,7 @@ struct CoreInner {
     state: Mutex<State>,
     runtime_environment: SyncRwLock<BTreeMap<String, String>>,
     agent_runtime_config: SyncRwLock<AgentRuntimeConfig>,
+    builtin_tool_overrides: SyncRwLock<BTreeMap<String, bool>>,
     system_prompt_files: SyncRwLock<Vec<String>>,
 }
 
@@ -243,6 +253,18 @@ impl Core {
             model_config.default_model = default_model;
         }
         let model_config = model_config.normalize().map_err(CoreError::config)?;
+        let mut builtin_tool_overrides = match store
+            .read_setting(BUILTIN_TOOL_OVERRIDES_SETTING)
+            .map_err(CoreError::storage)?
+        {
+            Some(value) => {
+                serde_json::from_str::<BTreeMap<String, bool>>(&value).map_err(|_| {
+                    CoreError::Config(String::from("stored built-in tool overrides are invalid"))
+                })?
+            }
+            None => BTreeMap::new(),
+        };
+        builtin_tool_overrides.retain(|name, enabled| qwenpaw_tools::is_builtin(name) && !*enabled);
         let system_prompt_files = match store
             .read_setting(SYSTEM_PROMPT_FILES_SETTING)
             .map_err(CoreError::storage)?
@@ -286,6 +308,7 @@ impl Core {
                 }),
                 runtime_environment: SyncRwLock::new(BTreeMap::new()),
                 agent_runtime_config: SyncRwLock::new(AgentRuntimeConfig::default()),
+                builtin_tool_overrides: SyncRwLock::new(builtin_tool_overrides),
                 system_prompt_files: SyncRwLock::new(system_prompt_files),
             }),
         })
@@ -1083,6 +1106,101 @@ impl Core {
         Ok(())
     }
 
+    /// Returns the Rust built-in tools and their effective enabled states.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the runtime state lock is poisoned.
+    pub fn builtin_tools(&self) -> Result<Vec<BuiltinToolStatus>, CoreError> {
+        let overrides = self.builtin_tool_overrides()?;
+        Ok(qwenpaw_tools::builtin_metadata()
+            .into_iter()
+            .map(|tool| BuiltinToolStatus {
+                enabled: overrides.get(&tool.name).copied().unwrap_or(true),
+                name: tool.name,
+                description: tool.description,
+            })
+            .collect())
+    }
+
+    /// Atomically toggles and persists one Rust built-in tool.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an unknown tool, failed persistence, or poisoned
+    /// runtime state.
+    pub fn toggle_builtin_tool(&self, tool_name: &str) -> Result<BuiltinToolStatus, CoreError> {
+        let metadata = qwenpaw_tools::builtin_metadata()
+            .into_iter()
+            .find(|tool| tool.name == tool_name)
+            .ok_or_else(|| CoreError::Config(format!("unknown built-in tool: {tool_name}")))?;
+        let mut overrides =
+            self.inner.builtin_tool_overrides.write().map_err(|_| {
+                CoreError::Config(String::from("built-in tool state lock is poisoned"))
+            })?;
+        let enabled = !overrides.get(tool_name).copied().unwrap_or(true);
+        persist_builtin_tool_override(&self.inner.store, &mut overrides, tool_name, enabled)?;
+        Ok(BuiltinToolStatus {
+            name: metadata.name,
+            description: metadata.description,
+            enabled,
+        })
+    }
+
+    /// Atomically persists one Rust built-in tool's enabled state.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an unknown tool, failed persistence, or poisoned
+    /// runtime state.
+    pub fn set_builtin_tool_enabled(
+        &self,
+        tool_name: &str,
+        enabled: bool,
+    ) -> Result<BuiltinToolStatus, CoreError> {
+        let metadata = qwenpaw_tools::builtin_metadata()
+            .into_iter()
+            .find(|tool| tool.name == tool_name)
+            .ok_or_else(|| CoreError::Config(format!("unknown built-in tool: {tool_name}")))?;
+        let mut overrides =
+            self.inner.builtin_tool_overrides.write().map_err(|_| {
+                CoreError::Config(String::from("built-in tool state lock is poisoned"))
+            })?;
+        persist_builtin_tool_override(&self.inner.store, &mut overrides, tool_name, enabled)?;
+        Ok(BuiltinToolStatus {
+            name: metadata.name,
+            description: metadata.description,
+            enabled,
+        })
+    }
+
+    fn builtin_tool_overrides(&self) -> Result<BTreeMap<String, bool>, CoreError> {
+        self.inner
+            .builtin_tool_overrides
+            .read()
+            .map(|overrides| overrides.clone())
+            .map_err(|_| CoreError::Config(String::from("built-in tool state lock is poisoned")))
+    }
+
+    fn builtin_tool_enabled(&self, tool_name: &str) -> Result<bool, CoreError> {
+        Ok(self
+            .builtin_tool_overrides()?
+            .get(tool_name)
+            .copied()
+            .unwrap_or(true))
+    }
+
+    fn enabled_builtin_tool_definitions(&self) -> Result<Vec<Value>, CoreError> {
+        let overrides = self.builtin_tool_overrides()?;
+        Ok(qwenpaw_tools::definitions()
+            .into_iter()
+            .filter(|definition| {
+                qwenpaw_tools::definition_name(definition)
+                    .is_some_and(|name| overrides.get(name).copied().unwrap_or(true))
+            })
+            .collect())
+    }
+
     /// Replaces the environment inherited by future Agent child processes.
     ///
     /// # Errors
@@ -1372,7 +1490,6 @@ impl Core {
         else {
             return;
         };
-        let mut tools = qwenpaw_tools::definitions();
         let mcp_tools = tokio::select! {
             () = cancellation.cancelled() => {
                 self.finish_turn(
@@ -1386,9 +1503,16 @@ impl Core {
             }
             definitions = self.inner.mcp.definitions() => definitions,
         };
-        tools.extend(mcp_tools);
         let mut outcome = TurnOutcome::Failed(String::from("agent exceeded maximum steps"));
         for _ in 0..runtime_config.max_agent_steps {
+            let mut tools = match self.enabled_builtin_tool_definitions() {
+                Ok(tools) => tools,
+                Err(error) => {
+                    outcome = TurnOutcome::Failed(error.to_string());
+                    break;
+                }
+            };
+            tools.extend(mcp_tools.clone());
             let messages = self.messages_snapshot(&thread_id).await;
             let step = self
                 .run_model_step(
@@ -1700,6 +1824,13 @@ impl Core {
                         .map_err(|error| error.to_string()))
                 }
             };
+        }
+        if qwenpaw_tools::is_builtin(&call.name)
+            && !self
+                .builtin_tool_enabled(&call.name)
+                .map_err(|error| TurnOutcome::Failed(error.to_string()))?
+        {
+            return Ok(Err(format!("Tool '{}' is disabled", call.name)));
         }
         tokio::select! {
             () = cancellation.cancelled() => Err(TurnOutcome::Interrupted),
@@ -2115,6 +2246,26 @@ fn usage_record(
             call,
         }
     })
+}
+
+fn persist_builtin_tool_override(
+    store: &ThreadStore,
+    overrides: &mut BTreeMap<String, bool>,
+    tool_name: &str,
+    enabled: bool,
+) -> Result<(), CoreError> {
+    let mut next = overrides.clone();
+    if enabled {
+        next.remove(tool_name);
+    } else {
+        next.insert(tool_name.to_owned(), false);
+    }
+    let serialized = serde_json::to_string(&next).map_err(CoreError::storage)?;
+    store
+        .write_settings(&[(BUILTIN_TOOL_OVERRIDES_SETTING, &serialized)])
+        .map_err(CoreError::storage)?;
+    *overrides = next;
+    Ok(())
 }
 
 async fn send_model_step_events(

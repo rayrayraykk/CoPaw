@@ -606,6 +606,74 @@ fn persists_and_hot_reloads_non_secret_model_configuration() {
 }
 
 #[test]
+fn persists_builtin_tool_overrides_and_defaults_new_definitions_to_enabled() {
+    let directory = tempfile::tempdir().expect("temporary directory should be created");
+    let database_path = directory.path().join("threads.sqlite3");
+    let model_config = ModelConfig {
+        api_key: None,
+        base_url: String::from("http://127.0.0.1:1"),
+        default_model: String::from("qwen-test"),
+    };
+    let core = Core::persistent(model_config.clone(), &database_path)
+        .expect("persistent Core should open");
+    assert_eq!(
+        core.builtin_tools()
+            .expect("built-in tools should be readable")
+            .into_iter()
+            .map(|tool| (tool.name, tool.enabled))
+            .collect::<Vec<_>>(),
+        vec![
+            (String::from("list_files"), true),
+            (String::from("search_text"), true),
+            (String::from("replace_text"), true),
+            (String::from("write_file"), true),
+            (String::from("read_file"), true),
+            (String::from("shell"), true),
+        ]
+    );
+    assert_eq!(
+        core.set_builtin_tool_enabled("read_file", false)
+            .expect("tool should disable"),
+        BuiltinToolStatus {
+            name: String::from("read_file"),
+            description: String::from("Read a UTF-8 text file inside the workspace."),
+            enabled: false,
+        }
+    );
+    assert_eq!(
+        core.set_builtin_tool_enabled("unknown", false)
+            .expect_err("unknown tool should fail"),
+        CoreError::Config(String::from("unknown built-in tool: unknown"))
+    );
+    drop(core);
+
+    let reopened =
+        Core::persistent(model_config, &database_path).expect("persistent Core should reopen");
+    let tools = reopened
+        .builtin_tools()
+        .expect("persisted built-in tools should read");
+    assert_eq!(
+        tools
+            .iter()
+            .find(|tool| tool.name == "read_file")
+            .map(|tool| tool.enabled),
+        Some(false)
+    );
+    assert!(
+        tools
+            .iter()
+            .filter(|tool| tool.name != "read_file")
+            .all(|tool| tool.enabled)
+    );
+    assert!(
+        reopened
+            .toggle_builtin_tool("read_file")
+            .expect("tool should toggle back on")
+            .enabled
+    );
+}
+
+#[test]
 fn persists_desktop_coding_mode_in_the_core_store() {
     let directory = tempfile::tempdir().expect("temporary directory should be created");
     let database_path = directory.path().join("threads.sqlite3");
@@ -914,6 +982,85 @@ async fn reads_a_workspace_file_through_the_agent_loop() {
         serde_json::json!({
             "role": "tool",
             "content": "workspace secret",
+            "tool_call_id": "call_read"
+        })
+    );
+}
+
+#[tokio::test]
+async fn excludes_and_rejects_a_disabled_builtin_tool() {
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let base_url = start_tool_model_server(Arc::clone(&requests), "read_file").await;
+    let directory = tempfile::tempdir().expect("temporary directory should be created");
+    std::fs::write(directory.path().join("notes.txt"), "must not be read")
+        .expect("workspace fixture should be written");
+    let core = Core::new(ModelConfig {
+        api_key: None,
+        base_url,
+        default_model: String::from("qwen-test"),
+    });
+    core.set_builtin_tool_enabled("read_file", false)
+        .expect("read_file should disable");
+    let started = core
+        .start_thread(ThreadStartParams {
+            model: None,
+            workspace_root: Some(directory.path().to_string_lossy().into_owned()),
+        })
+        .await
+        .expect("thread should start");
+    let (_, mut events) = core
+        .start_turn(TurnStartParams {
+            thread_id: started.thread.id.clone(),
+            input: vec![UserInput::Text {
+                text: String::from("Try read_file even though it is disabled"),
+            }],
+        })
+        .await
+        .expect("turn should start");
+    while let Some(event) = events.recv().await {
+        if matches!(event, CoreEvent::TurnCompleted(_)) {
+            break;
+        }
+    }
+
+    let read = core
+        .read_thread(&started.thread.id)
+        .await
+        .expect("thread should be readable");
+    assert!(matches!(
+        &read.turns[0].items[2],
+        Item::ToolResult {
+            content,
+            is_error: true,
+            ..
+        } if content == "Tool 'read_file' is disabled"
+    ));
+    let requests = requests.lock().await;
+    let names = requests[0]["tools"]
+        .as_array()
+        .expect("tools should be an array")
+        .iter()
+        .map(|tool| {
+            tool.pointer("/function/name")
+                .and_then(serde_json::Value::as_str)
+                .expect("tool should have a name")
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        names,
+        vec![
+            "list_files",
+            "search_text",
+            "replace_text",
+            "write_file",
+            "shell",
+        ]
+    );
+    assert_eq!(
+        requests[1]["messages"][3],
+        serde_json::json!({
+            "role": "tool",
+            "content": "Tool 'read_file' is disabled",
             "tool_call_id": "call_read"
         })
     );

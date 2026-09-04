@@ -2415,6 +2415,177 @@ async fn serves_and_persists_chat_catalog_management_contracts() {
 }
 
 #[tokio::test]
+#[allow(clippy::too_many_lines)]
+async fn persists_and_applies_builtin_tool_management_contracts() {
+    let console = tempfile::tempdir().expect("temporary Console should be created");
+    let desktop_data = tempfile::tempdir().expect("temporary Desktop data should be created");
+    let database = desktop_data.path().join("threads.sqlite3");
+    std::fs::write(console.path().join("index.html"), "<html>console</html>")
+        .expect("Console index should be written");
+    let model_config = ModelConfig {
+        api_key: None,
+        base_url: String::from("http://127.0.0.1:1"),
+        default_model: String::from("qwen-test"),
+    };
+    let first_core =
+        Core::persistent(model_config.clone(), &database).expect("first Core should open");
+    let first_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("first Tools listener should bind");
+    let first_address = first_listener
+        .local_addr()
+        .expect("first Tools listener should have an address");
+    let first_server = new_isolated_desktop(
+        first_core,
+        console.path(),
+        String::from("desktop-tools-first-token"),
+        Arc::new(MemoryCredentialStore::default()),
+        desktop_data.path(),
+    )
+    .expect("first Tools server should configure");
+    let first_task = tokio::spawn(first_server.run_http(first_listener));
+    let client = reqwest::Client::new();
+    let base = format!("http://{first_address}/api/tools");
+    assert_eq!(
+        get_json(&client, base.clone()).await,
+        expected_builtin_tools()
+    );
+
+    let read_file = client
+        .patch(format!("{base}/read_file/toggle"))
+        .send()
+        .await
+        .expect("read_file toggle should send");
+    assert_eq!(read_file.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        read_file
+            .json::<Value>()
+            .await
+            .expect("read_file toggle should be JSON"),
+        expected_builtin_tool(
+            "read_file",
+            "Read a UTF-8 text file inside the workspace.",
+            false,
+        )
+    );
+
+    let (list_files, shell) = tokio::join!(
+        client.patch(format!("{base}/list_files/toggle")).send(),
+        client.patch(format!("{base}/shell/toggle")).send(),
+    );
+    assert_eq!(
+        list_files.expect("list_files toggle should send").status(),
+        reqwest::StatusCode::OK
+    );
+    assert_eq!(
+        shell.expect("shell toggle should send").status(),
+        reqwest::StatusCode::OK
+    );
+
+    let async_false = client
+        .patch(format!("{base}/read_file/async-execution"))
+        .json(&json!({"async_execution": false}))
+        .send()
+        .await
+        .expect("false async setting should send");
+    assert_eq!(async_false.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        async_false
+            .json::<Value>()
+            .await
+            .expect("false async setting should be JSON"),
+        expected_builtin_tool(
+            "read_file",
+            "Read a UTF-8 text file inside the workspace.",
+            false,
+        )
+    );
+    let async_true = client
+        .patch(format!("{base}/read_file/async-execution"))
+        .json(&json!({"async_execution": true}))
+        .send()
+        .await
+        .expect("unsupported async setting should send");
+    assert_eq!(async_true.status(), reqwest::StatusCode::CONFLICT);
+    assert_eq!(
+        async_true
+            .json::<Value>()
+            .await
+            .expect("unsupported async setting should be JSON"),
+        json!({
+            "detail": "Tool 'read_file' does not support asynchronous execution in Rust Core"
+        })
+    );
+    assert_eq!(
+        get_json(&client, format!("{base}/read_file/config?provider=test")).await,
+        json!({})
+    );
+    let config = client
+        .post(format!("{base}/read_file/config"))
+        .json(&json!({"config": {"unsupported": true}}))
+        .send()
+        .await
+        .expect("unsupported config should send");
+    assert_eq!(config.status(), reqwest::StatusCode::CONFLICT);
+    assert_eq!(
+        config
+            .json::<Value>()
+            .await
+            .expect("unsupported config should be JSON"),
+        json!({"detail": "Tool 'read_file' does not accept configuration"})
+    );
+    let missing = client
+        .patch(format!("{base}/missing/toggle"))
+        .send()
+        .await
+        .expect("missing tool toggle should send");
+    assert_eq!(missing.status(), reqwest::StatusCode::NOT_FOUND);
+    assert_eq!(
+        missing
+            .json::<Value>()
+            .await
+            .expect("missing tool response should be JSON"),
+        json!({"detail": "Tool 'missing' not found"})
+    );
+    first_task.abort();
+    let _ = first_task.await;
+
+    let second_core = Core::persistent(model_config, &database).expect("second Core should open");
+    let second_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("second Tools listener should bind");
+    let second_address = second_listener
+        .local_addr()
+        .expect("second Tools listener should have an address");
+    let second_server = new_isolated_desktop(
+        second_core,
+        console.path(),
+        String::from("desktop-tools-second-token"),
+        Arc::new(MemoryCredentialStore::default()),
+        desktop_data.path(),
+    )
+    .expect("second Tools server should configure");
+    let second_task = tokio::spawn(second_server.run_http(second_listener));
+    let mut restarted = expected_builtin_tools();
+    for tool in restarted
+        .as_array_mut()
+        .expect("expected Tools response should be an array")
+    {
+        if matches!(
+            tool["name"].as_str(),
+            Some("list_files" | "read_file" | "shell")
+        ) {
+            tool["enabled"] = json!(false);
+        }
+    }
+    assert_eq!(
+        get_json(&client, format!("http://{second_address}/api/tools"),).await,
+        restarted
+    );
+    second_task.abort();
+}
+
+#[tokio::test]
 async fn persists_the_console_language_across_desktop_restarts() {
     let console = tempfile::tempdir().expect("temporary Console should be created");
     let desktop_data = tempfile::tempdir().expect("temporary Desktop data should be created");
@@ -5130,7 +5301,7 @@ async fn assert_navigation_control_contracts(address: SocketAddr) {
                     "activeHours": null
                 }),
             ),
-            ("/api/tools", json!([])),
+            ("/api/tools", expected_builtin_tools()),
             ("/api/config/acp", json!({"agents": {}})),
         ],
     )
@@ -5579,6 +5750,54 @@ async fn assert_chat_contract(address: SocketAddr, thread_id: &str) {
         response_json(&missing),
         json!({"detail": "thread not found: missing"})
     );
+}
+
+fn expected_builtin_tools() -> Value {
+    json!([
+        expected_builtin_tool(
+            "list_files",
+            "List source files under a workspace directory without following symlinks or generated dependency directories.",
+            true,
+        ),
+        expected_builtin_tool(
+            "search_text",
+            "Search UTF-8 workspace files for a literal text query and return path, line number, and matching line.",
+            true,
+        ),
+        expected_builtin_tool(
+            "replace_text",
+            "Replace exactly one matching text block in an existing UTF-8 workspace file after user approval.",
+            true,
+        ),
+        expected_builtin_tool(
+            "write_file",
+            "Write a UTF-8 text file inside an existing workspace directory after user approval.",
+            true,
+        ),
+        expected_builtin_tool(
+            "read_file",
+            "Read a UTF-8 text file inside the workspace.",
+            true,
+        ),
+        expected_builtin_tool(
+            "shell",
+            "Run a shell command in the workspace after user approval.",
+            true,
+        ),
+    ])
+}
+
+fn expected_builtin_tool(name: &str, description: &str, enabled: bool) -> Value {
+    json!({
+        "name": name,
+        "enabled": enabled,
+        "description": description,
+        "async_execution": false,
+        "icon": "",
+        "requires_config": false,
+        "config_fields": null,
+        "config_values": null
+    })
 }
 
 async fn assert_workspace_contract(address: SocketAddr, thread_id: &str) {

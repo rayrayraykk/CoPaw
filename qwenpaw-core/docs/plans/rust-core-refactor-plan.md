@@ -1138,6 +1138,21 @@ Inbox 读取、状态和持久化契约已完成；真实 Agent Cron、Heartbeat
 
 2026-09-05 本机验收：Rust workspace 136 个测试、格式检查与严格 Clippy 通过；Console 295 个测试文件、2453 个测试、production build 和 inventory 防漂移通过，`console/src` 保持零改动。未修改的原 Agent Statistics 与 Token Usage 页面通过真实 OpenAI-compatible SSE usage 验证日期范围切换、非空指标/图表/表格、空区间和 Core 重启恢复，全部请求为 200 且浏览器错误为 0；HTTP 契约另覆盖模型/Provider 筛选、反向日期交换、缺省 usage、旧快照兼容、Thread 删除后的全局 Token 账本保留和 Checkpoint 不回写历史。当前 inventory 为 370 个调用点、196 条 Rust 路由、190 个已注册调用点，其中 179 个非占位、11 个占位、180 个未注册和 11 个静态未解析表达式；统计与 Token Usage 的 4 个调用点已全部注册且均非占位。macOS App/ZIP/QA DMG、Core archive、WebUI archive、TypeScript/Python SDK、universal/platform VSIX 与 legacy wheel 均使用本切片源码重建；9 个产物逐个完成执行、真实 Core 连接、安装、解包、签名检查或只读挂载反向验证，`dist/SHA256SUMS` 全部通过。QA DMG 当前为 ad-hoc 签名，待用户提供 Apple 发布凭据后才能生成 Developer ID 签名和 notarized 正式包。
 
+#### 14.2.24.10 当前子切片：内置 Tools 管理
+
+本子切片保持原 Tools 页面不变，只展示 Rust Core 当前真实注册的内置工具。启停必须改变下一次模型请求中的工具定义并在执行边界再次校验，不能只保存 UI 状态；Rust 尚未实现的异步执行和工具专属配置不得返回无效果成功。
+
+- [x] 为 Rust 内置工具提供单一来源的名称、描述和定义元数据；
+- [x] 在 Core SQLite 中持久化启停覆盖值，兼容新增工具默认启用并在重启后恢复；
+- [x] 过滤发送给模型的内置工具定义，并拒绝模型调用已禁用工具；
+- [x] 完成 `/api/tools`、toggle、async-execution、config 读取与写入的原响应/错误契约；
+- [x] 覆盖并发批量启停、未知工具、禁用执行、真实模型请求过滤和重启恢复测试；
+- [x] 使用未修改的原 Tools 页面验证单项/批量启停、刷新与 Core 重启恢复；
+- [x] 更新 inventory，确认 `console/src` 零改动并通过 Rust、Console 和客户端全量回归；
+- [x] 重建 Desktop、Core、WebUI、SDK、VSIX 与 legacy 全部 9 个发布产物，并逐个反向验证。
+
+2026-09-05 本机验收：Rust workspace 140 个测试、格式检查与严格 Clippy 通过；Console 295 个测试文件、2453 个测试、production build 和 inventory 防漂移通过，`console/src` 保持零改动。未修改的原 Tools 页面连接真实 Rust Desktop HTTP 服务完成单项启停、刷新恢复、批量全部禁用/启用和 Core 重启恢复，共 19 个 Tools 请求全部返回 200，浏览器错误为 0；Core 契约另覆盖精确六工具目录、并发不同工具启停、未知工具、异步/配置能力的显式拒绝、SQLite 重启恢复、真实模型请求定义过滤和恶意禁用工具调用的执行边界拒绝。当前 inventory 为 370 个调用点、200 条 Rust 路由、194 个已注册调用点，其中 184 个非占位、10 个占位、176 个未注册和 11 个静态未解析表达式；Tools 的 5 个调用点已全部注册且均非占位。macOS App/ZIP/QA DMG、Core archive、WebUI archive、TypeScript/Python SDK、universal/platform VSIX 与 legacy wheel 均使用本切片源码重建；9 个产物逐个完成执行、真实 Core 连接、安装、解包、清单校验、签名检查或只读挂载反向验证，`dist/SHA256SUMS` 全部通过。QA DMG 当前为 ad-hoc 签名，待用户提供 Apple 发布凭据后才能生成 Developer ID 签名和 notarized 正式包。
+
 ### 14.3 客户端与发布
 
 - [x] WebUI 启动与导航契约测试通过；

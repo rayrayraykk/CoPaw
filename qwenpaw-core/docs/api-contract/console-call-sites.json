@@ -3,11 +3,11 @@
   "source": "console/src production TypeScript call sites",
   "callCount": 370,
   "unresolvedCount": 11,
-  "rustRouteCount": 196,
-  "registeredCallCount": 190,
-  "placeholderCallCount": 11,
-  "nonPlaceholderRegisteredCallCount": 179,
-  "missingCallCount": 180,
+  "rustRouteCount": 200,
+  "registeredCallCount": 194,
+  "placeholderCallCount": 10,
+  "nonPlaceholderRegisteredCallCount": 184,
+  "missingCallCount": 176,
   "rustRoutes": [
     {
       "method": "ANY",
@@ -873,9 +873,37 @@
     {
       "method": "GET",
       "path": "/api/tools",
-      "handler": "empty_array",
-      "placeholder": true,
-      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_navigation.rs"
+      "handler": "list_tools",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_tools.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/tools/{tool_name}/async-execution",
+      "handler": "update_async_execution",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_tools.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tools/{tool_name}/config",
+      "handler": "get_tool_config",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_tools.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/tools/{tool_name}/config",
+      "handler": "update_tool_config",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_tools.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/tools/{tool_name}/toggle",
+      "handler": "toggle_tool",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_tools.rs"
     },
     {
       "method": "GET",
@@ -5305,7 +5333,7 @@
       "resolved": true,
       "apiPath": "/api/tools",
       "registered": true,
-      "placeholder": true
+      "placeholder": false
     },
     {
       "method": "PATCH",
@@ -5316,7 +5344,7 @@
       "line": 37,
       "resolved": true,
       "apiPath": "/api/tools/{toolName}/toggle",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5328,7 +5356,7 @@
       "line": 45,
       "resolved": true,
       "apiPath": "/api/tools/{toolName}/async-execution",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5340,7 +5368,7 @@
       "line": 58,
       "resolved": true,
       "apiPath": "/api/tools/{toolName}/config{choice:?{query}|}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5352,7 +5380,7 @@
       "line": 67,
       "resolved": true,
       "apiPath": "/api/tools/{toolName}/config",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {

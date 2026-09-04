@@ -35,6 +35,12 @@ pub struct ToolOutput {
     pub is_error: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuiltinToolMetadata {
+    pub name: String,
+    pub description: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct Workspace {
     root: PathBuf,
@@ -315,6 +321,36 @@ fn configure_shell_arguments(process: &mut Command, _executable: &str, command: 
 #[must_use]
 pub fn definitions() -> Vec<Value> {
     definitions::all()
+}
+
+#[must_use]
+pub fn builtin_metadata() -> Vec<BuiltinToolMetadata> {
+    definitions()
+        .into_iter()
+        .filter_map(|definition| {
+            let function = definition.get("function")?;
+            Some(BuiltinToolMetadata {
+                name: function.get("name")?.as_str()?.to_owned(),
+                description: function
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_owned(),
+            })
+        })
+        .collect()
+}
+
+#[must_use]
+pub fn definition_name(definition: &Value) -> Option<&str> {
+    definition.pointer("/function/name").and_then(Value::as_str)
+}
+
+#[must_use]
+pub fn is_builtin(tool_name: &str) -> bool {
+    builtin_metadata()
+        .iter()
+        .any(|metadata| metadata.name == tool_name)
 }
 
 #[derive(Debug, Deserialize)]

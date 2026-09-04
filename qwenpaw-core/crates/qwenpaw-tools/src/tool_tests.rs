@@ -5,6 +5,45 @@ use std::time::Instant;
 
 use super::*;
 
+#[test]
+fn exposes_metadata_from_the_same_builtin_definitions() {
+    let metadata = builtin_metadata();
+    let metadata_names = metadata
+        .iter()
+        .map(|tool| tool.name.as_str())
+        .collect::<Vec<_>>();
+    let definition_names = definitions()
+        .into_iter()
+        .map(|definition| {
+            definition_name(&definition)
+                .expect("every built-in definition should have a name")
+                .to_owned()
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        metadata_names,
+        vec![
+            "list_files",
+            "search_text",
+            "replace_text",
+            "write_file",
+            "read_file",
+            "shell",
+        ]
+    );
+    assert_eq!(
+        definition_names,
+        metadata_names
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    );
+    assert!(metadata.iter().all(|tool| !tool.description.is_empty()));
+    assert!(is_builtin("read_file"));
+    assert!(!is_builtin("unknown"));
+}
+
 #[tokio::test]
 async fn reads_files_inside_the_workspace() {
     let directory = tempfile::tempdir().expect("temporary directory should be created");

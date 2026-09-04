@@ -14,7 +14,6 @@ pub(super) fn router() -> Router<AppServer> {
     Router::new()
         .route("/api/pawapps", get(pawapps))
         .route("/api/config/heartbeat", get(heartbeat))
-        .route("/api/tools", get(empty_array))
         .route("/api/config/acp", get(acp))
         .route(
             "/api/agents/{agent_id}/memory/runtime-status",
