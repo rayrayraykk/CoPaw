@@ -1153,6 +1153,23 @@ Inbox 读取、状态和持久化契约已完成；真实 Agent Cron、Heartbeat
 
 2026-09-05 本机验收：Rust workspace 140 个测试、格式检查与严格 Clippy 通过；Console 295 个测试文件、2453 个测试、production build 和 inventory 防漂移通过，`console/src` 保持零改动。未修改的原 Tools 页面连接真实 Rust Desktop HTTP 服务完成单项启停、刷新恢复、批量全部禁用/启用和 Core 重启恢复，共 19 个 Tools 请求全部返回 200，浏览器错误为 0；Core 契约另覆盖精确六工具目录、并发不同工具启停、未知工具、异步/配置能力的显式拒绝、SQLite 重启恢复、真实模型请求定义过滤和恶意禁用工具调用的执行边界拒绝。当前 inventory 为 370 个调用点、200 条 Rust 路由、194 个已注册调用点，其中 184 个非占位、10 个占位、176 个未注册和 11 个静态未解析表达式；Tools 的 5 个调用点已全部注册且均非占位。macOS App/ZIP/QA DMG、Core archive、WebUI archive、TypeScript/Python SDK、universal/platform VSIX 与 legacy wheel 均使用本切片源码重建；9 个产物逐个完成执行、真实 Core 连接、安装、解包、清单校验、签名检查或只读挂载反向验证，`dist/SHA256SUMS` 全部通过。QA DMG 当前为 ad-hoc 签名，待用户提供 Apple 发布凭据后才能生成 Developer ID 签名和 notarized 正式包。
 
+#### 14.2.24.11 当前子切片：工具调用生命周期与后台执行
+
+本子切片保持原 Chat 工具卡、后台任务面板和 Tool Offload 设置页不变。Rust 必须以模型给出的真实 `tool_call_id` 和实际执行过程为准维护状态；取消、延时和 Offload 不能只是 UI 标记。前台调用移入后台后 Agent loop 可继续，但原执行仍受动态硬截止时间约束，完成输出继续通过原结果与 SSE 契约提供。
+
+- [x] 固化原 11 个 Console 调用点及 Python 成功、404、409、校验和 SSE 终止契约；
+- [x] 在 Core 建立有界的进程内调用协调器，按 Thread 隔离真实状态、动态截止时间、最终输出和 60 秒完成缓存；
+- [x] 为 Shell 等受限执行接入可动态延长的硬截止时间，单工具取消不得误中断整个 Turn；
+- [x] 实现用户/超时 Offload：前台立即返回提示、实际执行后台继续，并在完成/取消后发布最终输出；
+- [x] 将 `keep_foreground` / `offload` 策略持久化到 Core SQLite，并让新调用立即采用当前策略；
+- [x] 完成 list、info、output、stream、offload、cancel、extend-deadline 与 offload-policy 的全部原 HTTP/SSE 契约；
+- [x] 覆盖跨 Session 越权、并发状态转换、完成缓存淘汰、Core 重启策略恢复及真实 Shell 进程终止测试；
+- [x] 使用未修改的原前端验证 Offload 设置、长时 Shell 倒计时、延时、手动后台、后台输出、取消和刷新恢复；
+- [x] 更新 inventory，确认 `console/src` 零改动并通过 Rust、Console 和客户端全量回归；
+- [x] 重建 Desktop、Core、WebUI、SDK、VSIX 与 legacy 全部 9 个发布产物，并逐个反向验证。
+
+2026-09-05 本机验收：Rust workspace 147 个测试、格式检查与严格 Clippy 通过；Console 295 个测试文件、2453 个测试、production build 和 inventory 防漂移通过，`console/src` 保持零改动。未修改的原 Tool Offload 设置页、Chat 工具卡与后台任务面板连接 release Rust Core，完成策略保存/刷新/Core 重启恢复、真实长时 Shell 倒计时、延时、手动移入后台、后台 SSE 最终输出、单工具取消、Agent loop 继续响应和工具消息历史刷新恢复；19 个工具/策略请求均成功，浏览器错误为 0。浏览器验收同时校正了历史 ToolCall/ToolResult 的 `plugin_call` / `plugin_call_output` 精确消息结构，以及原前端空 JSON 取消请求的兼容行为。当前 inventory 为 370 个调用点、208 条 Rust 路由、204 个已注册调用点，其中 195 个非占位、9 个占位、166 个未注册和 11 个静态未解析表达式；Tool Calls 的 11 个调用点已全部注册且均非占位。TypeScript SDK 3 个、Python SDK 4 个真实 Core 测试与 VS Code 57 个测试全部通过。macOS App/ZIP/QA DMG、Core archive、WebUI archive、TypeScript/Python SDK、universal/platform VSIX 与 legacy wheel 均使用本切片源码重建；9 个产物逐个完成执行、安装、解包、清单校验、签名检查或只读挂载反向验证，`dist/SHA256SUMS` 全部通过。QA DMG 当前为 ad-hoc 签名，待用户提供 Apple 发布凭据后才能生成 Developer ID 签名和 notarized 正式包。
+
 ### 14.3 客户端与发布
 
 - [x] WebUI 启动与导航契约测试通过；

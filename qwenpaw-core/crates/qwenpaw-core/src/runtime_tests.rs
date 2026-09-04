@@ -1416,6 +1416,220 @@ async fn interrupts_a_running_shell_tool_without_waiting_for_exit() {
 }
 
 #[tokio::test]
+#[allow(clippy::too_many_lines)]
+async fn offloads_and_cancels_one_running_shell_without_stopping_the_turn() {
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let base_url = start_tool_model_server(Arc::clone(&requests), "long_shell").await;
+    let directory = tempfile::tempdir().expect("temporary directory should be created");
+    let core = Core::new(ModelConfig {
+        api_key: None,
+        base_url,
+        default_model: String::from("qwen-test"),
+    });
+    let started = core
+        .start_thread(ThreadStartParams {
+            model: None,
+            workspace_root: Some(directory.path().to_string_lossy().into_owned()),
+        })
+        .await
+        .expect("thread should start");
+    let (_, mut events) = core
+        .start_turn(TurnStartParams {
+            thread_id: started.thread.id.clone(),
+            input: vec![UserInput::Text {
+                text: String::from("Run a long command in the background"),
+            }],
+        })
+        .await
+        .expect("turn should start");
+
+    let completed = tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            match events.recv().await.expect("turn should emit events") {
+                CoreEvent::ToolApprovalRequested(notification) => {
+                    assert!(
+                        core.respond_tool_approval(ToolApprovalRespondParams {
+                            approval_id: notification.approval_id,
+                            decision: ApprovalDecision::Approved,
+                        })
+                        .await
+                        .accepted
+                    );
+                }
+                CoreEvent::ToolApprovalResolved(_) => {
+                    for _ in 0..100 {
+                        if core
+                            .tool_call(&started.thread.id, "call_long_shell")
+                            .await
+                            .is_ok()
+                        {
+                            break;
+                        }
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+                    let offloaded = core
+                        .offload_tool_call(&started.thread.id, "call_long_shell")
+                        .await
+                        .expect("running shell should offload");
+                    assert_eq!(offloaded.status, "offloaded");
+                    assert_eq!(offloaded.offload_reason.as_deref(), Some("user"));
+                }
+                CoreEvent::TurnCompleted(notification) => break notification.turn,
+                _ => {}
+            }
+        }
+    })
+    .await
+    .expect("offloaded shell should not block its Turn");
+
+    assert_eq!(completed.status, TurnStatus::Completed);
+    assert_eq!(requests.lock().await.len(), 2);
+    assert_eq!(core.list_tool_calls(&started.thread.id).await.len(), 1);
+    let mut subscription = core
+        .subscribe_tool_call(&started.thread.id, "call_long_shell")
+        .await
+        .expect("offloaded shell should subscribe");
+    core.cancel_tool_call(&started.thread.id, "call_long_shell", false)
+        .await
+        .expect("offloaded shell should cancel");
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(3), subscription.events.recv())
+            .await
+            .expect("cancelled shell should emit output"),
+        Some(ToolCallStreamEvent::Chunk(serde_json::json!({
+            "type": "text",
+            "text": "Tool execution was cancelled by the user."
+        })))
+    );
+    assert_eq!(
+        subscription.events.recv().await,
+        Some(ToolCallStreamEvent::Done)
+    );
+    let call = core
+        .tool_call(&started.thread.id, "call_long_shell")
+        .await
+        .expect("cancelled shell should remain in completion cache");
+    assert_eq!(call.status, "completed");
+    assert_eq!(call.end_state.as_deref(), Some("interrupted"));
+    assert!(core.list_tool_calls(&started.thread.id).await.is_empty());
+    let read = core
+        .read_thread(&started.thread.id)
+        .await
+        .expect("offloaded Thread should be readable");
+    assert!(matches!(
+        &read.turns[0].items[2],
+        Item::ToolResult { content, is_error: false, .. }
+            if content.contains("was moved to the background")
+    ));
+}
+
+#[tokio::test]
+async fn extending_a_shell_kill_deadline_changes_the_real_process_lifetime() {
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let base_url = start_tool_model_server(Arc::clone(&requests), "extended_shell").await;
+    let directory = tempfile::tempdir().expect("temporary directory should be created");
+    let core = Core::new(ModelConfig {
+        api_key: None,
+        base_url,
+        default_model: String::from("qwen-test"),
+    });
+    let mut config = core
+        .agent_runtime_config()
+        .expect("Agent runtime config should read");
+    config.approval_level = ToolApprovalLevel::Off;
+    core.replace_agent_runtime_config(config)
+        .expect("Agent runtime config should update");
+    let started = core
+        .start_thread(ThreadStartParams {
+            model: None,
+            workspace_root: Some(directory.path().to_string_lossy().into_owned()),
+        })
+        .await
+        .expect("thread should start");
+    let (_, mut events) = core
+        .start_turn(TurnStartParams {
+            thread_id: started.thread.id.clone(),
+            input: vec![UserInput::Text {
+                text: String::from("Run beyond the initial deadline"),
+            }],
+        })
+        .await
+        .expect("turn should start");
+
+    let completed = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            match events.recv().await.expect("turn should emit events") {
+                CoreEvent::ItemCompleted(notification)
+                    if matches!(
+                        notification.item,
+                        Item::ToolCall { ref call_id, .. }
+                            if call_id == "call_extended_shell"
+                    ) =>
+                {
+                    let extended = core
+                        .extend_tool_call_deadline(
+                            &started.thread.id,
+                            "call_extended_shell",
+                            "kill",
+                            Some(2.0),
+                            false,
+                        )
+                        .await
+                        .expect("real Shell deadline should extend");
+                    assert!(
+                        extended
+                            .kill_remaining
+                            .is_some_and(|remaining| remaining > 2.8)
+                    );
+                }
+                CoreEvent::TurnCompleted(notification) => break notification.turn,
+                _ => {}
+            }
+        }
+    })
+    .await
+    .expect("extended Shell should complete before timeout");
+    assert_eq!(completed.status, TurnStatus::Completed);
+    let read = core
+        .read_thread(&started.thread.id)
+        .await
+        .expect("extended Shell Thread should read");
+    assert!(matches!(
+        &read.turns[0].items[2],
+        Item::ToolResult { content, is_error: false, .. }
+            if content.contains("extended")
+    ));
+}
+
+#[test]
+fn persists_and_validates_the_tool_offload_policy() {
+    let directory = tempfile::tempdir().expect("temporary directory should be created");
+    let database_path = directory.path().join("threads.sqlite3");
+    let model_config = ModelConfig {
+        api_key: None,
+        base_url: String::from("http://127.0.0.1:1"),
+        default_model: String::from("qwen-test"),
+    };
+    let core = Core::persistent(model_config.clone(), &database_path)
+        .expect("persistent Core should open");
+    assert_eq!(core.tool_offload_policy(), "keep_foreground");
+    assert_eq!(
+        core.set_tool_offload_policy("offload")
+            .expect("offload policy should save"),
+        "offload"
+    );
+    assert_eq!(
+        core.set_tool_offload_policy("invalid")
+            .expect_err("invalid policy should fail"),
+        CoreError::Config(String::from("unsupported tool offload policy: invalid"))
+    );
+    drop(core);
+    let reopened =
+        Core::persistent(model_config, &database_path).expect("persistent Core should reopen");
+    assert_eq!(reopened.tool_offload_policy(), "offload");
+}
+
+#[tokio::test]
 async fn interrupts_a_model_request_waiting_for_response_headers() {
     let requests = Arc::new(Mutex::new(0_usize));
     let base_url = start_delayed_model_server(Arc::clone(&requests)).await;
@@ -1838,6 +2052,14 @@ async fn start_tool_model_server(
                             "shell",
                             &serde_json::json!({"command": LONG_SHELL_COMMAND}),
                         ),
+                        "extended_shell" => tool_call_response(
+                            "call_extended_shell",
+                            "shell",
+                            &serde_json::json!({
+                                "command": EXTENDED_SHELL_COMMAND,
+                                "timeout_ms": 1_000
+                            }),
+                        ),
                         _ => unreachable!("test tool should be known"),
                     }
                 } else if tool == "read_file" {
@@ -1948,3 +2170,9 @@ const LONG_SHELL_COMMAND: &str = "ping -n 30 127.0.0.1 >NUL";
 
 #[cfg(not(windows))]
 const LONG_SHELL_COMMAND: &str = "sleep 30";
+
+#[cfg(windows)]
+const EXTENDED_SHELL_COMMAND: &str = "ping -n 3 127.0.0.1 >NUL & echo extended";
+
+#[cfg(not(windows))]
+const EXTENDED_SHELL_COMMAND: &str = "sleep 1.5; echo extended";

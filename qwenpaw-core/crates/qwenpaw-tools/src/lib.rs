@@ -14,7 +14,7 @@ mod discovery;
 const MAX_OUTPUT_BYTES: usize = 1_048_576;
 const DEFAULT_SHELL_TIMEOUT_MS: u64 = 120_000;
 const MIN_SHELL_TIMEOUT_MS: u64 = 100;
-const MAX_SHELL_TIMEOUT_MS: u64 = 600_000;
+pub const MAX_SHELL_TIMEOUT_MS: u64 = 600_000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ToolCall {
@@ -124,6 +124,29 @@ impl Workspace {
         default_shell_timeout_ms: u64,
         shell_executable: Option<&str>,
     ) -> Result<ToolOutput, ToolError> {
+        self.execute_with_shell_config_and_timeout(
+            call,
+            default_shell_timeout_ms,
+            shell_executable,
+            None,
+        )
+        .await
+    }
+
+    /// Executes one built-in tool while allowing Core to own the Shell hard
+    /// deadline. Non-Shell tools ignore `shell_timeout_override_ms`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for unknown tools, malformed arguments, invalid shell
+    /// settings, filesystem failures, or paths outside the Workspace.
+    pub async fn execute_with_shell_config_and_timeout(
+        &self,
+        call: &ToolCall,
+        default_shell_timeout_ms: u64,
+        shell_executable: Option<&str>,
+        shell_timeout_override_ms: Option<u64>,
+    ) -> Result<ToolOutput, ToolError> {
         match call.name.as_str() {
             "list_files" => discovery::list_files(&self.root, &call.arguments),
             "read_file" => self.read_file(&call.arguments).await,
@@ -131,8 +154,13 @@ impl Workspace {
             "search_text" => discovery::search_text(&self.root, &call.arguments),
             "write_file" => self.write_file(&call.arguments).await,
             "shell" => {
-                self.shell(&call.arguments, default_shell_timeout_ms, shell_executable)
-                    .await
+                self.shell(
+                    &call.arguments,
+                    default_shell_timeout_ms,
+                    shell_executable,
+                    shell_timeout_override_ms,
+                )
+                .await
             }
             _ => Err(ToolError::UnknownTool(call.name.clone())),
         }
@@ -157,14 +185,14 @@ impl Workspace {
         arguments: &str,
         default_timeout_ms: u64,
         shell_executable: Option<&str>,
+        timeout_override_ms: Option<u64>,
     ) -> Result<ToolOutput, ToolError> {
         let arguments: ShellArguments = serde_json::from_str(arguments)?;
         if arguments.command.trim().is_empty() {
             return Err(ToolError::EmptyCommand);
         }
-        let timeout_ms = arguments
-            .timeout_ms
-            .unwrap_or(default_timeout_ms)
+        let timeout_ms = timeout_override_ms
+            .unwrap_or_else(|| arguments.timeout_ms.unwrap_or(default_timeout_ms))
             .clamp(MIN_SHELL_TIMEOUT_MS, MAX_SHELL_TIMEOUT_MS);
         let mut command = configured_shell(&arguments.command, shell_executable)?;
         command
@@ -351,6 +379,21 @@ pub fn is_builtin(tool_name: &str) -> bool {
     builtin_metadata()
         .iter()
         .any(|metadata| metadata.name == tool_name)
+}
+
+#[must_use]
+pub fn effective_shell_timeout_ms(call: &ToolCall, default_timeout_ms: u64) -> Option<u64> {
+    if call.name != "shell" {
+        return None;
+    }
+    serde_json::from_str::<ShellArguments>(&call.arguments)
+        .ok()
+        .map(|arguments| {
+            arguments
+                .timeout_ms
+                .unwrap_or(default_timeout_ms)
+                .clamp(MIN_SHELL_TIMEOUT_MS, MAX_SHELL_TIMEOUT_MS)
+        })
 }
 
 #[derive(Debug, Deserialize)]

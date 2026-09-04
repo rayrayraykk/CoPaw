@@ -3,11 +3,11 @@
   "source": "console/src production TypeScript call sites",
   "callCount": 370,
   "unresolvedCount": 11,
-  "rustRouteCount": 200,
-  "registeredCallCount": 194,
-  "placeholderCallCount": 10,
-  "nonPlaceholderRegisteredCallCount": 184,
-  "missingCallCount": 176,
+  "rustRouteCount": 208,
+  "registeredCallCount": 204,
+  "placeholderCallCount": 9,
+  "nonPlaceholderRegisteredCallCount": 195,
+  "missingCallCount": 166,
   "rustRoutes": [
     {
       "method": "ANY",
@@ -838,9 +838,16 @@
     {
       "method": "GET",
       "path": "/api/settings/offload-policy",
-      "handler": "offload_policy",
-      "placeholder": true,
-      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_navigation.rs"
+      "handler": "get_offload_policy",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_tool_calls.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/settings/offload-policy",
+      "handler": "set_offload_policy",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_tool_calls.rs"
     },
     {
       "method": "GET",
@@ -869,6 +876,55 @@
       "handler": "token_usage_details",
       "placeholder": false,
       "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_stats.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tool-calls/{session_id}",
+      "handler": "list_calls",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_tool_calls.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tool-calls/{session_id}/{tool_call_id}",
+      "handler": "get_call",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_tool_calls.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/tool-calls/{session_id}/{tool_call_id}/cancel",
+      "handler": "cancel_call",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_tool_calls.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/tool-calls/{session_id}/{tool_call_id}/extend-deadline",
+      "handler": "extend_deadline",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_tool_calls.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/tool-calls/{session_id}/{tool_call_id}/offload",
+      "handler": "offload_call",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_tool_calls.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tool-calls/{session_id}/{tool_call_id}/output",
+      "handler": "get_output",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_tool_calls.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tool-calls/{session_id}/{tool_call_id}/stream",
+      "handler": "stream_output",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_tool_calls.rs"
     },
     {
       "method": "GET",
@@ -5200,7 +5256,7 @@
       "line": 46,
       "resolved": true,
       "apiPath": "/api/tool-calls/{sid}/{tcid}/stream",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5212,7 +5268,7 @@
       "line": 133,
       "resolved": true,
       "apiPath": "/api/tool-calls/{sid}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5224,7 +5280,7 @@
       "line": 136,
       "resolved": true,
       "apiPath": "/api/tool-calls/{sid}/{tcid}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5236,7 +5292,7 @@
       "line": 139,
       "resolved": true,
       "apiPath": "/api/tool-calls/{sid}/{tcid}/output",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5248,7 +5304,7 @@
       "line": 142,
       "resolved": true,
       "apiPath": "/api/tool-calls/{sid}/{tcid}/offload",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5260,7 +5316,7 @@
       "line": 145,
       "resolved": true,
       "apiPath": "/api/tool-calls/{sid}/{tcid}/cancel",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5272,7 +5328,7 @@
       "line": 148,
       "resolved": true,
       "apiPath": "/api/tool-calls/{sid}/{tcid}/extend-deadline",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5284,7 +5340,7 @@
       "line": 154,
       "resolved": true,
       "apiPath": "/api/tool-calls/{sid}/{tcid}/extend-deadline",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5296,7 +5352,7 @@
       "line": 160,
       "resolved": true,
       "apiPath": "/api/tool-calls/{sid}/{tcid}/extend-deadline",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5309,7 +5365,7 @@
       "resolved": true,
       "apiPath": "/api/settings/offload-policy",
       "registered": true,
-      "placeholder": true
+      "placeholder": false
     },
     {
       "method": "PUT",
@@ -5320,7 +5376,7 @@
       "line": 169,
       "resolved": true,
       "apiPath": "/api/settings/offload-policy",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {

@@ -1,6 +1,7 @@
 mod context;
 mod model;
 mod runtime;
+mod tool_calls;
 
 pub use model::ModelConfig;
 pub use qwenpaw_mcp::McpClientInfo;
@@ -17,6 +18,10 @@ pub use runtime::Core;
 pub use runtime::CoreError;
 pub use runtime::ToolApprovalLevel;
 pub use runtime::TurnEventStream;
+pub use tool_calls::ToolCallControlError;
+pub use tool_calls::ToolCallSnapshot;
+pub use tool_calls::ToolCallStreamEvent;
+pub use tool_calls::ToolCallSubscription;
 
 #[cfg(test)]
 #[path = "runtime_tests.rs"]

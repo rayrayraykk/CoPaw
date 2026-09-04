@@ -4,6 +4,7 @@ use qwenpaw_app_server::AppServer;
 use qwenpaw_app_server::DesktopCredentialStore;
 use qwenpaw_core::Core;
 use qwenpaw_core::ModelConfig;
+use qwenpaw_core::ToolApprovalLevel;
 use qwenpaw_protocol::ThreadStartParams;
 use serde_json::Value;
 use serde_json::json;
@@ -5055,6 +5056,350 @@ async fn stops_an_active_console_chat_by_its_local_session_id() {
 }
 
 #[tokio::test]
+#[allow(clippy::too_many_lines)]
+async fn controls_and_streams_a_real_background_tool_call() {
+    let model_base_url = start_long_tool_model_server().await;
+    let console = tempfile::tempdir().expect("temporary Console should be created");
+    let desktop_data = tempfile::tempdir().expect("temporary Desktop data should be created");
+    let database = desktop_data.path().join("threads.sqlite3");
+    std::fs::write(console.path().join("index.html"), "<html>console</html>")
+        .expect("Console index should be written");
+    let model_config = ModelConfig {
+        api_key: Some(String::from("test-key")),
+        base_url: model_base_url,
+        default_model: String::from("qwen-test"),
+    };
+    let core = Core::persistent(model_config.clone(), &database)
+        .expect("persistent Tool Calls Core should open");
+    core.write_preferred_workspace(desktop_data.path())
+        .expect("temporary Workspace should be selected");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("Tool Calls listener should bind");
+    let address = listener
+        .local_addr()
+        .expect("Tool Calls listener should have an address");
+    let server = new_isolated_desktop(
+        core.clone(),
+        console.path(),
+        String::from("desktop-tool-calls-token"),
+        Arc::new(MemoryCredentialStore::default()),
+        desktop_data.path(),
+    )
+    .expect("Tool Calls server should configure");
+    let mut runtime_config = core
+        .agent_runtime_config()
+        .expect("Tool Calls runtime config should read");
+    runtime_config.approval_level = ToolApprovalLevel::Off;
+    core.replace_agent_runtime_config(runtime_config)
+        .expect("Tool Calls runtime config should update");
+    let task = tokio::spawn(server.run_http(listener));
+    let client = reqwest::Client::new();
+    let base = format!("http://{address}/api");
+    assert_eq!(
+        get_json(&client, format!("{base}/settings/offload-policy")).await,
+        json!({"default_action": "keep_foreground"})
+    );
+    let invalid_policy = client
+        .put(format!("{base}/settings/offload-policy"))
+        .json(&json!({"default_action": "invalid"}))
+        .send()
+        .await
+        .expect("invalid policy request should send");
+    assert_eq!(
+        invalid_policy.status(),
+        reqwest::StatusCode::UNPROCESSABLE_ENTITY
+    );
+    let policy = client
+        .put(format!("{base}/settings/offload-policy"))
+        .json(&json!({"default_action": "offload"}))
+        .send()
+        .await
+        .expect("offload policy request should send");
+    assert_eq!(policy.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        policy
+            .json::<Value>()
+            .await
+            .expect("offload policy should be JSON"),
+        json!({"default_action": "offload"})
+    );
+
+    let session_id = "1700000000003-toolcalls";
+    let chat_response = client
+        .post(format!("{base}/console/chat"))
+        .json(&json!({
+            "input": [{"role": "user", "content": "Run a long command"}],
+            "session_id": session_id,
+            "stream": true
+        }))
+        .send()
+        .await
+        .expect("Tool Calls chat should send");
+    let mut chat_body = tokio::spawn(async move { chat_response.text().await });
+    let info_url = format!("{base}/tool-calls/{session_id}/call_http_long_shell");
+    let running_result = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let response = client
+                .get(&info_url)
+                .send()
+                .await
+                .expect("tool info request should send");
+            if response.status() == reqwest::StatusCode::OK {
+                break response
+                    .json::<Value>()
+                    .await
+                    .expect("tool info should be JSON");
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await;
+    let running = match running_result {
+        Ok(running) => running,
+        Err(error) => {
+            let body = tokio::time::timeout(Duration::from_secs(1), &mut chat_body)
+                .await
+                .ok()
+                .and_then(Result::ok)
+                .and_then(Result::ok)
+                .unwrap_or_else(|| String::from("<chat stream still open>"));
+            panic!("running tool should appear: {error}; chat body: {body}");
+        }
+    };
+    assert_eq!(running["tool_call_id"], json!("call_http_long_shell"));
+    assert_eq!(running["tool_name"], json!("shell"));
+    assert_eq!(running["session_id"], json!(session_id));
+    assert_eq!(running["agent_id"], json!("default"));
+    assert_eq!(running["status"], json!("running"));
+    assert!(running["started_at"].as_f64().is_some());
+    assert!(running["elapsed"].as_f64().is_some());
+    assert!(running["offload_remaining"].as_f64().is_some());
+    assert!(running["kill_remaining"].as_f64().is_some());
+    assert_eq!(running["end_state"], Value::Null);
+    assert_eq!(running["force_cancelled"], json!(false));
+    assert_eq!(running["extra"], json!({}));
+    assert_eq!(running["max_internal_timeout_secs"], json!(600.0));
+    assert_eq!(running["offload_reason"], Value::Null);
+    let list = get_json(&client, format!("{base}/tool-calls/{session_id}")).await;
+    assert_eq!(list["total"], json!(1));
+    assert_eq!(
+        list["items"][0]["tool_call_id"],
+        json!("call_http_long_shell")
+    );
+    assert_eq!(
+        get_json(&client, format!("{info_url}/output")).await,
+        json!({
+            "tool_call_id": "call_http_long_shell",
+            "is_closed": false,
+            "final_state": null,
+            "content": []
+        })
+    );
+    let wrong_session = client
+        .get(format!(
+            "{base}/tool-calls/wrong-session/call_http_long_shell"
+        ))
+        .send()
+        .await
+        .expect("cross-session request should send");
+    assert_eq!(wrong_session.status(), reqwest::StatusCode::NOT_FOUND);
+
+    let prevent = client
+        .post(format!("{info_url}/extend-deadline"))
+        .json(&json!({"target": "offload", "no_deadline": true}))
+        .send()
+        .await
+        .expect("prevent offload should send");
+    assert_eq!(prevent.status(), reqwest::StatusCode::ACCEPTED);
+    assert_eq!(
+        prevent
+            .json::<Value>()
+            .await
+            .expect("prevent offload should be JSON")["offload_remaining"],
+        Value::Null
+    );
+    let extend_offload = client
+        .post(format!("{info_url}/extend-deadline"))
+        .json(&json!({"target": "offload", "seconds": 30}))
+        .send()
+        .await
+        .expect("offload extension should send");
+    assert_eq!(extend_offload.status(), reqwest::StatusCode::ACCEPTED);
+    let extended = extend_offload
+        .json::<Value>()
+        .await
+        .expect("offload extension should be JSON");
+    assert!(
+        extended["offload_remaining"]
+            .as_f64()
+            .is_some_and(|value| value > 29.0)
+    );
+    let extend_kill = client
+        .post(format!("{info_url}/extend-deadline"))
+        .json(&json!({"target": "kill", "seconds": 30}))
+        .send()
+        .await
+        .expect("kill extension should send");
+    assert_eq!(extend_kill.status(), reqwest::StatusCode::ACCEPTED);
+
+    let offloaded = client
+        .post(format!("{info_url}/offload"))
+        .send()
+        .await
+        .expect("manual offload should send");
+    assert_eq!(offloaded.status(), reqwest::StatusCode::ACCEPTED);
+    assert_eq!(
+        offloaded
+            .json::<Value>()
+            .await
+            .expect("manual offload should be JSON"),
+        json!({"status": "accepted", "tool_call_id": "call_http_long_shell"})
+    );
+    let offloaded_info = get_json(&client, info_url.clone()).await;
+    assert_eq!(offloaded_info["status"], json!("offloaded"));
+    assert_eq!(offloaded_info["offload_reason"], json!("user"));
+
+    let stream_request = client
+        .get(format!("{info_url}/stream"))
+        .send()
+        .await
+        .expect("tool output stream should connect");
+    assert_eq!(stream_request.status(), reqwest::StatusCode::OK);
+    let cancelled = client
+        .post(format!("{info_url}/cancel"))
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .send()
+        .await
+        .expect("tool cancellation should send");
+    assert_eq!(cancelled.status(), reqwest::StatusCode::ACCEPTED);
+    assert_eq!(
+        cancelled
+            .json::<Value>()
+            .await
+            .expect("tool cancellation should be JSON"),
+        json!({"status": "accepted", "tool_call_id": "call_http_long_shell"})
+    );
+    let stream_events = parse_sse_events(
+        &tokio::time::timeout(Duration::from_secs(5), stream_request.text())
+            .await
+            .expect("tool stream should terminate")
+            .expect("tool stream should read"),
+    );
+    assert_eq!(
+        stream_events,
+        vec![
+            json!({
+                "type": "chunk",
+                "data": {
+                    "type": "text",
+                    "text": "Tool execution was cancelled by the user."
+                }
+            }),
+            json!({"type": "done"})
+        ]
+    );
+    let completed = get_json(&client, info_url.clone()).await;
+    assert_eq!(completed["status"], json!("completed"));
+    assert_eq!(completed["end_state"], json!("interrupted"));
+    assert_eq!(completed["offload_reason"], json!("user"));
+    assert_eq!(
+        get_json(&client, format!("{info_url}/output")).await,
+        json!({
+            "tool_call_id": "call_http_long_shell",
+            "is_closed": true,
+            "final_state": "interrupted",
+            "content": [{
+                "type": "text",
+                "text": "Tool execution was cancelled by the user."
+            }]
+        })
+    );
+    assert_eq!(
+        get_json(&client, format!("{base}/tool-calls/{session_id}"),).await,
+        json!({"items": [], "total": 0})
+    );
+    let repeated_offload = client
+        .post(format!("{info_url}/offload"))
+        .send()
+        .await
+        .expect("repeated offload should send");
+    assert_eq!(repeated_offload.status(), reqwest::StatusCode::CONFLICT);
+    let chat_events = parse_sse_events(
+        &tokio::time::timeout(Duration::from_secs(5), chat_body)
+            .await
+            .expect("offloaded chat should terminate")
+            .expect("offloaded chat reader should join")
+            .expect("offloaded chat should read"),
+    );
+    let streamed_call = chat_events
+        .iter()
+        .find(|event| {
+            event["type"] == json!("plugin_call") && event["status"] == json!("completed")
+        })
+        .expect("Console stream should use the original plugin_call envelope");
+    assert_eq!(
+        streamed_call["content"],
+        json!([{
+            "type": "data",
+            "data": {
+                "call_id": "call_http_long_shell",
+                "name": "shell",
+                "arguments": format!(
+                    "{{\"command\":{}}}",
+                    serde_json::to_string(LONG_HTTP_SHELL_COMMAND)
+                        .expect("Shell command should serialize")
+                )
+            }
+        }])
+    );
+    let streamed_result = chat_events
+        .iter()
+        .find(|event| {
+            event["type"] == json!("plugin_call_output") && event["status"] == json!("completed")
+        })
+        .expect("Console stream should use the original tool output envelope");
+    assert_eq!(
+        streamed_result["content"],
+        json!([{
+            "type": "data",
+            "data": {
+                "call_id": "call_http_long_shell",
+                "output": "Tool 'shell' was moved to the background (call_id=call_http_long_shell). Continue other work; do not run the same call again.",
+                "state": "success"
+            }
+        }])
+    );
+    assert_eq!(
+        chat_events.last().expect("chat stream should terminate")["status"],
+        json!("completed")
+    );
+    let chats = get_json(&client, format!("{base}/chats?archived=false")).await;
+    let thread_id = chats
+        .as_array()
+        .expect("chat list should be an array")
+        .iter()
+        .find(|chat| chat["session_id"] == json!(session_id))
+        .and_then(|chat| chat["id"].as_str())
+        .expect("Tool Calls chat should be persisted");
+    let history = get_json(&client, format!("{base}/chats/{thread_id}")).await;
+    assert_eq!(history["messages"][1]["type"], json!("plugin_call"));
+    assert_eq!(history["messages"][1]["content"], streamed_call["content"]);
+    assert_eq!(history["messages"][2]["type"], json!("plugin_call_output"));
+    assert_eq!(
+        history["messages"][2]["content"],
+        streamed_result["content"]
+    );
+    task.abort();
+    let _ = task.await;
+    drop(core);
+
+    let reopened =
+        Core::persistent(model_config, &database).expect("Tool Calls Core should reopen");
+    assert_eq!(reopened.tool_offload_policy(), "offload");
+}
+
+#[tokio::test]
 async fn exposes_and_denies_tool_approval_through_the_console_contract() {
     let model_base_url = start_tool_model_server().await;
     let console = tempfile::tempdir().expect("temporary Console should be created");
@@ -6467,3 +6812,64 @@ async fn start_tool_model_server() -> String {
     });
     format!("http://{address}")
 }
+
+async fn start_long_tool_model_server() -> String {
+    let requests = Arc::new(AtomicUsize::new(0));
+    let app = axum::Router::new().route(
+        "/chat/completions",
+        axum::routing::post(move || {
+            let requests = Arc::clone(&requests);
+            async move {
+                let response = if requests.fetch_add(1, Ordering::SeqCst) == 0 {
+                    let arguments = serde_json::to_string(&json!({
+                        "command": LONG_HTTP_SHELL_COMMAND
+                    }))
+                    .expect("long Shell arguments should serialize");
+                    let chunk = json!({
+                        "choices": [{
+                            "delta": {
+                                "tool_calls": [{
+                                    "index": 0,
+                                    "id": "call_http_long_shell",
+                                    "function": {
+                                        "name": "shell",
+                                        "arguments": arguments
+                                    }
+                                }]
+                            }
+                        }]
+                    });
+                    format!("data: {chunk}\n\ndata: [DONE]\n\n")
+                } else {
+                    String::from(concat!(
+                        "data: {\"choices\":[{\"delta\":{\"content\":\"Background work accepted\"}}]}\n\n",
+                        "data: [DONE]\n\n"
+                    ))
+                };
+                axum::response::Response::builder()
+                    .status(axum::http::StatusCode::OK)
+                    .header(axum::http::header::CONTENT_TYPE, "text/event-stream")
+                    .body(axum::body::Body::from(response))
+                    .expect("long tool model response should build")
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("long tool model listener should bind");
+    let address = listener
+        .local_addr()
+        .expect("long tool model listener should have an address");
+    tokio::spawn(async move {
+        axum::serve(listener, app)
+            .await
+            .expect("long tool model server should run");
+    });
+    format!("http://{address}")
+}
+
+#[cfg(windows)]
+const LONG_HTTP_SHELL_COMMAND: &str = "ping -n 30 127.0.0.1 >NUL";
+
+#[cfg(not(windows))]
+const LONG_HTTP_SHELL_COMMAND: &str = "sleep 30";

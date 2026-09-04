@@ -92,6 +92,7 @@ mod desktop_mail_access_control;
 mod desktop_navigation;
 mod desktop_projects;
 mod desktop_stats;
+mod desktop_tool_calls;
 mod desktop_tools;
 
 pub use desktop_credentials::DesktopCredentialStore;
@@ -548,6 +549,7 @@ impl AppServer {
                 .merge(desktop_navigation::router())
                 .merge(desktop_projects::router())
                 .merge(desktop_stats::router())
+                .merge(desktop_tool_calls::router())
                 .merge(desktop_tools::router())
                 .route("/api", any(api_not_found))
                 .route("/api/{*path}", any(api_not_found))

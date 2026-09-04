@@ -990,13 +990,16 @@ fn console_item_event(item: &Item, status: &str) -> Option<Value> {
         } => Some(json!({
             "object": "message",
             "id": id,
-            "type": "tool_call",
+            "type": "plugin_call",
             "role": "assistant",
             "status": status,
-            "call_id": call_id,
             "content": [{
                 "type": "data",
-                "data": {"name": name, "arguments": arguments}
+                "data": {
+                    "call_id": call_id,
+                    "name": name,
+                    "arguments": arguments
+                }
             }]
         })),
         Item::ToolResult {
@@ -1007,12 +1010,17 @@ fn console_item_event(item: &Item, status: &str) -> Option<Value> {
         } => Some(json!({
             "object": "message",
             "id": id,
-            "type": "tool_call_output",
+            "type": "plugin_call_output",
             "role": "tool",
             "status": status,
-            "call_id": call_id,
-            "content": [{"type": "text", "text": content}],
-            "is_error": is_error
+            "content": [{
+                "type": "data",
+                "data": {
+                    "call_id": call_id,
+                    "output": content,
+                    "state": if *is_error { "error" } else { "success" }
+                }
+            }]
         })),
     }
 }
@@ -1077,11 +1085,15 @@ fn message_from_item(item: &Item, timestamp: &str) -> Value {
         } => json!({
             "id": id,
             "role": "assistant",
-            "type": "tool_call",
-            "call_id": call_id,
-            "name": name,
-            "arguments": arguments,
-            "content": [],
+            "type": "plugin_call",
+            "content": [{
+                "type": "data",
+                "data": {
+                    "call_id": call_id,
+                    "name": name,
+                    "arguments": arguments
+                }
+            }],
             "metadata": metadata
         }),
         Item::ToolResult {
@@ -1092,10 +1104,15 @@ fn message_from_item(item: &Item, timestamp: &str) -> Value {
         } => json!({
             "id": id,
             "role": "tool",
-            "type": "tool_call_output",
-            "call_id": call_id,
-            "content": content,
-            "is_error": is_error,
+            "type": "plugin_call_output",
+            "content": [{
+                "type": "data",
+                "data": {
+                    "call_id": call_id,
+                    "output": content,
+                    "state": if *is_error { "error" } else { "success" }
+                }
+            }],
             "metadata": metadata
         }),
     }

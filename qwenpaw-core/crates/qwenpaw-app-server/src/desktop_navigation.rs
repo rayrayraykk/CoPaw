@@ -20,7 +20,6 @@ pub(super) fn router() -> Router<AppServer> {
             get(memory_runtime_status),
         )
         .route("/api/agents/{agent_id}/memory/status", get(memory_status))
-        .route("/api/settings/offload-policy", get(offload_policy))
         .route("/api/config/security/sandbox", get(sandbox_status))
         .route(
             "/api/config/security/sandbox/deny-paths-protection",
@@ -89,10 +88,6 @@ fn memory_runtime_value() -> Value {
         "embedding_reindex_required": false,
         "embedding_reindex_undo_available": false
     })
-}
-
-async fn offload_policy() -> Json<Value> {
-    Json(json!({"default_action": "keep_foreground"}))
 }
 
 #[derive(Debug, Default, Deserialize)]

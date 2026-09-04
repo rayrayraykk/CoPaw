@@ -75,6 +75,11 @@ use crate::model::ModelConfig;
 use crate::model::ModelConfigError;
 use crate::model::ModelEvent;
 use crate::model::ModelUsage;
+use crate::tool_calls::ToolCallControlError;
+use crate::tool_calls::ToolCallCoordinator;
+use crate::tool_calls::ToolCallSnapshot;
+use crate::tool_calls::ToolCallSubscription;
+use crate::tool_calls::ToolCancellationReason;
 
 const EVENT_CHANNEL_CAPACITY: usize = 64;
 const DEFAULT_LIST_LIMIT: u32 = 50;
@@ -109,6 +114,7 @@ const CHAT_CATALOG_DATA_SETTING: &str = "desktop_chat_catalog_data";
 const CHANNEL_CONFIG_DATA_SETTING: &str = "desktop_channel_config_data";
 const AGENT_SETTINGS_DATA_SETTING: &str = "desktop_agent_settings_data";
 const BUILTIN_TOOL_OVERRIDES_SETTING: &str = "builtin_tool_overrides";
+const TOOL_OFFLOAD_POLICY_SETTING: &str = "tool_offload_policy";
 const DEFAULT_UI_LANGUAGE: &str = "en";
 const SUPPORTED_UI_LANGUAGES: [&str; 7] = ["en", "zh", "ja", "ru", "pt-BR", "id", "vi"];
 const MAX_ENVIRONMENT_VARIABLES: usize = 256;
@@ -167,6 +173,7 @@ struct CoreInner {
     runtime_environment: SyncRwLock<BTreeMap<String, String>>,
     agent_runtime_config: SyncRwLock<AgentRuntimeConfig>,
     builtin_tool_overrides: SyncRwLock<BTreeMap<String, bool>>,
+    tool_calls: ToolCallCoordinator,
     system_prompt_files: SyncRwLock<Vec<String>>,
 }
 
@@ -253,6 +260,19 @@ impl Core {
             model_config.default_model = default_model;
         }
         let model_config = model_config.normalize().map_err(CoreError::config)?;
+        let offload_on_deadline = match store
+            .read_setting(TOOL_OFFLOAD_POLICY_SETTING)
+            .map_err(CoreError::storage)?
+            .as_deref()
+        {
+            None | Some("keep_foreground") => false,
+            Some("offload") => true,
+            Some(_) => {
+                return Err(CoreError::Config(String::from(
+                    "stored tool offload policy is invalid",
+                )));
+            }
+        };
         let mut builtin_tool_overrides = match store
             .read_setting(BUILTIN_TOOL_OVERRIDES_SETTING)
             .map_err(CoreError::storage)?
@@ -309,6 +329,7 @@ impl Core {
                 runtime_environment: SyncRwLock::new(BTreeMap::new()),
                 agent_runtime_config: SyncRwLock::new(AgentRuntimeConfig::default()),
                 builtin_tool_overrides: SyncRwLock::new(builtin_tool_overrides),
+                tool_calls: ToolCallCoordinator::new(offload_on_deadline),
                 system_prompt_files: SyncRwLock::new(system_prompt_files),
             }),
         })
@@ -1201,6 +1222,123 @@ impl Core {
             .collect())
     }
 
+    #[must_use]
+    pub fn tool_offload_policy(&self) -> String {
+        if self.inner.tool_calls.offload_on_deadline() {
+            String::from("offload")
+        } else {
+            String::from("keep_foreground")
+        }
+    }
+
+    /// Persists and immediately applies the default long-running tool policy.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an unsupported policy or failed persistence.
+    pub fn set_tool_offload_policy(&self, policy: &str) -> Result<String, CoreError> {
+        let enabled = match policy {
+            "keep_foreground" => false,
+            "offload" => true,
+            _ => {
+                return Err(CoreError::Config(format!(
+                    "unsupported tool offload policy: {policy}"
+                )));
+            }
+        };
+        self.inner
+            .store
+            .write_settings(&[(TOOL_OFFLOAD_POLICY_SETTING, policy)])
+            .map_err(CoreError::storage)?;
+        self.inner.tool_calls.set_offload_on_deadline(enabled);
+        Ok(policy.to_owned())
+    }
+
+    pub async fn list_tool_calls(&self, thread_id: &str) -> Vec<ToolCallSnapshot> {
+        self.inner.tool_calls.list(thread_id).await
+    }
+
+    /// Returns one session-scoped tool call, including recently completed calls.
+    ///
+    /// # Errors
+    ///
+    /// Returns `NotFound` when the call does not belong to the supplied Thread.
+    pub async fn tool_call(
+        &self,
+        thread_id: &str,
+        tool_call_id: &str,
+    ) -> Result<ToolCallSnapshot, ToolCallControlError> {
+        self.inner.tool_calls.get(thread_id, tool_call_id).await
+    }
+
+    /// Subscribes to final output for an active or recently completed tool call.
+    ///
+    /// # Errors
+    ///
+    /// Returns `NotFound` when the call does not belong to the supplied Thread.
+    pub async fn subscribe_tool_call(
+        &self,
+        thread_id: &str,
+        tool_call_id: &str,
+    ) -> Result<ToolCallSubscription, ToolCallControlError> {
+        self.inner
+            .tool_calls
+            .subscribe(thread_id, tool_call_id)
+            .await
+    }
+
+    /// Moves one bounded active tool execution into the background.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for a missing call or an invalid lifecycle transition.
+    pub async fn offload_tool_call(
+        &self,
+        thread_id: &str,
+        tool_call_id: &str,
+    ) -> Result<ToolCallSnapshot, ToolCallControlError> {
+        self.inner
+            .tool_calls
+            .request_offload(thread_id, tool_call_id)
+            .await
+    }
+
+    /// Cancels one active tool without cancelling the owning Turn.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for a missing or completed call.
+    pub async fn cancel_tool_call(
+        &self,
+        thread_id: &str,
+        tool_call_id: &str,
+        force: bool,
+    ) -> Result<ToolCallSnapshot, ToolCallControlError> {
+        self.inner
+            .tool_calls
+            .cancel(thread_id, tool_call_id, force)
+            .await
+    }
+
+    /// Changes one active tool's offload or hard-kill deadline.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid input, a missing call, or an invalid state.
+    pub async fn extend_tool_call_deadline(
+        &self,
+        thread_id: &str,
+        tool_call_id: &str,
+        target: &str,
+        seconds: Option<f64>,
+        no_deadline: bool,
+    ) -> Result<ToolCallSnapshot, ToolCallControlError> {
+        self.inner
+            .tool_calls
+            .extend_deadline(thread_id, tool_call_id, target, seconds, no_deadline)
+            .await
+    }
+
     /// Replaces the environment inherited by future Agent child processes.
     ///
     /// # Errors
@@ -1679,8 +1817,14 @@ impl Core {
                     .await
                 {
                     ApprovalOutcome::Approved => {
-                        self.execute_tool(workspace, &call, runtime_config, cancellation)
-                            .await?
+                        self.execute_tracked_tool(
+                            thread_id,
+                            workspace,
+                            &call,
+                            runtime_config,
+                            cancellation,
+                        )
+                        .await?
                     }
                     ApprovalOutcome::Denied => Ok(ToolOutput {
                         content: String::from("Tool execution was denied by the user."),
@@ -1689,7 +1833,7 @@ impl Core {
                     ApprovalOutcome::Interrupted => return Err(TurnOutcome::Interrupted),
                 }
             } else {
-                self.execute_tool(workspace, &call, runtime_config, cancellation)
+                self.execute_tracked_tool(thread_id, workspace, &call, runtime_config, cancellation)
                     .await?
             };
             let output = output.unwrap_or_else(|error| ToolOutput {
@@ -1802,18 +1946,143 @@ impl Core {
         })
     }
 
+    async fn execute_tracked_tool(
+        &self,
+        thread_id: &str,
+        workspace: &Workspace,
+        call: &ToolCall,
+        runtime_config: &AgentRuntimeConfig,
+        turn_cancellation: &CancellationToken,
+    ) -> Result<Result<ToolOutput, String>, TurnOutcome> {
+        let timeout =
+            qwenpaw_tools::effective_shell_timeout_ms(call, runtime_config.shell_timeout_ms)
+                .map(Duration::from_millis);
+        let max_internal_timeout =
+            timeout.map(|_| Duration::from_millis(qwenpaw_tools::MAX_SHELL_TIMEOUT_MS));
+        let mut lease = self
+            .inner
+            .tool_calls
+            .begin(
+                thread_id,
+                &call.id,
+                &call.name,
+                timeout,
+                max_internal_timeout,
+                turn_cancellation,
+            )
+            .await
+            .map_err(|error| TurnOutcome::Failed(error.to_string()))?;
+        let core = self.clone();
+        let workspace = workspace.clone();
+        let call_for_execution = call.clone();
+        let runtime_config = runtime_config.clone();
+        let turn_cancellation = turn_cancellation.clone();
+        let tool_cancellation = lease.cancellation.clone();
+        let mut execution = tokio::spawn(async move {
+            core.execute_tool(
+                &workspace,
+                &call_for_execution,
+                &runtime_config,
+                &turn_cancellation,
+                &tool_cancellation,
+            )
+            .await
+        });
+        tokio::select! {
+            biased;
+            result = &mut execution => {
+                self.finish_foreground_tool(&call.id, result).await
+            }
+            () = lease.wait_for_offload() => {
+                let tool_calls = self.inner.tool_calls.clone();
+                let call_id = call.id.clone();
+                let tool_name = call.name.clone();
+                tokio::spawn(async move {
+                    let output = background_tool_output(&tool_name, execution.await);
+                    tool_calls.finish(&call_id, &output).await;
+                });
+                Ok(Ok(ToolOutput {
+                    content: format!(
+                        "Tool '{}' was moved to the background (call_id={}). Continue other work; do not run the same call again.",
+                        call.name, call.id
+                    ),
+                    is_error: false,
+                }))
+            }
+        }
+    }
+
+    async fn finish_foreground_tool(
+        &self,
+        tool_call_id: &str,
+        result: Result<Result<Result<ToolOutput, String>, TurnOutcome>, tokio::task::JoinError>,
+    ) -> Result<Result<ToolOutput, String>, TurnOutcome> {
+        match result {
+            Ok(Ok(Ok(output))) => {
+                self.inner.tool_calls.finish(tool_call_id, &output).await;
+                Ok(Ok(output))
+            }
+            Ok(Ok(Err(error))) => {
+                self.inner
+                    .tool_calls
+                    .finish(
+                        tool_call_id,
+                        &ToolOutput {
+                            content: error.clone(),
+                            is_error: true,
+                        },
+                    )
+                    .await;
+                Ok(Err(error))
+            }
+            Ok(Err(outcome)) => {
+                self.inner
+                    .tool_calls
+                    .finish(
+                        tool_call_id,
+                        &ToolOutput {
+                            content: turn_outcome_message(&outcome),
+                            is_error: true,
+                        },
+                    )
+                    .await;
+                Err(outcome)
+            }
+            Err(error) => {
+                let message = format!("tool execution task failed: {error}");
+                self.inner
+                    .tool_calls
+                    .finish(
+                        tool_call_id,
+                        &ToolOutput {
+                            content: message.clone(),
+                            is_error: true,
+                        },
+                    )
+                    .await;
+                Err(TurnOutcome::Failed(message))
+            }
+        }
+    }
+
     async fn execute_tool(
         &self,
         workspace: &Workspace,
         call: &ToolCall,
         runtime_config: &AgentRuntimeConfig,
-        cancellation: &CancellationToken,
+        turn_cancellation: &CancellationToken,
+        tool_cancellation: &CancellationToken,
     ) -> Result<Result<ToolOutput, String>, TurnOutcome> {
         if self.inner.mcp.contains_tool(&call.name).await {
             return tokio::select! {
-                () = cancellation.cancelled() => {
+                biased;
+                () = turn_cancellation.cancelled() => {
                     self.inner.mcp.cancel_tool(&call.name).await;
                     Err(TurnOutcome::Interrupted)
+                }
+                () = tool_cancellation.cancelled() => {
+                    self.inner.mcp.cancel_tool(&call.name).await;
+                    Ok(Err(self.tool_cancellation_message(&call.id).await))
                 }
                 output = self.inner.mcp.call_tool(&call.name, &call.arguments) => {
                     Ok(output
@@ -1833,13 +2102,34 @@ impl Core {
             return Ok(Err(format!("Tool '{}' is disabled", call.name)));
         }
         tokio::select! {
-            () = cancellation.cancelled() => Err(TurnOutcome::Interrupted),
-            output = workspace.execute_with_shell_config(
+            biased;
+            () = turn_cancellation.cancelled() => Err(TurnOutcome::Interrupted),
+            () = tool_cancellation.cancelled() => {
+                Ok(Err(self.tool_cancellation_message(&call.id).await))
+            }
+            output = workspace.execute_with_shell_config_and_timeout(
                 call,
                 runtime_config.shell_timeout_ms,
                 (!runtime_config.shell_executable.is_empty())
                     .then_some(runtime_config.shell_executable.as_str()),
+                (call.name == "shell").then_some(qwenpaw_tools::MAX_SHELL_TIMEOUT_MS),
             ) => Ok(output.map_err(|error| error.to_string())),
+        }
+    }
+
+    async fn tool_cancellation_message(&self, tool_call_id: &str) -> String {
+        match self
+            .inner
+            .tool_calls
+            .cancellation_reason(tool_call_id)
+            .await
+        {
+            Some(ToolCancellationReason::Timeout) => {
+                String::from("Tool execution was cancelled due to timeout.")
+            }
+            Some(ToolCancellationReason::User) | None => {
+                String::from("Tool execution was cancelled by the user.")
+            }
         }
     }
 
@@ -2380,6 +2670,35 @@ enum TurnOutcome {
     Completed,
     Interrupted,
     Failed(String),
+}
+
+fn background_tool_output(
+    tool_name: &str,
+    result: Result<Result<Result<ToolOutput, String>, TurnOutcome>, tokio::task::JoinError>,
+) -> ToolOutput {
+    match result {
+        Ok(Ok(Ok(output))) => output,
+        Ok(Ok(Err(error))) => ToolOutput {
+            content: error,
+            is_error: true,
+        },
+        Ok(Err(outcome)) => ToolOutput {
+            content: turn_outcome_message(&outcome),
+            is_error: true,
+        },
+        Err(error) => ToolOutput {
+            content: format!("background tool '{tool_name}' task failed: {error}"),
+            is_error: true,
+        },
+    }
+}
+
+fn turn_outcome_message(outcome: &TurnOutcome) -> String {
+    match outcome {
+        TurnOutcome::Completed => String::from("Tool execution completed without output."),
+        TurnOutcome::Interrupted => String::from("Tool execution was interrupted."),
+        TurnOutcome::Failed(error) => error.clone(),
+    }
 }
 
 fn default_system_prompt_files() -> Vec<String> {
