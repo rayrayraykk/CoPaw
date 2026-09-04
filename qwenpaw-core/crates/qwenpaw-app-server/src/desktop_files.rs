@@ -48,6 +48,7 @@ const MAX_PATH_BYTES: usize = 4_096;
 const MAX_DIRECTORY_ENTRIES: usize = 500;
 const DEFAULT_DIRECTORY_LIMIT: usize = 200;
 const MAX_TEXT_FILE_BYTES: usize = 8 * 1_024 * 1_024;
+const MAX_PROFILE_MARKDOWN_BYTES: usize = 1_024 * 1_024;
 const MAX_CONTENT_CHUNK_BYTES: usize = 512 * 1_024;
 const MAX_UPLOAD_FILE_BYTES: usize = 32 * 1_024 * 1_024;
 const MAX_MULTIPART_BODY_BYTES: usize = MAX_UPLOAD_FILE_BYTES + 1_024 * 1_024;
@@ -58,6 +59,15 @@ pub(super) type ApiError = (StatusCode, Json<Value>);
 
 pub(super) fn router() -> Router<AppServer> {
     Router::new()
+        .route("/api/workspace/files", get(list_profile_files))
+        .route(
+            "/api/workspace/files/{file_name}",
+            get(load_profile_file)
+                .put(save_profile_file)
+                .layer(DefaultBodyLimit::max(
+                    MAX_PROFILE_MARKDOWN_BYTES + 64 * 1_024,
+                )),
+        )
         .route("/api/workspace/tree", get(list_directory))
         .route("/api/workspace/file-metadata", get(file_metadata))
         .route(
@@ -115,6 +125,118 @@ struct FileContentQuery {
 #[derive(Debug, Deserialize)]
 struct SaveFileRequest {
     content: String,
+}
+
+async fn list_profile_files(State(server): State<AppServer>) -> Result<Json<Value>, ApiError> {
+    let workspace = desktop_workspace(&server)?;
+    let root = workspace.selected.read().await.clone();
+    let mut reader = tokio::fs::read_dir(&root)
+        .await
+        .map_err(|_| not_found("Workspace directory could not be read"))?;
+    let mut files = Vec::new();
+    while let Some(entry) = reader
+        .next_entry()
+        .await
+        .map_err(|_| not_found("Workspace directory could not be read"))?
+    {
+        let filename = entry.file_name().to_string_lossy().into_owned();
+        if Path::new(&filename)
+            .extension()
+            .is_none_or(|value| value != "md")
+        {
+            continue;
+        }
+        let Ok(metadata) = tokio::fs::symlink_metadata(entry.path()).await else {
+            continue;
+        };
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            continue;
+        }
+        let modified = metadata.modified().ok();
+        files.push((
+            modified,
+            filename.clone(),
+            json!({
+                "filename": filename,
+                "path": entry.path().to_string_lossy(),
+                "size": metadata.len(),
+                "created_time": metadata.created().map(timestamp_at).unwrap_or_default(),
+                "modified_time": modified.map(timestamp_at).unwrap_or_default()
+            }),
+        ));
+    }
+    files.sort_by(|left, right| right.0.cmp(&left.0).then_with(|| left.1.cmp(&right.1)));
+    Ok(Json(Value::Array(
+        files.into_iter().map(|(_, _, value)| value).collect(),
+    )))
+}
+
+async fn load_profile_file(
+    State(server): State<AppServer>,
+    AxumPath(file_name): AxumPath<String>,
+) -> Result<Json<Value>, ApiError> {
+    let file_name = normalize_profile_filename(&file_name)?;
+    let workspace = desktop_workspace(&server)?;
+    let root = workspace.selected.read().await.clone();
+    let candidate = root.join(&file_name);
+    let metadata = tokio::fs::symlink_metadata(&candidate)
+        .await
+        .map_err(|_| not_found("Profile Markdown file was not found"))?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(bad_request(
+            "Profile Markdown target must be a regular file",
+        ));
+    }
+    let path = resolve_existing_file(&root, Path::new(&file_name))?;
+    if metadata.len() > MAX_PROFILE_MARKDOWN_BYTES as u64 {
+        return Err(payload_too_large(
+            "Profile Markdown file exceeds the 1 MiB limit",
+        ));
+    }
+    let bytes = tokio::fs::read(path)
+        .await
+        .map_err(|_| not_found("Profile Markdown file could not be read"))?;
+    Ok(Json(json!({
+        "content": String::from_utf8_lossy(&bytes).trim()
+    })))
+}
+
+async fn save_profile_file(
+    State(server): State<AppServer>,
+    AxumPath(file_name): AxumPath<String>,
+    Json(request): Json<SaveFileRequest>,
+) -> Result<Json<Value>, ApiError> {
+    if request.content.len() > MAX_PROFILE_MARKDOWN_BYTES {
+        return Err(payload_too_large(
+            "Profile Markdown file exceeds the 1 MiB limit",
+        ));
+    }
+    let file_name = normalize_profile_filename(&file_name)?;
+    let _guard = server.inner.desktop_agent_settings_lock.lock().await;
+    let workspace = desktop_workspace(&server)?;
+    let root = workspace.selected.read().await.clone();
+    let path = resolve_write_file(&root, Path::new(&file_name))?;
+    write_file_atomically(&path, request.content.as_bytes()).await?;
+    Ok(Json(json!({"written": true})))
+}
+
+fn normalize_profile_filename(value: &str) -> Result<String, ApiError> {
+    if value.len() > 255 {
+        return Err(bad_request("Profile Markdown file name is invalid"));
+    }
+    let value = parse_direct_file_name(value)?;
+    let filename = if Path::new(value)
+        .extension()
+        .is_some_and(|extension| extension == "md")
+    {
+        value.to_owned()
+    } else {
+        format!("{value}.md")
+    };
+    if filename.len() > 255 {
+        return Err(bad_request("Profile Markdown file name is invalid"));
+    }
+    Ok(filename)
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -1090,7 +1212,11 @@ fn modified_at(metadata: &std::fs::Metadata) -> String {
     let Ok(modified) = metadata.modified() else {
         return String::new();
     };
-    let Ok(duration) = modified.duration_since(UNIX_EPOCH) else {
+    timestamp_at(modified)
+}
+
+fn timestamp_at(value: std::time::SystemTime) -> String {
+    let Ok(duration) = value.duration_since(UNIX_EPOCH) else {
         return String::new();
     };
     let Ok(seconds) = i64::try_from(duration.as_secs()) else {

@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::RwLock as SyncRwLock;
@@ -83,6 +84,12 @@ const MAX_TOOL_NAME_BYTES: usize = 256;
 const MAX_TOOL_ARGUMENT_BYTES: usize = 65_536;
 const APPROVAL_TIMEOUT: Duration = Duration::from_secs(120);
 const SYSTEM_PROMPT: &str = "You are QwenPaw, a coding agent working inside the configured workspace. Use list_files and search_text to discover relevant code, then read_file before editing. Prefer replace_text for small exact edits and write_file for complete file replacement. Use shell for build or test commands. Respect denied tool calls and report only what was actually verified.";
+const SYSTEM_PROMPT_FILES_SETTING: &str = "desktop_system_prompt_files";
+const DEFAULT_SYSTEM_PROMPT_FILES: [&str; 3] = ["AGENTS.md", "SOUL.md", "PROFILE.md"];
+const MAX_SYSTEM_PROMPT_FILES: usize = 64;
+const MAX_SYSTEM_PROMPT_FILENAME_BYTES: usize = 255;
+const MAX_SYSTEM_PROMPT_FILE_BYTES: u64 = 1024 * 1024;
+const MAX_SYSTEM_PROMPT_BYTES: usize = 2 * 1024 * 1024;
 const BASE_URL_SETTING: &str = "base_url";
 const DEFAULT_MODEL_SETTING: &str = "default_model";
 const PREFERRED_WORKSPACE_SETTING: &str = "preferred_workspace";
@@ -145,6 +152,7 @@ struct CoreInner {
     state: Mutex<State>,
     runtime_environment: SyncRwLock<BTreeMap<String, String>>,
     agent_runtime_config: SyncRwLock<AgentRuntimeConfig>,
+    system_prompt_files: SyncRwLock<Vec<String>>,
 }
 
 #[derive(Default)]
@@ -228,6 +236,19 @@ impl Core {
             model_config.default_model = default_model;
         }
         let model_config = model_config.normalize().map_err(CoreError::config)?;
+        let system_prompt_files = match store
+            .read_setting(SYSTEM_PROMPT_FILES_SETTING)
+            .map_err(CoreError::storage)?
+        {
+            Some(value) => {
+                let files = serde_json::from_str::<Vec<String>>(&value).map_err(|_| {
+                    CoreError::Config(String::from("stored system prompt files are invalid"))
+                })?;
+                validate_system_prompt_files(&files)?;
+                files
+            }
+            None => default_system_prompt_files(),
+        };
         let snapshots = store.load_all().map_err(CoreError::storage)?;
         let mut threads = HashMap::new();
         for mut snapshot in snapshots {
@@ -255,6 +276,7 @@ impl Core {
                 }),
                 runtime_environment: SyncRwLock::new(BTreeMap::new()),
                 agent_runtime_config: SyncRwLock::new(AgentRuntimeConfig::default()),
+                system_prompt_files: SyncRwLock::new(system_prompt_files),
             }),
         })
     }
@@ -275,6 +297,8 @@ impl Core {
         };
         let workspace = Workspace::open(&workspace_path).map_err(CoreError::workspace)?;
         let timestamp = now();
+        let system_prompt =
+            build_workspace_system_prompt(workspace.root(), &self.system_prompt_files()?);
         let thread = Thread {
             id: new_id("thr"),
             model: params
@@ -289,7 +313,7 @@ impl Core {
         let record = ThreadRecord {
             thread: thread.clone(),
             turns: Vec::new(),
-            messages: vec![StoredMessage::text("system", SYSTEM_PROMPT)],
+            messages: vec![StoredMessage::text("system", system_prompt)],
             active_turn: None,
         };
         self.inner
@@ -854,6 +878,40 @@ impl Core {
             .map_err(CoreError::storage)
     }
 
+    /// Returns the ordered Markdown files used to compose the Agent system prompt.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the runtime lock is poisoned.
+    pub fn system_prompt_files(&self) -> Result<Vec<String>, CoreError> {
+        self.inner
+            .system_prompt_files
+            .read()
+            .map(|files| files.clone())
+            .map_err(|_| CoreError::Config(String::from("system prompt file lock is poisoned")))
+    }
+
+    /// Validates, persists, and hot-reloads the ordered system prompt file list.
+    ///
+    /// Existing threads use the new list at the start of their next turn.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid filenames, serialization, persistence, or
+    /// a poisoned runtime lock.
+    pub fn replace_system_prompt_files(&self, files: Vec<String>) -> Result<(), CoreError> {
+        validate_system_prompt_files(&files)?;
+        let serialized = serde_json::to_string(&files).map_err(CoreError::storage)?;
+        self.inner
+            .store
+            .write_settings(&[(SYSTEM_PROMPT_FILES_SETTING, &serialized)])
+            .map_err(CoreError::storage)?;
+        *self.inner.system_prompt_files.write().map_err(|_| {
+            CoreError::Config(String::from("system prompt file lock is poisoned"))
+        })? = files;
+        Ok(())
+    }
+
     /// Returns the settings used by future Agent turns.
     ///
     /// # Errors
@@ -1179,27 +1237,11 @@ impl Core {
         cancellation: CancellationToken,
         event_tx: mpsc::Sender<CoreEvent>,
     ) {
-        let Some((turn, model, workspace_root)) = self.turn_context(&thread_id, &turn_id).await
+        let Some((model, workspace, runtime_config)) = self
+            .prepare_turn_runtime(&thread_id, &turn_id, &event_tx)
+            .await
         else {
             return;
-        };
-        send_event(
-            &event_tx,
-            CoreEvent::TurnStarted(TurnStartedNotification { turn }),
-        )
-        .await;
-        let (workspace, runtime_config) = match self
-            .open_runtime_workspace(&workspace_root)
-            .and_then(|workspace| {
-                self.agent_runtime_config()
-                    .map(|config| (workspace, config))
-            }) {
-            Ok(runtime) => runtime,
-            Err(error) => {
-                self.fail_turn(&thread_id, &turn_id, error.to_string(), &event_tx)
-                    .await;
-                return;
-            }
         };
         let mut tools = qwenpaw_tools::definitions();
         let mcp_tools = tokio::select! {
@@ -1275,6 +1317,85 @@ impl Core {
         self.remove_turn_approvals(&thread_id, &turn_id).await;
         self.finish_turn(&thread_id, &turn_id, outcome, &event_tx)
             .await;
+    }
+
+    async fn prepare_turn_runtime(
+        &self,
+        thread_id: &str,
+        turn_id: &str,
+        event_tx: &mpsc::Sender<CoreEvent>,
+    ) -> Option<(String, Workspace, AgentRuntimeConfig)> {
+        let (turn, model, workspace_root) = self.turn_context(thread_id, turn_id).await?;
+        send_event(
+            event_tx,
+            CoreEvent::TurnStarted(TurnStartedNotification { turn }),
+        )
+        .await;
+        let runtime = self
+            .open_runtime_workspace(&workspace_root)
+            .and_then(|workspace| {
+                self.agent_runtime_config()
+                    .map(|config| (workspace, config))
+            });
+        let (workspace, runtime_config) = match runtime {
+            Ok(runtime) => runtime,
+            Err(error) => {
+                self.fail_turn(thread_id, turn_id, error.to_string(), event_tx)
+                    .await;
+                return None;
+            }
+        };
+        if !self
+            .prepare_turn_system_prompt(thread_id, turn_id, &workspace, event_tx)
+            .await
+        {
+            return None;
+        }
+        Some((model, workspace, runtime_config))
+    }
+
+    async fn refresh_system_prompt(
+        &self,
+        thread_id: &str,
+        workspace: &Workspace,
+    ) -> Result<(), CoreError> {
+        let prompt = build_workspace_system_prompt(workspace.root(), &self.system_prompt_files()?);
+        let mut state = self.inner.state.lock().await;
+        let record = state
+            .threads
+            .get_mut(thread_id)
+            .ok_or_else(|| CoreError::ThreadNotFound(thread_id.to_owned()))?;
+        if let Some(message) = record.messages.first_mut()
+            && message.role == "system"
+        {
+            if message.content == prompt {
+                return Ok(());
+            }
+            message.content = prompt;
+        } else {
+            record
+                .messages
+                .insert(0, StoredMessage::text("system", prompt));
+        }
+        self.inner
+            .store
+            .upsert(&record.snapshot())
+            .map_err(CoreError::storage)
+    }
+
+    async fn prepare_turn_system_prompt(
+        &self,
+        thread_id: &str,
+        turn_id: &str,
+        workspace: &Workspace,
+        event_tx: &mpsc::Sender<CoreEvent>,
+    ) -> bool {
+        if let Err(error) = self.refresh_system_prompt(thread_id, workspace).await {
+            self.fail_turn(thread_id, turn_id, error.to_string(), event_tx)
+                .await;
+            return false;
+        }
+        true
     }
 
     async fn execute_tool_calls(
@@ -1897,6 +2018,114 @@ enum TurnOutcome {
     Completed,
     Interrupted,
     Failed(String),
+}
+
+fn default_system_prompt_files() -> Vec<String> {
+    DEFAULT_SYSTEM_PROMPT_FILES
+        .iter()
+        .map(|filename| (*filename).to_owned())
+        .collect()
+}
+
+fn validate_system_prompt_files(files: &[String]) -> Result<(), CoreError> {
+    if files.len() > MAX_SYSTEM_PROMPT_FILES {
+        return Err(CoreError::Config(format!(
+            "system prompt files exceed the {MAX_SYSTEM_PROMPT_FILES}-file limit"
+        )));
+    }
+    let mut unique = HashSet::with_capacity(files.len());
+    for filename in files {
+        let path = Path::new(filename);
+        let mut components = path.components();
+        let valid_component = matches!(components.next(), Some(std::path::Component::Normal(_)))
+            && components.next().is_none();
+        if filename.is_empty()
+            || filename.len() > MAX_SYSTEM_PROMPT_FILENAME_BYTES
+            || filename.chars().any(char::is_control)
+            || filename.contains('/')
+            || filename.contains('\\')
+            || !filename.to_ascii_lowercase().ends_with(".md")
+            || !valid_component
+        {
+            return Err(CoreError::Config(format!(
+                "invalid system prompt filename: {filename}"
+            )));
+        }
+        if !unique.insert(filename) {
+            return Err(CoreError::Config(format!(
+                "duplicate system prompt filename: {filename}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn build_workspace_system_prompt(root: &Path, files: &[String]) -> String {
+    let mut parts = Vec::new();
+    let mut total_bytes = 0usize;
+    for filename in files {
+        let path = root.join(filename);
+        let Ok(metadata) = path.symlink_metadata() else {
+            continue;
+        };
+        if !metadata.is_file()
+            || metadata.file_type().is_symlink()
+            || metadata.len() > MAX_SYSTEM_PROMPT_FILE_BYTES
+        {
+            continue;
+        }
+        let Ok(bytes) = std::fs::read(&path) else {
+            continue;
+        };
+        if total_bytes.saturating_add(bytes.len()) > MAX_SYSTEM_PROMPT_BYTES {
+            break;
+        }
+        let content = String::from_utf8_lossy(&bytes);
+        let content = strip_yaml_frontmatter(content.trim());
+        let content = if filename == "AGENTS.md" {
+            strip_prompt_section(strip_prompt_section(content, "heartbeat"), "memory")
+        } else {
+            content.to_owned()
+        };
+        let content = content.trim();
+        if content.is_empty() {
+            continue;
+        }
+        total_bytes = total_bytes.saturating_add(bytes.len());
+        parts.push(format!("# {filename}\n\n{content}"));
+    }
+    if parts.is_empty() {
+        String::from(SYSTEM_PROMPT)
+    } else {
+        parts.join("\n\n")
+    }
+}
+
+fn strip_yaml_frontmatter(content: &str) -> &str {
+    let Some(remainder) = content.strip_prefix("---") else {
+        return content;
+    };
+    let Some(end) = remainder.find("\n---") else {
+        return content;
+    };
+    remainder[end + "\n---".len()..].trim()
+}
+
+fn strip_prompt_section(content: impl AsRef<str>, section: &str) -> String {
+    let content = content.as_ref();
+    let start_marker = format!("<!-- {section}:start -->");
+    let end_marker = format!("<!-- {section}:end -->");
+    let Some(start) = content.find(&start_marker) else {
+        return content.to_owned();
+    };
+    let Some(relative_end) = content[start + start_marker.len()..].find(&end_marker) else {
+        return content.to_owned();
+    };
+    let end = start + start_marker.len() + relative_end + end_marker.len();
+    let mut filtered = String::with_capacity(content.len().saturating_sub(end - start));
+    filtered.push_str(&content[..start]);
+    filtered.push_str(&content[end..]);
+    filtered.trim().to_owned()
 }
 
 impl ThreadRecord {

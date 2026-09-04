@@ -33,6 +33,7 @@ const MAX_VALUE_DEPTH: usize = 16;
 const MAX_COLLECTION_ITEMS: usize = 1_024;
 const MAX_STRING_BYTES: usize = 16 * 1024;
 const MAX_AUDIO_UPLOAD_BYTES: usize = 32 * 1024 * 1024;
+const MAX_SYSTEM_PROMPT_FILES_BODY_BYTES: usize = 64 * 1024;
 const MAX_TRANSCRIPTION_RESPONSE_BYTES: usize = 1024 * 1024;
 const DEFAULT_AGENT_ID: &str = "default";
 const SUPPORTED_AGENT_LANGUAGES: [&str; 4] = ["en", "id", "ru", "zh"];
@@ -120,6 +121,12 @@ struct ProviderRequest {
 pub(super) fn router() -> Router<AppServer> {
     Router::new()
         .route(
+            "/api/workspace/system-prompt-files",
+            get(get_system_prompt_files)
+                .put(put_system_prompt_files)
+                .layer(DefaultBodyLimit::max(MAX_SYSTEM_PROMPT_FILES_BODY_BYTES)),
+        )
+        .route(
             "/api/workspace/running-config",
             get(get_running_config).put(put_running_config),
         )
@@ -155,9 +162,32 @@ pub(super) fn router() -> Router<AppServer> {
         .layer(DefaultBodyLimit::max(MAX_AUDIO_UPLOAD_BYTES))
 }
 
+async fn get_system_prompt_files(State(server): State<AppServer>) -> Result<Json<Value>, ApiError> {
+    let files = server
+        .inner
+        .core
+        .system_prompt_files()
+        .map_err(|error| internal_error(&error.to_string()))?;
+    Ok(Json(json!(files)))
+}
+
+async fn put_system_prompt_files(
+    State(server): State<AppServer>,
+    Json(files): Json<Vec<String>>,
+) -> Result<Json<Value>, ApiError> {
+    let _guard = server.inner.desktop_agent_settings_lock.lock().await;
+    server
+        .inner
+        .core
+        .replace_system_prompt_files(files.clone())
+        .map_err(|error| bad_request(&error.to_string()))?;
+    Ok(Json(json!(files)))
+}
+
 pub(super) fn initialize(
     core: &Core,
     _credentials: &dyn DesktopCredentialStore,
+    workspace_root: &Path,
 ) -> anyhow::Result<()> {
     let settings = load_settings(core).map_err(|(_, body)| {
         anyhow::anyhow!(body.0["detail"].as_str().unwrap_or("invalid").to_owned())
@@ -166,7 +196,18 @@ pub(super) fn initialize(
         |(_, body)| anyhow::anyhow!(body.0["detail"].as_str().unwrap_or("invalid").to_owned()),
     )?)
     .map_err(anyhow::Error::msg)
-    .context("failed to apply persisted Desktop Agent settings")
+    .context("failed to apply persisted Desktop Agent settings")?;
+    copy_agent_templates_to(workspace_root, &settings.language, false)
+        .map_err(|(_, body)| {
+            anyhow::anyhow!(
+                body.0["detail"]
+                    .as_str()
+                    .unwrap_or("Agent templates could not be initialized")
+                    .to_owned()
+            )
+        })
+        .context("failed to initialize Desktop Agent templates")?;
+    Ok(())
 }
 
 async fn get_running_config(State(server): State<AppServer>) -> Result<Json<Value>, ApiError> {
@@ -264,6 +305,14 @@ async fn copy_agent_templates(
         .as_ref()
         .ok_or_else(|| internal_error("Desktop workspace is unavailable"))?;
     let workspace_root = workspace.selected.read().await.clone();
+    copy_agent_templates_to(&workspace_root, language, true)
+}
+
+fn copy_agent_templates_to(
+    workspace_root: &Path,
+    language: &str,
+    overwrite: bool,
+) -> Result<Vec<&'static str>, ApiError> {
     let canonical_root = workspace_root
         .canonicalize()
         .map_err(|_| internal_error("Desktop workspace could not be resolved"))?;
@@ -272,15 +321,21 @@ async fn copy_agent_templates(
     }
     let templates = agent_templates(language)
         .ok_or_else(|| bad_request("Agent language templates are unavailable"))?;
-    for (filename, contents) in AGENT_TEMPLATE_FILENAMES.iter().zip(templates) {
+    for filename in AGENT_TEMPLATE_FILENAMES {
         let target = canonical_root.join(filename);
-        if target
-            .symlink_metadata()
-            .is_ok_and(|metadata| metadata.file_type().is_symlink())
+        if let Ok(metadata) = target.symlink_metadata()
+            && (!metadata.is_file() || metadata.file_type().is_symlink())
         {
             return Err(bad_request(&format!(
-                "Agent template target must not be a symbolic link: {filename}"
+                "Invalid Agent template target: {filename}"
             )));
+        }
+    }
+    let mut copied = Vec::new();
+    for (filename, contents) in AGENT_TEMPLATE_FILENAMES.iter().zip(templates) {
+        let target = canonical_root.join(filename);
+        if !overwrite && target.is_file() {
+            continue;
         }
         let mut temporary = tempfile::NamedTempFile::new_in(&canonical_root)
             .map_err(|_| internal_error("Agent template could not be staged"))?;
@@ -290,8 +345,9 @@ async fn copy_agent_templates(
         temporary
             .persist(&target)
             .map_err(|_| internal_error("Agent template could not be installed"))?;
+        copied.push(*filename);
     }
-    Ok(AGENT_TEMPLATE_FILENAMES.to_vec())
+    Ok(copied)
 }
 
 fn agent_templates(language: &str) -> Option<[&'static str; 8]> {

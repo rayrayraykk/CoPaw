@@ -13,8 +13,6 @@ use super::AppServer;
 
 pub(super) fn router() -> Router<AppServer> {
     Router::new()
-        .route("/api/workspace/files", get(empty_array))
-        .route("/api/workspace/system-prompt-files", get(empty_array))
         .route("/api/pawapps", get(pawapps))
         .route("/api/config/heartbeat", get(heartbeat))
         .route("/api/tools", get(empty_array))

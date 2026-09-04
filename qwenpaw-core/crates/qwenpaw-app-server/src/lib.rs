@@ -350,10 +350,15 @@ impl AppServer {
             "Console static directory must contain index.html: {}",
             console_static_dir.display()
         );
-        let desktop_workspace =
+        let mut desktop_workspace =
             desktop_workspace_from_env(&core, desktop_data_dir, default_workspace)?;
+        let selected_workspace = desktop_workspace.selected.get_mut().clone();
         desktop_environment::initialize(&core, desktop_credentials.as_ref())?;
-        desktop_agent_settings::initialize(&core, desktop_credentials.as_ref())?;
+        desktop_agent_settings::initialize(
+            &core,
+            desktop_credentials.as_ref(),
+            &selected_workspace,
+        )?;
         Ok(Self {
             inner: Arc::new(AppServerInner {
                 core,

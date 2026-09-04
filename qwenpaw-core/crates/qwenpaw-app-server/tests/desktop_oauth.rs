@@ -61,6 +61,23 @@ impl McpOAuthCredentialStore for MemoryOAuthStore {
 
 struct EmptyModelCredentialStore;
 
+fn new_isolated_desktop(
+    core: Core,
+    console_static_dir: &Path,
+    desktop_shutdown_token: String,
+    desktop_credentials: Arc<dyn DesktopCredentialStore>,
+    desktop_data_dir: &Path,
+) -> anyhow::Result<AppServer> {
+    AppServer::new_desktop_with_stores_and_workspace(
+        core,
+        console_static_dir,
+        desktop_shutdown_token,
+        desktop_credentials,
+        desktop_data_dir,
+        desktop_data_dir,
+    )
+}
+
 impl DesktopCredentialStore for EmptyModelCredentialStore {
     fn load_api_key(&self) -> anyhow::Result<Option<String>> {
         Ok(None)
@@ -105,7 +122,7 @@ async fn serves_console_and_app_protocol_mcp_oauth_contracts() {
     let desktop_address = listener
         .local_addr()
         .expect("Desktop listener address should resolve");
-    let server = AppServer::new_desktop_with_credential_store_and_data_dir(
+    let server = new_isolated_desktop(
         core,
         &console,
         String::from("desktop-oauth-token"),

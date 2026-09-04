@@ -3,11 +3,11 @@
   "source": "console/src production TypeScript call sites",
   "callCount": 370,
   "unresolvedCount": 11,
-  "rustRouteCount": 175,
-  "registeredCallCount": 166,
-  "placeholderCallCount": 18,
-  "nonPlaceholderRegisteredCallCount": 148,
-  "missingCallCount": 204,
+  "rustRouteCount": 178,
+  "registeredCallCount": 169,
+  "placeholderCallCount": 16,
+  "nonPlaceholderRegisteredCallCount": 153,
+  "missingCallCount": 201,
   "rustRoutes": [
     {
       "method": "ANY",
@@ -950,9 +950,23 @@
     {
       "method": "GET",
       "path": "/api/workspace/files",
-      "handler": "empty_array",
-      "placeholder": true,
-      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_navigation.rs"
+      "handler": "list_profile_files",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_files.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspace/files/{file_name}",
+      "handler": "load_profile_file",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_files.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/workspace/files/{file_name}",
+      "handler": "save_profile_file",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_files.rs"
     },
     {
       "method": "GET",
@@ -1139,9 +1153,16 @@
     {
       "method": "GET",
       "path": "/api/workspace/system-prompt-files",
-      "handler": "empty_array",
-      "placeholder": true,
-      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_navigation.rs"
+      "handler": "get_system_prompt_files",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_agent_settings.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/workspace/system-prompt-files",
+      "handler": "put_system_prompt_files",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_agent_settings.rs"
     },
     {
       "method": "POST",
@@ -5326,7 +5347,7 @@
       "resolved": true,
       "apiPath": "/api/workspace/files",
       "registered": true,
-      "placeholder": true
+      "placeholder": false
     },
     {
       "method": "GET",
@@ -5337,7 +5358,7 @@
       "line": 279,
       "resolved": true,
       "apiPath": "/api/workspace/files/{fileName}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5349,7 +5370,7 @@
       "line": 282,
       "resolved": true,
       "apiPath": "/api/workspace/files/{fileName}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5458,7 +5479,7 @@
       "resolved": true,
       "apiPath": "/api/workspace/system-prompt-files",
       "registered": true,
-      "placeholder": true
+      "placeholder": false
     },
     {
       "method": "PUT",
@@ -5469,7 +5490,7 @@
       "line": 381,
       "resolved": true,
       "apiPath": "/api/workspace/system-prompt-files",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {

@@ -1079,6 +1079,20 @@ Inbox 读取、状态和持久化契约已完成；真实 Agent Cron、Heartbeat
 
 2026-09-05 本机验收：Rust workspace 126 个测试与严格 Clippy 通过；Console 295 个测试文件、2453 个测试、production build 和 inventory 防漂移通过。未修改的原页面完成语言、IANA 时区、Shell timeout/executable、STRICT 审批、Whisper API、Auto/Native Audio 保存及刷新回显，9 次页面写请求均为 200 且浏览器错误为 0；Core 重启后状态恢复，印尼语 8 个模板与原资源逐字一致。当前 inventory 为 370 个调用点、175 条 Rust 路由、166 个已注册调用点，其中 148 个非占位、18 个占位、204 个未注册和 11 个静态未解析表达式。macOS App/ZIP/QA DMG、Core archive、WebUI archive、TypeScript/Python SDK、universal/platform VSIX 与 legacy wheel 均使用本切片源码重建并完成反向安装或解包校验，`dist/SHA256SUMS` 全部通过。
 
+#### 14.2.24.6 当前子切片：Profile Markdown 与系统提示词
+
+本子切片保持原 Files Workspace 的 Profile 交互不变，移除 `/workspace/files` 与 `/workspace/system-prompt-files` 的空数组占位。Fresh Start 必须安装当前语言的默认模板；保存、启用状态和排序不仅要刷新回显，还必须在下一轮 Rust Agent Turn 的 system message 中生效。
+
+- [x] Fresh Start 按当前语言补齐缺失的 8 个 Agent Markdown 模板，不覆盖用户已有内容；
+- [x] 完成 Profile Markdown 列表、读取与原子保存，保持原响应字段、排序和 `.md` 名称行为；
+- [x] 完成 system prompt files GET/PUT，限制数量、名称、重复项和请求体大小并持久化重启恢复；
+- [x] 按配置顺序组合实际 Markdown，处理 frontmatter 与禁用的 heartbeat/memory 段，并在新 Thread 与已有 Thread 下一轮 Turn 生效；
+- [x] 补齐正常、非法路径、符号链接、超限、并发、运行时生效与重启测试；
+- [x] 使用未修改的原 Files/Profile 页面完成打开、编辑、启停、排序、刷新和重启 E2E；
+- [x] 更新 inventory，确认 `console/src` 零改动并完成全量回归与受影响产物重建。
+
+2026-09-05 本机验收：Rust workspace 129 个测试与严格 Clippy 通过；Console 295 个测试文件、2453 个测试、production build 和 inventory 防漂移通过，`console/src` 保持零改动。未修改的原 Files/Profile 页面完成 Fresh Start 8 个模板、打开编辑保存、启停、从 Workspace 添加、拖拽排序、刷新与 Core 重启恢复；5 次写请求均为 200，浏览器错误为 0。当前 inventory 为 370 个调用点、178 条 Rust 路由、169 个已注册调用点，其中 153 个非占位、16 个占位、201 个未注册和 11 个静态未解析表达式。macOS App/ZIP/QA DMG、Core archive、WebUI archive、TypeScript/Python SDK、universal/platform VSIX 与 legacy wheel 均使用本切片源码重建并完成反向安装或解包校验，`dist/SHA256SUMS` 9 个产物全部通过。
+
 ### 14.3 客户端与发布
 
 - [x] WebUI 启动与导航契约测试通过；

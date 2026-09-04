@@ -1354,6 +1354,135 @@ async fn discovers_searches_and_edits_through_the_agent_loop() {
     assert_eq!(requests.lock().await.len(), 4);
 }
 
+#[tokio::test]
+async fn composes_persists_and_hot_reloads_workspace_system_prompt_files() {
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let base_url = start_model_server(Arc::clone(&requests)).await;
+    let directory = tempfile::tempdir().expect("temporary directory should be created");
+    let database_path = directory.path().join("threads.sqlite3");
+    std::fs::write(
+        directory.path().join("AGENTS.md"),
+        concat!(
+            "---\nname: test\n---\nAgent body\n",
+            "<!-- heartbeat:start -->heartbeat hidden<!-- heartbeat:end -->\n",
+            "<!-- memory:start -->memory hidden<!-- memory:end -->\n",
+        ),
+    )
+    .expect("AGENTS.md should be written");
+    std::fs::write(directory.path().join("SOUL.md"), "Original soul")
+        .expect("SOUL.md should be written");
+    std::fs::write(directory.path().join("PROFILE.md"), "Profile body")
+        .expect("PROFILE.md should be written");
+    let config = ModelConfig {
+        api_key: Some(String::from("test-key")),
+        base_url,
+        default_model: String::from("qwen-test"),
+    };
+    let core =
+        Core::persistent(config.clone(), &database_path).expect("persistent Core should open");
+    assert_eq!(
+        core.system_prompt_files()
+            .expect("system prompt files should load"),
+        vec!["AGENTS.md", "SOUL.md", "PROFILE.md"]
+    );
+    core.replace_system_prompt_files(vec![String::from("SOUL.md"), String::from("AGENTS.md")])
+        .expect("system prompt files should update");
+    let started = core
+        .start_thread(ThreadStartParams {
+            model: None,
+            workspace_root: Some(directory.path().to_string_lossy().into_owned()),
+        })
+        .await
+        .expect("thread should start");
+    let (_, mut first_events) = core
+        .start_turn(TurnStartParams {
+            thread_id: started.thread.id.clone(),
+            input: vec![UserInput::Text {
+                text: String::from("first"),
+            }],
+        })
+        .await
+        .expect("first turn should start");
+    while let Some(event) = first_events.recv().await {
+        if matches!(event, CoreEvent::TurnCompleted(_)) {
+            break;
+        }
+    }
+    let expected_first = concat!(
+        "# SOUL.md\n\nOriginal soul\n\n",
+        "# AGENTS.md\n\nAgent body"
+    );
+    assert_eq!(
+        requests.lock().await[0]["messages"][0],
+        serde_json::json!({"role": "system", "content": expected_first})
+    );
+
+    std::fs::write(directory.path().join("PROFILE.md"), "Updated profile")
+        .expect("PROFILE.md should update");
+    core.replace_system_prompt_files(vec![String::from("PROFILE.md")])
+        .expect("system prompt files should hot update");
+    let (_, mut second_events) = core
+        .start_turn(TurnStartParams {
+            thread_id: started.thread.id,
+            input: vec![UserInput::Text {
+                text: String::from("second"),
+            }],
+        })
+        .await
+        .expect("second turn should start");
+    while let Some(event) = second_events.recv().await {
+        if matches!(event, CoreEvent::TurnCompleted(_)) {
+            break;
+        }
+    }
+    assert_eq!(
+        requests.lock().await[1]["messages"][0],
+        serde_json::json!({
+            "role": "system",
+            "content": "# PROFILE.md\n\nUpdated profile"
+        })
+    );
+    drop(core);
+
+    let reopened = Core::persistent(config, &database_path).expect("persistent Core should reopen");
+    assert_eq!(
+        reopened
+            .system_prompt_files()
+            .expect("system prompt files should reload"),
+        vec!["PROFILE.md"]
+    );
+}
+
+#[test]
+fn rejects_unsafe_or_duplicate_system_prompt_files() {
+    let core = Core::new(ModelConfig {
+        api_key: None,
+        base_url: String::from("http://127.0.0.1:1"),
+        default_model: String::from("qwen-test"),
+    });
+    for files in [
+        vec![String::from("../SOUL.md")],
+        vec![String::from("nested/SOUL.md")],
+        vec![String::from("SOUL.txt")],
+        vec![String::from("SOUL.md"), String::from("SOUL.md")],
+    ] {
+        assert!(core.replace_system_prompt_files(files).is_err());
+    }
+    assert!(
+        core.replace_system_prompt_files(
+            (0..=64)
+                .map(|index| format!("PROFILE-{index}.md"))
+                .collect(),
+        )
+        .is_err()
+    );
+    assert_eq!(
+        core.system_prompt_files()
+            .expect("failed updates must preserve defaults"),
+        vec!["AGENTS.md", "SOUL.md", "PROFILE.md"]
+    );
+}
+
 async fn start_model_server(requests: Arc<Mutex<Vec<serde_json::Value>>>) -> String {
     let app = Router::new().route(
         "/chat/completions",

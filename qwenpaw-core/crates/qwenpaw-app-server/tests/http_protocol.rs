@@ -9,6 +9,7 @@ use serde_json::Value;
 use serde_json::json;
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -22,6 +23,23 @@ use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message;
 
 type ClientSocket = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
+
+fn new_isolated_desktop(
+    core: Core,
+    console_static_dir: &Path,
+    desktop_shutdown_token: String,
+    desktop_credentials: Arc<dyn DesktopCredentialStore>,
+    desktop_data_dir: &Path,
+) -> anyhow::Result<AppServer> {
+    AppServer::new_desktop_with_stores_and_workspace(
+        core,
+        console_static_dir,
+        desktop_shutdown_token,
+        desktop_credentials,
+        desktop_data_dir,
+        desktop_data_dir,
+    )
+}
 
 #[derive(Default)]
 struct MemoryCredentialStore {
@@ -209,16 +227,17 @@ async fn serves_the_console_and_requires_the_desktop_shutdown_token() {
     let address = listener
         .local_addr()
         .expect("Desktop listener should have an address");
-    let server = AppServer::new_desktop(
-        Core::new(ModelConfig {
-            api_key: None,
-            base_url: String::from("http://127.0.0.1:1"),
-            default_model: String::from("qwen-test"),
-        }),
-        console.path(),
-        String::from("desktop-shutdown-token"),
-    )
-    .expect("Desktop server should configure");
+    let workspace = tempfile::tempdir().expect("temporary Workspace should be created");
+    let core = Core::new(ModelConfig {
+        api_key: None,
+        base_url: String::from("http://127.0.0.1:1"),
+        default_model: String::from("qwen-test"),
+    });
+    core.write_preferred_workspace(workspace.path())
+        .expect("temporary Workspace should be selected");
+    let server =
+        AppServer::new_desktop(core, console.path(), String::from("desktop-shutdown-token"))
+            .expect("Desktop server should configure");
     let task = tokio::spawn(server.run_http(listener));
 
     let version = http_request(
@@ -358,7 +377,7 @@ async fn serves_the_unchanged_console_bootstrap_contracts() {
         .local_addr()
         .expect("Desktop listener should have an address");
     let credentials = Arc::new(MemoryCredentialStore::default());
-    let server = AppServer::new_desktop_with_credential_store_and_data_dir(
+    let server = new_isolated_desktop(
         core,
         console.path(),
         String::from("desktop-bootstrap-token"),
@@ -806,7 +825,7 @@ async fn serves_and_persists_the_inbox_event_contracts() {
     let first_address = first_listener
         .local_addr()
         .expect("first Desktop listener should have an address");
-    let first_server = AppServer::new_desktop_with_credential_store_and_data_dir(
+    let first_server = new_isolated_desktop(
         first_core,
         console.path(),
         String::from("desktop-inbox-first-token"),
@@ -828,7 +847,7 @@ async fn serves_and_persists_the_inbox_event_contracts() {
     let second_address = second_listener
         .local_addr()
         .expect("second Desktop listener should have an address");
-    let second_server = AppServer::new_desktop_with_credential_store_and_data_dir(
+    let second_server = new_isolated_desktop(
         second_core,
         console.path(),
         String::from("desktop-inbox-second-token"),
@@ -1834,7 +1853,7 @@ async fn serves_and_persists_chat_catalog_management_contracts() {
     let first_address = first_listener
         .local_addr()
         .expect("first Desktop listener should have an address");
-    let first_server = AppServer::new_desktop_with_credential_store_and_data_dir(
+    let first_server = new_isolated_desktop(
         first_core,
         console.path(),
         String::from("desktop-chats-first-token"),
@@ -2025,7 +2044,7 @@ async fn serves_and_persists_chat_catalog_management_contracts() {
     let second_address = second_listener
         .local_addr()
         .expect("second Desktop listener should have an address");
-    let second_server = AppServer::new_desktop_with_credential_store_and_data_dir(
+    let second_server = new_isolated_desktop(
         second_core,
         console.path(),
         String::from("desktop-chats-second-token"),
@@ -2183,7 +2202,7 @@ async fn persists_the_console_language_across_desktop_restarts() {
     let first_address = first_listener
         .local_addr()
         .expect("first Desktop listener should have an address");
-    let first_server = AppServer::new_desktop_with_credential_store_and_data_dir(
+    let first_server = new_isolated_desktop(
         first_core,
         console.path(),
         String::from("desktop-language-first-token"),
@@ -2215,7 +2234,7 @@ async fn persists_the_console_language_across_desktop_restarts() {
     let second_address = second_listener
         .local_addr()
         .expect("second Desktop listener should have an address");
-    let second_server = AppServer::new_desktop_with_credential_store_and_data_dir(
+    let second_server = new_isolated_desktop(
         second_core,
         console.path(),
         String::from("desktop-language-second-token"),
@@ -2256,7 +2275,7 @@ async fn persists_environment_credentials_across_desktop_restarts() {
     let first_address = first_listener
         .local_addr()
         .expect("first Desktop listener should have an address");
-    let first_server = AppServer::new_desktop_with_credential_store_and_data_dir(
+    let first_server = new_isolated_desktop(
         first_core,
         console.path(),
         String::from("desktop-environment-first-token"),
@@ -2289,7 +2308,7 @@ async fn persists_environment_credentials_across_desktop_restarts() {
     let second_address = second_listener
         .local_addr()
         .expect("second Desktop listener should have an address");
-    let second_server = AppServer::new_desktop_with_credential_store_and_data_dir(
+    let second_server = new_isolated_desktop(
         second_core,
         console.path(),
         String::from("desktop-environment-second-token"),
@@ -2722,6 +2741,271 @@ async fn persists_and_applies_agent_and_voice_settings_without_storing_secrets()
 }
 
 #[tokio::test]
+#[allow(clippy::too_many_lines)]
+async fn serves_profile_markdown_and_persists_system_prompt_file_order() {
+    let console = tempfile::tempdir().expect("temporary Console should be created");
+    let desktop_data = tempfile::tempdir().expect("temporary Desktop data should be created");
+    let workspace = tempfile::tempdir().expect("temporary Workspace should be created");
+    let database = desktop_data.path().join("threads.sqlite3");
+    std::fs::write(console.path().join("index.html"), "<html>console</html>")
+        .expect("Console index should be written");
+    std::fs::write(workspace.path().join("SOUL.md"), "  preserved soul  \n")
+        .expect("existing SOUL.md should be written");
+    std::fs::create_dir(workspace.path().join("nested"))
+        .expect("nested directory should be created");
+    std::fs::write(workspace.path().join("nested/IGNORED.md"), "ignored")
+        .expect("nested Markdown should be written");
+    let model_config = ModelConfig {
+        api_key: None,
+        base_url: String::from("http://127.0.0.1:1"),
+        default_model: String::from("qwen-test"),
+    };
+    let first_core =
+        Core::persistent(model_config.clone(), &database).expect("first Core should open");
+    let runtime_probe = first_core.clone();
+    let first_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("first Desktop listener should bind");
+    let first_address = first_listener
+        .local_addr()
+        .expect("first Desktop listener should have an address");
+    let first_server = AppServer::new_desktop_with_stores_and_workspace(
+        first_core,
+        console.path(),
+        String::from("profile-first-token"),
+        Arc::new(MemoryCredentialStore::default()),
+        desktop_data.path(),
+        workspace.path(),
+    )
+    .expect("first Desktop server should configure");
+    assert_eq!(
+        std::fs::read_to_string(workspace.path().join("SOUL.md"))
+            .expect("existing SOUL.md should remain readable"),
+        "  preserved soul  \n"
+    );
+    for filename in [
+        "AGENTS.md",
+        "BOOTSTRAP.md",
+        "CONTACTS.md",
+        "HEARTBEAT.md",
+        "MAIL_TRIAGE.md",
+        "MEMORY.md",
+        "PROFILE.md",
+    ] {
+        assert!(
+            workspace.path().join(filename).is_file(),
+            "fresh start should install {filename}"
+        );
+    }
+
+    let first_task = tokio::spawn(first_server.run_http(first_listener));
+    let client = reqwest::Client::new();
+    let first_base = format!("http://{first_address}/api");
+    let files = get_json(&client, format!("{first_base}/workspace/files")).await;
+    let files = files
+        .as_array()
+        .expect("Profile Markdown listing should be an array");
+    let mut filenames = files
+        .iter()
+        .map(|file| {
+            assert!(
+                file["path"]
+                    .as_str()
+                    .is_some_and(|path| PathBuf::from(path).is_absolute())
+            );
+            assert!(file["size"].is_u64());
+            assert!(file["created_time"].is_string());
+            assert!(file["modified_time"].is_string());
+            file["filename"]
+                .as_str()
+                .expect("Profile filename should be a string")
+                .to_owned()
+        })
+        .collect::<Vec<_>>();
+    filenames.sort();
+    assert_eq!(
+        filenames,
+        vec![
+            "AGENTS.md",
+            "BOOTSTRAP.md",
+            "CONTACTS.md",
+            "HEARTBEAT.md",
+            "MAIL_TRIAGE.md",
+            "MEMORY.md",
+            "PROFILE.md",
+            "SOUL.md",
+        ]
+    );
+    assert_eq!(
+        get_json(&client, format!("{first_base}/workspace/files/SOUL")).await,
+        json!({"content": "preserved soul"})
+    );
+
+    let saved = client
+        .put(format!("{first_base}/workspace/files/SOUL.md"))
+        .json(&json!({"content": "  updated soul  \n"}))
+        .send()
+        .await
+        .expect("Profile Markdown update should send");
+    assert_eq!(saved.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        saved
+            .json::<Value>()
+            .await
+            .expect("Profile Markdown update should return JSON"),
+        json!({"written": true})
+    );
+    assert_eq!(
+        std::fs::read_to_string(workspace.path().join("SOUL.md"))
+            .expect("saved SOUL.md should be readable"),
+        "  updated soul  \n"
+    );
+    assert_eq!(
+        get_json(&client, format!("{first_base}/workspace/files/SOUL.md"),).await,
+        json!({"content": "updated soul"})
+    );
+
+    let first_write = client
+        .put(format!("{first_base}/workspace/files/PROFILE.md"))
+        .json(&json!({"content": "concurrent first"}))
+        .send();
+    let second_write = client
+        .put(format!("{first_base}/workspace/files/PROFILE.md"))
+        .json(&json!({"content": "concurrent second"}))
+        .send();
+    let (first_write, second_write) = tokio::join!(first_write, second_write);
+    assert_eq!(
+        first_write
+            .expect("first concurrent Profile write should send")
+            .status(),
+        reqwest::StatusCode::OK
+    );
+    assert_eq!(
+        second_write
+            .expect("second concurrent Profile write should send")
+            .status(),
+        reqwest::StatusCode::OK
+    );
+    assert!(matches!(
+        std::fs::read_to_string(workspace.path().join("PROFILE.md"))
+            .expect("concurrently saved PROFILE.md should be readable")
+            .as_str(),
+        "concurrent first" | "concurrent second"
+    ));
+
+    let oversized = client
+        .put(format!("{first_base}/workspace/files/SOUL.md"))
+        .json(&json!({"content": "x".repeat(1_024 * 1_024 + 1)}))
+        .send()
+        .await
+        .expect("oversized Profile Markdown update should send");
+    assert_eq!(oversized.status(), reqwest::StatusCode::PAYLOAD_TOO_LARGE);
+    let unsafe_name = client
+        .get(format!("{first_base}/workspace/files/bad%5Cname.md"))
+        .send()
+        .await
+        .expect("unsafe Profile Markdown request should send");
+    assert_eq!(unsafe_name.status(), reqwest::StatusCode::BAD_REQUEST);
+
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(
+            workspace.path().join("SOUL.md"),
+            workspace.path().join("LINK.md"),
+        )
+        .expect("Profile symlink should be created");
+        let linked = client
+            .get(format!("{first_base}/workspace/files/LINK.md"))
+            .send()
+            .await
+            .expect("Profile symlink request should send");
+        assert_eq!(linked.status(), reqwest::StatusCode::BAD_REQUEST);
+    }
+
+    assert_eq!(
+        get_json(
+            &client,
+            format!("{first_base}/workspace/system-prompt-files"),
+        )
+        .await,
+        json!(["AGENTS.md", "SOUL.md", "PROFILE.md"])
+    );
+    let reordered = json!(["PROFILE.md", "SOUL.md"]);
+    let reordered_response = client
+        .put(format!("{first_base}/workspace/system-prompt-files"))
+        .json(&reordered)
+        .send()
+        .await
+        .expect("system prompt file order update should send");
+    assert_eq!(reordered_response.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        reordered_response
+            .json::<Value>()
+            .await
+            .expect("system prompt file order should return JSON"),
+        reordered
+    );
+    assert_eq!(
+        runtime_probe
+            .system_prompt_files()
+            .expect("runtime system prompt files should hot reload"),
+        vec!["PROFILE.md", "SOUL.md"]
+    );
+    for invalid in [
+        json!(["../SOUL.md"]),
+        json!(["SOUL.md", "SOUL.md"]),
+        Value::Array(
+            (0..65)
+                .map(|index| json!(format!("PROFILE-{index}.md")))
+                .collect(),
+        ),
+    ] {
+        let response = client
+            .put(format!("{first_base}/workspace/system-prompt-files"))
+            .json(&invalid)
+            .send()
+            .await
+            .expect("invalid system prompt file order should send");
+        assert_eq!(response.status(), reqwest::StatusCode::BAD_REQUEST);
+    }
+
+    first_task.abort();
+    let _ = first_task.await;
+    drop(runtime_probe);
+    let second_core = Core::persistent(model_config, &database).expect("second Core should open");
+    let second_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("second Desktop listener should bind");
+    let second_address = second_listener
+        .local_addr()
+        .expect("second Desktop listener should have an address");
+    let second_server = AppServer::new_desktop_with_stores_and_workspace(
+        second_core,
+        console.path(),
+        String::from("profile-second-token"),
+        Arc::new(MemoryCredentialStore::default()),
+        desktop_data.path(),
+        workspace.path(),
+    )
+    .expect("second Desktop server should configure");
+    let second_task = tokio::spawn(second_server.run_http(second_listener));
+    assert_eq!(
+        get_json(
+            &client,
+            format!("http://{second_address}/api/workspace/system-prompt-files"),
+        )
+        .await,
+        json!(["PROFILE.md", "SOUL.md"])
+    );
+    assert_eq!(
+        std::fs::read_to_string(workspace.path().join("SOUL.md"))
+            .expect("saved SOUL.md should survive restart"),
+        "  updated soul  \n"
+    );
+    second_task.abort();
+}
+
+#[tokio::test]
 async fn persists_access_control_across_desktop_restarts() {
     let console = tempfile::tempdir().expect("temporary Console should be created");
     let desktop_data = tempfile::tempdir().expect("temporary Desktop data should be created");
@@ -2741,7 +3025,7 @@ async fn persists_access_control_across_desktop_restarts() {
     let first_address = first_listener
         .local_addr()
         .expect("first Desktop listener should have an address");
-    let first_server = AppServer::new_desktop_with_credential_store_and_data_dir(
+    let first_server = new_isolated_desktop(
         first_core,
         console.path(),
         String::from("desktop-access-first-token"),
@@ -2773,7 +3057,7 @@ async fn persists_access_control_across_desktop_restarts() {
     let second_address = second_listener
         .local_addr()
         .expect("second Desktop listener should have an address");
-    let second_server = AppServer::new_desktop_with_credential_store_and_data_dir(
+    let second_server = new_isolated_desktop(
         second_core,
         console.path(),
         String::from("desktop-access-second-token"),
@@ -2813,7 +3097,7 @@ async fn persists_mail_access_control_across_desktop_restarts() {
     let first_address = first_listener
         .local_addr()
         .expect("first Desktop listener should have an address");
-    let first_server = AppServer::new_desktop_with_credential_store_and_data_dir(
+    let first_server = new_isolated_desktop(
         first_core,
         console.path(),
         String::from("desktop-mail-access-first-token"),
@@ -2847,7 +3131,7 @@ async fn persists_mail_access_control_across_desktop_restarts() {
     let second_address = second_listener
         .local_addr()
         .expect("second Desktop listener should have an address");
-    let second_server = AppServer::new_desktop_with_credential_store_and_data_dir(
+    let second_server = new_isolated_desktop(
         second_core,
         console.path(),
         String::from("desktop-mail-access-second-token"),
@@ -2890,7 +3174,7 @@ async fn persists_console_channel_configuration_across_desktop_restarts() {
     let first_address = first_listener
         .local_addr()
         .expect("first Desktop listener should have an address");
-    let first_server = AppServer::new_desktop_with_credential_store_and_data_dir(
+    let first_server = new_isolated_desktop(
         first_core,
         console.path(),
         String::from("desktop-channel-first-token"),
@@ -2928,7 +3212,7 @@ async fn persists_console_channel_configuration_across_desktop_restarts() {
     let second_address = second_listener
         .local_addr()
         .expect("second Desktop listener should have an address");
-    let second_server = AppServer::new_desktop_with_credential_store_and_data_dir(
+    let second_server = new_isolated_desktop(
         second_core,
         console.path(),
         String::from("desktop-channel-second-token"),
@@ -2956,6 +3240,21 @@ async fn serves_workspace_git_read_and_write_contracts() {
         .expect("Console index should be written");
     std::fs::write(workspace.path().join("tracked.txt"), "initial\n")
         .expect("tracked fixture should be written");
+    std::fs::write(
+        workspace.path().join(".gitignore"),
+        concat!(
+            "/.gitignore\n",
+            "/AGENTS.md\n",
+            "/BOOTSTRAP.md\n",
+            "/CONTACTS.md\n",
+            "/HEARTBEAT.md\n",
+            "/MAIL_TRIAGE.md\n",
+            "/MEMORY.md\n",
+            "/PROFILE.md\n",
+            "/SOUL.md\n",
+        ),
+    )
+    .expect("Git fixture ignore file should be written");
     let core = Core::new(ModelConfig {
         api_key: None,
         base_url: String::from("http://127.0.0.1:1"),
@@ -2969,7 +3268,7 @@ async fn serves_workspace_git_read_and_write_contracts() {
     let address = listener
         .local_addr()
         .expect("Desktop listener should have an address");
-    let server = AppServer::new_desktop_with_credential_store_and_data_dir(
+    let server = new_isolated_desktop(
         core,
         console.path(),
         String::from("desktop-git-token"),
@@ -3218,13 +3517,16 @@ async fn streams_console_chat_with_the_unchanged_frontend_sse_contract() {
         base_url: model_base_url,
         default_model: String::from("qwen-test"),
     });
+    let workspace = tempfile::tempdir().expect("temporary Workspace should be created");
+    core.write_preferred_workspace(workspace.path())
+        .expect("temporary Workspace should be selected");
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("Desktop listener should bind");
     let address = listener
         .local_addr()
         .expect("Desktop listener should have an address");
-    let server = AppServer::new_desktop_with_credential_store_and_data_dir(
+    let server = new_isolated_desktop(
         core,
         console.path(),
         String::from("desktop-stream-token"),
@@ -3426,6 +3728,9 @@ async fn stops_an_active_console_chat_by_its_local_session_id() {
         base_url: model_base_url,
         default_model: String::from("qwen-test"),
     });
+    let workspace = tempfile::tempdir().expect("temporary Workspace should be created");
+    core.write_preferred_workspace(workspace.path())
+        .expect("temporary Workspace should be selected");
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("Desktop listener should bind");
@@ -3483,6 +3788,9 @@ async fn exposes_and_denies_tool_approval_through_the_console_contract() {
         base_url: model_base_url,
         default_model: String::from("qwen-test"),
     });
+    let workspace = tempfile::tempdir().expect("temporary Workspace should be created");
+    core.write_preferred_workspace(workspace.path())
+        .expect("temporary Workspace should be selected");
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("Desktop listener should bind");
@@ -3652,11 +3960,52 @@ async fn assert_navigation_json_contracts(address: SocketAddr) {
 }
 
 async fn assert_navigation_control_contracts(address: SocketAddr) {
+    let profile_files = http_request(
+        address,
+        "GET /api/workspace/files HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+    )
+    .await;
+    let profile_files = response_json(&profile_files);
+    let mut filenames = profile_files
+        .as_array()
+        .expect("Profile files contract should return an array")
+        .iter()
+        .map(|file| {
+            file["filename"]
+                .as_str()
+                .expect("Profile file should include a filename")
+                .to_owned()
+        })
+        .collect::<Vec<_>>();
+    filenames.sort();
+    assert_eq!(
+        filenames,
+        vec![
+            "AGENTS.md",
+            "BOOTSTRAP.md",
+            "CONTACTS.md",
+            "HEARTBEAT.md",
+            "MAIL_TRIAGE.md",
+            "MEMORY.md",
+            "PROFILE.md",
+            "SOUL.md",
+        ]
+    );
+    let prompt_files = http_request(
+        address,
+        concat!(
+            "GET /api/workspace/system-prompt-files HTTP/1.1\r\n",
+            "Host: localhost\r\nConnection: close\r\n\r\n"
+        ),
+    )
+    .await;
+    assert_eq!(
+        response_json(&prompt_files),
+        json!(["AGENTS.md", "SOUL.md", "PROFILE.md"])
+    );
     assert_json_contracts(
         address,
         vec![
-            ("/api/workspace/files", json!([])),
-            ("/api/workspace/system-prompt-files", json!([])),
             ("/api/access-control/pending/all", json!([])),
             ("/api/pawapps", json!({"apps": [], "total": 0})),
             ("/api/config/user-timezone", json!({"timezone": "UTC"})),
