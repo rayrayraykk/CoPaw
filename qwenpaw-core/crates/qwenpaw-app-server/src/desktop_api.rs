@@ -197,8 +197,134 @@ async fn skills() -> Json<Value> {
     Json(json!([]))
 }
 
+#[allow(clippy::too_many_lines)]
 async fn running_config() -> Json<Value> {
-    Json(json!({"approval_level": "AUTO"}))
+    Json(json!({
+        "max_iters": 100,
+        "loop": {
+            "iteration": {"enabled": true, "max_iterations": null},
+            "doom_loop": {
+                "enabled": true,
+                "window_size": 3,
+                "similarity_threshold": 1.0,
+                "stages": [
+                    {
+                        "after": 3,
+                        "action": "modify_prompt",
+                        "prompt": "[WARNING] Repetitive pattern detected. You are repeating similar actions without progress. Try a completely different approach."
+                    },
+                    {
+                        "after": 4,
+                        "action": "stop",
+                        "prompt": "Doom loop: agent stuck after 4 consecutive repetitions"
+                    }
+                ],
+                "in_loop_modes": false
+            },
+            "rubric": {
+                "enabled": false,
+                "prompt": "You did not call any tool in the last turn. If the task is truly complete, confirm it. Otherwise, continue working with tool calls.",
+                "max_interventions": 1,
+                "in_loop_modes": false
+            },
+            "goal": {"max_iterations": 20, "max_tokens": 300_000},
+            "mission": {
+                "max_iterations": 20,
+                "max_retries_per_story": 3,
+                "default_verification_instructions": "",
+                "default_verify_command": ""
+            },
+            "custom_modes": []
+        },
+        "llm_retry_enabled": true,
+        "llm_max_retries": 3,
+        "llm_backoff_base": 1.0,
+        "llm_backoff_cap": 10.0,
+        "llm_max_concurrent": 10,
+        "llm_max_qpm": 600,
+        "llm_rate_limit_pause": 5.0,
+        "llm_rate_limit_jitter": 1.0,
+        "llm_acquire_timeout": 300.0,
+        "shell_command_timeout": 60.0,
+        "shell_command_executable": "",
+        "max_input_length": 131_072,
+        "history_max_length": 10000,
+        "context_manager_backend": "light",
+        "light_context_config": {
+            "strategy": "scroll",
+            "dialog_path": "dialog",
+            "token_count_estimate_divisor": 4.0,
+            "context_compact_config": {
+                "enabled": true,
+                "compact_threshold_ratio": 0.8,
+                "reserve_threshold_ratio": 0.1
+            },
+            "tool_result_pruning_config": {
+                "enabled": true,
+                "pruning_recent_n": 2,
+                "pruning_old_msg_max_bytes": 3000,
+                "pruning_recent_msg_max_bytes": 50000,
+                "offload_retention_days": 30,
+                "tool_results_cache": "tool_results",
+                "exempt_file_extensions": [".md"],
+                "exempt_tool_names": ["chat_with_agent"]
+            },
+            "scroll_config": {
+                "db_filename": "history.db",
+                "repl_timeout_s": 300,
+                "history_retention_days": 30,
+                "allow_unsandboxed": false,
+                "offload_dialog": false
+            },
+            "visual_compact_config": {"enabled": false, "effort": "low"}
+        },
+        "auto_title_config": {"enabled": true, "timeout_seconds": 30.0},
+        "memory_manager_backend": "remelight",
+        "adbpg_memory_config": null,
+        "reme_light_memory_config": {
+            "metadata_dir": "mem_metadata",
+            "session_dir": "mem_session",
+            "mem_session_dir": "mem_agent",
+            "resource_dir": "resource",
+            "daily_dir": "memory",
+            "digest_dir": "digest",
+            "auto_memory_inbox_push_enabled": true,
+            "auto_dream_inbox_push_enabled": true,
+            "daily_paper_inbox_push_enabled": true,
+            "auto_memory_interval": 5,
+            "dream_cron_enabled": true,
+            "dream_cron": "0 23 * * *",
+            "daily_paper_cron_enabled": false,
+            "daily_paper_cron": "0 9 * * *",
+            "daily_paper_use_hf_mirror": false,
+            "daily_paper_topics": "",
+            "auto_memory_search_config": {"enabled": false, "max_results": 2},
+            "embedding_model_config": {
+                "backend": "openai",
+                "api_key": "",
+                "base_url": "",
+                "model_name": "",
+                "dimensions": 1024,
+                "enable_cache": true,
+                "use_dimensions": false,
+                "max_cache_size": 10000,
+                "max_input_length": 8192,
+                "max_batch_size": 10
+            },
+            "reranker_config": {
+                "enabled": false,
+                "api_key": "",
+                "base_url": "",
+                "model_name": "",
+                "candidate_multiplier": 3,
+                "timeout": 10.0
+            },
+            "needs_reindex": false,
+            "memory_search_enabled": true
+        },
+        "daily_memory_dir": "memory",
+        "approval_level": "AUTO"
+    }))
 }
 
 async fn transcription_provider_type() -> Json<Value> {
@@ -1200,14 +1326,27 @@ async fn set_project_directory(
 
 async fn project_directory_list(State(server): State<AppServer>) -> Result<Json<Value>, ApiError> {
     let selected = selected_desktop_workspace(&server).await?;
-    let mut paths = vec![selected.clone()];
-    for workspace in server.inner.core.list_workspaces().await.data {
-        let path = PathBuf::from(workspace.root);
-        if !paths.contains(&path) {
-            paths.push(path);
-        }
-    }
-    paths.sort();
+    let base = desktop_workspace(&server)?.initial.join("coding_projects");
+    let mut paths = if base.is_dir() {
+        std::fs::read_dir(&base)
+            .map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"detail": "Project directory list could not be read"})),
+                )
+            })?
+            .filter_map(Result::ok)
+            .filter_map(|entry| {
+                let metadata = entry.metadata().ok()?;
+                let name = entry.file_name();
+                (metadata.is_dir() && !name.to_string_lossy().starts_with(".qwenpaw-upload-"))
+                    .then_some(entry.path())
+            })
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    paths.sort_by(|left, right| left.file_name().cmp(&right.file_name()));
     let projects = paths
         .into_iter()
         .map(|path| {

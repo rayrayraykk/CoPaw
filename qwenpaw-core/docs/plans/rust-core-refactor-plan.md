@@ -1003,7 +1003,7 @@ MVP 至少提供：
 #### 14.2.24.1 2026-09-04 本机验收记录
 
 - [x] 生成并锁定 370 个 Console 生产调用点，CI 校验调用清单与 Rust 路由漂移；
-- [x] Rust workspace 120 个测试、严格 Clippy 和格式检查通过；
+- [x] Rust workspace 121 个测试、严格 Clippy 和格式检查通过；
 - [x] Console 295 个测试文件、2453 个测试及 production build 通过；
 - [x] 使用原 Console 的 Environment 页面完成新增、保存、刷新回显和删除 WebKit E2E；
 - [x] 累计使用未修改的 Console 与对应 release Rust Core 完成 Environment、Cron、Access Control、Mail Access Control、Channels、Inbox Messages 与 Chat Catalog 七组 WebKit E2E；
@@ -1015,11 +1015,11 @@ MVP 至少提供：
 - [x] 使用原 Console 的 Channels 页面验证 18 个内置通道目录，并完成 Console Bot Prefix 保存、刷新回显和清空 WebKit E2E；
 - [x] TypeScript SDK、Python SDK、VS Code extension 均通过真实 Rust Core 测试；
 - [x] legacy CLI/TUI 专项 893 个测试通过；初次运行因 `qwenpaw` conda 环境漏装已声明的 `pytest-asyncio` 产生 73 个收集/执行失败，补齐开发依赖后全量重跑通过；
-- [x] macOS App/ZIP/DMG、Core archive、WebUI archive、两个 SDK 包、两个 VSIX 和 legacy wheel 完成本机构建及包结构校验；最新 Chat Catalog Core 已重新嵌入 App、ZIP、DMG 和 darwin-arm64 VSIX，原 Chat 抽屉与 Sessions 管理页已在 release Core 上通过 WebKit E2E 和重启恢复验证，并更新全部 SHA-256；
+- [x] macOS App/ZIP/DMG、Core archive、WebUI archive、两个 SDK 包、两个 VSIX 和 legacy wheel 完成本机构建及反向安装/解包校验；最新 Project Directory Core 已重新嵌入 App、ZIP、DMG 和 darwin-arm64 VSIX，并更新全部 SHA-256；
 - [x] legacy wheel 安装后 CLI 与现有 TUI 入口可用；
 - [ ] macOS DMG 安装态启动：镜像校验、挂载、包结构、深度签名及内嵌 arm64 Core 均通过；但 ad-hoc QA 包从分发目录/DMG 启动时被当前阿里企业安全 EDR 以 exit 137 终止，Gatekeeper 也按预期拒绝无 Developer ID 的包，等待签名与公证后复测；
 - [ ] Windows/Linux 原生安装态构建与交互回归：必须在对应原生 runner 完成，不能用 macOS 结果替代；
-- [ ] 语义等价门禁：当前仍有 215 个调用点未注册、23 个明显占位实现和 11 个静态未解析表达式；
+- [ ] 语义等价门禁：当前仍有 211 个调用点未注册、23 个明显占位实现和 11 个静态未解析表达式；
 
 #### 14.2.24.2 当前子切片：Inbox Messages
 
@@ -1046,6 +1046,21 @@ Inbox 读取、状态和持久化契约已完成；真实 Agent Cron、Heartbeat
 - [x] 为元数据容量、非法输入、未知对象、并发锁顺序和重启恢复补齐 Rust HTTP 测试；
 - [x] 使用未修改的原 Chat 抽屉与 Sessions 页面完成新建分组、重命名、置顶、移动分组、归档、恢复和删除 WebKit E2E；
 - [x] 更新 API inventory，确认 `console/src` 零改动并通过全量回归；
+
+#### 14.2.24.4 当前子切片：Project Directory 管理
+
+本子切片保持原 `ProjectSelectModal` 与 API client 零改动，补齐新建、服务端本地导入、浏览器 ZIP 导入和 Git Clone 四条真实写入链路。所有成功链路都必须持久化切换全局活动项目，Core 重启后继续生效；失败链路不得留下活动项目指向或可误认为成功的响应。
+
+- [x] 新建项目目录并执行真实 `git init`，兼容原请求/响应和目录重名行为；
+- [x] 从用户 Home 下复制本地目录，排除生成物、符号链接/Windows junction 与敏感凭据文件；
+- [x] 接收原前端 multipart ZIP，限制上传量、成员数和解压总量，拒绝绝对路径、目录穿越、符号链接及覆盖逃逸；
+- [x] 以 SSE 输出真实 `git clone --progress` 日志、完成或错误事件，禁用交互凭据并限制输出与执行时间；
+- [x] 四种成功链路均切换并持久化活动项目，列表、读取和 Core 重启恢复一致；
+- [x] 补齐 HTTP 正常、非法名称、敏感导入、ZIP bomb/zip-slip/symlink、Clone 失败与状态不污染测试；
+- [ ] 使用未修改的原 Project Directory 弹窗逐项完成创建、ZIP 导入和 Clone WebKit E2E，并记录精确请求与响应；
+- [x] 更新 API inventory，确认 `console/src` 零改动，通过 Rust、Console 与各客户端回归后重建全部发布产物；
+
+原弹窗所在的 Configuration 页面还依赖 `/workspace/running-config` 完整默认结构；本切片同步修复了该既有不足，否则原页面会在读取 `reme_light_memory_config.needs_reindex` 时崩溃。未修改 Console 的 Chromium E2E 已在 production Console 与 release Core 上完成创建、浏览器目录 ZIP 导入、Clone、Recent Projects、活动项目回显与 Core 重启恢复，精确请求记录保存在本机隔离 QA 目录；浏览器错误为 0。Playwright WebKit 1.61 与 1.63 均在当前 macOS 企业安全环境的 XPC 页面创建阶段挂起、尚未向 Core 发出请求，WebKit 项保持未完成并等待在原生 runner 复测，不能用 Chromium 结果冒充通过。当前 inventory 为 370 个调用点、168 条 Rust 路由、159 个已注册调用点，其中 136 个非占位、23 个占位、211 个未注册和 11 个静态未解析表达式。
 
 ### 14.3 客户端与发布
 

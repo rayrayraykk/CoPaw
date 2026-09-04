@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::path::Path;
@@ -86,6 +88,7 @@ mod desktop_git;
 mod desktop_inbox;
 mod desktop_mail_access_control;
 mod desktop_navigation;
+mod desktop_projects;
 
 pub use desktop_credentials::DesktopCredentialStore;
 pub use desktop_credentials::SystemDesktopCredentialStore;
@@ -118,6 +121,7 @@ struct AppServerInner {
     desktop_cron_lock: tokio::sync::Mutex<()>,
     desktop_environment_lock: tokio::sync::Mutex<()>,
     desktop_git_lock: tokio::sync::Mutex<()>,
+    desktop_project_lock: tokio::sync::Mutex<()>,
     desktop_credentials: Option<Arc<dyn DesktopCredentialStore>>,
     desktop_workspace: Option<DesktopWorkspace>,
     allowed_origins: Vec<String>,
@@ -182,6 +186,7 @@ impl AppServer {
                 desktop_cron_lock: tokio::sync::Mutex::new(()),
                 desktop_environment_lock: tokio::sync::Mutex::new(()),
                 desktop_git_lock: tokio::sync::Mutex::new(()),
+                desktop_project_lock: tokio::sync::Mutex::new(()),
                 desktop_credentials: None,
                 desktop_workspace: None,
                 allowed_origins: allowed_origins_from_env(),
@@ -236,6 +241,7 @@ impl AppServer {
             desktop_shutdown_token,
             desktop_credentials,
             None,
+            None,
         )
     }
 
@@ -273,6 +279,46 @@ impl AppServer {
             desktop_shutdown_token,
             desktop_credentials,
             Some(desktop_data_dir),
+            None,
+        )
+    }
+
+    /// Creates a fully isolated Desktop server with an explicit Workspace.
+    ///
+    /// This is useful for embedders and tests that must not depend on the
+    /// process current directory or environment.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when any supplied directory or shutdown token is
+    /// invalid.
+    pub fn new_desktop_with_stores_and_workspace(
+        core: Core,
+        console_static_dir: &Path,
+        desktop_shutdown_token: String,
+        desktop_credentials: Arc<dyn DesktopCredentialStore>,
+        desktop_data_dir: &Path,
+        default_workspace: &Path,
+    ) -> anyhow::Result<Self> {
+        std::fs::create_dir_all(desktop_data_dir).with_context(|| {
+            format!(
+                "failed to create Desktop Rust Core data directory {}",
+                desktop_data_dir.display()
+            )
+        })?;
+        let desktop_data_dir = desktop_data_dir.canonicalize().with_context(|| {
+            format!(
+                "failed to resolve Desktop Rust Core data directory {}",
+                desktop_data_dir.display()
+            )
+        })?;
+        Self::new_desktop_with_options(
+            core,
+            console_static_dir,
+            desktop_shutdown_token,
+            desktop_credentials,
+            Some(desktop_data_dir),
+            Some(default_workspace.to_path_buf()),
         )
     }
 
@@ -282,6 +328,7 @@ impl AppServer {
         desktop_shutdown_token: String,
         desktop_credentials: Arc<dyn DesktopCredentialStore>,
         desktop_data_dir: Option<PathBuf>,
+        default_workspace: Option<PathBuf>,
     ) -> anyhow::Result<Self> {
         anyhow::ensure!(
             (MIN_DESKTOP_SHUTDOWN_TOKEN_BYTES..=MAX_DESKTOP_SHUTDOWN_TOKEN_BYTES)
@@ -300,7 +347,8 @@ impl AppServer {
             "Console static directory must contain index.html: {}",
             console_static_dir.display()
         );
-        let desktop_workspace = desktop_workspace_from_env(&core, desktop_data_dir)?;
+        let desktop_workspace =
+            desktop_workspace_from_env(&core, desktop_data_dir, default_workspace)?;
         desktop_environment::initialize(&core, desktop_credentials.as_ref())?;
         Ok(Self {
             inner: Arc::new(AppServerInner {
@@ -316,6 +364,7 @@ impl AppServer {
                 desktop_cron_lock: tokio::sync::Mutex::new(()),
                 desktop_environment_lock: tokio::sync::Mutex::new(()),
                 desktop_git_lock: tokio::sync::Mutex::new(()),
+                desktop_project_lock: tokio::sync::Mutex::new(()),
                 desktop_credentials: Some(desktop_credentials),
                 desktop_workspace: Some(desktop_workspace),
                 allowed_origins: allowed_origins_from_env(),
@@ -479,6 +528,7 @@ impl AppServer {
                 .merge(desktop_inbox::router())
                 .merge(desktop_mail_access_control::router())
                 .merge(desktop_navigation::router())
+                .merge(desktop_projects::router())
                 .route("/api", any(api_not_found))
                 .route("/api/{*path}", any(api_not_found))
                 .fallback_service(ServeDir::new(directory).fallback(ServeFile::new(index)))
@@ -785,10 +835,14 @@ fn protocol_oauth_status(status: qwenpaw_core::McpOAuthStatus) -> McpOAuthStatus
 fn desktop_workspace_from_env(
     core: &Core,
     desktop_data_dir: Option<PathBuf>,
+    default_workspace: Option<PathBuf>,
 ) -> anyhow::Result<DesktopWorkspace> {
-    let configured = std::env::var_os(DESKTOP_DEFAULT_WORKSPACE_ENV)
-        .map(PathBuf::from)
-        .map_or_else(std::env::current_dir, Ok)?;
+    let configured = match default_workspace {
+        Some(workspace) => workspace,
+        None => std::env::var_os(DESKTOP_DEFAULT_WORKSPACE_ENV)
+            .map(PathBuf::from)
+            .map_or_else(std::env::current_dir, Ok)?,
+    };
     let initial = configured.canonicalize().with_context(|| {
         format!(
             "failed to resolve Desktop default workspace {}",

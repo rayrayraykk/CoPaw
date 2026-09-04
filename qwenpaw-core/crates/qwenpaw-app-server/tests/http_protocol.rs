@@ -360,6 +360,384 @@ async fn serves_the_unchanged_console_bootstrap_contracts() {
 }
 
 #[tokio::test]
+#[allow(clippy::too_many_lines)]
+async fn creates_imports_uploads_clones_and_persists_projects() {
+    let console = tempfile::tempdir().expect("temporary Console should be created");
+    let desktop_data = tempfile::tempdir().expect("temporary Desktop data should be created");
+    let workspace = tempfile::tempdir().expect("temporary Workspace should be created");
+    std::fs::write(console.path().join("index.html"), "<html>console</html>")
+        .expect("Console index should be written");
+    let database = desktop_data.path().join("threads.sqlite3");
+    let model_config = ModelConfig {
+        api_key: None,
+        base_url: String::from("http://127.0.0.1:1"),
+        default_model: String::from("qwen-test"),
+    };
+    let first_core =
+        Core::persistent(model_config.clone(), &database).expect("first Core should open");
+    let first_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("first Desktop listener should bind");
+    let first_address = first_listener
+        .local_addr()
+        .expect("first Desktop listener should have an address");
+    let first_server = AppServer::new_desktop_with_stores_and_workspace(
+        first_core,
+        console.path(),
+        String::from("desktop-project-first-token"),
+        Arc::new(MemoryCredentialStore::default()),
+        desktop_data.path(),
+        workspace.path(),
+    )
+    .expect("first Desktop server should configure");
+    let first_task = tokio::spawn(first_server.run_http(first_listener));
+    let client = reqwest::Client::new();
+    let base = format!("http://{first_address}/api/workspace/project-directory");
+
+    let created = client
+        .post(format!("{base}/create"))
+        .json(&json!({"name": "created project"}))
+        .send()
+        .await
+        .expect("project create should send");
+    assert_eq!(created.status(), reqwest::StatusCode::OK);
+    let created = created
+        .json::<Value>()
+        .await
+        .expect("project create should return JSON");
+    let created_path = PathBuf::from(
+        created["path"]
+            .as_str()
+            .expect("project create should return a path"),
+    );
+    assert_eq!(created["name"], json!("created project"));
+    assert!(created_path.join(".git").is_dir());
+    for invalid in ["../escape", "CON.txt", "trailing."] {
+        let response = client
+            .post(format!("{base}/create"))
+            .json(&json!({"name": invalid}))
+            .send()
+            .await
+            .expect("invalid project create should send");
+        assert_eq!(response.status(), reqwest::StatusCode::BAD_REQUEST);
+    }
+
+    let home = dirs::home_dir().expect("test user should have a home directory");
+    let import_parent = tempfile::Builder::new()
+        .prefix("qwenpaw-project-import-")
+        .tempdir_in(home)
+        .expect("temporary import source should be created under home");
+    let import_source = import_parent.path().join("source");
+    std::fs::create_dir_all(import_source.join("node_modules"))
+        .expect("excluded build directory should be created");
+    std::fs::create_dir_all(import_source.join(".config/gh"))
+        .expect("sensitive nested directory should be created");
+    std::fs::write(import_source.join("keep.txt"), "keep")
+        .expect("import fixture should be written");
+    std::fs::write(import_source.join(".env"), "SECRET=value")
+        .expect("sensitive fixture should be written");
+    std::fs::write(import_source.join("node_modules/skip.js"), "skip")
+        .expect("build fixture should be written");
+    std::fs::write(import_source.join(".config/gh/hosts.yml"), "token")
+        .expect("nested sensitive fixture should be written");
+    #[cfg(unix)]
+    std::os::unix::fs::symlink("keep.txt", import_source.join("linked.txt"))
+        .expect("import symlink fixture should be created");
+    let imported = client
+        .post(format!("{base}/import-local"))
+        .json(&json!({"path": import_source, "name": "imported"}))
+        .send()
+        .await
+        .expect("local import should send");
+    assert_eq!(imported.status(), reqwest::StatusCode::OK);
+    let imported = imported
+        .json::<Value>()
+        .await
+        .expect("local import should return JSON");
+    let imported_path = PathBuf::from(
+        imported["path"]
+            .as_str()
+            .expect("local import should return a path"),
+    );
+    assert_eq!(
+        std::fs::read(imported_path.join("keep.txt")).unwrap(),
+        b"keep"
+    );
+    assert!(!imported_path.join(".env").exists());
+    assert!(!imported_path.join("node_modules").exists());
+    assert!(!imported_path.join(".config/gh").exists());
+    assert!(!imported_path.join("linked.txt").exists());
+    assert_eq!(imported["excluded"], json!([".config/gh", ".env"]));
+    let sensitive_source = import_parent.path().join(".ssh/project");
+    std::fs::create_dir_all(&sensitive_source).expect("sensitive import source should be created");
+    let sensitive_import = client
+        .post(format!("{base}/import-local"))
+        .json(&json!({"path": sensitive_source, "name": "sensitive"}))
+        .send()
+        .await
+        .expect("sensitive local import should send");
+    assert_eq!(sensitive_import.status(), reqwest::StatusCode::FORBIDDEN);
+
+    let zip = make_project_zip(&[("src/main.rs", b"fn main() {}")]);
+    let uploaded = multipart_request(
+        &client,
+        format!("{base}/upload-zip?name=uploaded"),
+        "file",
+        "uploaded.zip",
+        &zip,
+    )
+    .await;
+    assert_eq!(uploaded.status(), reqwest::StatusCode::OK);
+    let uploaded = uploaded
+        .json::<Value>()
+        .await
+        .expect("ZIP upload should return JSON");
+    let uploaded_path = PathBuf::from(
+        uploaded["path"]
+            .as_str()
+            .expect("ZIP upload should return a path"),
+    );
+    assert_eq!(
+        std::fs::read(uploaded_path.join("src/main.rs")).unwrap(),
+        b"fn main() {}"
+    );
+    assert!(uploaded_path.join(".git").is_dir());
+
+    let traversal_zip = make_project_zip(&[("../escape.txt", b"escape")]);
+    let traversal = multipart_request(
+        &client,
+        format!("{base}/upload-zip?name=unsafe"),
+        "file",
+        "unsafe.zip",
+        &traversal_zip,
+    )
+    .await;
+    assert_eq!(traversal.status(), reqwest::StatusCode::BAD_REQUEST);
+    assert!(!workspace.path().join("coding_projects/escape.txt").exists());
+
+    let symlink_zip = make_symlink_zip();
+    let symlink = multipart_request(
+        &client,
+        format!("{base}/upload-zip?name=symlink"),
+        "file",
+        "symlink.zip",
+        &symlink_zip,
+    )
+    .await;
+    assert_eq!(symlink.status(), reqwest::StatusCode::BAD_REQUEST);
+
+    let oversized_zip = make_oversized_metadata_zip();
+    let oversized = multipart_request(
+        &client,
+        format!("{base}/upload-zip?name=oversized"),
+        "file",
+        "oversized.zip",
+        &oversized_zip,
+    )
+    .await;
+    assert_eq!(oversized.status(), reqwest::StatusCode::PAYLOAD_TOO_LARGE);
+
+    let clone_source = workspace.path().join("clone-source");
+    run_test_git(&["init", clone_source.to_str().unwrap()]);
+    std::fs::write(clone_source.join("README.md"), "clone me")
+        .expect("clone fixture should be written");
+    run_test_git(&[
+        "-C",
+        clone_source.to_str().unwrap(),
+        "-c",
+        "user.email=qwenpaw@localhost",
+        "-c",
+        "user.name=QwenPaw",
+        "add",
+        "README.md",
+    ]);
+    run_test_git(&[
+        "-C",
+        clone_source.to_str().unwrap(),
+        "-c",
+        "user.email=qwenpaw@localhost",
+        "-c",
+        "user.name=QwenPaw",
+        "commit",
+        "-m",
+        "fixture",
+    ]);
+    let cloned = client
+        .post(format!("{base}/clone"))
+        .json(&json!({
+            "url": clone_source.to_string_lossy(),
+            "name": "cloned"
+        }))
+        .send()
+        .await
+        .expect("project clone should send");
+    assert_eq!(cloned.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        cloned.headers()[reqwest::header::CONTENT_TYPE],
+        "text/event-stream"
+    );
+    let clone_events = parse_sse_events(
+        &cloned
+            .text()
+            .await
+            .expect("project clone stream should read"),
+    );
+    assert_eq!(
+        clone_events.last().expect("clone should finish")["type"],
+        json!("done")
+    );
+    let cloned_path = workspace
+        .path()
+        .join("coding_projects/cloned")
+        .canonicalize()
+        .expect("cloned project should resolve");
+    assert_eq!(
+        std::fs::read(cloned_path.join("README.md")).unwrap(),
+        b"clone me"
+    );
+
+    let failed = client
+        .post(format!("{base}/clone"))
+        .json(&json!({
+            "url": workspace.path().join("missing-repository").to_string_lossy(),
+            "name": "failed-clone"
+        }))
+        .send()
+        .await
+        .expect("failed project clone should send");
+    let failed_events = parse_sse_events(
+        &failed
+            .text()
+            .await
+            .expect("failed project clone stream should read"),
+    );
+    assert_eq!(
+        failed_events.last().expect("failed clone should finish")["type"],
+        json!("error")
+    );
+    let active = get_json(&client, base.clone()).await;
+    assert_eq!(active["path"], json!(cloned_path.to_string_lossy()));
+    let projects = get_json(&client, format!("{base}/list")).await;
+    assert_eq!(
+        projects,
+        json!([
+            {
+                "path": cloned_path.to_string_lossy(),
+                "name": "cloned",
+                "is_git": true,
+                "is_active": true
+            },
+            {
+                "path": created_path.to_string_lossy(),
+                "name": "created project",
+                "is_git": true,
+                "is_active": false
+            },
+            {
+                "path": imported_path.to_string_lossy(),
+                "name": "imported",
+                "is_git": false,
+                "is_active": false
+            },
+            {
+                "path": uploaded_path.to_string_lossy(),
+                "name": "uploaded",
+                "is_git": true,
+                "is_active": false
+            }
+        ])
+    );
+
+    first_task.abort();
+    let _ = first_task.await;
+    let second_core = Core::persistent(model_config, &database).expect("second Core should open");
+    let second_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("second Desktop listener should bind");
+    let second_address = second_listener
+        .local_addr()
+        .expect("second Desktop listener should have an address");
+    let second_server = AppServer::new_desktop_with_stores_and_workspace(
+        second_core,
+        console.path(),
+        String::from("desktop-project-second-token"),
+        Arc::new(MemoryCredentialStore::default()),
+        desktop_data.path(),
+        workspace.path(),
+    )
+    .expect("second Desktop server should configure");
+    let second_task = tokio::spawn(second_server.run_http(second_listener));
+    let restarted = get_json(
+        &client,
+        format!("http://{second_address}/api/workspace/project-directory"),
+    )
+    .await;
+    assert_eq!(restarted["path"], json!(cloned_path.to_string_lossy()));
+    second_task.abort();
+}
+
+fn make_project_zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
+    use std::io::Write;
+
+    let cursor = std::io::Cursor::new(Vec::new());
+    let mut writer = zip::ZipWriter::new(cursor);
+    for (name, contents) in entries {
+        writer
+            .start_file(*name, zip::write::SimpleFileOptions::default())
+            .expect("ZIP fixture entry should start");
+        writer
+            .write_all(contents)
+            .expect("ZIP fixture entry should write");
+    }
+    writer
+        .finish()
+        .expect("ZIP fixture should finish")
+        .into_inner()
+}
+
+fn make_symlink_zip() -> Vec<u8> {
+    let cursor = std::io::Cursor::new(Vec::new());
+    let mut writer = zip::ZipWriter::new(cursor);
+    writer
+        .add_symlink(
+            "linked.txt",
+            "../outside.txt",
+            zip::write::SimpleFileOptions::default(),
+        )
+        .expect("ZIP symlink fixture should write");
+    writer
+        .finish()
+        .expect("ZIP symlink fixture should finish")
+        .into_inner()
+}
+
+fn make_oversized_metadata_zip() -> Vec<u8> {
+    let mut archive = make_project_zip(&[("large.txt", b"x")]);
+    let oversized = (512_u32 * 1024 * 1024 + 1).to_le_bytes();
+    for (signature, offset) in [
+        ([0x50, 0x4b, 0x03, 0x04], 22),
+        ([0x50, 0x4b, 0x01, 0x02], 24),
+    ] {
+        if let Some(index) = archive
+            .windows(signature.len())
+            .position(|candidate| candidate == signature)
+        {
+            archive[index + offset..index + offset + 4].copy_from_slice(&oversized);
+        }
+    }
+    archive
+}
+
+fn run_test_git(arguments: &[&str]) {
+    let status = std::process::Command::new("git")
+        .args(arguments)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .status()
+        .expect("test Git command should start");
+    assert!(status.success(), "test Git command failed: {arguments:?}");
+}
+
+#[tokio::test]
 async fn serves_and_persists_the_inbox_event_contracts() {
     let console = tempfile::tempdir().expect("temporary Console should be created");
     let desktop_data = tempfile::tempdir().expect("temporary Desktop data should be created");
@@ -2773,10 +3151,6 @@ async fn assert_bootstrap_json_contracts(address: SocketAddr) {
         ),
         ("/api/skills", json!([])),
         (
-            "/api/workspace/running-config",
-            json!({"approval_level": "AUTO"}),
-        ),
-        (
             "/api/workspace/transcription-provider-type",
             json!({"transcription_provider_type": "disabled"}),
         ),
@@ -2801,6 +3175,18 @@ async fn assert_bootstrap_json_contracts(address: SocketAddr) {
         );
         assert_eq!(response_json(&response), expected, "{path}");
     }
+    let running = http_request(
+        address,
+        "GET /api/workspace/running-config HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+    )
+    .await;
+    let running = response_json(&running);
+    assert_eq!(running["approval_level"], json!("AUTO"));
+    assert_eq!(running["max_iters"], json!(100));
+    assert_eq!(
+        running["reme_light_memory_config"]["needs_reindex"],
+        json!(false)
+    );
 }
 
 async fn assert_navigation_json_contracts(address: SocketAddr) {
@@ -3559,12 +3945,7 @@ async fn assert_global_workspace_contract(
         .json::<Value>()
         .await
         .expect("Workspace list should be JSON");
-    assert!(projects.as_array().is_some_and(|projects| {
-        projects.iter().any(|project| {
-            project["path"] == json!(selected.to_string_lossy())
-                && project["is_active"] == json!(true)
-        })
-    }));
+    assert_eq!(projects, json!([]));
 
     let mut browse_url = reqwest::Url::parse(&format!(
         "http://{address}/api/workspace/project-directory/browse-dirs"

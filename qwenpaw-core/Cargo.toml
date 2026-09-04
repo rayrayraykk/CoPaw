@@ -74,6 +74,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 ts-rs = "11.0.1"
 uuid = { version = "1.18", features = ["v7"] }
 url = "2.5"
+zip = { version = "8.1.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

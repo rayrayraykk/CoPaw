@@ -3,11 +3,11 @@
   "source": "console/src production TypeScript call sites",
   "callCount": 370,
   "unresolvedCount": 11,
-  "rustRouteCount": 164,
-  "registeredCallCount": 155,
+  "rustRouteCount": 168,
+  "registeredCallCount": 159,
   "placeholderCallCount": 23,
-  "nonPlaceholderRegisteredCallCount": 132,
-  "missingCallCount": 215,
+  "nonPlaceholderRegisteredCallCount": 136,
+  "missingCallCount": 211,
   "rustRoutes": [
     {
       "method": "ANY",
@@ -1067,11 +1067,39 @@
       "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_api.rs"
     },
     {
+      "method": "POST",
+      "path": "/api/workspace/project-directory/clone",
+      "handler": "clone_project",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_projects.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspace/project-directory/create",
+      "handler": "create_project",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_projects.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspace/project-directory/import-local",
+      "handler": "import_local",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_projects.rs"
+    },
+    {
       "method": "GET",
       "path": "/api/workspace/project-directory/list",
       "handler": "project_directory_list",
       "placeholder": false,
       "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_api.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspace/project-directory/upload-zip",
+      "handler": "upload_zip",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_projects.rs"
     },
     {
       "method": "GET",
@@ -3916,7 +3944,7 @@
       "line": 43,
       "resolved": true,
       "apiPath": "/api/workspace/project-directory/create",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -3940,7 +3968,7 @@
       "line": 59,
       "resolved": true,
       "apiPath": "/api/workspace/project-directory/import-local",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -3952,7 +3980,7 @@
       "line": 79,
       "resolved": true,
       "apiPath": "/api/workspace/project-directory/upload-zip?name={name}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -3988,7 +4016,7 @@
       "line": 118,
       "resolved": true,
       "apiPath": "/api/workspace/project-directory/clone",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
