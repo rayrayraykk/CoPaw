@@ -3,7 +3,6 @@
 use axum::Json;
 use axum::Router;
 use axum::extract::Query;
-use axum::extract::State;
 use axum::routing::get;
 use serde::Deserialize;
 use serde_json::Value;
@@ -24,8 +23,6 @@ pub(super) fn router() -> Router<AppServer> {
         .route("/api/agents/{agent_id}/memory/status", get(memory_status))
         .route("/api/agent-stats", get(agent_stats))
         .route("/api/agent-stats/llm-tool-trend", get(empty_array))
-        .route("/api/workspace/checkpoints/status", get(checkpoint_status))
-        .route("/api/workspace/checkpoints/graph", get(checkpoint_graph))
         .route("/api/settings/offload-policy", get(offload_policy))
         .route("/api/config/security/sandbox", get(sandbox_status))
         .route(
@@ -126,33 +123,6 @@ async fn agent_stats(Query(range): Query<DateRange>) -> Json<Value> {
         "channel_stats": [],
         "start_date": range.start_date,
         "end_date": range.end_date
-    }))
-}
-
-async fn checkpoint_status(State(server): State<AppServer>) -> Json<Value> {
-    let workspace_dir = match &server.inner.desktop_workspace {
-        Some(workspace) => workspace.selected.read().await.display().to_string(),
-        None => String::new(),
-    };
-    Json(json!({
-        "auto_enabled": false,
-        "has_checkpoints": false,
-        "workspace_dir": workspace_dir
-    }))
-}
-
-async fn checkpoint_graph() -> Json<Value> {
-    Json(json!({
-        "nodes": [],
-        "sessions": [],
-        "summary": {
-            "total": 0,
-            "auto": 0,
-            "snapshots": 0,
-            "safety": 0,
-            "heads": 0
-        },
-        "truncated": false
     }))
 }
 

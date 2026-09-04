@@ -67,6 +67,16 @@ struct ChatMetadata {
     last_finished_at: Option<i64>,
 }
 
+#[derive(Clone, Debug)]
+pub(super) struct CheckpointSessionInfo {
+    pub(super) thread_id: String,
+    pub(super) session_id: String,
+    pub(super) user_id: String,
+    pub(super) channel: String,
+    pub(super) title: String,
+    pub(super) archived: bool,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub(super) struct ChatGroup {
     id: String,
@@ -609,6 +619,54 @@ pub(super) async fn ensure_thread_metadata(
             .insert(thread.id.clone(), default_metadata(thread, session_id));
     }
     write_catalog(server, &catalog)
+}
+
+pub(super) async fn checkpoint_sessions(
+    server: &AppServer,
+    workspace_root: &str,
+) -> Result<Vec<CheckpointSessionInfo>, ApiError> {
+    let threads = list_all_threads(server).await;
+    let aliases = server.inner.desktop_session_aliases.read().await;
+    let _guard = server.inner.desktop_chat_catalog_lock.lock().await;
+    let mut catalog = read_catalog(server)?;
+    let mut changed = false;
+    let mut sessions = Vec::new();
+    for thread in threads {
+        if thread.workspace_root.as_deref() != Some(workspace_root) {
+            continue;
+        }
+        let session_id = aliases
+            .thread_to_client
+            .get(&thread.id)
+            .map_or(thread.id.as_str(), String::as_str);
+        if !catalog.chats.contains_key(&thread.id) {
+            catalog
+                .chats
+                .insert(thread.id.clone(), default_metadata(&thread, session_id));
+            changed = true;
+        }
+        let metadata = catalog
+            .chats
+            .get(&thread.id)
+            .expect("checkpoint session metadata should exist");
+        sessions.push(CheckpointSessionInfo {
+            thread_id: thread.id,
+            session_id: metadata.session_id.clone(),
+            user_id: metadata.user_id.clone(),
+            channel: metadata.channel.clone(),
+            title: metadata.name.clone(),
+            archived: thread.archived,
+        });
+    }
+    if changed {
+        write_catalog(server, &catalog)?;
+    }
+    sessions.sort_by(|left, right| {
+        left.title
+            .cmp(&right.title)
+            .then_with(|| left.session_id.cmp(&right.session_id))
+    });
+    Ok(sessions)
 }
 
 async fn metadata_for_thread(

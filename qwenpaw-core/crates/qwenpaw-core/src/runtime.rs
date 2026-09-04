@@ -108,6 +108,7 @@ const SUPPORTED_UI_LANGUAGES: [&str; 7] = ["en", "zh", "ja", "ru", "pt-BR", "id"
 const MAX_ENVIRONMENT_VARIABLES: usize = 256;
 const MAX_ENVIRONMENT_KEY_BYTES: usize = 256;
 const MAX_ENVIRONMENT_VALUE_BYTES: usize = 65_536;
+const MAX_CHECKPOINT_MESSAGES: usize = 10_000;
 
 pub type TurnEventStream = mpsc::Receiver<CoreEvent>;
 
@@ -444,6 +445,96 @@ impl Core {
             thread: record.thread.clone(),
             turns: record.turns.clone(),
         })
+    }
+
+    /// Exports one idle Thread as a complete in-memory checkpoint.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Thread is missing or currently executing a
+    /// Turn. The returned value contains conversation state but no secrets.
+    pub async fn export_thread_checkpoint(
+        &self,
+        thread_id: &str,
+    ) -> Result<StoredThread, CoreError> {
+        let state = self.inner.state.lock().await;
+        let record = state
+            .threads
+            .get(thread_id)
+            .ok_or_else(|| CoreError::ThreadNotFound(thread_id.to_owned()))?;
+        if record.active_turn.is_some() || record.thread.status == ThreadStatus::Active {
+            return Err(CoreError::ThreadBusy(thread_id.to_owned()));
+        }
+        Ok(record.snapshot())
+    }
+
+    /// Replaces an idle Thread's conversation with an exported checkpoint.
+    ///
+    /// Runtime identity, model, Workspace, and archive state remain owned by
+    /// the current Thread. Only Turns and model conversation messages are
+    /// restored, so a checkpoint cannot move a Thread across Workspaces.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for a missing or active Thread, a mismatched snapshot,
+    /// or a durable storage failure.
+    pub async fn restore_thread_checkpoint(
+        &self,
+        thread_id: &str,
+        mut checkpoint: StoredThread,
+    ) -> Result<ThreadReadResponse, CoreError> {
+        let mut state = self.inner.state.lock().await;
+        let current = state
+            .threads
+            .get(thread_id)
+            .ok_or_else(|| CoreError::ThreadNotFound(thread_id.to_owned()))?;
+        if current.active_turn.is_some() || current.thread.status == ThreadStatus::Active {
+            return Err(CoreError::ThreadBusy(thread_id.to_owned()));
+        }
+        if checkpoint.thread.id != thread_id {
+            return Err(CoreError::Checkpoint(String::from(
+                "checkpoint Thread identity does not match",
+            )));
+        }
+        if checkpoint.thread.workspace_root != current.thread.workspace_root {
+            return Err(CoreError::Checkpoint(String::from(
+                "checkpoint Workspace does not match the current Thread",
+            )));
+        }
+        if checkpoint
+            .turns
+            .iter()
+            .any(|turn| turn.thread_id != thread_id || turn.status == TurnStatus::InProgress)
+        {
+            return Err(CoreError::Checkpoint(String::from(
+                "checkpoint contains invalid Turn state",
+            )));
+        }
+        if checkpoint.messages.len() > MAX_CHECKPOINT_MESSAGES {
+            return Err(CoreError::Checkpoint(String::from(
+                "checkpoint contains too many model messages",
+            )));
+        }
+        ensure_system_message(&mut checkpoint);
+        let mut thread = current.thread.clone();
+        thread.status = ThreadStatus::Idle;
+        thread.updated_at = now();
+        let replacement = ThreadRecord {
+            thread: thread.clone(),
+            turns: checkpoint.turns,
+            messages: checkpoint.messages,
+            active_turn: None,
+        };
+        self.inner
+            .store
+            .upsert(&replacement.snapshot())
+            .map_err(CoreError::storage)?;
+        let response = ThreadReadResponse {
+            thread,
+            turns: replacement.turns.clone(),
+        };
+        state.threads.insert(thread_id.to_owned(), replacement);
+        Ok(response)
     }
 
     /// Deletes an idle thread from runtime state and durable storage.
@@ -2288,6 +2379,8 @@ pub enum CoreError {
     Storage(String),
     #[error("MCP configuration failed: {0}")]
     Mcp(String),
+    #[error("checkpoint is invalid: {0}")]
+    Checkpoint(String),
 }
 
 impl CoreError {

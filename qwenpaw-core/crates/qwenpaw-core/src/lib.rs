@@ -10,6 +10,7 @@ pub use qwenpaw_mcp::McpOAuthCredentials;
 pub use qwenpaw_mcp::McpOAuthStartOptions;
 pub use qwenpaw_mcp::McpOAuthStartResponse;
 pub use qwenpaw_mcp::McpOAuthStatus;
+pub use qwenpaw_storage::StoredThread as ThreadCheckpoint;
 pub use runtime::AgentRuntimeConfig;
 pub use runtime::Core;
 pub use runtime::CoreError;

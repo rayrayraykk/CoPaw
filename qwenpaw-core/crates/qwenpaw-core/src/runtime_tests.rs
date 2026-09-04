@@ -122,6 +122,81 @@ async fn completes_a_streaming_turn_and_persists_history() {
 }
 
 #[tokio::test]
+async fn exports_restores_and_persists_an_idle_thread_checkpoint() {
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let base_url = start_model_server(Arc::clone(&requests)).await;
+    let directory = tempfile::tempdir().expect("temporary directory should be created");
+    let database_path = directory.path().join("threads.sqlite3");
+    let model_config = ModelConfig {
+        api_key: Some(String::from("test-key")),
+        base_url,
+        default_model: String::from("qwen-test"),
+    };
+    let core = Core::persistent(model_config.clone(), &database_path)
+        .expect("persistent core should open");
+    let thread = core
+        .start_thread(ThreadStartParams {
+            model: None,
+            workspace_root: Some(directory.path().to_string_lossy().into_owned()),
+        })
+        .await
+        .expect("thread should start")
+        .thread;
+    let checkpoint = core
+        .export_thread_checkpoint(&thread.id)
+        .await
+        .expect("idle Thread should export");
+    let (_turn, mut events) = core
+        .start_turn(TurnStartParams {
+            thread_id: thread.id.clone(),
+            input: vec![UserInput::Text {
+                text: String::from("Discard this turn"),
+            }],
+        })
+        .await
+        .expect("turn should start");
+    while let Some(event) = events.recv().await {
+        if matches!(event, CoreEvent::TurnCompleted(_)) {
+            break;
+        }
+    }
+    assert_eq!(
+        core.read_thread(&thread.id)
+            .await
+            .expect("thread should read")
+            .turns
+            .len(),
+        1
+    );
+
+    let restored = core
+        .restore_thread_checkpoint(&thread.id, checkpoint.clone())
+        .await
+        .expect("checkpoint should restore");
+    assert_eq!(restored.turns, Vec::new());
+    let mut wrong = checkpoint;
+    wrong.thread.id = String::from("thr_other");
+    assert_eq!(
+        core.restore_thread_checkpoint(&thread.id, wrong)
+            .await
+            .expect_err("mismatched checkpoint should fail"),
+        CoreError::Checkpoint(String::from("checkpoint Thread identity does not match"))
+    );
+
+    drop(core);
+    let reopened =
+        Core::persistent(model_config, &database_path).expect("persistent core should reopen");
+    assert_eq!(
+        reopened
+            .read_thread(&thread.id)
+            .await
+            .expect("restored thread should persist")
+            .turns,
+        Vec::new()
+    );
+}
+
+#[tokio::test]
 async fn rejects_turn_input_over_the_runtime_limit() {
     let directory = tempfile::tempdir().expect("temporary directory should be created");
     let core = Core::new(ModelConfig {

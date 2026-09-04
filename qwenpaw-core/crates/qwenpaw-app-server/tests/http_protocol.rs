@@ -8,6 +8,7 @@ use qwenpaw_protocol::ThreadStartParams;
 use serde_json::Value;
 use serde_json::json;
 use std::collections::BTreeMap;
+use std::io::Write as _;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::path::PathBuf;
@@ -3432,6 +3433,449 @@ async fn serves_memory_markdown_and_coding_files_without_path_escape() {
         )
         .await,
         json!({"path": "generated/nested.rs", "content": "pub fn generated() {}\n"})
+    );
+    second_task.abort();
+}
+
+#[tokio::test]
+#[allow(clippy::too_many_lines)]
+async fn persists_restores_and_collects_real_workspace_checkpoints() {
+    let model_base_url = start_model_server().await;
+    let console = tempfile::tempdir().expect("temporary Console should be created");
+    let desktop_data = tempfile::tempdir().expect("temporary Desktop data should be created");
+    let workspace = tempfile::tempdir().expect("temporary Workspace should be created");
+    let database = desktop_data.path().join("threads.sqlite3");
+    std::fs::write(console.path().join("index.html"), "<html>console</html>")
+        .expect("Console index should be written");
+    std::fs::create_dir_all(workspace.path().join("memory"))
+        .expect("Memory directory should be created");
+    std::fs::create_dir_all(workspace.path().join("src"))
+        .expect("source directory should be created");
+    std::fs::write(workspace.path().join("memory/day.md"), "memory before\n")
+        .expect("Memory fixture should be written");
+    std::fs::write(workspace.path().join("src/code.txt"), "code before\n")
+        .expect("code fixture should be written");
+    std::fs::write(workspace.path().join("old.txt"), "restore deleted file\n")
+        .expect("deleted-file fixture should be written");
+    let model_config = ModelConfig {
+        api_key: Some(String::from("test-key")),
+        base_url: model_base_url,
+        default_model: String::from("qwen-test"),
+    };
+    let first_core =
+        Core::persistent(model_config.clone(), &database).expect("first Core should open");
+    first_core
+        .write_preferred_workspace(workspace.path())
+        .expect("temporary Workspace should be selected");
+    let thread = first_core
+        .start_thread(ThreadStartParams {
+            model: None,
+            workspace_root: Some(workspace.path().to_string_lossy().into_owned()),
+        })
+        .await
+        .expect("checkpoint Thread should start")
+        .thread;
+    let first_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("first Desktop listener should bind");
+    let first_address = first_listener
+        .local_addr()
+        .expect("first Desktop listener should have an address");
+    let first_server = AppServer::new_desktop_with_stores_and_workspace(
+        first_core,
+        console.path(),
+        String::from("checkpoint-first-token"),
+        Arc::new(MemoryCredentialStore::default()),
+        desktop_data.path(),
+        workspace.path(),
+    )
+    .expect("first Desktop server should configure");
+    let first_task = tokio::spawn(first_server.run_http(first_listener));
+    let client = reqwest::Client::new();
+    let first_base = format!("http://{first_address}/api/workspace/checkpoints");
+    assert_eq!(
+        get_json(&client, format!("{first_base}/status")).await,
+        json!({
+            "auto_enabled": false,
+            "has_checkpoints": false,
+            "workspace_dir": workspace.path().canonicalize()
+                .expect("Workspace should resolve").to_string_lossy()
+        })
+    );
+    let snapshot = post_json(
+        &client,
+        format!("{first_base}/snapshot"),
+        json!({
+            "session_id": thread.id,
+            "user_id": "desktop",
+            "channel": "console",
+            "name": "Before edits"
+        }),
+    )
+    .await;
+    let commit = snapshot["commit"]
+        .as_str()
+        .expect("snapshot should return a commit")
+        .to_owned();
+    assert_eq!(commit.len(), 64);
+    assert!(
+        snapshot["ref"]
+            .as_str()
+            .is_some_and(|value| value.starts_with("refs/snap/"))
+    );
+    let graph = get_json(&client, format!("{first_base}/graph?limit=500")).await;
+    assert_eq!(
+        graph["summary"],
+        json!({
+            "total": 1,
+            "auto": 0,
+            "snapshots": 1,
+            "safety": 0,
+            "heads": 1
+        })
+    );
+    assert_eq!(graph["nodes"][0]["name"], json!("Before edits"));
+    assert_eq!(graph["nodes"][0]["is_head"], json!(true));
+    assert_eq!(graph["sessions"][0]["session_id"], json!(thread.id));
+    first_task.abort();
+    let _ = first_task.await;
+
+    let second_core = Core::persistent(model_config, &database).expect("second Core should open");
+    let runtime = second_core.clone();
+    let second_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("second Desktop listener should bind");
+    let second_address = second_listener
+        .local_addr()
+        .expect("second Desktop listener should have an address");
+    let second_server = AppServer::new_desktop_with_stores_and_workspace(
+        second_core,
+        console.path(),
+        String::from("checkpoint-second-token"),
+        Arc::new(MemoryCredentialStore::default()),
+        desktop_data.path(),
+        workspace.path(),
+    )
+    .expect("second Desktop server should configure");
+    let second_task = tokio::spawn(second_server.run_http(second_listener));
+    let base = format!("http://{second_address}/api/workspace/checkpoints");
+    assert_eq!(
+        get_json(&client, format!("{base}/status")).await["has_checkpoints"],
+        json!(true)
+    );
+    let concurrent_body = json!({
+        "session_id": thread.id,
+        "user_id": "desktop",
+        "channel": "console",
+        "name": "Concurrent"
+    });
+    let first_snapshot = client
+        .post(format!("{base}/snapshot"))
+        .json(&concurrent_body)
+        .send();
+    let second_snapshot = client
+        .post(format!("{base}/snapshot"))
+        .json(&concurrent_body)
+        .send();
+    let (first_snapshot, second_snapshot) = tokio::join!(first_snapshot, second_snapshot);
+    let first_snapshot = first_snapshot.expect("first concurrent snapshot should send");
+    let second_snapshot = second_snapshot.expect("second concurrent snapshot should send");
+    assert_eq!(first_snapshot.status(), reqwest::StatusCode::OK);
+    assert_eq!(second_snapshot.status(), reqwest::StatusCode::OK);
+    let first_snapshot = first_snapshot
+        .json::<Value>()
+        .await
+        .expect("first concurrent snapshot should be JSON");
+    let second_snapshot = second_snapshot
+        .json::<Value>()
+        .await
+        .expect("second concurrent snapshot should be JSON");
+    assert_ne!(first_snapshot["commit"], second_snapshot["commit"]);
+    let traversal = client
+        .post(format!("{base}/restore/preview"))
+        .json(&json!({
+            "commit": commit,
+            "session_id": thread.id,
+            "user_id": "desktop",
+            "channel": "console",
+            "include_memory": false,
+            "include_files": true,
+            "files": ["../outside.txt"]
+        }))
+        .send()
+        .await
+        .expect("unsafe restore should send");
+    assert_eq!(traversal.status(), reqwest::StatusCode::BAD_REQUEST);
+
+    std::fs::write(workspace.path().join("memory/day.md"), "memory after\n")
+        .expect("Memory fixture should change");
+    std::fs::write(workspace.path().join("src/code.txt"), "code after\n")
+        .expect("code fixture should change");
+    std::fs::write(workspace.path().join("new.txt"), "delete on restore\n")
+        .expect("new file fixture should be written");
+    std::fs::remove_file(workspace.path().join("old.txt")).expect("old fixture should be removed");
+    let (_turn, mut events) = runtime
+        .start_turn(qwenpaw_protocol::TurnStartParams {
+            thread_id: thread.id.clone(),
+            input: vec![qwenpaw_protocol::UserInput::Text {
+                text: String::from("This turn should be restored away"),
+            }],
+        })
+        .await
+        .expect("post-checkpoint turn should start");
+    while let Some(event) = events.recv().await {
+        if matches!(event, qwenpaw_protocol::CoreEvent::TurnCompleted(_)) {
+            break;
+        }
+    }
+    assert_eq!(
+        runtime
+            .read_thread(&thread.id)
+            .await
+            .expect("changed Thread should read")
+            .turns
+            .len(),
+        1
+    );
+    let restore_request = json!({
+        "commit": commit,
+        "session_id": thread.id,
+        "user_id": "desktop",
+        "channel": "console",
+        "include_memory": true,
+        "include_files": true
+    });
+    let preview = post_json(
+        &client,
+        format!("{base}/restore/preview"),
+        restore_request.clone(),
+    )
+    .await;
+    assert_eq!(preview["commit"], json!(commit));
+    assert_eq!(preview["dry_run"], json!(true));
+    assert_eq!(
+        preview["restored_paths"],
+        json!([
+            format!("sessions/{}.json", thread.id),
+            "memory/day.md",
+            "old.txt",
+            "src/code.txt"
+        ])
+    );
+    assert_eq!(preview["deleted_paths"], json!(["new.txt"]));
+    assert_eq!(
+        preview["file_paths"],
+        json!(["new.txt", "old.txt", "src/code.txt"])
+    );
+    assert_eq!(
+        std::fs::read_to_string(workspace.path().join("src/code.txt"))
+            .expect("preview must not change code"),
+        "code after\n"
+    );
+    let mut invalid_request = restore_request.clone();
+    invalid_request["files"] = json!(["not-in-preview.txt"]);
+    let invalid_selection = client
+        .post(format!("{base}/restore"))
+        .json(&invalid_request)
+        .send()
+        .await
+        .expect("invalid restore selection should send");
+    assert_eq!(invalid_selection.status(), reqwest::StatusCode::BAD_REQUEST);
+    let mut apply_request = restore_request;
+    apply_request["files"] = json!(["new.txt", "src/code.txt"]);
+    let restored = post_json(&client, format!("{base}/restore"), apply_request).await;
+    assert_eq!(restored["dry_run"], json!(false));
+    assert!(
+        restored["pre_restore_ref"]
+            .as_str()
+            .is_some_and(|value| value.starts_with("refs/pre-restore/"))
+    );
+    assert_eq!(restored["file_paths"], json!(["new.txt", "src/code.txt"]));
+    assert_eq!(
+        std::fs::read_to_string(workspace.path().join("memory/day.md"))
+            .expect("Memory should restore"),
+        "memory before\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(workspace.path().join("src/code.txt"))
+            .expect("selected code should restore"),
+        "code before\n"
+    );
+    assert!(!workspace.path().join("new.txt").exists());
+    assert!(!workspace.path().join("old.txt").exists());
+    assert_eq!(
+        runtime
+            .read_thread(&thread.id)
+            .await
+            .expect("restored Thread should read")
+            .turns,
+        Vec::new()
+    );
+    let restored_graph = get_json(&client, format!("{base}/graph?limit=500")).await;
+    assert_eq!(restored_graph["summary"]["safety"], json!(1));
+    assert_eq!(restored_graph["summary"]["heads"], json!(1));
+    assert!(
+        restored_graph["nodes"]
+            .as_array()
+            .expect("graph nodes should be an array")
+            .iter()
+            .any(|node| node["commit"] == commit && node["is_head"] == json!(true))
+    );
+
+    #[cfg(unix)]
+    {
+        let outside = tempfile::tempdir().expect("outside directory should be created");
+        let outside_file = outside.path().join("secret.txt");
+        std::fs::write(&outside_file, "outside secret\n")
+            .expect("outside fixture should be written");
+        std::fs::remove_file(workspace.path().join("src/code.txt"))
+            .expect("code fixture should be removed before linking");
+        std::os::unix::fs::symlink(&outside_file, workspace.path().join("src/code.txt"))
+            .expect("restore symlink should be created");
+        let linked_restore = client
+            .post(format!("{base}/restore"))
+            .json(&json!({
+                "commit": commit,
+                "session_id": thread.id,
+                "user_id": "desktop",
+                "channel": "console",
+                "include_memory": false,
+                "include_files": true,
+                "files": ["src/code.txt"]
+            }))
+            .send()
+            .await
+            .expect("linked restore should send");
+        assert_eq!(linked_restore.status(), reqwest::StatusCode::BAD_REQUEST);
+        assert_eq!(
+            std::fs::read_to_string(&outside_file).expect("outside fixture should read"),
+            "outside secret\n"
+        );
+        std::fs::remove_file(workspace.path().join("src/code.txt"))
+            .expect("restore symlink should be removed");
+        std::fs::write(workspace.path().join("src/code.txt"), "code before\n")
+            .expect("code fixture should be restored after symlink test");
+    }
+
+    let settings = json!({
+        "gc_keep_count": 0,
+        "gc_keep_days": 0,
+        "pre_restore_retention_days": 0
+    });
+    let saved_settings = client
+        .patch(format!("{base}/gc/settings"))
+        .json(&settings)
+        .send()
+        .await
+        .expect("GC settings should send")
+        .json::<Value>()
+        .await
+        .expect("GC settings should be JSON");
+    assert_eq!(saved_settings, settings);
+    assert_eq!(
+        get_json(&client, format!("{base}/gc/settings")).await,
+        settings
+    );
+    let gc_preview = post_json(
+        &client,
+        format!("{base}/gc/preview"),
+        json!({"compact": true}),
+    )
+    .await;
+    assert_eq!(gc_preview["dry_run"], json!(true));
+    assert!(
+        gc_preview["deleted_refs"]
+            .as_array()
+            .is_some_and(|items| !items.is_empty())
+    );
+    let gc_result = post_json(&client, format!("{base}/gc"), json!({"compact": true})).await;
+    assert_eq!(gc_result["dry_run"], json!(false));
+    assert_eq!(gc_result["deleted_refs"], gc_preview["deleted_refs"]);
+
+    let auto = client
+        .patch(format!("{base}/auto"))
+        .json(&json!({"enabled": true}))
+        .send()
+        .await
+        .expect("auto checkpoint setting should send")
+        .json::<Value>()
+        .await
+        .expect("auto checkpoint response should be JSON");
+    assert_eq!(auto, json!({"auto_enabled": true}));
+    let chat = client
+        .post(format!("http://{second_address}/api/console/chat"))
+        .json(&json!({
+            "input": [{
+                "role": "user",
+                "content": [{"type": "text", "text": "Create auto checkpoint"}]
+            }],
+            "session_id": thread.id,
+            "stream": true,
+            "request_context": {
+                "session_project_dirs": [{"path": workspace.path()}]
+            }
+        }))
+        .send()
+        .await
+        .expect("auto-checkpoint chat should send");
+    assert_eq!(chat.status(), reqwest::StatusCode::OK);
+    let _ = chat
+        .text()
+        .await
+        .expect("auto-checkpoint stream should read");
+    let auto_graph = get_json(&client, format!("{base}/graph?limit=500")).await;
+    assert_eq!(auto_graph["summary"]["auto"], json!(1));
+    assert!(
+        auto_graph["nodes"][0]["query"]
+            .as_str()
+            .is_some_and(|query| query.contains("Create auto checkpoint"))
+    );
+    let auto_commit = auto_graph["nodes"][0]["commit"]
+        .as_str()
+        .expect("automatic checkpoint should have a commit")
+        .to_owned();
+    let workspace_state = std::fs::read_dir(desktop_data.path().join("checkpoints"))
+        .expect("checkpoint data root should be readable")
+        .next()
+        .expect("Workspace checkpoint state should exist")
+        .expect("Workspace checkpoint state entry should be readable")
+        .path();
+    let archive = workspace_state
+        .join("snapshots")
+        .join(format!("{auto_commit}.zip"));
+    std::fs::OpenOptions::new()
+        .append(true)
+        .open(archive)
+        .expect("checkpoint archive should open for corruption test")
+        .write_all(b"tampered")
+        .expect("checkpoint archive should be corrupted");
+    let corrupt = client
+        .post(format!("{base}/restore/preview"))
+        .json(&json!({
+            "commit": auto_commit,
+            "session_id": thread.id,
+            "user_id": "desktop",
+            "channel": "console",
+            "include_memory": false,
+            "include_files": false
+        }))
+        .send()
+        .await
+        .expect("corrupt checkpoint preview should send");
+    assert_eq!(corrupt.status(), reqwest::StatusCode::INTERNAL_SERVER_ERROR);
+
+    let reset = client
+        .delete(base.clone())
+        .send()
+        .await
+        .expect("checkpoint reset should send")
+        .json::<Value>()
+        .await
+        .expect("checkpoint reset should be JSON");
+    assert_eq!(reset, json!({"reset": true, "auto_enabled": false}));
+    assert_eq!(
+        get_json(&client, format!("{base}/graph?limit=500")).await["nodes"],
+        json!([])
     );
     second_task.abort();
 }

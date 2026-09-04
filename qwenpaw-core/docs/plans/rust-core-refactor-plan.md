@@ -1108,6 +1108,21 @@ Inbox 读取、状态和持久化契约已完成；真实 Agent Cron、Heartbeat
 
 2026-09-05 本机验收：Rust workspace 130 个测试、格式检查与严格 Clippy 通过；Console 295 个测试文件、2453 个测试、production build 和 inventory 防漂移通过，`console/src` 保持零改动。未修改的原 Files/Coding 页面完成 daily、digest 与 Workspace 三类文件的展开、打开、Monaco 编辑、保存和 Core 重启恢复；3 次写请求均为 200，浏览器错误为 0。当前 inventory 为 370 个调用点、186 条 Rust 路由、180 个已注册调用点，其中 164 个非占位、16 个占位、190 个未注册和 11 个静态未解析表达式；`workspace.ts` 的 25 个调用点已全部注册且均非占位。macOS App/ZIP/QA DMG、Core archive、WebUI archive、TypeScript/Python SDK、universal/platform VSIX 与 legacy wheel 均使用本切片源码重建；9 个产物逐个完成执行、安装、解包或挂载反向验证，`dist/SHA256SUMS` 全部通过。
 
+#### 14.2.24.8 当前子切片：Checkpoint 完整交互
+
+本子切片替换 Checkpoints 页面现有 status/graph 假数据，并补齐该页面全部 11 个调用。实现必须保存真实 Core Thread 与选定 Workspace 内容，恢复必须先预览并创建 safety checkpoint；开启自动检查点后，成功完成的 Console Turn 必须实际产生快照。
+
+- [x] 建立按 Workspace 隔离、持久化且有版本/数量/大小限制的 Checkpoint 元数据与快照存储；
+- [x] 完成真实 status、graph、manual snapshot 与成功 Turn 后 auto snapshot；
+- [x] 完成 conversation、Memory、选择性 Workspace 文件的 restore preview/apply，并在变更前创建 pre-restore safety checkpoint；
+- [x] 完成 GC preview/apply、GC settings 与 reset，保持原请求和响应结构；
+- [x] 拒绝跨 Workspace、错误会话、非法 commit/path、符号链接、超限与并发恢复，并保证失败不留下部分恢复状态；
+- [x] 补齐 Core Thread 导出/恢复和 HTTP 正常、错误、自动快照、重启恢复测试；
+- [x] 使用未修改的原 Checkpoints 页面完成开关、快照、预览恢复、GC 设置、GC 与重置 E2E；
+- [x] 更新 inventory，确认 `console/src` 零改动，通过全量回归并重建、逐个验证全部发布产物。
+
+2026-09-05 本机验收：Rust workspace 132 个测试、格式检查与严格 Clippy 通过；Console 295 个测试文件、2453 个测试、production build 和 inventory 防漂移通过，`console/src` 保持零改动。未修改的原 Checkpoints 页面在 release Core 上完成自动开关、手工快照、conversation/Memory/指定文件恢复预览与执行、刷新恢复、GC 设置/清理和重置，24 次 Checkpoint 请求全部为 200，浏览器错误为 0；HTTP 契约另覆盖成功 Turn 自动快照、Core 重启、并发快照、目录穿越、符号链接与归档篡改。当前 inventory 为 370 个调用点、195 条 Rust 路由、189 个已注册调用点，其中 175 个非占位、14 个占位、181 个未注册和 11 个静态未解析表达式；Checkpoint 的 11 个调用点已全部注册且均非占位。macOS App/ZIP/QA DMG、Core archive、WebUI archive、TypeScript/Python SDK、universal/platform VSIX 与 legacy wheel 均使用本切片源码重建；9 个产物逐个完成执行、真实 Core 连接、安装、解包、签名检查或挂载反向验证，`dist/SHA256SUMS` 全部通过。QA DMG 当前为 ad-hoc 签名，待用户提供 Apple 发布凭据后才能生成 Developer ID 签名和 notarized 正式包。
+
 ### 14.3 客户端与发布
 
 - [x] WebUI 启动与导航契约测试通过；

@@ -81,6 +81,7 @@ mod desktop_agent_settings;
 mod desktop_api;
 mod desktop_channels;
 mod desktop_chats;
+mod desktop_checkpoints;
 mod desktop_credentials;
 mod desktop_cron;
 mod desktop_environment;
@@ -120,6 +121,7 @@ struct AppServerInner {
     desktop_inbox_lock: tokio::sync::Mutex<()>,
     desktop_channel_config_lock: tokio::sync::Mutex<()>,
     desktop_chat_catalog_lock: tokio::sync::Mutex<()>,
+    desktop_checkpoint_lock: tokio::sync::Mutex<()>,
     desktop_cron_lock: tokio::sync::Mutex<()>,
     desktop_environment_lock: tokio::sync::Mutex<()>,
     desktop_git_lock: tokio::sync::Mutex<()>,
@@ -186,6 +188,7 @@ impl AppServer {
                 desktop_inbox_lock: tokio::sync::Mutex::new(()),
                 desktop_channel_config_lock: tokio::sync::Mutex::new(()),
                 desktop_chat_catalog_lock: tokio::sync::Mutex::new(()),
+                desktop_checkpoint_lock: tokio::sync::Mutex::new(()),
                 desktop_cron_lock: tokio::sync::Mutex::new(()),
                 desktop_environment_lock: tokio::sync::Mutex::new(()),
                 desktop_git_lock: tokio::sync::Mutex::new(()),
@@ -371,6 +374,7 @@ impl AppServer {
                 desktop_inbox_lock: tokio::sync::Mutex::new(()),
                 desktop_channel_config_lock: tokio::sync::Mutex::new(()),
                 desktop_chat_catalog_lock: tokio::sync::Mutex::new(()),
+                desktop_checkpoint_lock: tokio::sync::Mutex::new(()),
                 desktop_cron_lock: tokio::sync::Mutex::new(()),
                 desktop_environment_lock: tokio::sync::Mutex::new(()),
                 desktop_git_lock: tokio::sync::Mutex::new(()),
@@ -531,6 +535,7 @@ impl AppServer {
                 .merge(desktop_access_control::router())
                 .merge(desktop_agent_settings::router())
                 .merge(desktop_channels::router())
+                .merge(desktop_checkpoints::router())
                 .merge(desktop_api::router())
                 .merge(desktop_cron::router())
                 .merge(desktop_environment::router())

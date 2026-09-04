@@ -613,6 +613,11 @@ async fn console_chat(
     tokio::spawn(async move {
         while let Some(core_event) = core_events.recv().await {
             let terminal = matches!(&core_event, CoreEvent::TurnCompleted(_));
+            let completed = matches!(
+                &core_event,
+                CoreEvent::TurnCompleted(notification)
+                    if notification.turn.status == TurnStatus::Completed
+            );
             track_pending_approval(&stream_server, &core_event).await;
             if let Some(payload) = console_event(core_event) {
                 let event = Ok(Event::default().data(payload.to_string()));
@@ -629,6 +634,13 @@ async fn console_chat(
             }
             if terminal {
                 clear_turn_approvals(&stream_server, &turn_id).await;
+                if completed {
+                    super::desktop_checkpoints::maybe_create_auto_checkpoint(
+                        &stream_server,
+                        &thread_id,
+                    )
+                    .await;
+                }
                 return;
             }
         }

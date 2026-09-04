@@ -3,11 +3,11 @@
   "source": "console/src production TypeScript call sites",
   "callCount": 370,
   "unresolvedCount": 11,
-  "rustRouteCount": 186,
-  "registeredCallCount": 180,
-  "placeholderCallCount": 16,
-  "nonPlaceholderRegisteredCallCount": 164,
-  "missingCallCount": 190,
+  "rustRouteCount": 195,
+  "registeredCallCount": 189,
+  "placeholderCallCount": 14,
+  "nonPlaceholderRegisteredCallCount": 175,
+  "missingCallCount": 181,
   "rustRoutes": [
     {
       "method": "ANY",
@@ -899,18 +899,81 @@
       "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_files.rs"
     },
     {
+      "method": "DELETE",
+      "path": "/api/workspace/checkpoints",
+      "handler": "reset",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_checkpoints.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/workspace/checkpoints/auto",
+      "handler": "set_auto",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_checkpoints.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspace/checkpoints/gc",
+      "handler": "gc",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_checkpoints.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspace/checkpoints/gc/preview",
+      "handler": "preview_gc",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_checkpoints.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspace/checkpoints/gc/settings",
+      "handler": "get_gc_settings",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_checkpoints.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/workspace/checkpoints/gc/settings",
+      "handler": "update_gc_settings",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_checkpoints.rs"
+    },
+    {
       "method": "GET",
       "path": "/api/workspace/checkpoints/graph",
-      "handler": "checkpoint_graph",
-      "placeholder": true,
-      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_navigation.rs"
+      "handler": "graph",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_checkpoints.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspace/checkpoints/restore",
+      "handler": "restore",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_checkpoints.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspace/checkpoints/restore/preview",
+      "handler": "preview_restore",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_checkpoints.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspace/checkpoints/snapshot",
+      "handler": "snapshot",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_checkpoints.rs"
     },
     {
       "method": "GET",
       "path": "/api/workspace/checkpoints/status",
-      "handler": "checkpoint_status",
-      "placeholder": true,
-      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_navigation.rs"
+      "handler": "status",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_checkpoints.rs"
     },
     {
       "method": "GET",
@@ -2667,7 +2730,7 @@
       "resolved": true,
       "apiPath": "/api/workspace/checkpoints/status",
       "registered": true,
-      "placeholder": true
+      "placeholder": false
     },
     {
       "method": "GET",
@@ -2679,7 +2742,7 @@
       "resolved": true,
       "apiPath": "/api/workspace/checkpoints/graph?limit={limit}",
       "registered": true,
-      "placeholder": true
+      "placeholder": false
     },
     {
       "method": "PATCH",
@@ -2690,7 +2753,7 @@
       "line": 24,
       "resolved": true,
       "apiPath": "/api/workspace/checkpoints/auto",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -2702,7 +2765,7 @@
       "line": 35,
       "resolved": true,
       "apiPath": "/api/workspace/checkpoints/snapshot",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -2714,7 +2777,7 @@
       "line": 41,
       "resolved": true,
       "apiPath": "/api/workspace/checkpoints/restore/preview",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -2726,7 +2789,7 @@
       "line": 48,
       "resolved": true,
       "apiPath": "/api/workspace/checkpoints/restore",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -2738,7 +2801,7 @@
       "line": 55,
       "resolved": true,
       "apiPath": "/api/workspace/checkpoints/gc/preview",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -2750,7 +2813,7 @@
       "line": 62,
       "resolved": true,
       "apiPath": "/api/workspace/checkpoints/gc",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -2762,7 +2825,7 @@
       "line": 68,
       "resolved": true,
       "apiPath": "/api/workspace/checkpoints/gc/settings",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -2774,7 +2837,7 @@
       "line": 71,
       "resolved": true,
       "apiPath": "/api/workspace/checkpoints/gc/settings",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -2786,7 +2849,7 @@
       "line": 77,
       "resolved": true,
       "apiPath": "/api/workspace/checkpoints",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
