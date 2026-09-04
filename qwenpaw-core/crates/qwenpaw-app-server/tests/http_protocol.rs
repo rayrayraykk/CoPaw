@@ -3006,6 +3006,437 @@ async fn serves_profile_markdown_and_persists_system_prompt_file_order() {
 }
 
 #[tokio::test]
+#[allow(clippy::too_many_lines)]
+async fn serves_memory_markdown_and_coding_files_without_path_escape() {
+    let console = tempfile::tempdir().expect("temporary Console should be created");
+    let desktop_data = tempfile::tempdir().expect("temporary Desktop data should be created");
+    let workspace = tempfile::tempdir().expect("temporary Workspace should be created");
+    std::fs::write(console.path().join("index.html"), "<html>console</html>")
+        .expect("Console index should be written");
+    std::fs::create_dir_all(workspace.path().join("src"))
+        .expect("source directory should be created");
+    std::fs::write(workspace.path().join("src/main.rs"), "fn main() {}\n")
+        .expect("source fixture should be written");
+    std::fs::create_dir_all(workspace.path().join(".git"))
+        .expect("hidden directory should be created");
+    std::fs::write(workspace.path().join(".git/config"), "hidden")
+        .expect("hidden file should be written");
+    std::fs::create_dir_all(workspace.path().join("node_modules/pkg"))
+        .expect("generated directory should be created");
+    std::fs::write(
+        workspace.path().join("node_modules/pkg/index.js"),
+        "generated",
+    )
+    .expect("generated file should be written");
+    let database = desktop_data.path().join("threads.sqlite3");
+    let model_config = ModelConfig {
+        api_key: None,
+        base_url: String::from("http://127.0.0.1:1"),
+        default_model: String::from("qwen-test"),
+    };
+    let core = Core::persistent(model_config.clone(), &database).expect("Core should open");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("Desktop listener should bind");
+    let address = listener
+        .local_addr()
+        .expect("Desktop listener should have an address");
+    let server = AppServer::new_desktop_with_stores_and_workspace(
+        core,
+        console.path(),
+        String::from("memory-coding-token"),
+        Arc::new(MemoryCredentialStore::default()),
+        desktop_data.path(),
+        workspace.path(),
+    )
+    .expect("Desktop server should configure");
+    let task = tokio::spawn(server.run_http(listener));
+    let client = reqwest::Client::new();
+    let base = format!("http://{address}/api/workspace");
+
+    for (path, content) in [
+        ("memory/2026/09/05?section=daily", "  daily note  \n"),
+        ("memory/wiki/topic.md?section=digest", "  digest note  \n"),
+    ] {
+        let response = client
+            .put(format!("{base}/{path}"))
+            .json(&json!({"content": content}))
+            .send()
+            .await
+            .expect("Memory Markdown write should send");
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        assert_eq!(
+            response
+                .json::<Value>()
+                .await
+                .expect("Memory Markdown write should return JSON"),
+            json!({"written": true})
+        );
+    }
+    let daily = get_json(&client, format!("{base}/memory?section=daily")).await;
+    assert_eq!(daily.as_array().map(Vec::len), Some(1));
+    assert_eq!(daily[0]["filename"], json!("2026/09/05.md"));
+    assert!(daily[0]["path"].as_str().is_some_and(|path| {
+        Path::new(path)
+            == workspace
+                .path()
+                .join("memory/2026/09/05.md")
+                .canonicalize()
+                .expect("Memory fixture should resolve")
+    }));
+    assert!(daily[0]["size"].is_u64());
+    assert!(daily[0]["created_time"].is_string());
+    assert!(daily[0]["modified_time"].is_string());
+    let digest = get_json(&client, format!("{base}/memory?section=digest")).await;
+    assert_eq!(digest.as_array().map(Vec::len), Some(1));
+    assert_eq!(digest[0]["filename"], json!("wiki/topic.md"));
+    let legacy = get_json(&client, format!("{base}/memory")).await;
+    let mut legacy_names = legacy
+        .as_array()
+        .expect("legacy Memory listing should be an array")
+        .iter()
+        .map(|entry| entry["filename"].as_str().unwrap_or_default().to_owned())
+        .collect::<Vec<_>>();
+    legacy_names.sort();
+    assert_eq!(legacy_names, vec!["2026/09/05.md", "digest/wiki/topic.md"]);
+    assert_eq!(
+        get_json(
+            &client,
+            format!("{base}/memory/2026/09/05.md?section=daily"),
+        )
+        .await,
+        json!({"content": "daily note"})
+    );
+    assert_eq!(
+        get_json(&client, format!("{base}/memory/digest/wiki/topic.md")).await,
+        json!({"content": "digest note"})
+    );
+    let first_memory_write = client
+        .put(format!("{base}/memory/race.md?section=daily"))
+        .json(&json!({"content": "memory first"}))
+        .send();
+    let second_memory_write = client
+        .put(format!("{base}/memory/race.md?section=daily"))
+        .json(&json!({"content": "memory second"}))
+        .send();
+    let (first_memory_write, second_memory_write) =
+        tokio::join!(first_memory_write, second_memory_write);
+    assert_eq!(
+        first_memory_write
+            .expect("first concurrent Memory write should send")
+            .status(),
+        reqwest::StatusCode::OK
+    );
+    assert_eq!(
+        second_memory_write
+            .expect("second concurrent Memory write should send")
+            .status(),
+        reqwest::StatusCode::OK
+    );
+    assert!(matches!(
+        std::fs::read_to_string(workspace.path().join("memory/race.md"))
+            .expect("concurrently saved Memory file should be readable")
+            .as_str(),
+        "memory first" | "memory second"
+    ));
+
+    let invalid_section = client
+        .get(format!("{base}/memory?section=unknown"))
+        .send()
+        .await
+        .expect("invalid Memory section request should send");
+    assert_eq!(invalid_section.status(), reqwest::StatusCode::BAD_REQUEST);
+    let traversal = client
+        .get(format!(
+            "{base}/memory/folder%5C..%5Csecret.md?section=daily"
+        ))
+        .send()
+        .await
+        .expect("Memory traversal request should send");
+    assert_eq!(traversal.status(), reqwest::StatusCode::BAD_REQUEST);
+    let oversized = client
+        .put(format!("{base}/memory/large.md?section=daily"))
+        .json(&json!({"content": "x".repeat(5 * 1_024 * 1_024 + 1)}))
+        .send()
+        .await
+        .expect("oversized Memory write should send");
+    assert_eq!(oversized.status(), reqwest::StatusCode::PAYLOAD_TOO_LARGE);
+
+    let code_files = get_json(&client, format!("{base}/code-files")).await;
+    let code_paths = code_files
+        .as_array()
+        .expect("Coding file listing should be an array")
+        .iter()
+        .map(|entry| entry["path"].as_str().unwrap_or_default().to_owned())
+        .collect::<Vec<_>>();
+    assert!(code_paths.contains(&String::from("src/main.rs")));
+    assert!(!code_paths.iter().any(|path| path.starts_with(".git/")));
+    assert!(
+        !code_paths
+            .iter()
+            .any(|path| path.starts_with("node_modules/"))
+    );
+    let loaded = client
+        .get(format!("{base}/code-files/src/main.rs"))
+        .send()
+        .await
+        .expect("Coding file read should send");
+    assert_eq!(loaded.status(), reqwest::StatusCode::OK);
+    let etag = loaded
+        .headers()
+        .get(reqwest::header::ETAG)
+        .expect("Coding file ETag should exist")
+        .to_str()
+        .expect("Coding file ETag should be text")
+        .to_owned();
+    assert_eq!(
+        loaded
+            .json::<Value>()
+            .await
+            .expect("Coding file read should return JSON"),
+        json!({"path": "src/main.rs", "content": "fn main() {}\n"})
+    );
+    let cached = client
+        .get(format!("{base}/code-files/src/main.rs"))
+        .header(reqwest::header::IF_NONE_MATCH, &etag)
+        .send()
+        .await
+        .expect("conditional Coding file read should send");
+    assert_eq!(cached.status(), reqwest::StatusCode::NOT_MODIFIED);
+    assert_eq!(
+        cached.headers().get(reqwest::header::ETAG),
+        Some(&reqwest::header::HeaderValue::from_str(&etag).expect("ETag should parse"))
+    );
+    let saved = client
+        .put(format!("{base}/code-files/generated/nested.rs"))
+        .json(&json!({"content": "pub fn generated() {}\n"}))
+        .send()
+        .await
+        .expect("Coding file write should send");
+    assert_eq!(saved.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        saved
+            .json::<Value>()
+            .await
+            .expect("Coding file write should return JSON"),
+        json!({"path": "generated/nested.rs", "size": 22})
+    );
+    assert_eq!(
+        std::fs::read_to_string(workspace.path().join("generated/nested.rs"))
+            .expect("saved Coding file should be readable"),
+        "pub fn generated() {}\n"
+    );
+    let first_code_write = client
+        .put(format!("{base}/code-files/generated/race.rs"))
+        .json(&json!({"content": "code first"}))
+        .send();
+    let second_code_write = client
+        .put(format!("{base}/code-files/generated/race.rs"))
+        .json(&json!({"content": "code second"}))
+        .send();
+    let (first_code_write, second_code_write) = tokio::join!(first_code_write, second_code_write);
+    assert_eq!(
+        first_code_write
+            .expect("first concurrent Coding write should send")
+            .status(),
+        reqwest::StatusCode::OK
+    );
+    assert_eq!(
+        second_code_write
+            .expect("second concurrent Coding write should send")
+            .status(),
+        reqwest::StatusCode::OK
+    );
+    assert!(matches!(
+        std::fs::read_to_string(workspace.path().join("generated/race.rs"))
+            .expect("concurrently saved Coding file should be readable")
+            .as_str(),
+        "code first" | "code second"
+    ));
+    let unsafe_code_path = client
+        .put(format!("{base}/code-files/src%5C..%5Cescape.rs"))
+        .json(&json!({"content": "escape"}))
+        .send()
+        .await
+        .expect("unsafe Coding write should send");
+    assert_eq!(unsafe_code_path.status(), reqwest::StatusCode::BAD_REQUEST);
+
+    std::fs::write(workspace.path().join("untouched.txt"), "keep")
+        .expect("Workspace merge fixture should be written");
+    let downloaded = client
+        .get(format!("{base}/download"))
+        .send()
+        .await
+        .expect("Workspace archive download should send");
+    assert_eq!(downloaded.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        downloaded.headers().get(reqwest::header::CONTENT_TYPE),
+        Some(&reqwest::header::HeaderValue::from_static(
+            "application/zip"
+        ))
+    );
+    assert!(
+        downloaded
+            .headers()
+            .get(reqwest::header::CONTENT_DISPOSITION)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| {
+                value.starts_with("attachment; filename=\"qwenpaw_workspace_default_")
+                    && value.ends_with(".zip\"")
+            })
+    );
+    let archive_bytes = downloaded
+        .bytes()
+        .await
+        .expect("Workspace archive should stream");
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(archive_bytes))
+        .expect("Workspace download should be a ZIP archive");
+    assert_eq!(
+        std::io::read_to_string(
+            archive
+                .by_name("src/main.rs")
+                .expect("source file should be archived"),
+        )
+        .expect("archived source should be UTF-8"),
+        "fn main() {}\n"
+    );
+
+    let merge_zip = make_project_zip(&[
+        (
+            "bundle/src/main.rs",
+            b"fn main() { println!(\"merged\"); }\n",
+        ),
+        ("bundle/new/nested.txt", b"new file"),
+    ]);
+    let merged = multipart_request(
+        &client,
+        format!("{base}/upload"),
+        "file",
+        "workspace.zip",
+        &merge_zip,
+    )
+    .await;
+    assert_eq!(merged.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        merged
+            .json::<Value>()
+            .await
+            .expect("Workspace archive merge should return JSON"),
+        json!({"success": true})
+    );
+    assert_eq!(
+        std::fs::read_to_string(workspace.path().join("src/main.rs"))
+            .expect("merged source should be readable"),
+        "fn main() { println!(\"merged\"); }\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(workspace.path().join("new/nested.txt"))
+            .expect("new merged file should be readable"),
+        "new file"
+    );
+    assert_eq!(
+        std::fs::read_to_string(workspace.path().join("untouched.txt"))
+            .expect("unmentioned Workspace file should remain"),
+        "keep"
+    );
+    for (archive, status) in [
+        (
+            make_project_zip(&[("../archive-escape.txt", b"escape")]),
+            reqwest::StatusCode::BAD_REQUEST,
+        ),
+        (make_symlink_zip(), reqwest::StatusCode::BAD_REQUEST),
+        (
+            make_oversized_metadata_zip(),
+            reqwest::StatusCode::PAYLOAD_TOO_LARGE,
+        ),
+    ] {
+        let response = multipart_request(
+            &client,
+            format!("{base}/upload"),
+            "file",
+            "invalid.zip",
+            &archive,
+        )
+        .await;
+        assert_eq!(response.status(), status);
+    }
+    assert!(!workspace.path().join("archive-escape.txt").exists());
+
+    #[cfg(unix)]
+    {
+        let outside = tempfile::tempdir().expect("outside directory should be created");
+        std::fs::write(outside.path().join("secret.md"), "secret")
+            .expect("outside Memory fixture should be written");
+        std::os::unix::fs::symlink(
+            outside.path().join("secret.md"),
+            workspace.path().join("memory/link.md"),
+        )
+        .expect("Memory symlink should be created");
+        std::os::unix::fs::symlink(outside.path(), workspace.path().join("linked-code"))
+            .expect("Coding directory symlink should be created");
+        let linked_memory = client
+            .get(format!("{base}/memory/link.md?section=daily"))
+            .send()
+            .await
+            .expect("linked Memory request should send");
+        assert_eq!(linked_memory.status(), reqwest::StatusCode::BAD_REQUEST);
+        let linked_code = client
+            .get(format!("{base}/code-files/linked-code/secret.md"))
+            .send()
+            .await
+            .expect("linked Coding request should send");
+        assert_eq!(linked_code.status(), reqwest::StatusCode::BAD_REQUEST);
+    }
+
+    let mut running_config = get_json(&client, format!("{base}/running-config")).await;
+    running_config["reme_light_memory_config"]["daily_dir"] = json!("../outside");
+    let invalid_config = client
+        .put(format!("{base}/running-config"))
+        .json(&running_config)
+        .send()
+        .await
+        .expect("unsafe Memory configuration should send");
+    assert_eq!(invalid_config.status(), reqwest::StatusCode::BAD_REQUEST);
+
+    task.abort();
+    let _ = task.await;
+    let second_core = Core::persistent(model_config, &database).expect("second Core should open");
+    let second_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("second Desktop listener should bind");
+    let second_address = second_listener
+        .local_addr()
+        .expect("second Desktop listener should have an address");
+    let second_server = AppServer::new_desktop_with_stores_and_workspace(
+        second_core,
+        console.path(),
+        String::from("memory-coding-restart-token"),
+        Arc::new(MemoryCredentialStore::default()),
+        desktop_data.path(),
+        workspace.path(),
+    )
+    .expect("second Desktop server should configure");
+    let second_task = tokio::spawn(second_server.run_http(second_listener));
+    assert_eq!(
+        get_json(
+            &client,
+            format!("http://{second_address}/api/workspace/memory/digest/wiki/topic.md"),
+        )
+        .await,
+        json!({"content": "digest note"})
+    );
+    assert_eq!(
+        get_json(
+            &client,
+            format!("http://{second_address}/api/workspace/code-files/generated/nested.rs"),
+        )
+        .await,
+        json!({"path": "generated/nested.rs", "content": "pub fn generated() {}\n"})
+    );
+    second_task.abort();
+}
+
+#[tokio::test]
 async fn persists_access_control_across_desktop_restarts() {
     let console = tempfile::tempdir().expect("temporary Console should be created");
     let desktop_data = tempfile::tempdir().expect("temporary Desktop data should be created");

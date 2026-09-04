@@ -1,5 +1,7 @@
 use std::collections::HashSet;
 use std::convert::Infallible;
+use std::io::Cursor;
+use std::io::Read;
 use std::io::Write;
 use std::path::Component;
 use std::path::Path;
@@ -9,16 +11,21 @@ use std::time::UNIX_EPOCH;
 use axum::Json;
 use axum::Router;
 use axum::body::Body;
+use axum::body::Bytes;
 use axum::extract::DefaultBodyLimit;
 use axum::extract::Multipart;
 use axum::extract::Path as AxumPath;
 use axum::extract::Query;
 use axum::extract::State;
 use axum::http::HeaderMap;
+use axum::http::HeaderValue;
 use axum::http::StatusCode;
+use axum::http::header::CONTENT_DISPOSITION;
 use axum::http::header::CONTENT_LENGTH;
 use axum::http::header::CONTENT_TYPE;
 use axum::http::header::ETAG;
+use axum::http::header::IF_NONE_MATCH;
+use axum::response::IntoResponse;
 use axum::response::Response;
 use axum::response::Sse;
 use axum::response::sse::Event;
@@ -27,6 +34,7 @@ use axum::routing::get;
 use axum::routing::post;
 use chrono::DateTime;
 use chrono::SecondsFormat;
+use chrono::Utc;
 use futures_util::stream;
 use notify::EventKind;
 use notify::RecursiveMode;
@@ -38,9 +46,13 @@ use serde_json::Value;
 use serde_json::json;
 use sha2::Digest;
 use sha2::Sha256;
+use tokio::io::AsyncReadExt;
 use tokio_util::io::ReaderStream;
 use url::Url;
 use uuid::Uuid;
+use zip::ZipArchive;
+use zip::ZipWriter;
+use zip::write::SimpleFileOptions;
 
 use super::AppServer;
 
@@ -49,6 +61,12 @@ const MAX_DIRECTORY_ENTRIES: usize = 500;
 const DEFAULT_DIRECTORY_LIMIT: usize = 200;
 const MAX_TEXT_FILE_BYTES: usize = 8 * 1_024 * 1_024;
 const MAX_PROFILE_MARKDOWN_BYTES: usize = 1_024 * 1_024;
+const MAX_MEMORY_MARKDOWN_BYTES: usize = 5 * 1_024 * 1_024;
+const MAX_CODE_FILE_BYTES: usize = 5 * 1_024 * 1_024;
+const MAX_RECURSIVE_FILE_ENTRIES: usize = 100_000;
+const MAX_WORKSPACE_ARCHIVE_UPLOAD_BYTES: usize = 64 * 1_024 * 1_024;
+const MAX_WORKSPACE_ARCHIVE_EXPANDED_BYTES: u64 = 512 * 1_024 * 1_024;
+const MAX_WORKSPACE_ARCHIVE_ENTRIES: usize = 100_000;
 const MAX_CONTENT_CHUNK_BYTES: usize = 512 * 1_024;
 const MAX_UPLOAD_FILE_BYTES: usize = 32 * 1_024 * 1_024;
 const MAX_MULTIPART_BODY_BYTES: usize = MAX_UPLOAD_FILE_BYTES + 1_024 * 1_024;
@@ -67,6 +85,29 @@ pub(super) fn router() -> Router<AppServer> {
                 .layer(DefaultBodyLimit::max(
                     MAX_PROFILE_MARKDOWN_BYTES + 64 * 1_024,
                 )),
+        )
+        .route("/api/workspace/memory", get(list_memory_files))
+        .route(
+            "/api/workspace/memory/{*path}",
+            get(load_memory_file)
+                .put(save_memory_file)
+                .layer(DefaultBodyLimit::max(
+                    MAX_MEMORY_MARKDOWN_BYTES + 64 * 1_024,
+                )),
+        )
+        .route("/api/workspace/code-files", get(list_code_files))
+        .route(
+            "/api/workspace/code-files/{*path}",
+            get(load_code_file)
+                .put(save_code_file)
+                .layer(DefaultBodyLimit::max(MAX_CODE_FILE_BYTES + 64 * 1_024)),
+        )
+        .route("/api/workspace/download", get(download_workspace_archive))
+        .route(
+            "/api/workspace/upload",
+            post(upload_workspace_archive).layer(DefaultBodyLimit::max(
+                MAX_WORKSPACE_ARCHIVE_UPLOAD_BYTES + 1_024 * 1_024,
+            )),
         )
         .route("/api/workspace/tree", get(list_directory))
         .route("/api/workspace/file-metadata", get(file_metadata))
@@ -125,6 +166,12 @@ struct FileContentQuery {
 #[derive(Debug, Deserialize)]
 struct SaveFileRequest {
     content: String,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct MemoryQuery {
+    #[serde(default)]
+    section: Option<String>,
 }
 
 async fn list_profile_files(State(server): State<AppServer>) -> Result<Json<Value>, ApiError> {
@@ -237,6 +284,763 @@ fn normalize_profile_filename(value: &str) -> Result<String, ApiError> {
         return Err(bad_request("Profile Markdown file name is invalid"));
     }
     Ok(filename)
+}
+
+#[derive(Clone, Copy)]
+enum MemorySection {
+    Daily,
+    Digest,
+}
+
+struct MemoryRoots {
+    daily: PathBuf,
+    digest: PathBuf,
+}
+
+async fn list_memory_files(
+    State(server): State<AppServer>,
+    Query(query): Query<MemoryQuery>,
+) -> Result<Json<Value>, ApiError> {
+    let section = parse_memory_section(query.section.as_deref())?;
+    let roots = memory_roots(&server).await?;
+    let daily_exclusion = nested_directory(&roots.daily, &roots.digest);
+    let digest_exclusion = nested_directory(&roots.digest, &roots.daily);
+    let digest_prefix = roots.digest.file_name().map_or_else(
+        || String::from("digest/"),
+        |name| format!("{}/", name.to_string_lossy()),
+    );
+    let files = tokio::task::spawn_blocking(move || {
+        let mut files = Vec::new();
+        match section {
+            Some(MemorySection::Daily) => {
+                collect_memory_markdown(&roots.daily, "", daily_exclusion.as_deref(), &mut files)?;
+            }
+            Some(MemorySection::Digest) => {
+                collect_memory_markdown(
+                    &roots.digest,
+                    "",
+                    digest_exclusion.as_deref(),
+                    &mut files,
+                )?;
+            }
+            None => {
+                collect_memory_markdown(&roots.daily, "", daily_exclusion.as_deref(), &mut files)?;
+                collect_memory_markdown(
+                    &roots.digest,
+                    &digest_prefix,
+                    digest_exclusion.as_deref(),
+                    &mut files,
+                )?;
+            }
+        }
+        files.sort_by(|left, right| right.0.cmp(&left.0).then_with(|| left.1.cmp(&right.1)));
+        Ok::<_, ApiError>(
+            files
+                .into_iter()
+                .map(|(_, _, value)| value)
+                .collect::<Vec<_>>(),
+        )
+    })
+    .await
+    .map_err(|_| internal_error("Memory file listing task failed"))??;
+    Ok(Json(Value::Array(files)))
+}
+
+async fn load_memory_file(
+    State(server): State<AppServer>,
+    Query(query): Query<MemoryQuery>,
+    AxumPath(path): AxumPath<String>,
+) -> Result<Json<Value>, ApiError> {
+    let section = parse_memory_section(query.section.as_deref())?;
+    let relative = normalize_memory_path(&path)?;
+    let roots = memory_roots(&server).await?;
+    let (root, relative) = memory_target(&roots, section, &relative)?;
+    let path = resolve_existing_file_without_links(root, &relative)?;
+    let metadata = tokio::fs::metadata(&path)
+        .await
+        .map_err(|_| not_found("Memory Markdown file was not found"))?;
+    if metadata.len() > MAX_MEMORY_MARKDOWN_BYTES as u64 {
+        return Err(payload_too_large(
+            "Memory Markdown file exceeds the 5 MiB limit",
+        ));
+    }
+    let bytes = tokio::fs::read(path)
+        .await
+        .map_err(|_| not_found("Memory Markdown file could not be read"))?;
+    Ok(Json(json!({
+        "content": String::from_utf8_lossy(&bytes).trim()
+    })))
+}
+
+async fn save_memory_file(
+    State(server): State<AppServer>,
+    Query(query): Query<MemoryQuery>,
+    AxumPath(path): AxumPath<String>,
+    Json(request): Json<SaveFileRequest>,
+) -> Result<Json<Value>, ApiError> {
+    if request.content.len() > MAX_MEMORY_MARKDOWN_BYTES {
+        return Err(payload_too_large(
+            "Memory Markdown file exceeds the 5 MiB limit",
+        ));
+    }
+    let section = parse_memory_section(query.section.as_deref())?;
+    let relative = normalize_memory_path(&path)?;
+    let _guard = server.inner.desktop_project_lock.lock().await;
+    let roots = memory_roots(&server).await?;
+    let (root, relative) = memory_target(&roots, section, &relative)?;
+    let path = prepare_safe_write_path(root, &relative).await?;
+    write_file_atomically(&path, request.content.as_bytes()).await?;
+    Ok(Json(json!({"written": true})))
+}
+
+async fn list_code_files(State(server): State<AppServer>) -> Result<Json<Value>, ApiError> {
+    let workspace = desktop_workspace(&server)?;
+    let root = workspace.selected.read().await.clone();
+    let files = tokio::task::spawn_blocking(move || collect_code_files(&root))
+        .await
+        .map_err(|_| internal_error("Coding file listing task failed"))??;
+    Ok(Json(Value::Array(files)))
+}
+
+async fn load_code_file(
+    State(server): State<AppServer>,
+    headers: HeaderMap,
+    AxumPath(path): AxumPath<String>,
+) -> Result<Response, ApiError> {
+    let relative = parse_portable_relative_file_path(&path, "Coding file")?;
+    let workspace = desktop_workspace(&server)?;
+    let root = workspace.selected.read().await.clone();
+    let file = resolve_existing_file_without_links(&root, &relative)?;
+    let metadata = tokio::fs::metadata(&file)
+        .await
+        .map_err(|_| not_found("Coding file was not found"))?;
+    if metadata.len() > MAX_CODE_FILE_BYTES as u64 {
+        return Err(payload_too_large("Coding file exceeds the 5 MiB limit"));
+    }
+    let etag = weak_metadata_etag(&metadata);
+    if headers
+        .get(IF_NONE_MATCH)
+        .and_then(|value| value.to_str().ok())
+        == Some(etag.as_str())
+    {
+        let mut response = StatusCode::NOT_MODIFIED.into_response();
+        response.headers_mut().insert(
+            ETAG,
+            HeaderValue::from_str(&etag)
+                .map_err(|_| internal_error("Coding file ETag could not be encoded"))?,
+        );
+        return Ok(response);
+    }
+    let bytes = tokio::fs::read(file)
+        .await
+        .map_err(|_| not_found("Coding file could not be read"))?;
+    let mut response = Json(json!({
+        "path": relative_path_text(&relative),
+        "content": String::from_utf8_lossy(&bytes)
+    }))
+    .into_response();
+    response.headers_mut().insert(
+        ETAG,
+        HeaderValue::from_str(&etag)
+            .map_err(|_| internal_error("Coding file ETag could not be encoded"))?,
+    );
+    Ok(response)
+}
+
+async fn save_code_file(
+    State(server): State<AppServer>,
+    AxumPath(path): AxumPath<String>,
+    Json(request): Json<SaveFileRequest>,
+) -> Result<Json<Value>, ApiError> {
+    if request.content.len() > MAX_CODE_FILE_BYTES {
+        return Err(payload_too_large("Coding file exceeds the 5 MiB limit"));
+    }
+    let relative = parse_portable_relative_file_path(&path, "Coding file")?;
+    let _guard = server.inner.desktop_project_lock.lock().await;
+    let workspace = desktop_workspace(&server)?;
+    let root = workspace.selected.read().await.clone();
+    let file = prepare_safe_write_path(&root, &relative).await?;
+    write_file_atomically(&file, request.content.as_bytes()).await?;
+    Ok(Json(json!({
+        "path": relative_path_text(&relative),
+        "size": request.content.len()
+    })))
+}
+
+struct TemporaryArchive {
+    path: PathBuf,
+}
+
+impl Drop for TemporaryArchive {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+async fn download_workspace_archive(State(server): State<AppServer>) -> Result<Response, ApiError> {
+    let workspace = desktop_workspace(&server)?;
+    let root = workspace.selected.read().await.clone();
+    let (archive_path, archive_size) =
+        tokio::task::spawn_blocking(move || create_workspace_archive(&root))
+            .await
+            .map_err(|_| internal_error("Workspace archive creation task failed"))??;
+    let file = tokio::fs::File::open(&archive_path)
+        .await
+        .map_err(|_| internal_error("Workspace archive could not be opened"))?;
+    let guard = TemporaryArchive { path: archive_path };
+    let archive_stream = stream::unfold((Some(file), guard), |(file, guard)| async move {
+        let mut file = file?;
+        let mut buffer = vec![0_u8; 256 * 1_024];
+        match file.read(&mut buffer).await {
+            Ok(0) => None,
+            Ok(read) => {
+                buffer.truncate(read);
+                Some((
+                    Ok::<Bytes, std::io::Error>(Bytes::from(buffer)),
+                    (Some(file), guard),
+                ))
+            }
+            Err(error) => Some((Err(error), (None, guard))),
+        }
+    });
+    let filename = format!(
+        "qwenpaw_workspace_default_{}.zip",
+        Utc::now().format("%Y%m%d_%H%M%S")
+    );
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, "application/zip")
+        .header(CONTENT_LENGTH, archive_size)
+        .header(
+            CONTENT_DISPOSITION,
+            format!("attachment; filename=\"{filename}\""),
+        )
+        .body(Body::from_stream(archive_stream))
+        .map_err(|_| internal_error("Workspace archive response could not be created"))
+}
+
+async fn upload_workspace_archive(
+    State(server): State<AppServer>,
+    multipart: Multipart,
+) -> Result<Json<Value>, ApiError> {
+    let content = read_workspace_archive_upload(multipart).await?;
+    let _guard = server.inner.desktop_project_lock.lock().await;
+    let workspace = desktop_workspace(&server)?;
+    let root = workspace.selected.read().await.clone();
+    let staging = tempfile::tempdir()
+        .map_err(|_| internal_error("Workspace archive staging directory could not be created"))?;
+    let staging_path = staging.path().to_path_buf();
+    let extraction =
+        tokio::task::spawn_blocking(move || extract_workspace_archive(&content, &staging_path))
+            .await
+            .map_err(|_| internal_error("Workspace archive extraction task failed"))?;
+    extraction?;
+    let source = flattened_archive_root(staging.path())?;
+    let source_for_merge = source.clone();
+    let merge_result =
+        tokio::task::spawn_blocking(move || merge_workspace_archive(&source_for_merge, &root))
+            .await
+            .map_err(|_| internal_error("Workspace archive merge task failed"))?;
+    merge_result?;
+    Ok(Json(json!({"success": true})))
+}
+
+async fn read_workspace_archive_upload(mut multipart: Multipart) -> Result<Vec<u8>, ApiError> {
+    let mut content = None;
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|_| bad_request("Workspace archive upload is invalid"))?
+    {
+        if field.name() != Some("file") {
+            continue;
+        }
+        if content.is_some() {
+            return Err(bad_request(
+                "Workspace archive upload requires exactly one file",
+            ));
+        }
+        let supported_type = field.content_type().is_none_or(|content_type| {
+            matches!(
+                content_type,
+                "application/zip" | "application/x-zip-compressed" | "application/octet-stream"
+            )
+        });
+        if !supported_type {
+            return Err(bad_request("Workspace archive upload requires a ZIP file"));
+        }
+        let bytes = field
+            .bytes()
+            .await
+            .map_err(|_| bad_request("Workspace archive upload could not be read"))?;
+        if bytes.len() > MAX_WORKSPACE_ARCHIVE_UPLOAD_BYTES {
+            return Err(payload_too_large(
+                "Workspace archive exceeds the 64 MiB upload limit",
+            ));
+        }
+        content = Some(bytes.to_vec());
+    }
+    content.ok_or_else(|| bad_request("Workspace archive upload requires a file"))
+}
+
+fn create_workspace_archive(root: &Path) -> Result<(PathBuf, u64), ApiError> {
+    let temporary = tempfile::NamedTempFile::new()
+        .map_err(|_| internal_error("Workspace archive file could not be created"))?;
+    let archive_file = temporary
+        .reopen()
+        .map_err(|_| internal_error("Workspace archive file could not be opened"))?;
+    let mut writer = ZipWriter::new(archive_file);
+    let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    let mut directories = vec![root.to_path_buf()];
+    let mut entries_seen = 0_usize;
+    let mut expanded = 0_u64;
+    let mut archived_names = HashSet::new();
+    while let Some(directory) = directories.pop() {
+        let mut entries = std::fs::read_dir(&directory)
+            .map_err(|_| internal_error("Workspace directory could not be archived"))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| internal_error("Workspace archive entry could not be read"))?;
+        entries.sort_by_key(std::fs::DirEntry::file_name);
+        let mut child_directories = Vec::new();
+        for entry in entries {
+            entries_seen += 1;
+            if entries_seen > MAX_WORKSPACE_ARCHIVE_ENTRIES {
+                return Err(payload_too_large(
+                    "Workspace contains too many entries to archive",
+                ));
+            }
+            let path = entry.path();
+            let metadata = std::fs::symlink_metadata(&path)
+                .map_err(|_| internal_error("Workspace archive metadata could not be read"))?;
+            if is_link_or_junction(&metadata) {
+                continue;
+            }
+            let relative = relative_display(root, &path)?;
+            let archive_name = if metadata.is_dir() {
+                format!("{relative}/")
+            } else {
+                relative
+            };
+            if !archived_names.insert(archive_name.clone()) {
+                return Err(bad_request("Workspace contains colliding archive paths"));
+            }
+            if metadata.is_dir() {
+                writer
+                    .add_directory(&archive_name, options)
+                    .map_err(|_| internal_error("Workspace directory could not be archived"))?;
+                child_directories.push(path);
+                continue;
+            }
+            if !metadata.is_file() {
+                continue;
+            }
+            writer
+                .start_file(&archive_name, options)
+                .map_err(|_| internal_error("Workspace file could not be archived"))?;
+            let input = std::fs::File::open(&path)
+                .map_err(|_| internal_error("Workspace file could not be opened for archive"))?;
+            let remaining = MAX_WORKSPACE_ARCHIVE_EXPANDED_BYTES.saturating_sub(expanded);
+            let copied = std::io::copy(&mut input.take(remaining + 1), &mut writer)
+                .map_err(|_| internal_error("Workspace file could not be archived"))?;
+            expanded = expanded.saturating_add(copied);
+            if expanded > MAX_WORKSPACE_ARCHIVE_EXPANDED_BYTES {
+                return Err(payload_too_large(
+                    "Workspace exceeds the 512 MiB archive limit",
+                ));
+            }
+        }
+        for directory in child_directories.into_iter().rev() {
+            directories.push(directory);
+        }
+    }
+    let archive_file = writer
+        .finish()
+        .map_err(|_| internal_error("Workspace archive could not be finalized"))?;
+    archive_file
+        .sync_all()
+        .map_err(|_| internal_error("Workspace archive could not be flushed"))?;
+    drop(archive_file);
+    let archive_path = temporary
+        .into_temp_path()
+        .keep()
+        .map_err(|_| internal_error("Workspace archive could not be retained for download"))?;
+    let size = std::fs::metadata(&archive_path)
+        .map_err(|_| internal_error("Workspace archive metadata could not be read"))?
+        .len();
+    Ok((archive_path, size))
+}
+
+fn extract_workspace_archive(content: &[u8], staging: &Path) -> Result<(), ApiError> {
+    let mut archive = ZipArchive::new(Cursor::new(content))
+        .map_err(|_| bad_request("Uploaded file is not a valid ZIP archive"))?;
+    if archive.len() > MAX_WORKSPACE_ARCHIVE_ENTRIES {
+        return Err(payload_too_large(
+            "Workspace archive contains too many entries",
+        ));
+    }
+    let mut expanded = 0_u64;
+    let mut entries = Vec::with_capacity(archive.len());
+    let mut seen = HashSet::new();
+    for index in 0..archive.len() {
+        let file = archive
+            .by_index(index)
+            .map_err(|_| bad_request("Workspace archive entry could not be read"))?;
+        let enclosed = file
+            .enclosed_name()
+            .ok_or_else(|| bad_request("Workspace archive contains an unsafe path"))?
+            .clone();
+        validate_workspace_archive_path(&enclosed)?;
+        if file.is_symlink() {
+            return Err(bad_request(
+                "Workspace archive cannot contain symbolic links",
+            ));
+        }
+        expanded = expanded.saturating_add(file.size());
+        if expanded > MAX_WORKSPACE_ARCHIVE_EXPANDED_BYTES {
+            return Err(payload_too_large(
+                "Workspace archive expands beyond the 512 MiB limit",
+            ));
+        }
+        let comparable = relative_path_text(&enclosed).to_lowercase();
+        if !seen.insert(comparable) {
+            return Err(bad_request("Workspace archive contains duplicate paths"));
+        }
+        entries.push((enclosed, file.is_dir()));
+    }
+    for (index, (relative, is_directory)) in entries.into_iter().enumerate() {
+        let mut file = archive
+            .by_index(index)
+            .map_err(|_| bad_request("Workspace archive entry could not be read"))?;
+        let target = staging.join(relative);
+        if is_directory {
+            std::fs::create_dir_all(&target).map_err(|_| {
+                bad_request("Workspace archive contains conflicting directory paths")
+            })?;
+            continue;
+        }
+        let parent = target
+            .parent()
+            .ok_or_else(|| bad_request("Workspace archive contains an unsafe path"))?;
+        std::fs::create_dir_all(parent)
+            .map_err(|_| bad_request("Workspace archive contains conflicting paths"))?;
+        let mut output = std::fs::File::create(&target)
+            .map_err(|_| bad_request("Workspace archive contains conflicting file paths"))?;
+        std::io::copy(&mut file, &mut output)
+            .map_err(|_| bad_request("Workspace archive entry could not be extracted"))?;
+        output
+            .sync_all()
+            .map_err(|_| internal_error("Workspace archive entry could not be flushed"))?;
+    }
+    Ok(())
+}
+
+fn validate_workspace_archive_path(path: &Path) -> Result<(), ApiError> {
+    if path.as_os_str().is_empty()
+        || path.is_absolute()
+        || path
+            .components()
+            .any(|component| !matches!(component, Component::Normal(_)))
+    {
+        return Err(bad_request("Workspace archive contains an unsafe path"));
+    }
+    for component in path.components() {
+        if component.as_os_str().to_string_lossy().contains(':') {
+            return Err(bad_request("Workspace archive contains an unsafe path"));
+        }
+    }
+    Ok(())
+}
+
+fn flattened_archive_root(staging: &Path) -> Result<PathBuf, ApiError> {
+    let entries = std::fs::read_dir(staging)
+        .map_err(|_| internal_error("Workspace archive staging directory could not be read"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| internal_error("Workspace archive staging entry could not be read"))?;
+    if entries.len() == 1 {
+        let path = entries[0].path();
+        let metadata = std::fs::symlink_metadata(&path)
+            .map_err(|_| internal_error("Workspace archive staging entry could not be read"))?;
+        if metadata.is_dir() && !is_link_or_junction(&metadata) {
+            return Ok(path);
+        }
+    }
+    Ok(staging.to_path_buf())
+}
+
+fn merge_workspace_archive(source: &Path, target: &Path) -> Result<(), ApiError> {
+    let entries = collect_archive_merge_entries(source, target)?;
+    for (source, target, is_directory) in entries {
+        if is_directory {
+            if target
+                .symlink_metadata()
+                .is_ok_and(|metadata| metadata.is_file())
+            {
+                std::fs::remove_file(&target)
+                    .map_err(|_| internal_error("Workspace file could not be replaced"))?;
+            }
+            std::fs::create_dir_all(&target)
+                .map_err(|_| internal_error("Workspace directory could not be merged"))?;
+            continue;
+        }
+        let parent = target
+            .parent()
+            .ok_or_else(|| bad_request("Workspace archive target is invalid"))?;
+        let mut temporary = tempfile::NamedTempFile::new_in(parent)
+            .map_err(|_| internal_error("Workspace archive file could not be staged"))?;
+        let mut input = std::fs::File::open(source)
+            .map_err(|_| internal_error("Workspace archive file could not be read"))?;
+        let permissions = input
+            .metadata()
+            .map_err(|_| internal_error("Workspace archive file metadata could not be read"))?
+            .permissions();
+        temporary
+            .as_file()
+            .set_permissions(permissions)
+            .map_err(|_| internal_error("Workspace archive permissions could not be applied"))?;
+        std::io::copy(&mut input, &mut temporary)
+            .map_err(|_| internal_error("Workspace archive file could not be staged"))?;
+        temporary
+            .as_file()
+            .sync_all()
+            .map_err(|_| internal_error("Workspace archive file could not be flushed"))?;
+        temporary
+            .persist(target)
+            .map_err(|_| internal_error("Workspace archive file could not be installed"))?;
+    }
+    Ok(())
+}
+
+fn collect_archive_merge_entries(
+    source_root: &Path,
+    target_root: &Path,
+) -> Result<Vec<(PathBuf, PathBuf, bool)>, ApiError> {
+    let mut pending = vec![source_root.to_path_buf()];
+    let mut result = Vec::new();
+    while let Some(source_directory) = pending.pop() {
+        let mut entries = std::fs::read_dir(&source_directory)
+            .map_err(|_| internal_error("Workspace archive directory could not be read"))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| internal_error("Workspace archive entry could not be read"))?;
+        entries.sort_by_key(std::fs::DirEntry::file_name);
+        for entry in entries.into_iter().rev() {
+            let source = entry.path();
+            let metadata = std::fs::symlink_metadata(&source)
+                .map_err(|_| internal_error("Workspace archive metadata could not be read"))?;
+            if is_link_or_junction(&metadata) || (!metadata.is_dir() && !metadata.is_file()) {
+                return Err(bad_request("Workspace archive contains an unsafe entry"));
+            }
+            let relative = source
+                .strip_prefix(source_root)
+                .map_err(|_| bad_request("Workspace archive entry is outside its root"))?;
+            let target = target_root.join(relative);
+            if let Ok(existing) = std::fs::symlink_metadata(&target) {
+                if is_link_or_junction(&existing) {
+                    return Err(bad_request(
+                        "Workspace archive destination contains a symbolic link",
+                    ));
+                }
+                if metadata.is_file() && !existing.is_file() {
+                    return Err(bad_request(
+                        "Workspace archive file conflicts with an existing directory",
+                    ));
+                }
+                if metadata.is_dir() && !existing.is_dir() && !existing.is_file() {
+                    return Err(bad_request(
+                        "Workspace archive directory conflicts with a special file",
+                    ));
+                }
+            }
+            result.push((source.clone(), target, metadata.is_dir()));
+            if metadata.is_dir() {
+                pending.push(source);
+            }
+        }
+    }
+    result.sort_by(|left, right| {
+        let left_depth = left.1.components().count();
+        let right_depth = right.1.components().count();
+        left_depth
+            .cmp(&right_depth)
+            .then_with(|| right.2.cmp(&left.2))
+            .then_with(|| left.1.cmp(&right.1))
+    });
+    Ok(result)
+}
+
+fn parse_memory_section(value: Option<&str>) -> Result<Option<MemorySection>, ApiError> {
+    match value {
+        None => Ok(None),
+        Some("daily") => Ok(Some(MemorySection::Daily)),
+        Some("digest") => Ok(Some(MemorySection::Digest)),
+        Some(_) => Err(bad_request("Memory section must be daily or digest")),
+    }
+}
+
+async fn memory_roots(server: &AppServer) -> Result<MemoryRoots, ApiError> {
+    let workspace = desktop_workspace(server)?;
+    let selected = workspace.selected.read().await.clone();
+    let (daily, digest) = super::desktop_agent_settings::memory_directories(&server.inner.core)?;
+    let daily = ensure_safe_directory_tree(&selected, &daily).await?;
+    let digest = ensure_safe_directory_tree(&selected, &digest).await?;
+    Ok(MemoryRoots { daily, digest })
+}
+
+fn memory_target<'a>(
+    roots: &'a MemoryRoots,
+    section: Option<MemorySection>,
+    relative: &Path,
+) -> Result<(&'a Path, PathBuf), ApiError> {
+    match section {
+        Some(MemorySection::Daily) => Ok((&roots.daily, relative.to_path_buf())),
+        Some(MemorySection::Digest) => Ok((&roots.digest, relative.to_path_buf())),
+        None => {
+            let digest_name = roots
+                .digest
+                .file_name()
+                .ok_or_else(|| internal_error("Digest directory name is unavailable"))?;
+            let mut components = relative.components();
+            let first = components.next();
+            if first.is_some_and(|component| component.as_os_str() == digest_name)
+                && components.clone().next().is_some()
+            {
+                return Ok((&roots.digest, components.collect()));
+            }
+            Ok((&roots.daily, relative.to_path_buf()))
+        }
+    }
+}
+
+fn normalize_memory_path(value: &str) -> Result<PathBuf, ApiError> {
+    let mut normalized = value.replace('\\', "/");
+    if Path::new(&normalized)
+        .extension()
+        .is_none_or(|extension| extension != "md")
+    {
+        normalized.push_str(".md");
+    }
+    parse_portable_relative_file_path(&normalized, "Memory Markdown")
+}
+
+fn collect_memory_markdown(
+    root: &Path,
+    prefix: &str,
+    excluded_root: Option<&Path>,
+    result: &mut Vec<(Option<std::time::SystemTime>, String, Value)>,
+) -> Result<(), ApiError> {
+    let mut directories = vec![root.to_path_buf()];
+    let mut entries_seen = 0_usize;
+    while let Some(directory) = directories.pop() {
+        let mut entries = std::fs::read_dir(&directory)
+            .map_err(|_| internal_error("Memory directory could not be read"))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| internal_error("Memory directory entry could not be read"))?;
+        entries.sort_by_key(std::fs::DirEntry::file_name);
+        for entry in entries.into_iter().rev() {
+            entries_seen += 1;
+            if entries_seen > MAX_RECURSIVE_FILE_ENTRIES {
+                return Err(payload_too_large(
+                    "Memory directory contains too many entries",
+                ));
+            }
+            let path = entry.path();
+            if excluded_root.is_some_and(|excluded| path == excluded) {
+                continue;
+            }
+            let metadata = std::fs::symlink_metadata(&path)
+                .map_err(|_| internal_error("Memory file metadata could not be read"))?;
+            if is_link_or_junction(&metadata) {
+                continue;
+            }
+            if metadata.is_dir() {
+                directories.push(path);
+                continue;
+            }
+            if !metadata.is_file() || path.extension().is_none_or(|extension| extension != "md") {
+                continue;
+            }
+            let relative = relative_display(root, &path)?;
+            let filename = format!("{prefix}{relative}");
+            let modified = metadata.modified().ok();
+            result.push((
+                modified,
+                filename.clone(),
+                json!({
+                    "filename": filename,
+                    "path": path.to_string_lossy(),
+                    "size": metadata.len(),
+                    "created_time": metadata.created().map(timestamp_at).unwrap_or_default(),
+                    "modified_time": modified.map(timestamp_at).unwrap_or_default()
+                }),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn collect_code_files(root: &Path) -> Result<Vec<Value>, ApiError> {
+    let mut directories = vec![root.to_path_buf()];
+    let mut result = Vec::new();
+    let mut entries_seen = 0_usize;
+    while let Some(directory) = directories.pop() {
+        let mut entries = std::fs::read_dir(&directory)
+            .map_err(|_| internal_error("Coding directory could not be read"))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| internal_error("Coding directory entry could not be read"))?;
+        entries.sort_by_key(std::fs::DirEntry::file_name);
+        let mut child_directories = Vec::new();
+        for entry in entries {
+            entries_seen += 1;
+            if entries_seen > MAX_RECURSIVE_FILE_ENTRIES {
+                return Err(payload_too_large(
+                    "Coding directory contains too many entries",
+                ));
+            }
+            let name = entry.file_name();
+            let name_text = name.to_string_lossy();
+            if should_skip_code_name(&name_text) {
+                continue;
+            }
+            let path = entry.path();
+            let metadata = std::fs::symlink_metadata(&path)
+                .map_err(|_| internal_error("Coding file metadata could not be read"))?;
+            if is_link_or_junction(&metadata) {
+                continue;
+            }
+            if metadata.is_dir() {
+                child_directories.push(path);
+            } else if metadata.is_file() {
+                let relative = relative_display(root, &path)?;
+                result.push(json!({
+                    "filename": relative,
+                    "path": relative,
+                    "size": metadata.len(),
+                    "modified_time": metadata.modified().map(timestamp_at).unwrap_or_default()
+                }));
+            }
+        }
+        for directory in child_directories.into_iter().rev() {
+            directories.push(directory);
+        }
+    }
+    Ok(result)
+}
+
+fn should_skip_code_name(name: &str) -> bool {
+    name.starts_with('.')
+        || matches!(
+            name,
+            "__pycache__"
+                | ".venv"
+                | "node_modules"
+                | ".mypy_cache"
+                | ".pytest_cache"
+                | ".ruff_cache"
+                | ".hypothesis"
+        )
+}
+
+fn nested_directory(root: &Path, other: &Path) -> Option<PathBuf> {
+    (root != other && other.starts_with(root)).then(|| other.to_path_buf())
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -943,6 +1747,28 @@ fn parse_relative_file_path(value: &str) -> Result<PathBuf, ApiError> {
     Ok(path)
 }
 
+fn parse_portable_relative_file_path(value: &str, label: &str) -> Result<PathBuf, ApiError> {
+    if value.is_empty()
+        || value.len() > MAX_PATH_BYTES
+        || value.starts_with('/')
+        || value.ends_with('/')
+        || value.chars().any(char::is_control)
+    {
+        return Err(bad_request(&format!("{label} path is invalid")));
+    }
+    let normalized = value.replace('\\', "/");
+    let mut path = PathBuf::new();
+    for component in normalized.split('/') {
+        if component.is_empty() || matches!(component, "." | "..") || component.contains(':') {
+            return Err(bad_request(&format!(
+                "{label} path must be relative without traversal"
+            )));
+        }
+        path.push(component);
+    }
+    Ok(path)
+}
+
 fn parse_direct_file_name(value: &str) -> Result<&str, ApiError> {
     if value.is_empty()
         || value.len() > 512
@@ -1011,6 +1837,115 @@ fn resolve_write_file(root: &Path, relative: &Path) -> Result<PathBuf, ApiError>
         .file_name()
         .ok_or_else(|| bad_request("Workspace file name is invalid"))?;
     Ok(parent.join(name))
+}
+
+fn resolve_existing_file_without_links(root: &Path, relative: &Path) -> Result<PathBuf, ApiError> {
+    let mut current = root.to_path_buf();
+    for component in relative.components() {
+        let Component::Normal(component) = component else {
+            return Err(bad_request("Workspace file path is invalid"));
+        };
+        current.push(component);
+        let metadata = std::fs::symlink_metadata(&current)
+            .map_err(|_| not_found("Workspace file was not found"))?;
+        if is_link_or_junction(&metadata) {
+            return Err(bad_request("Workspace file path must not contain links"));
+        }
+    }
+    let canonical = current
+        .canonicalize()
+        .map_err(|_| not_found("Workspace file was not found"))?;
+    if !canonical.starts_with(root) || !canonical.is_file() {
+        return Err(not_found("Workspace file was not found"));
+    }
+    Ok(canonical)
+}
+
+async fn ensure_safe_directory_tree(root: &Path, relative: &Path) -> Result<PathBuf, ApiError> {
+    let mut current = root.to_path_buf();
+    for component in relative.components() {
+        let Component::Normal(component) = component else {
+            return Err(bad_request("Workspace directory path is invalid"));
+        };
+        current.push(component);
+        match tokio::fs::symlink_metadata(&current).await {
+            Ok(metadata) if is_link_or_junction(&metadata) || !metadata.is_dir() => {
+                return Err(bad_request(
+                    "Workspace directory path must contain only regular directories",
+                ));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                if let Err(create_error) = tokio::fs::create_dir(&current).await {
+                    if create_error.kind() != std::io::ErrorKind::AlreadyExists {
+                        return Err(internal_error("Workspace directory could not be created"));
+                    }
+                    let metadata = tokio::fs::symlink_metadata(&current).await.map_err(|_| {
+                        internal_error("Workspace directory could not be inspected")
+                    })?;
+                    if is_link_or_junction(&metadata) || !metadata.is_dir() {
+                        return Err(bad_request(
+                            "Workspace directory path must contain only regular directories",
+                        ));
+                    }
+                }
+            }
+            Err(_) => {
+                return Err(internal_error("Workspace directory could not be inspected"));
+            }
+        }
+    }
+    let canonical = current
+        .canonicalize()
+        .map_err(|_| internal_error("Workspace directory could not be resolved"))?;
+    if !canonical.starts_with(root) {
+        return Err(bad_request(
+            "Workspace directory resolves outside the Workspace",
+        ));
+    }
+    Ok(canonical)
+}
+
+async fn prepare_safe_write_path(root: &Path, relative: &Path) -> Result<PathBuf, ApiError> {
+    let parent = relative
+        .parent()
+        .ok_or_else(|| bad_request("Workspace write path is invalid"))?;
+    let parent = ensure_safe_directory_tree(root, parent).await?;
+    let name = relative
+        .file_name()
+        .ok_or_else(|| bad_request("Workspace file name is invalid"))?;
+    let target = parent.join(name);
+    match tokio::fs::symlink_metadata(&target).await {
+        Ok(metadata) if is_link_or_junction(&metadata) || !metadata.is_file() => {
+            Err(bad_request("Workspace write target must be a regular file"))
+        }
+        Ok(_) => Ok(target),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(target),
+        Err(_) => Err(internal_error(
+            "Workspace write target could not be inspected",
+        )),
+    }
+}
+
+fn relative_path_text(path: &Path) -> String {
+    path.components()
+        .map(|component| component.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+#[cfg(windows)]
+fn is_link_or_junction(metadata: &std::fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+    metadata.file_type().is_symlink()
+        || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+}
+
+#[cfg(not(windows))]
+fn is_link_or_junction(metadata: &std::fs::Metadata) -> bool {
+    metadata.file_type().is_symlink()
 }
 
 async fn read_text_file(path: &Path) -> Result<String, ApiError> {
@@ -1236,6 +2171,15 @@ fn metadata_etag(metadata: &std::fs::Metadata) -> String {
     let seconds = modified.as_ref().map_or(0, std::time::Duration::as_secs);
     let nanos = modified.map_or(0, |value| value.subsec_nanos());
     format!("\"m-{}-{seconds}-{nanos}\"", metadata.len())
+}
+
+fn weak_metadata_etag(metadata: &std::fs::Metadata) -> String {
+    let modified_nanos = metadata
+        .modified()
+        .ok()
+        .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
+        .map_or(0, |duration| duration.as_nanos());
+    format!("W/\"{modified_nanos}-{}\"", metadata.len())
 }
 
 fn content_etag(bytes: &[u8]) -> String {

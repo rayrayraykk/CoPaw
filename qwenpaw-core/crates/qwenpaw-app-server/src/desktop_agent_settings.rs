@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 use std::io::Write as _;
 use std::path::Path;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::Context as _;
@@ -208,6 +209,11 @@ pub(super) fn initialize(
         })
         .context("failed to initialize Desktop Agent templates")?;
     Ok(())
+}
+
+pub(super) fn memory_directories(core: &Core) -> Result<(PathBuf, PathBuf), ApiError> {
+    let settings = load_settings(core)?;
+    memory_directory_paths(&settings.running_config)
 }
 
 async fn get_running_config(State(server): State<AppServer>) -> Result<Json<Value>, ApiError> {
@@ -800,7 +806,36 @@ fn validate_running_config(config: &Value) -> Result<(), ApiError> {
     integer_range(config, "/loop/mission/max_iterations", 1, 100)?;
     integer_range(config, "/loop/mission/max_retries_per_story", 0, 10)?;
     validate_embedding(config)?;
+    memory_directory_paths(config)?;
     Ok(())
+}
+
+fn memory_directory_paths(config: &Value) -> Result<(PathBuf, PathBuf), ApiError> {
+    let daily = portable_memory_directory(string(config, "/reme_light_memory_config/daily_dir")?)?;
+    let digest =
+        portable_memory_directory(string(config, "/reme_light_memory_config/digest_dir")?)?;
+    if daily == digest {
+        return Err(bad_request(
+            "daily_dir and digest_dir must identify different directories",
+        ));
+    }
+    Ok((daily, digest))
+}
+
+fn portable_memory_directory(value: &str) -> Result<PathBuf, ApiError> {
+    let normalized = value.replace('\\', "/");
+    let invalid = normalized.is_empty()
+        || normalized.len() > 4_096
+        || normalized.starts_with('/')
+        || normalized.ends_with('/')
+        || normalized.chars().any(char::is_control)
+        || normalized
+            .split('/')
+            .any(|part| part.is_empty() || matches!(part, "." | "..") || part.contains(':'));
+    if invalid {
+        return Err(bad_request("Memory directory must be a safe relative path"));
+    }
+    Ok(normalized.split('/').collect())
 }
 
 fn validate_embedding(config: &Value) -> Result<(), ApiError> {

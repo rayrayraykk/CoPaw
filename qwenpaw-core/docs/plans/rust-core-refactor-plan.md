@@ -1093,6 +1093,21 @@ Inbox 读取、状态和持久化契约已完成；真实 Agent Cron、Heartbeat
 
 2026-09-05 本机验收：Rust workspace 129 个测试与严格 Clippy 通过；Console 295 个测试文件、2453 个测试、production build 和 inventory 防漂移通过，`console/src` 保持零改动。未修改的原 Files/Profile 页面完成 Fresh Start 8 个模板、打开编辑保存、启停、从 Workspace 添加、拖拽排序、刷新与 Core 重启恢复；5 次写请求均为 200，浏览器错误为 0。当前 inventory 为 370 个调用点、178 条 Rust 路由、169 个已注册调用点，其中 153 个非占位、16 个占位、201 个未注册和 11 个静态未解析表达式。macOS App/ZIP/QA DMG、Core archive、WebUI archive、TypeScript/Python SDK、universal/platform VSIX 与 legacy wheel 均使用本切片源码重建并完成反向安装或解包校验，`dist/SHA256SUMS` 9 个产物全部通过。
 
+#### 14.2.24.7 当前子切片：Workspace 剩余文件契约
+
+本子切片清零原 `console/src/api/modules/workspace.ts` 中尚未注册的调用，但不以文件 CRUD 冒充尚未实现的 Memory engine。Memory 图谱、自动采集、搜索索引与 reindex 仍由后续真正的 Memory runtime 切片跟踪。
+
+- [x] 完成 Workspace ZIP 下载，以及有大小、成员数、解压总量和路径安全限制的合并上传；
+- [x] 完成 daily/digest Memory Markdown 的递归列表、读取、原子保存与 legacy 无 section 路由；
+- [x] 完成 Coding Mode 递归文件列表、5 MiB 文本读取、ETag/304 与原子保存；
+- [x] 拒绝绝对路径、目录穿越、符号链接、特殊文件、ZIP bomb/zip-slip 和并发不安全写入；
+- [x] 补齐精确响应、错误、覆盖合并、缓存和重启后文件状态的 Rust HTTP 测试；
+- [x] 使用未修改的原 Files/Coding 页面逐项完成 Memory 打开编辑与代码文件打开编辑 E2E；
+- [x] 更新 inventory，确认 `console/src` 零改动并通过全量回归；
+- [x] 重建并逐个反向验证 Desktop、Core、WebUI、SDK、VSIX 与 legacy 产物。
+
+2026-09-05 本机验收：Rust workspace 130 个测试、格式检查与严格 Clippy 通过；Console 295 个测试文件、2453 个测试、production build 和 inventory 防漂移通过，`console/src` 保持零改动。未修改的原 Files/Coding 页面完成 daily、digest 与 Workspace 三类文件的展开、打开、Monaco 编辑、保存和 Core 重启恢复；3 次写请求均为 200，浏览器错误为 0。当前 inventory 为 370 个调用点、186 条 Rust 路由、180 个已注册调用点，其中 164 个非占位、16 个占位、190 个未注册和 11 个静态未解析表达式；`workspace.ts` 的 25 个调用点已全部注册且均非占位。macOS App/ZIP/QA DMG、Core archive、WebUI archive、TypeScript/Python SDK、universal/platform VSIX 与 legacy wheel 均使用本切片源码重建；9 个产物逐个完成执行、安装、解包或挂载反向验证，`dist/SHA256SUMS` 全部通过。
+
 ### 14.3 客户端与发布
 
 - [x] WebUI 启动与导航契约测试通过；

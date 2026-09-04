@@ -3,11 +3,11 @@
   "source": "console/src production TypeScript call sites",
   "callCount": 370,
   "unresolvedCount": 11,
-  "rustRouteCount": 178,
-  "registeredCallCount": 169,
+  "rustRouteCount": 186,
+  "registeredCallCount": 180,
   "placeholderCallCount": 16,
-  "nonPlaceholderRegisteredCallCount": 153,
-  "missingCallCount": 201,
+  "nonPlaceholderRegisteredCallCount": 164,
+  "missingCallCount": 190,
   "rustRoutes": [
     {
       "method": "ANY",
@@ -914,6 +914,34 @@
     },
     {
       "method": "GET",
+      "path": "/api/workspace/code-files",
+      "handler": "list_code_files",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_files.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspace/code-files/{*path}",
+      "handler": "load_code_file",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_files.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/workspace/code-files/{*path}",
+      "handler": "save_code_file",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_files.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspace/download",
+      "handler": "download_workspace_archive",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_files.rs"
+    },
+    {
+      "method": "GET",
       "path": "/api/workspace/file-content",
       "handler": "file_content",
       "placeholder": false,
@@ -1075,6 +1103,27 @@
     },
     {
       "method": "GET",
+      "path": "/api/workspace/memory",
+      "handler": "list_memory_files",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_files.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspace/memory/{*path}",
+      "handler": "load_memory_file",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_files.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/workspace/memory/{*path}",
+      "handler": "save_memory_file",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_files.rs"
+    },
+    {
+      "method": "GET",
       "path": "/api/workspace/project-directory",
       "handler": "project_directory",
       "placeholder": false,
@@ -1203,6 +1252,13 @@
       "method": "GET",
       "path": "/api/workspace/tree",
       "handler": "list_directory",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_files.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspace/upload",
+      "handler": "upload_workspace_archive",
       "placeholder": false,
       "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_files.rs"
     },
@@ -5382,7 +5438,7 @@
       "line": 293,
       "resolved": true,
       "apiPath": "/api/workspace/download",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5394,7 +5450,7 @@
       "line": 309,
       "resolved": true,
       "apiPath": "/api/workspace/upload",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5406,7 +5462,7 @@
       "line": 326,
       "resolved": true,
       "apiPath": "/api/workspace/memory{query}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5418,7 +5474,7 @@
       "line": 329,
       "resolved": true,
       "apiPath": "/api/workspace/memory/{value}{query}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5430,7 +5486,7 @@
       "line": 340,
       "resolved": true,
       "apiPath": "/api/workspace/memory/{value}{query}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5442,7 +5498,7 @@
       "line": 352,
       "resolved": true,
       "apiPath": "/api/workspace/memory",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5454,7 +5510,7 @@
       "line": 365,
       "resolved": true,
       "apiPath": "/api/workspace/memory/{value}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5466,7 +5522,7 @@
       "line": 368,
       "resolved": true,
       "apiPath": "/api/workspace/memory/{value}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5502,7 +5558,7 @@
       "line": 388,
       "resolved": true,
       "apiPath": "/api/workspace/code-files",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5514,7 +5570,7 @@
       "line": 412,
       "resolved": true,
       "apiPath": "/api/workspace/code-files/{value}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5526,7 +5582,7 @@
       "line": 440,
       "resolved": true,
       "apiPath": "/api/workspace/code-files/{value}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
