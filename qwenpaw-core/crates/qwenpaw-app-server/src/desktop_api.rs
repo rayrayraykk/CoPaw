@@ -652,7 +652,7 @@ async fn console_chat(
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }
 
-async fn track_pending_approval(server: &AppServer, event: &CoreEvent) {
+pub(super) async fn track_pending_approval(server: &AppServer, event: &CoreEvent) {
     match event {
         CoreEvent::ToolApprovalRequested(approval) => {
             let session_id = server
@@ -690,7 +690,7 @@ async fn track_pending_approval(server: &AppServer, event: &CoreEvent) {
     }
 }
 
-async fn clear_turn_approvals(server: &AppServer, turn_id: &str) {
+pub(super) async fn clear_turn_approvals(server: &AppServer, turn_id: &str) {
     server
         .inner
         .desktop_pending_approvals
@@ -814,7 +814,7 @@ async fn stop_console_chat(
     Json(json!({"stopped": stopped}))
 }
 
-async fn resolve_console_thread(
+pub(super) async fn resolve_console_thread(
     server: &AppServer,
     requested_session_id: Option<&str>,
     requested_workspace: Option<&str>,
@@ -855,7 +855,8 @@ async fn resolve_console_thread(
                 }
                 return Ok(requested.to_owned());
             }
-            Err(CoreError::ThreadNotFound(_)) if is_console_local_session_id(requested) => {}
+            Err(CoreError::ThreadNotFound(_))
+                if requested == "main" || is_console_local_session_id(requested) => {}
             Err(error) => return Err(api_error(&error)),
         }
     }

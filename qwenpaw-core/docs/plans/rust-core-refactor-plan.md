@@ -1170,6 +1170,22 @@ Inbox 读取、状态和持久化契约已完成；真实 Agent Cron、Heartbeat
 
 2026-09-05 本机验收：Rust workspace 147 个测试、格式检查与严格 Clippy 通过；Console 295 个测试文件、2453 个测试、production build 和 inventory 防漂移通过，`console/src` 保持零改动。未修改的原 Tool Offload 设置页、Chat 工具卡与后台任务面板连接 release Rust Core，完成策略保存/刷新/Core 重启恢复、真实长时 Shell 倒计时、延时、手动移入后台、后台 SSE 最终输出、单工具取消、Agent loop 继续响应和工具消息历史刷新恢复；19 个工具/策略请求均成功，浏览器错误为 0。浏览器验收同时校正了历史 ToolCall/ToolResult 的 `plugin_call` / `plugin_call_output` 精确消息结构，以及原前端空 JSON 取消请求的兼容行为。当前 inventory 为 370 个调用点、208 条 Rust 路由、204 个已注册调用点，其中 195 个非占位、9 个占位、166 个未注册和 11 个静态未解析表达式；Tool Calls 的 11 个调用点已全部注册且均非占位。TypeScript SDK 3 个、Python SDK 4 个真实 Core 测试与 VS Code 57 个测试全部通过。macOS App/ZIP/QA DMG、Core archive、WebUI archive、TypeScript/Python SDK、universal/platform VSIX 与 legacy wheel 均使用本切片源码重建；9 个产物逐个完成执行、安装、解包、清单校验、签名检查或只读挂载反向验证，`dist/SHA256SUMS` 全部通过。QA DMG 当前为 ad-hoc 签名，待用户提供 Apple 发布凭据后才能生成 Developer ID 签名和 notarized 正式包。
 
+#### 14.2.24.12 当前子切片：Heartbeat 配置与真实调度
+
+本子切片保持原 Heartbeat 与 Inbox 页面不变，移除 `/config/heartbeat` 的固定假数据并补齐保存与立即执行。Heartbeat 必须读取当前 Workspace 的 `HEARTBEAT.md` 并启动真实 Rust Agent Turn；配置保存成功必须热重排后台任务，Core 重启后继续生效。当前只对已实现的 Console 通道承诺 `last` 投递，尚未移植的外部 Channel runtime 仍由 Channels 总项跟踪。
+
+- [x] 建立有界、版本化的 Heartbeat 配置存储，精确兼容原字段并在 Core 重启后恢复；
+- [x] 实现配置校验、活动时段判断、执行超时、单实例并发抑制和可取消的热重排调度器；
+- [x] 每次执行读取当前 Workspace 的 `HEARTBEAT.md`，启动真实 Agent Turn，并处理缺失/空文件与失败状态；
+- [x] 实现 `main`、`inbox` 与当前 Console 范围内的 `last` 目标，Inbox 结果携带可读取的真实执行 trace；
+- [x] 完成 GET/PUT `/config/heartbeat` 与 POST `/config/heartbeat/run` 的原响应及错误契约；
+- [x] 覆盖非法配置、跨午夜活动时段、手工/定时执行、超时、并发、热重排和 Core 重启恢复测试；
+- [x] 使用未修改的原 Heartbeat 与 Inbox 页面验证读取、保存、刷新、自动执行、执行详情和重启恢复；
+- [x] 更新 inventory，确认 `console/src` 零改动并通过 Rust、Console 和客户端全量回归；
+- [x] 重建 Desktop、Core、WebUI、SDK、VSIX 与 legacy 全部 9 个发布产物，并逐个反向验证。
+
+2026-09-05 本机验收：Rust workspace 153 个测试、格式检查与严格 Clippy 通过；Console 295 个测试文件、2453 个测试、production build 和 inventory 防漂移通过，`console/src` 保持零改动。未修改的原 Heartbeat 与 Inbox 页面连接 release Rust Core，完成配置保存/刷新、自动调度、真实 Agent Turn、Inbox trace 展示和 Core 重启恢复；18 个 Heartbeat 请求均成功，浏览器错误为 0。HTTP 契约另覆盖 `main`、`last`、`inbox`、缺失/空 `HEARTBEAT.md`、跨午夜活动时段、热重排、并发抑制和执行超时。当前 inventory 为 370 个调用点、210 条 Rust 路由、206 个已注册调用点，其中 198 个非占位、8 个占位、164 个未注册和 11 个静态未解析表达式；Heartbeat 的 3 个调用点已全部注册且均非占位。TypeScript SDK 3 个、Python SDK 4 个真实 Core 测试与 VS Code 57 个测试全部通过。macOS App/ZIP/QA DMG、Core archive、WebUI archive、TypeScript/Python SDK、universal/platform VSIX 与 legacy wheel 均使用本切片源码重建；9 个产物逐个完成执行、安装、解包、清单校验、签名检查或只读挂载反向验证，`dist/SHA256SUMS` 全部通过。QA DMG 当前为 ad-hoc 签名，待用户提供 Apple 发布凭据后才能生成 Developer ID 签名和 notarized 正式包。
+
 ### 14.3 客户端与发布
 
 - [x] WebUI 启动与导航契约测试通过；

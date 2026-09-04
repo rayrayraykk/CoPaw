@@ -113,6 +113,7 @@ const INBOX_DATA_SETTING: &str = "desktop_inbox_data";
 const CHAT_CATALOG_DATA_SETTING: &str = "desktop_chat_catalog_data";
 const CHANNEL_CONFIG_DATA_SETTING: &str = "desktop_channel_config_data";
 const AGENT_SETTINGS_DATA_SETTING: &str = "desktop_agent_settings_data";
+const HEARTBEAT_DATA_SETTING: &str = "desktop_heartbeat_data";
 const BUILTIN_TOOL_OVERRIDES_SETTING: &str = "builtin_tool_overrides";
 const TOOL_OFFLOAD_POLICY_SETTING: &str = "tool_offload_policy";
 const DEFAULT_UI_LANGUAGE: &str = "en";
@@ -1041,6 +1042,30 @@ impl Core {
         self.inner
             .store
             .write_settings(&[(AGENT_SETTINGS_DATA_SETTING, value)])
+            .map_err(CoreError::storage)
+    }
+
+    /// Reads the serialized Desktop Heartbeat configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Core settings store cannot be read.
+    pub fn read_heartbeat_data(&self) -> Result<Option<String>, CoreError> {
+        self.inner
+            .store
+            .read_setting(HEARTBEAT_DATA_SETTING)
+            .map_err(CoreError::storage)
+    }
+
+    /// Atomically persists the serialized Desktop Heartbeat configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Core settings store cannot be written.
+    pub fn write_heartbeat_data(&self, value: &str) -> Result<(), CoreError> {
+        self.inner
+            .store
+            .write_settings(&[(HEARTBEAT_DATA_SETTING, value)])
             .map_err(CoreError::storage)
     }
 

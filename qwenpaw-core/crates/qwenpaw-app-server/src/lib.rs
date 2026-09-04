@@ -87,6 +87,7 @@ mod desktop_cron;
 mod desktop_environment;
 mod desktop_files;
 mod desktop_git;
+mod desktop_heartbeat;
 mod desktop_inbox;
 mod desktop_mail_access_control;
 mod desktop_navigation;
@@ -128,6 +129,9 @@ struct AppServerInner {
     desktop_cron_lock: tokio::sync::Mutex<()>,
     desktop_environment_lock: tokio::sync::Mutex<()>,
     desktop_git_lock: tokio::sync::Mutex<()>,
+    desktop_heartbeat_lock: tokio::sync::Mutex<()>,
+    desktop_heartbeat_revision: tokio::sync::watch::Sender<u64>,
+    desktop_heartbeat_running: std::sync::atomic::AtomicBool,
     desktop_project_lock: tokio::sync::Mutex<()>,
     desktop_credentials: Option<Arc<dyn DesktopCredentialStore>>,
     desktop_workspace: Option<DesktopWorkspace>,
@@ -195,6 +199,9 @@ impl AppServer {
                 desktop_cron_lock: tokio::sync::Mutex::new(()),
                 desktop_environment_lock: tokio::sync::Mutex::new(()),
                 desktop_git_lock: tokio::sync::Mutex::new(()),
+                desktop_heartbeat_lock: tokio::sync::Mutex::new(()),
+                desktop_heartbeat_revision: tokio::sync::watch::channel(0).0,
+                desktop_heartbeat_running: std::sync::atomic::AtomicBool::new(false),
                 desktop_project_lock: tokio::sync::Mutex::new(()),
                 desktop_credentials: None,
                 desktop_workspace: None,
@@ -381,6 +388,9 @@ impl AppServer {
                 desktop_cron_lock: tokio::sync::Mutex::new(()),
                 desktop_environment_lock: tokio::sync::Mutex::new(()),
                 desktop_git_lock: tokio::sync::Mutex::new(()),
+                desktop_heartbeat_lock: tokio::sync::Mutex::new(()),
+                desktop_heartbeat_revision: tokio::sync::watch::channel(0).0,
+                desktop_heartbeat_running: std::sync::atomic::AtomicBool::new(false),
                 desktop_project_lock: tokio::sync::Mutex::new(()),
                 desktop_credentials: Some(desktop_credentials),
                 desktop_workspace: Some(desktop_workspace),
@@ -455,10 +465,20 @@ impl AppServer {
             "HTTP App Protocol requires a loopback listener"
         );
         let shutdown = self.inner.shutdown.clone();
-        axum::serve(listener, self.router())
+        let heartbeat = self
+            .inner
+            .desktop_workspace
+            .is_some()
+            .then(|| desktop_heartbeat::spawn_scheduler(&self));
+        let result = axum::serve(listener, self.router())
             .with_graceful_shutdown(shutdown.cancelled_owned())
             .await
-            .context("QwenPaw HTTP app server failed")
+            .context("QwenPaw HTTP app server failed");
+        if let Some(heartbeat) = heartbeat {
+            heartbeat.abort();
+            let _ = heartbeat.await;
+        }
+        result
     }
 
     /// Enables bearer authentication for remote WSS handshakes.
@@ -544,6 +564,7 @@ impl AppServer {
                 .merge(desktop_environment::router())
                 .merge(desktop_files::router())
                 .merge(desktop_git::router())
+                .merge(desktop_heartbeat::router())
                 .merge(desktop_inbox::router())
                 .merge(desktop_mail_access_control::router())
                 .merge(desktop_navigation::router())

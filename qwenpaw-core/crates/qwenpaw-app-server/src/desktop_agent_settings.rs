@@ -216,6 +216,10 @@ pub(super) fn memory_directories(core: &Core) -> Result<(PathBuf, PathBuf), ApiE
     memory_directory_paths(&settings.running_config)
 }
 
+pub(super) fn user_timezone(core: &Core) -> Result<String, ApiError> {
+    Ok(load_settings(core)?.user_timezone)
+}
+
 async fn get_running_config(State(server): State<AppServer>) -> Result<Json<Value>, ApiError> {
     let _guard = server.inner.desktop_agent_settings_lock.lock().await;
     let settings = load_settings(&server.inner.core)?;

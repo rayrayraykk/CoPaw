@@ -5400,6 +5400,476 @@ async fn controls_and_streams_a_real_background_tool_call() {
 }
 
 #[tokio::test]
+#[allow(clippy::too_many_lines)]
+async fn persists_reschedules_and_records_real_heartbeat_runs() {
+    let (model_base_url, model_requests) =
+        start_heartbeat_model_server(Duration::from_millis(100)).await;
+    let console = tempfile::tempdir().expect("temporary Console should be created");
+    let desktop_data = tempfile::tempdir().expect("temporary Desktop data should be created");
+    let database = desktop_data.path().join("threads.sqlite3");
+    std::fs::write(console.path().join("index.html"), "<html>console</html>")
+        .expect("Console index should be written");
+    std::fs::write(
+        desktop_data.path().join("HEARTBEAT.md"),
+        "Report heartbeat health",
+    )
+    .expect("Heartbeat query should be written");
+    let model_config = ModelConfig {
+        api_key: Some(String::from("test-key")),
+        base_url: model_base_url,
+        default_model: String::from("qwen-test"),
+    };
+    let core = Core::persistent(model_config.clone(), &database)
+        .expect("persistent Heartbeat Core should open");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("Heartbeat listener should bind");
+    let address = listener
+        .local_addr()
+        .expect("Heartbeat listener should have an address");
+    let server = new_isolated_desktop(
+        core.clone(),
+        console.path(),
+        String::from("desktop-heartbeat-token"),
+        Arc::new(MemoryCredentialStore::default()),
+        desktop_data.path(),
+    )
+    .expect("Heartbeat server should configure");
+    let task = tokio::spawn(server.run_http(listener));
+    let client = reqwest::Client::new();
+    let base = format!("http://{address}/api");
+    assert_eq!(
+        get_json(&client, format!("{base}/config/heartbeat")).await,
+        json!({
+            "enabled": false,
+            "every": "6h",
+            "target": "main",
+            "timeoutSeconds": 300,
+            "activeHours": null
+        })
+    );
+    let invalid = client
+        .put(format!("{base}/config/heartbeat"))
+        .json(&json!({
+            "enabled": true,
+            "every": "0m",
+            "target": "inbox",
+            "timeoutSeconds": 5,
+            "activeHours": null
+        }))
+        .send()
+        .await
+        .expect("invalid Heartbeat request should send");
+    assert_eq!(invalid.status(), reqwest::StatusCode::UNPROCESSABLE_ENTITY);
+    let configured = json!({
+        "enabled": true,
+        "every": "1s",
+        "target": "inbox",
+        "timeoutSeconds": 5,
+        "activeHours": null
+    });
+    let saved = client
+        .put(format!("{base}/config/heartbeat"))
+        .json(&configured)
+        .send()
+        .await
+        .expect("Heartbeat save request should send");
+    assert_eq!(saved.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        saved
+            .json::<Value>()
+            .await
+            .expect("Heartbeat save should be JSON"),
+        configured
+    );
+    let first = client
+        .post(format!("{base}/config/heartbeat/run"))
+        .send()
+        .await
+        .expect("manual Heartbeat should send")
+        .json::<Value>()
+        .await
+        .expect("manual Heartbeat should be JSON");
+    let concurrent = client
+        .post(format!("{base}/config/heartbeat/run"))
+        .send()
+        .await
+        .expect("concurrent Heartbeat should send")
+        .json::<Value>()
+        .await
+        .expect("concurrent Heartbeat should be JSON");
+    assert_eq!(first, json!({"started": true}));
+    assert_eq!(concurrent, json!({"started": false}));
+
+    let event = wait_for_inbox_source(&client, &base, "heartbeat").await;
+    assert_eq!(event["agent_id"], json!("default"));
+    assert_eq!(event["source_type"], json!("heartbeat"));
+    assert_eq!(event["source_id"], json!("_heartbeat"));
+    assert_eq!(event["event_type"], json!("heartbeat_result"));
+    assert_eq!(event["status"], json!("success"));
+    assert_eq!(event["severity"], json!("info"));
+    assert_eq!(event["title"], json!("Heartbeat result"));
+    assert_eq!(event["body"], json!("Heartbeat healthy"));
+    assert_eq!(event["read"], json!(false));
+    assert_eq!(event["payload"]["target"], json!("inbox"));
+    let run_id = event["payload"]["run_id"]
+        .as_str()
+        .expect("Heartbeat event should reference a trace");
+    let trace = get_json(&client, format!("{base}/console/inbox/traces/{run_id}")).await;
+    assert_eq!(trace["run_id"], json!(run_id));
+    assert_eq!(trace["status"], json!("success"));
+    assert_eq!(trace["meta"]["source"], json!("heartbeat"));
+    assert_eq!(trace["meta"]["target"], json!("inbox"));
+    assert_eq!(
+        trace["events"][0]["event"]["content"][0],
+        json!({"type": "text", "text": "Report heartbeat health"})
+    );
+    assert_eq!(
+        trace["events"][1]["event"]["content"][0],
+        json!({"type": "text", "text": "Heartbeat healthy"})
+    );
+
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while model_requests.load(Ordering::SeqCst) < 2 {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("scheduled Heartbeat should execute after hot reschedule");
+    let disabled = json!({
+        "enabled": false,
+        "every": "1s",
+        "target": "inbox",
+        "timeoutSeconds": 5,
+        "activeHours": null
+    });
+    let response = client
+        .put(format!("{base}/config/heartbeat"))
+        .json(&disabled)
+        .send()
+        .await
+        .expect("Heartbeat disable request should send");
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    tokio::time::sleep(Duration::from_millis(250)).await;
+    let requests_after_disable = model_requests.load(Ordering::SeqCst);
+    tokio::time::sleep(Duration::from_millis(1_200)).await;
+    assert_eq!(
+        model_requests.load(Ordering::SeqCst),
+        requests_after_disable
+    );
+    task.abort();
+    let _ = task.await;
+    drop(core);
+
+    let reopened = Core::persistent(model_config, &database).expect("Heartbeat Core should reopen");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("reopened Heartbeat listener should bind");
+    let reopened_address = listener
+        .local_addr()
+        .expect("reopened Heartbeat listener should have an address");
+    let server = new_isolated_desktop(
+        reopened,
+        console.path(),
+        String::from("desktop-heartbeat-reopen-token"),
+        Arc::new(MemoryCredentialStore::default()),
+        desktop_data.path(),
+    )
+    .expect("reopened Heartbeat server should configure");
+    let reopened_task = tokio::spawn(server.run_http(listener));
+    assert_eq!(
+        get_json(
+            &client,
+            format!("http://{reopened_address}/api/config/heartbeat"),
+        )
+        .await,
+        disabled
+    );
+    reopened_task.abort();
+}
+
+#[tokio::test]
+async fn times_out_a_real_inbox_heartbeat_and_suppresses_overlap() {
+    let (model_base_url, model_requests) =
+        start_heartbeat_model_server(Duration::from_secs(5)).await;
+    let console = tempfile::tempdir().expect("temporary Console should be created");
+    let desktop_data = tempfile::tempdir().expect("temporary Desktop data should be created");
+    std::fs::write(console.path().join("index.html"), "<html>console</html>")
+        .expect("Console index should be written");
+    std::fs::write(desktop_data.path().join("HEARTBEAT.md"), "Run slowly")
+        .expect("slow Heartbeat query should be written");
+    let core = Core::new(ModelConfig {
+        api_key: Some(String::from("test-key")),
+        base_url: model_base_url,
+        default_model: String::from("qwen-test"),
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("slow Heartbeat listener should bind");
+    let address = listener
+        .local_addr()
+        .expect("slow Heartbeat listener should have an address");
+    let server = new_isolated_desktop(
+        core,
+        console.path(),
+        String::from("desktop-heartbeat-timeout-token"),
+        Arc::new(MemoryCredentialStore::default()),
+        desktop_data.path(),
+    )
+    .expect("slow Heartbeat server should configure");
+    let task = tokio::spawn(server.run_http(listener));
+    let client = reqwest::Client::new();
+    let base = format!("http://{address}/api");
+    let response = client
+        .put(format!("{base}/config/heartbeat"))
+        .json(&json!({
+            "enabled": false,
+            "every": "1m",
+            "target": "inbox",
+            "timeoutSeconds": 1,
+            "activeHours": null
+        }))
+        .send()
+        .await
+        .expect("slow Heartbeat configuration should send");
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        client
+            .post(format!("{base}/config/heartbeat/run"))
+            .send()
+            .await
+            .expect("slow Heartbeat should send")
+            .json::<Value>()
+            .await
+            .expect("slow Heartbeat should be JSON"),
+        json!({"started": true})
+    );
+    assert_eq!(
+        client
+            .post(format!("{base}/config/heartbeat/run"))
+            .send()
+            .await
+            .expect("overlapping Heartbeat should send")
+            .json::<Value>()
+            .await
+            .expect("overlapping Heartbeat should be JSON"),
+        json!({"started": false})
+    );
+    let event = wait_for_inbox_source(&client, &base, "heartbeat").await;
+    assert_eq!(event["event_type"], json!("heartbeat_timeout"));
+    assert_eq!(event["status"], json!("error"));
+    assert_eq!(event["severity"], json!("error"));
+    assert_eq!(event["title"], json!("Heartbeat timed out"));
+    assert_eq!(event["body"], json!("Heartbeat run timed out after 1s."));
+    let run_id = event["payload"]["run_id"]
+        .as_str()
+        .expect("timed out Heartbeat should reference a trace");
+    let trace = get_json(&client, format!("{base}/console/inbox/traces/{run_id}")).await;
+    assert_eq!(trace["status"], json!("timeout"));
+    assert_eq!(trace["error"], json!("Heartbeat run timed out after 1s."));
+    assert_eq!(model_requests.load(Ordering::SeqCst), 1);
+    task.abort();
+}
+
+#[tokio::test]
+#[allow(clippy::too_many_lines)]
+async fn runs_last_target_in_the_most_recent_console_session() {
+    let (model_base_url, model_requests) =
+        start_heartbeat_model_server(Duration::from_millis(10)).await;
+    let console = tempfile::tempdir().expect("temporary Console should be created");
+    let desktop_data = tempfile::tempdir().expect("temporary Desktop data should be created");
+    std::fs::write(console.path().join("index.html"), "<html>console</html>")
+        .expect("Console index should be written");
+    std::fs::write(
+        desktop_data.path().join("HEARTBEAT.md"),
+        "Report to the last Console session",
+    )
+    .expect("last-target Heartbeat query should be written");
+    let core = Core::new(ModelConfig {
+        api_key: Some(String::from("test-key")),
+        base_url: model_base_url,
+        default_model: String::from("qwen-test"),
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("last-target Heartbeat listener should bind");
+    let address = listener
+        .local_addr()
+        .expect("last-target Heartbeat listener should have an address");
+    let server = new_isolated_desktop(
+        core,
+        console.path(),
+        String::from("desktop-heartbeat-last-token"),
+        Arc::new(MemoryCredentialStore::default()),
+        desktop_data.path(),
+    )
+    .expect("last-target Heartbeat server should configure");
+    let task = tokio::spawn(server.run_http(listener));
+    let client = reqwest::Client::new();
+    let base = format!("http://{address}/api");
+    let session_id = "1700000000004-heartbeatlast";
+    let initial = client
+        .post(format!("{base}/console/chat"))
+        .json(&json!({
+            "input": [{"role": "user", "content": "Open recent chat"}],
+            "session_id": session_id,
+            "stream": true
+        }))
+        .send()
+        .await
+        .expect("initial Console chat should send");
+    assert_eq!(initial.status(), reqwest::StatusCode::OK);
+    let _ = initial
+        .text()
+        .await
+        .expect("initial Console chat should complete");
+    let response = client
+        .put(format!("{base}/config/heartbeat"))
+        .json(&json!({
+            "enabled": false,
+            "every": "1m",
+            "target": "last",
+            "timeoutSeconds": 5,
+            "activeHours": null
+        }))
+        .send()
+        .await
+        .expect("last-target Heartbeat configuration should send");
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        client
+            .post(format!("{base}/config/heartbeat/run"))
+            .send()
+            .await
+            .expect("last-target Heartbeat should send")
+            .json::<Value>()
+            .await
+            .expect("last-target Heartbeat should be JSON"),
+        json!({"started": true})
+    );
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while model_requests.load(Ordering::SeqCst) < 2 {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("last-target Heartbeat should call the model");
+    let chats = get_json(&client, format!("{base}/chats?archived=false")).await;
+    let thread_id = chats
+        .as_array()
+        .expect("chat list should be an array")
+        .iter()
+        .find(|chat| chat["session_id"] == json!(session_id))
+        .and_then(|chat| chat["id"].as_str())
+        .expect("recent Console chat should remain listed");
+    let history = tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let history = get_json(&client, format!("{base}/chats/{thread_id}")).await;
+            if history["messages"].as_array().is_some_and(|items| {
+                items.iter().any(|item| {
+                    item["role"] == json!("user")
+                        && item["content"][0]["text"] == json!("Report to the last Console session")
+                })
+            }) {
+                return history;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("last-target Heartbeat should persist in the recent chat");
+    assert!(history["messages"].as_array().is_some_and(|items| {
+        items.iter().any(|item| {
+            item["role"] == json!("assistant")
+                && item["content"][0]["text"] == json!("Heartbeat healthy")
+        })
+    }));
+    assert_eq!(
+        get_json(
+            &client,
+            format!("{base}/console/inbox/events?source_type=heartbeat"),
+        )
+        .await,
+        json!({"events": [], "total": 0, "unread_count": 0})
+    );
+    task.abort();
+}
+
+#[tokio::test]
+async fn skips_missing_and_empty_heartbeat_queries_without_fake_results() {
+    let (model_base_url, model_requests) =
+        start_heartbeat_model_server(Duration::from_millis(10)).await;
+    let console = tempfile::tempdir().expect("temporary Console should be created");
+    let desktop_data = tempfile::tempdir().expect("temporary Desktop data should be created");
+    std::fs::write(console.path().join("index.html"), "<html>console</html>")
+        .expect("Console index should be written");
+    let core = Core::new(ModelConfig {
+        api_key: Some(String::from("test-key")),
+        base_url: model_base_url,
+        default_model: String::from("qwen-test"),
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("skipped Heartbeat listener should bind");
+    let address = listener
+        .local_addr()
+        .expect("skipped Heartbeat listener should have an address");
+    let server = new_isolated_desktop(
+        core,
+        console.path(),
+        String::from("desktop-heartbeat-skip-token"),
+        Arc::new(MemoryCredentialStore::default()),
+        desktop_data.path(),
+    )
+    .expect("skipped Heartbeat server should configure");
+    std::fs::remove_file(desktop_data.path().join("HEARTBEAT.md"))
+        .expect("initialized Heartbeat template should be removed for the missing-file case");
+    let task = tokio::spawn(server.run_http(listener));
+    let client = reqwest::Client::new();
+    let base = format!("http://{address}/api");
+    assert_eq!(
+        client
+            .post(format!("{base}/config/heartbeat/run"))
+            .send()
+            .await
+            .expect("missing-file Heartbeat should send")
+            .json::<Value>()
+            .await
+            .expect("missing-file Heartbeat should be JSON"),
+        json!({"started": true})
+    );
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    std::fs::write(desktop_data.path().join("HEARTBEAT.md"), "  \n")
+        .expect("empty Heartbeat query should be written");
+    assert_eq!(
+        client
+            .post(format!("{base}/config/heartbeat/run"))
+            .send()
+            .await
+            .expect("empty-file Heartbeat should send")
+            .json::<Value>()
+            .await
+            .expect("empty-file Heartbeat should be JSON"),
+        json!({"started": true})
+    );
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(model_requests.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        get_json(&client, format!("{base}/chats?archived=false")).await,
+        json!([])
+    );
+    assert_eq!(
+        get_json(
+            &client,
+            format!("{base}/console/inbox/events?source_type=heartbeat"),
+        )
+        .await,
+        json!({"events": [], "total": 0, "unread_count": 0})
+    );
+    task.abort();
+}
+
+#[tokio::test]
 async fn exposes_and_denies_tool_approval_through_the_console_contract() {
     let model_base_url = start_tool_model_server().await;
     let console = tempfile::tempdir().expect("temporary Console should be created");
@@ -6687,6 +7157,24 @@ async fn wait_for_pending_approval(client: &reqwest::Client, address: SocketAddr
     .expect("pending approval should appear before timeout")
 }
 
+async fn wait_for_inbox_source(client: &reqwest::Client, base: &str, source: &str) -> Value {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let inbox = get_json(
+                client,
+                format!("{base}/console/inbox/events?source_type={source}"),
+            )
+            .await;
+            if let Some(event) = inbox["events"].as_array().and_then(|events| events.first()) {
+                return event.clone();
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("Inbox event should appear before timeout")
+}
+
 async fn start_model_server() -> String {
     let app = axum::Router::new().route(
         "/chat/completions",
@@ -6866,6 +7354,51 @@ async fn start_long_tool_model_server() -> String {
             .expect("long tool model server should run");
     });
     format!("http://{address}")
+}
+
+async fn start_heartbeat_model_server(delay: Duration) -> (String, Arc<AtomicUsize>) {
+    let requests = Arc::new(AtomicUsize::new(0));
+    let app = axum::Router::new().route(
+        "/chat/completions",
+        axum::routing::post({
+            let requests = Arc::clone(&requests);
+            move |axum::Json(body): axum::Json<Value>| {
+                let requests = Arc::clone(&requests);
+                async move {
+                    requests.fetch_add(1, Ordering::SeqCst);
+                    assert!(body["messages"].as_array().is_some_and(|messages| {
+                        messages.iter().any(|message| {
+                            message["role"] == json!("user")
+                                && message["content"]
+                                    .as_str()
+                                    .is_some_and(|text| !text.is_empty())
+                        })
+                    }));
+                    tokio::time::sleep(delay).await;
+                    axum::response::Response::builder()
+                        .status(axum::http::StatusCode::OK)
+                        .header(axum::http::header::CONTENT_TYPE, "text/event-stream")
+                        .body(axum::body::Body::from(concat!(
+                            "data: {\"choices\":[{\"delta\":{\"content\":\"Heartbeat healthy\"}}]}\n\n",
+                            "data: [DONE]\n\n"
+                        )))
+                        .expect("Heartbeat model response should build")
+                }
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("Heartbeat model listener should bind");
+    let address = listener
+        .local_addr()
+        .expect("Heartbeat model listener should have an address");
+    tokio::spawn(async move {
+        axum::serve(listener, app)
+            .await
+            .expect("Heartbeat model server should run");
+    });
+    (format!("http://{address}"), requests)
 }
 
 #[cfg(windows)]

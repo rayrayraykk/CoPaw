@@ -13,7 +13,6 @@ use super::AppServer;
 pub(super) fn router() -> Router<AppServer> {
     Router::new()
         .route("/api/pawapps", get(pawapps))
-        .route("/api/config/heartbeat", get(heartbeat))
         .route("/api/config/acp", get(acp))
         .route(
             "/api/agents/{agent_id}/memory/runtime-status",
@@ -45,16 +44,6 @@ async fn empty_value() -> Json<Value> {
 
 async fn pawapps() -> Json<Value> {
     Json(json!({"apps": [], "total": 0}))
-}
-
-async fn heartbeat() -> Json<Value> {
-    Json(json!({
-        "enabled": false,
-        "every": "6h",
-        "target": "main",
-        "timeoutSeconds": 300,
-        "activeHours": null
-    }))
 }
 
 async fn acp() -> Json<Value> {

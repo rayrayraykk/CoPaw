@@ -3,11 +3,11 @@
   "source": "console/src production TypeScript call sites",
   "callCount": 370,
   "unresolvedCount": 11,
-  "rustRouteCount": 208,
-  "registeredCallCount": 204,
-  "placeholderCallCount": 9,
-  "nonPlaceholderRegisteredCallCount": 195,
-  "missingCallCount": 166,
+  "rustRouteCount": 210,
+  "registeredCallCount": 206,
+  "placeholderCallCount": 8,
+  "nonPlaceholderRegisteredCallCount": 198,
+  "missingCallCount": 164,
   "rustRoutes": [
     {
       "method": "ANY",
@@ -411,9 +411,23 @@
     {
       "method": "GET",
       "path": "/api/config/heartbeat",
-      "handler": "heartbeat",
-      "placeholder": true,
-      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_navigation.rs"
+      "handler": "get_heartbeat",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_heartbeat.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/config/heartbeat",
+      "handler": "put_heartbeat",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_heartbeat.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/config/heartbeat/run",
+      "handler": "run_heartbeat",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_heartbeat.rs"
     },
     {
       "method": "GET",
@@ -3469,7 +3483,7 @@
       "resolved": true,
       "apiPath": "/api/config/heartbeat",
       "registered": true,
-      "placeholder": true
+      "placeholder": false
     },
     {
       "method": "PUT",
@@ -3480,7 +3494,7 @@
       "line": 8,
       "resolved": true,
       "apiPath": "/api/config/heartbeat",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -3492,7 +3506,7 @@
       "line": 14,
       "resolved": true,
       "apiPath": "/api/config/heartbeat/run",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {

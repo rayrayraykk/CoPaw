@@ -110,6 +110,14 @@ pub(super) struct NewInboxEvent {
     pub(super) payload: Value,
 }
 
+pub(super) struct NewInboxTrace {
+    pub(super) run_id: String,
+    pub(super) status: String,
+    pub(super) meta: Value,
+    pub(super) events: Vec<Value>,
+    pub(super) error: Option<String>,
+}
+
 #[derive(Debug, Default, PartialEq, Eq)]
 struct InboxQuery {
     limit: usize,
@@ -241,7 +249,66 @@ pub(super) async fn append_event(
     server: &AppServer,
     event: NewInboxEvent,
 ) -> Result<Value, InboxApiError> {
-    let event = InboxEvent {
+    let event = new_event(event);
+    validate_event(&event).map_err(bad_stored_data)?;
+    let serialized = serde_json::to_value(&event)
+        .map_err(|_| internal("Inbox event could not be serialized"))?;
+    let _guard = server.inner.desktop_inbox_lock.lock().await;
+    let mut data = read_data(server)?;
+    data.events.insert(0, event);
+    data.events.truncate(MAX_EVENTS);
+    write_data(server, &data)?;
+    Ok(serialized)
+}
+
+pub(super) async fn append_event_with_trace(
+    server: &AppServer,
+    event: NewInboxEvent,
+    trace: NewInboxTrace,
+) -> Result<Value, InboxApiError> {
+    validate_identifier("run id", &trace.run_id)?;
+    if trace.events.len() > MAX_TRACE_EVENTS {
+        return Err(unprocessable("Inbox trace has too many events"));
+    }
+    let now = now_epoch_seconds();
+    let trace = InboxTrace {
+        run_id: trace.run_id,
+        created_at: now,
+        completed_at: Some(now),
+        status: trace.status,
+        meta: trace.meta,
+        events: trace
+            .events
+            .into_iter()
+            .map(|event| InboxTraceEvent { at: now, event })
+            .collect(),
+        error: trace.error,
+    };
+    let event = new_event(event);
+    if trace_run_id(&event).as_deref() != Some(trace.run_id.as_str()) {
+        return Err(unprocessable("Inbox event and trace run ids do not match"));
+    }
+    validate_event(&event).map_err(bad_stored_data)?;
+    let serialized = serde_json::to_value(&event)
+        .map_err(|_| internal("Inbox event could not be serialized"))?;
+    let _guard = server.inner.desktop_inbox_lock.lock().await;
+    let mut data = read_data(server)?;
+    data.traces.insert(trace.run_id.clone(), trace);
+    data.events.insert(0, event);
+    data.events.truncate(MAX_EVENTS);
+    let referenced_runs = data
+        .events
+        .iter()
+        .filter_map(trace_run_id)
+        .collect::<BTreeSet<_>>();
+    data.traces
+        .retain(|run_id, _| referenced_runs.contains(run_id));
+    write_data(server, &data)?;
+    Ok(serialized)
+}
+
+fn new_event(event: NewInboxEvent) -> InboxEvent {
+    InboxEvent {
         id: Uuid::now_v7().to_string(),
         agent_id: if event.agent_id.is_empty() {
             String::from("default")
@@ -258,16 +325,7 @@ pub(super) async fn append_event(
         payload: event.payload,
         read: false,
         created_at: now_epoch_seconds(),
-    };
-    validate_event(&event).map_err(bad_stored_data)?;
-    let serialized = serde_json::to_value(&event)
-        .map_err(|_| internal("Inbox event could not be serialized"))?;
-    let _guard = server.inner.desktop_inbox_lock.lock().await;
-    let mut data = read_data(server)?;
-    data.events.insert(0, event);
-    data.events.truncate(MAX_EVENTS);
-    write_data(server, &data)?;
-    Ok(serialized)
+    }
 }
 
 pub(super) async fn mark_read_by_acl_sender(
