@@ -174,9 +174,11 @@ struct MemoryQuery {
     section: Option<String>,
 }
 
-async fn list_profile_files(State(server): State<AppServer>) -> Result<Json<Value>, ApiError> {
-    let workspace = desktop_workspace(&server)?;
-    let root = workspace.selected.read().await.clone();
+async fn list_profile_files(
+    State(server): State<AppServer>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
+    let root = super::desktop_agents::workspace_for_request(&server, &headers).await?;
     let mut reader = tokio::fs::read_dir(&root)
         .await
         .map_err(|_| not_found("Workspace directory could not be read"))?;
@@ -220,11 +222,11 @@ async fn list_profile_files(State(server): State<AppServer>) -> Result<Json<Valu
 
 async fn load_profile_file(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     AxumPath(file_name): AxumPath<String>,
 ) -> Result<Json<Value>, ApiError> {
     let file_name = normalize_profile_filename(&file_name)?;
-    let workspace = desktop_workspace(&server)?;
-    let root = workspace.selected.read().await.clone();
+    let root = super::desktop_agents::workspace_for_request(&server, &headers).await?;
     let candidate = root.join(&file_name);
     let metadata = tokio::fs::symlink_metadata(&candidate)
         .await
@@ -250,6 +252,7 @@ async fn load_profile_file(
 
 async fn save_profile_file(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     AxumPath(file_name): AxumPath<String>,
     Json(request): Json<SaveFileRequest>,
 ) -> Result<Json<Value>, ApiError> {
@@ -260,8 +263,7 @@ async fn save_profile_file(
     }
     let file_name = normalize_profile_filename(&file_name)?;
     let _guard = server.inner.desktop_agent_settings_lock.lock().await;
-    let workspace = desktop_workspace(&server)?;
-    let root = workspace.selected.read().await.clone();
+    let root = super::desktop_agents::workspace_for_request(&server, &headers).await?;
     let path = resolve_write_file(&root, Path::new(&file_name))?;
     write_file_atomically(&path, request.content.as_bytes()).await?;
     Ok(Json(json!({"written": true})))
@@ -299,10 +301,11 @@ struct MemoryRoots {
 
 async fn list_memory_files(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Query(query): Query<MemoryQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let section = parse_memory_section(query.section.as_deref())?;
-    let roots = memory_roots(&server).await?;
+    let roots = memory_roots(&server, &headers).await?;
     let daily_exclusion = nested_directory(&roots.daily, &roots.digest);
     let digest_exclusion = nested_directory(&roots.digest, &roots.daily);
     let digest_prefix = roots.digest.file_name().map_or_else(
@@ -348,12 +351,13 @@ async fn list_memory_files(
 
 async fn load_memory_file(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Query(query): Query<MemoryQuery>,
     AxumPath(path): AxumPath<String>,
 ) -> Result<Json<Value>, ApiError> {
     let section = parse_memory_section(query.section.as_deref())?;
     let relative = normalize_memory_path(&path)?;
-    let roots = memory_roots(&server).await?;
+    let roots = memory_roots(&server, &headers).await?;
     let (root, relative) = memory_target(&roots, section, &relative)?;
     let path = resolve_existing_file_without_links(root, &relative)?;
     let metadata = tokio::fs::metadata(&path)
@@ -374,6 +378,7 @@ async fn load_memory_file(
 
 async fn save_memory_file(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Query(query): Query<MemoryQuery>,
     AxumPath(path): AxumPath<String>,
     Json(request): Json<SaveFileRequest>,
@@ -386,16 +391,18 @@ async fn save_memory_file(
     let section = parse_memory_section(query.section.as_deref())?;
     let relative = normalize_memory_path(&path)?;
     let _guard = server.inner.desktop_project_lock.lock().await;
-    let roots = memory_roots(&server).await?;
+    let roots = memory_roots(&server, &headers).await?;
     let (root, relative) = memory_target(&roots, section, &relative)?;
     let path = prepare_safe_write_path(root, &relative).await?;
     write_file_atomically(&path, request.content.as_bytes()).await?;
     Ok(Json(json!({"written": true})))
 }
 
-async fn list_code_files(State(server): State<AppServer>) -> Result<Json<Value>, ApiError> {
-    let workspace = desktop_workspace(&server)?;
-    let root = workspace.selected.read().await.clone();
+async fn list_code_files(
+    State(server): State<AppServer>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
+    let root = super::desktop_agents::workspace_for_request(&server, &headers).await?;
     let files = tokio::task::spawn_blocking(move || collect_code_files(&root))
         .await
         .map_err(|_| internal_error("Coding file listing task failed"))??;
@@ -408,8 +415,7 @@ async fn load_code_file(
     AxumPath(path): AxumPath<String>,
 ) -> Result<Response, ApiError> {
     let relative = parse_portable_relative_file_path(&path, "Coding file")?;
-    let workspace = desktop_workspace(&server)?;
-    let root = workspace.selected.read().await.clone();
+    let root = super::desktop_agents::workspace_for_request(&server, &headers).await?;
     let file = resolve_existing_file_without_links(&root, &relative)?;
     let metadata = tokio::fs::metadata(&file)
         .await
@@ -449,6 +455,7 @@ async fn load_code_file(
 
 async fn save_code_file(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     AxumPath(path): AxumPath<String>,
     Json(request): Json<SaveFileRequest>,
 ) -> Result<Json<Value>, ApiError> {
@@ -457,8 +464,7 @@ async fn save_code_file(
     }
     let relative = parse_portable_relative_file_path(&path, "Coding file")?;
     let _guard = server.inner.desktop_project_lock.lock().await;
-    let workspace = desktop_workspace(&server)?;
-    let root = workspace.selected.read().await.clone();
+    let root = super::desktop_agents::workspace_for_request(&server, &headers).await?;
     let file = prepare_safe_write_path(&root, &relative).await?;
     write_file_atomically(&file, request.content.as_bytes()).await?;
     Ok(Json(json!({
@@ -477,9 +483,12 @@ impl Drop for TemporaryArchive {
     }
 }
 
-async fn download_workspace_archive(State(server): State<AppServer>) -> Result<Response, ApiError> {
-    let workspace = desktop_workspace(&server)?;
-    let root = workspace.selected.read().await.clone();
+async fn download_workspace_archive(
+    State(server): State<AppServer>,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
+    let root = super::desktop_agents::workspace_for_agent(&server, &agent_id).await?;
     let (archive_path, archive_size) =
         tokio::task::spawn_blocking(move || create_workspace_archive(&root))
             .await
@@ -504,7 +513,8 @@ async fn download_workspace_archive(State(server): State<AppServer>) -> Result<R
         }
     });
     let filename = format!(
-        "qwenpaw_workspace_default_{}.zip",
+        "qwenpaw_workspace_{}_{}.zip",
+        agent_id,
         Utc::now().format("%Y%m%d_%H%M%S")
     );
     Response::builder()
@@ -521,12 +531,12 @@ async fn download_workspace_archive(State(server): State<AppServer>) -> Result<R
 
 async fn upload_workspace_archive(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     multipart: Multipart,
 ) -> Result<Json<Value>, ApiError> {
     let content = read_workspace_archive_upload(multipart).await?;
     let _guard = server.inner.desktop_project_lock.lock().await;
-    let workspace = desktop_workspace(&server)?;
-    let root = workspace.selected.read().await.clone();
+    let root = super::desktop_agents::workspace_for_request(&server, &headers).await?;
     let staging = tempfile::tempdir()
         .map_err(|_| internal_error("Workspace archive staging directory could not be created"))?;
     let staging_path = staging.path().to_path_buf();
@@ -876,9 +886,8 @@ fn parse_memory_section(value: Option<&str>) -> Result<Option<MemorySection>, Ap
     }
 }
 
-async fn memory_roots(server: &AppServer) -> Result<MemoryRoots, ApiError> {
-    let workspace = desktop_workspace(server)?;
-    let selected = workspace.selected.read().await.clone();
+async fn memory_roots(server: &AppServer, headers: &HeaderMap) -> Result<MemoryRoots, ApiError> {
+    let selected = super::desktop_agents::workspace_for_request(server, headers).await?;
     let (daily, digest) = super::desktop_agent_settings::memory_directories(&server.inner.core)?;
     let daily = ensure_safe_directory_tree(&selected, &daily).await?;
     let digest = ensure_safe_directory_tree(&selected, &digest).await?;
@@ -1669,20 +1678,25 @@ pub(super) async fn resolve_workspace_root(
     headers: &HeaderMap,
     requested_root: Option<&str>,
 ) -> Result<PathBuf, ApiError> {
-    let workspace = desktop_workspace(server)?;
+    let agent_id = super::desktop_agents::requested_agent_id(headers)?;
+    let agent_workspace = super::desktop_agents::workspace_for_agent(server, &agent_id).await?;
     match requested_root.unwrap_or("project") {
-        "workspace" => Ok(workspace.initial.clone()),
+        "workspace" => Ok(agent_workspace.clone()),
         "project" => {
             if let Some(chat_id) = header_value(headers, "x-chat-id")? {
-                let thread_id = server
-                    .inner
-                    .desktop_session_aliases
-                    .read()
-                    .await
+                let scoped_chat_id = format!("{agent_id}\u{0}{chat_id}");
+                let aliases = server.inner.desktop_session_aliases.read().await;
+                let thread_id = aliases
                     .client_to_thread
-                    .get(chat_id)
+                    .get(&scoped_chat_id)
                     .cloned()
+                    .or_else(|| {
+                        (agent_id == "default")
+                            .then(|| aliases.client_to_thread.get(chat_id).cloned())
+                            .flatten()
+                    })
                     .unwrap_or_else(|| chat_id.to_owned());
+                drop(aliases);
                 if let Ok(thread) = server.inner.core.read_thread(&thread_id).await
                     && let Some(root) = thread.thread.workspace_root
                 {
@@ -1692,7 +1706,13 @@ pub(super) async fn resolve_workspace_root(
             if let Some(path) = header_value(headers, "x-session-project-dir")? {
                 return canonical_directory(path);
             }
-            Ok(workspace.selected.read().await.clone())
+            let config = super::desktop_agents::config_for_agent(server, &agent_id).await?;
+            config
+                .get("project_dir")
+                .and_then(Value::as_str)
+                .map(canonical_directory)
+                .transpose()
+                .map(|configured| configured.unwrap_or(agent_workspace))
         }
         root if root.starts_with("project:") => Err((
             StatusCode::NOT_IMPLEMENTED,

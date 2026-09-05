@@ -8,6 +8,7 @@ use axum::Router;
 use axum::extract::Path;
 use axum::extract::Query;
 use axum::extract::State;
+use axum::http::HeaderMap;
 use axum::http::StatusCode;
 use axum::response::Sse;
 use axum::response::sse::Event;
@@ -42,7 +43,6 @@ pub(super) fn router() -> Router<AppServer> {
         .route("/api/auth/verify", get(auth_verify))
         .route("/api/settings/language", get(language).put(set_language))
         .route("/api/settings/upload-limit", get(upload_limit))
-        .route("/api/agents", get(agents))
         .route("/api/models", get(models))
         .route(
             "/api/models/active",
@@ -256,24 +256,6 @@ async fn revoke_mcp_oauth(
     Ok(Json(json!({"message": "OAuth tokens cleared"})))
 }
 
-async fn agents(State(server): State<AppServer>) -> Result<Json<Value>, ApiError> {
-    let workspace = selected_desktop_workspace(&server).await?;
-    Ok(Json(json!({
-        "agents": [{
-            "id": "default",
-            "name": "QwenPaw",
-            "description": "Rust Core",
-            "workspace_dir": workspace.to_string_lossy(),
-            "enabled": true,
-            "pinned": true,
-            "startup_status": "running",
-            "backend": "qwenpaw",
-            "backend_capabilities": {"workspace_ui": true},
-            "available_in_chat": true
-        }]
-    })))
-}
-
 async fn models(State(server): State<AppServer>) -> Json<Value> {
     let config = server.inner.core.read_config().config;
     Json(json!([provider_info(&config)]))
@@ -327,9 +309,29 @@ fn model_info(model: &str) -> Value {
     })
 }
 
-async fn active_models(State(server): State<AppServer>) -> Json<Value> {
+#[derive(Debug, Default, Deserialize)]
+struct ActiveModelQuery {
+    #[serde(default)]
+    agent_id: Option<String>,
+}
+
+async fn active_models(
+    State(server): State<AppServer>,
+    Query(query): Query<ActiveModelQuery>,
+) -> Result<Json<Value>, ApiError> {
+    if let Some(agent_id) = query.agent_id {
+        let config = super::desktop_agents::config_for_agent(&server, &agent_id).await?;
+        let model = config
+            .pointer("/active_model/model")
+            .and_then(Value::as_str)
+            .map_or_else(
+                || server.inner.core.read_config().config.default_model,
+                str::to_owned,
+            );
+        return Ok(Json(active_model_info(&model)));
+    }
     let config = server.inner.core.read_config().config;
-    Json(active_model_info(&config.default_model))
+    Ok(Json(active_model_info(&config.default_model)))
 }
 
 fn active_model_info(model: &str) -> Value {
@@ -402,15 +404,25 @@ async fn set_active_model(
     Json(request): Json<ActiveModelRequest>,
 ) -> Result<Json<Value>, ApiError> {
     require_default_provider(&request.provider_id)?;
-    if !matches!(request.scope.as_str(), "global" | "agent")
-        || request
-            .agent_id
-            .as_deref()
-            .is_some_and(|agent_id| agent_id != "default")
-    {
-        return Err(bad_request(
-            "only the default local agent scope is supported",
-        ));
+    if !matches!(request.scope.as_str(), "global" | "agent") {
+        return Err(bad_request("model scope is invalid"));
+    }
+    if request.scope == "agent" {
+        let agent_id = request.agent_id.as_deref().unwrap_or("default");
+        super::desktop_agents::replace_config_field(
+            &server,
+            agent_id,
+            "active_model",
+            json!({
+                "provider_id": request.provider_id,
+                "model": request.model
+            }),
+        )
+        .await?;
+        let model = super::desktop_agents::model_for_agent(&server, agent_id)
+            .await?
+            .unwrap_or_default();
+        return Ok(Json(active_model_info(&model)));
     }
     let response = server
         .inner
@@ -522,13 +534,18 @@ struct ApprovalActionRequest {
 
 async fn console_chat(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Json(request): Json<ConsoleChatRequest>,
 ) -> Result<Sse<impl futures_util::Stream<Item = Result<Event, Infallible>>>, ApiError> {
-    let workspace_root = console_workspace_root(request.request_context.as_ref())?;
+    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
+    let agent_workspace = super::desktop_agents::project_for_agent(&server, &agent_id).await?;
+    let workspace_root = console_workspace_root(request.request_context.as_ref())?
+        .unwrap_or_else(|| agent_workspace.to_string_lossy().into_owned());
     let thread_id = resolve_console_thread(
         &server,
+        &agent_id,
         request.session_id.as_deref(),
-        workspace_root.as_deref(),
+        Some(&workspace_root),
     )
     .await?;
     let thread = server
@@ -730,17 +747,25 @@ async fn resolve_tool_approval(
 
 async fn stop_console_chat(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Query(query): Query<StopChatQuery>,
 ) -> Json<Value> {
-    let aliased = server
-        .inner
-        .desktop_session_aliases
-        .read()
-        .await
+    let Ok(agent_id) = super::desktop_agents::requested_agent_id(&headers) else {
+        return Json(json!({"stopped": false}));
+    };
+    let alias_key = console_alias_key(&agent_id, &query.chat_id);
+    let alias_catalog = server.inner.desktop_session_aliases.read().await;
+    let resolved_alias = alias_catalog
         .client_to_thread
-        .get(&query.chat_id)
-        .cloned();
-    let thread_id = aliased.as_deref().unwrap_or(&query.chat_id);
+        .get(&alias_key)
+        .cloned()
+        .or_else(|| {
+            (agent_id == "default")
+                .then(|| alias_catalog.client_to_thread.get(&query.chat_id).cloned())
+                .flatten()
+        });
+    drop(alias_catalog);
+    let thread_id = resolved_alias.as_deref().unwrap_or(&query.chat_id);
     let Ok(thread) = server.inner.core.read_thread(thread_id).await else {
         return Json(json!({"stopped": false}));
     };
@@ -767,6 +792,7 @@ async fn stop_console_chat(
 
 pub(super) async fn resolve_console_thread(
     server: &AppServer,
+    agent_id: &str,
     requested_session_id: Option<&str>,
     requested_workspace: Option<&str>,
 ) -> Result<String, ApiError> {
@@ -780,7 +806,7 @@ pub(super) async fn resolve_console_thread(
         .read()
         .await
         .client_to_thread
-        .get(requested)
+        .get(&console_alias_key(agent_id, requested))
         .cloned()
     {
         if let Some(workspace) = requested_workspace {
@@ -815,11 +841,12 @@ pub(super) async fn resolve_console_thread(
         Some(workspace) => canonical_workspace_path(workspace)?,
         None => selected_desktop_workspace(server).await?,
     };
+    let model = super::desktop_agents::model_for_agent(server, agent_id).await?;
     let thread = server
         .inner
         .core
         .start_thread(ThreadStartParams {
-            model: None,
+            model,
             workspace_root: Some(workspace_root.to_string_lossy().into_owned()),
         })
         .await
@@ -829,7 +856,12 @@ pub(super) async fn resolve_console_thread(
         let mut aliases = server.inner.desktop_session_aliases.write().await;
         aliases
             .client_to_thread
-            .insert(requested.to_owned(), thread.id.clone());
+            .insert(console_alias_key(agent_id, requested), thread.id.clone());
+        if agent_id == "default" {
+            aliases
+                .client_to_thread
+                .insert(requested.to_owned(), thread.id.clone());
+        }
         aliases
             .thread_to_client
             .insert(thread.id.clone(), requested.to_owned());
@@ -839,8 +871,12 @@ pub(super) async fn resolve_console_thread(
     } else {
         requested
     };
-    super::desktop_chats::ensure_thread_metadata(server, &thread, session_id).await?;
+    super::desktop_chats::ensure_thread_metadata(server, &thread, session_id, agent_id).await?;
     Ok(thread.id)
+}
+
+fn console_alias_key(agent_id: &str, session_id: &str) -> String {
+    format!("{agent_id}\u{0}{session_id}")
 }
 
 fn console_workspace_root(request_context: Option<&Value>) -> Result<Option<String>, ApiError> {
@@ -991,8 +1027,11 @@ fn bad_request(message: &str) -> ApiError {
 
 async fn chat_history(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Path(chat_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
+    super::desktop_chats::require_owned_chat_id(&server, &chat_id, &agent_id).await?;
     let response = server
         .inner
         .core
@@ -1142,32 +1181,63 @@ struct ChatProjectDirectoriesRequest {
     project_dirs: Vec<ProjectDirectoryInput>,
 }
 
-async fn project_directory(State(server): State<AppServer>) -> Result<Json<Value>, ApiError> {
-    let selected = selected_desktop_workspace(&server).await?;
-    Ok(Json(project_directory_info(&server, &selected)?))
+async fn project_directory(
+    State(server): State<AppServer>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
+    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
+    let agent_workspace = super::desktop_agents::workspace_for_agent(&server, &agent_id).await?;
+    let config = super::desktop_agents::config_for_agent(&server, &agent_id).await?;
+    let selected = config
+        .get("project_dir")
+        .and_then(Value::as_str)
+        .map(canonical_workspace_path)
+        .transpose()?
+        .unwrap_or_else(|| agent_workspace.clone());
+    Ok(Json(project_directory_info(&selected, &agent_workspace)))
 }
 
 async fn set_project_directory(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Json(request): Json<ProjectDirectoryRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let workspace = desktop_workspace(&server)?;
-    let selected = match request.path {
-        Some(path) => canonical_workspace_path(&path)?,
-        None => workspace.initial.clone(),
+    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
+    let agent_workspace = super::desktop_agents::workspace_for_agent(&server, &agent_id).await?;
+    let (selected, stored) = match request.path {
+        Some(path) => {
+            let selected = canonical_workspace_path(&path)?;
+            let stored = Value::String(selected.to_string_lossy().into_owned());
+            (selected, stored)
+        }
+        None => (agent_workspace.clone(), Value::Null),
     };
-    let selected = server
-        .inner
-        .core
-        .write_preferred_workspace(&selected)
-        .map(PathBuf::from)
-        .map_err(|error| api_error(&error))?;
-    selected.clone_into(&mut *workspace.selected.write().await);
-    Ok(Json(project_directory_info(&server, &selected)?))
+    if agent_id == "default" {
+        let persisted = server
+            .inner
+            .core
+            .write_preferred_workspace(&selected)
+            .map(PathBuf::from)
+            .map_err(|error| api_error(&error))?;
+        persisted.clone_into(&mut *desktop_workspace(&server)?.selected.write().await);
+    }
+    super::desktop_agents::replace_config_field(&server, &agent_id, "project_dir", stored).await?;
+    Ok(Json(project_directory_info(&selected, &agent_workspace)))
 }
 
-async fn project_directory_list(State(server): State<AppServer>) -> Result<Json<Value>, ApiError> {
-    let selected = selected_desktop_workspace(&server).await?;
+async fn project_directory_list(
+    State(server): State<AppServer>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
+    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
+    let agent_workspace = super::desktop_agents::workspace_for_agent(&server, &agent_id).await?;
+    let config = super::desktop_agents::config_for_agent(&server, &agent_id).await?;
+    let selected = config
+        .get("project_dir")
+        .and_then(Value::as_str)
+        .map(canonical_workspace_path)
+        .transpose()?
+        .unwrap_or(agent_workspace);
     let base = desktop_workspace(&server)?.initial.join("coding_projects");
     let mut paths = if base.is_dir() {
         std::fs::read_dir(&base)
@@ -1205,11 +1275,21 @@ async fn project_directory_list(State(server): State<AppServer>) -> Result<Json<
 
 async fn browse_directories(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Query(query): Query<BrowseDirectoriesQuery>,
 ) -> Result<Json<Value>, ApiError> {
+    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
+    let agent_workspace = super::desktop_agents::workspace_for_agent(&server, &agent_id).await?;
+    let config = super::desktop_agents::config_for_agent(&server, &agent_id).await?;
+    let selected = config
+        .get("project_dir")
+        .and_then(Value::as_str)
+        .map(canonical_workspace_path)
+        .transpose()?
+        .unwrap_or(agent_workspace);
     let requested = match query.path.as_deref().map(str::trim) {
-        None | Some("") => selected_desktop_workspace(&server).await?,
-        Some("~") => dirs::home_dir().unwrap_or(selected_desktop_workspace(&server).await?),
+        None | Some("") => selected.clone(),
+        Some("~") => dirs::home_dir().unwrap_or(selected),
         Some(path) => PathBuf::from(path),
     };
     let current = canonical_workspace_path(&requested.to_string_lossy())?;
@@ -1259,8 +1339,11 @@ async fn create_directory(
 
 async fn chat_project_directory(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Path(chat_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
+    super::desktop_chats::require_owned_chat_id(&server, &chat_id, &agent_id).await?;
     let thread = server
         .inner
         .core
@@ -1271,7 +1354,7 @@ async fn chat_project_directory(
     let root = thread
         .workspace_root
         .ok_or_else(|| bad_request("chat has no Workspace directory"))?;
-    let selected = selected_desktop_workspace(&server).await?;
+    let selected = super::desktop_agents::project_for_agent(&server, &agent_id).await?;
     Ok(Json(json!({
         "project_dir": root,
         "source": "session",
@@ -1282,8 +1365,11 @@ async fn chat_project_directory(
 
 async fn chat_project_directories(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Path(chat_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
+    super::desktop_chats::require_owned_chat_id(&server, &chat_id, &agent_id).await?;
     let thread = server
         .inner
         .core
@@ -1291,7 +1377,7 @@ async fn chat_project_directories(
         .await
         .map_err(|error| api_error(&error))?
         .thread;
-    let selected = selected_desktop_workspace(&server).await?;
+    let selected = super::desktop_agents::project_for_agent(&server, &agent_id).await?;
     let directories = thread.workspace_root.map_or_else(Vec::new, |root| {
         let path = PathBuf::from(&root);
         vec![json!({
@@ -1311,9 +1397,12 @@ async fn chat_project_directories(
 
 async fn set_chat_project_directories(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Path(chat_id): Path<String>,
     Json(request): Json<ChatProjectDirectoriesRequest>,
 ) -> Result<Json<Value>, ApiError> {
+    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
+    super::desktop_chats::require_owned_chat_id(&server, &chat_id, &agent_id).await?;
     if request.project_dirs.len() > 1 {
         return Err((
             StatusCode::NOT_IMPLEMENTED,
@@ -1331,7 +1420,7 @@ async fn set_chat_project_directories(
             }
             canonical_workspace_path(&directory.path)?
         }
-        None => selected_desktop_workspace(&server).await?,
+        None => super::desktop_agents::project_for_agent(&server, &agent_id).await?,
     };
     server
         .inner
@@ -1339,21 +1428,24 @@ async fn set_chat_project_directories(
         .set_thread_workspace(&chat_id, &path)
         .await
         .map_err(|error| api_error(&error))?;
-    chat_project_directories(State(server), Path(chat_id)).await
+    chat_project_directories(State(server), headers, Path(chat_id)).await
 }
 
 async fn clear_chat_project_directories(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Path(chat_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let selected = selected_desktop_workspace(&server).await?;
+    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
+    super::desktop_chats::require_owned_chat_id(&server, &chat_id, &agent_id).await?;
+    let selected = super::desktop_agents::project_for_agent(&server, &agent_id).await?;
     server
         .inner
         .core
         .set_thread_workspace(&chat_id, &selected)
         .await
         .map_err(|error| api_error(&error))?;
-    chat_project_directories(State(server), Path(chat_id)).await
+    chat_project_directories(State(server), headers, Path(chat_id)).await
 }
 
 fn desktop_workspace(server: &AppServer) -> Result<&super::DesktopWorkspace, ApiError> {
@@ -1369,15 +1461,14 @@ async fn selected_desktop_workspace(server: &AppServer) -> Result<PathBuf, ApiEr
     Ok(desktop_workspace(server)?.selected.read().await.clone())
 }
 
-fn project_directory_info(server: &AppServer, selected: &PathBuf) -> Result<Value, ApiError> {
-    let workspace = desktop_workspace(server)?;
-    Ok(json!({
+fn project_directory_info(selected: &PathBuf, agent_workspace: &PathBuf) -> Value {
+    json!({
         "path": selected.to_string_lossy(),
         "name": path_name(selected),
-        "is_workspace_default": selected == &workspace.initial,
-        "workspace_dir": workspace.initial.to_string_lossy(),
+        "is_workspace_default": selected == agent_workspace,
+        "workspace_dir": agent_workspace.to_string_lossy(),
         "exists": selected.is_dir()
-    }))
+    })
 }
 
 fn canonical_workspace_path(path: &str) -> Result<PathBuf, ApiError> {

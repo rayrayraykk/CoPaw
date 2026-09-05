@@ -17,6 +17,7 @@ use axum::extract::Multipart;
 use axum::extract::Path as AxumPath;
 use axum::extract::Query;
 use axum::extract::State;
+use axum::http::HeaderMap;
 use axum::http::StatusCode;
 use axum::http::header::CACHE_CONTROL;
 use axum::http::header::CONTENT_TYPE;
@@ -374,8 +375,11 @@ pub(super) fn router() -> Router<AppServer> {
         )
 }
 
-async fn list_skills(State(server): State<AppServer>) -> Result<Json<Value>, ApiError> {
-    let workspace = selected_workspace(&server).await?;
+async fn list_skills(
+    State(server): State<AppServer>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
+    let workspace = request_workspace(&server, &headers).await?;
     let _guard = server.inner.desktop_skills_lock.lock().await;
     let manifest = reconcile_manifest(&workspace, false)?;
     Ok(Json(Value::Array(skill_specs(
@@ -383,8 +387,11 @@ async fn list_skills(State(server): State<AppServer>) -> Result<Json<Value>, Api
     )?)))
 }
 
-async fn refresh_skills(State(server): State<AppServer>) -> Result<Json<Value>, ApiError> {
-    list_skills(State(server)).await
+async fn refresh_skills(
+    State(server): State<AppServer>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
+    list_skills(State(server), headers).await
 }
 
 async fn list_pool_skills(State(server): State<AppServer>) -> Result<Json<Value>, ApiError> {
@@ -399,32 +406,37 @@ async fn refresh_pool_skills(State(server): State<AppServer>) -> Result<Json<Val
 }
 
 async fn list_workspaces(State(server): State<AppServer>) -> Result<Json<Value>, ApiError> {
-    let workspace = selected_workspace(&server).await?;
+    let workspaces = super::desktop_agents::agent_workspaces(&server).await?;
     let _guard = server.inner.desktop_skills_lock.lock().await;
-    let manifest = reconcile_manifest(&workspace, false)?;
-    let names = manifest_skills(&manifest)
-        .keys()
-        .filter(|name| {
-            workspace
-                .join("skills")
-                .join(name)
-                .join("SKILL.md")
-                .is_file()
-        })
-        .cloned()
-        .collect::<Vec<_>>();
-    Ok(Json(json!([{
-        "agent_id": "default",
-        "agent_name": "QwenPaw",
-        "skill_names": names
-    }])))
+    let mut response = Vec::with_capacity(workspaces.len());
+    for (agent_id, agent_name, workspace) in workspaces {
+        let manifest = reconcile_manifest(&workspace, false)?;
+        let names = manifest_skills(&manifest)
+            .keys()
+            .filter(|name| {
+                workspace
+                    .join("skills")
+                    .join(name)
+                    .join("SKILL.md")
+                    .is_file()
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        response.push(json!({
+            "agent_id": agent_id,
+            "agent_name": agent_name,
+            "skill_names": names
+        }));
+    }
+    Ok(Json(Value::Array(response)))
 }
 
 async fn get_workspace_skill(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     AxumPath(skill_name): AxumPath<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let workspace = selected_workspace(&server).await?;
+    let workspace = request_workspace(&server, &headers).await?;
     get_skill_detail(&server, &workspace, &skill_name, false).await
 }
 
@@ -493,9 +505,10 @@ async fn get_skill_detail(
 
 async fn create_workspace_skill(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Json(body): Json<CreateSkillRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let workspace = selected_workspace(&server).await?;
+    let workspace = request_workspace(&server, &headers).await?;
     create_skill(&server, &workspace, body, false).await
 }
 
@@ -558,9 +571,10 @@ async fn create_skill(
 
 async fn save_workspace_skill(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Json(body): Json<SaveSkillRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let workspace = selected_workspace(&server).await?;
+    let workspace = request_workspace(&server, &headers).await?;
     save_skill(&server, &workspace, body, false).await
 }
 
@@ -665,27 +679,31 @@ async fn save_skill(
 
 async fn enable_workspace_skill(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     AxumPath(skill_name): AxumPath<String>,
 ) -> Result<Json<Value>, ApiError> {
-    set_workspace_enabled(&server, &skill_name, true).await
+    let workspace = request_workspace(&server, &headers).await?;
+    set_workspace_enabled(&server, &workspace, &skill_name, true).await
 }
 
 async fn disable_workspace_skill(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     AxumPath(skill_name): AxumPath<String>,
 ) -> Result<Json<Value>, ApiError> {
-    set_workspace_enabled(&server, &skill_name, false).await
+    let workspace = request_workspace(&server, &headers).await?;
+    set_workspace_enabled(&server, &workspace, &skill_name, false).await
 }
 
 async fn set_workspace_enabled(
     server: &AppServer,
+    workspace: &Path,
     skill_name: &str,
     enabled_value: bool,
 ) -> Result<Json<Value>, ApiError> {
     validate_skill_name(skill_name)?;
-    let workspace = selected_workspace(server).await?;
     let _guard = server.inner.desktop_skills_lock.lock().await;
-    let mut manifest = reconcile_manifest(&workspace, false)?;
+    let mut manifest = reconcile_manifest(workspace, false)?;
     if enabled_value {
         scan_or_reject(
             server,
@@ -699,7 +717,7 @@ async fn set_workspace_enabled(
         .ok_or_else(|| not_found("Skill not found"))?;
     entry.insert(String::from("enabled"), Value::Bool(enabled_value));
     bump_manifest(&mut manifest);
-    write_manifest(&workspace, false, &manifest)?;
+    write_manifest(workspace, false, &manifest)?;
     Ok(Json(if enabled_value {
         json!({"enabled": true, "success": true})
     } else {
@@ -709,26 +727,30 @@ async fn set_workspace_enabled(
 
 async fn batch_enable(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Json(names): Json<Vec<String>>,
 ) -> Result<Json<Value>, ApiError> {
-    batch_set_enabled(&server, names, true).await
+    let workspace = request_workspace(&server, &headers).await?;
+    batch_set_enabled(&server, &workspace, names, true).await
 }
 
 async fn batch_disable(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Json(names): Json<Vec<String>>,
 ) -> Result<Json<Value>, ApiError> {
-    batch_set_enabled(&server, names, false).await
+    let workspace = request_workspace(&server, &headers).await?;
+    batch_set_enabled(&server, &workspace, names, false).await
 }
 
 async fn batch_set_enabled(
     server: &AppServer,
+    workspace: &Path,
     names: Vec<String>,
     enabled_value: bool,
 ) -> Result<Json<Value>, ApiError> {
-    let workspace = selected_workspace(server).await?;
     let _guard = server.inner.desktop_skills_lock.lock().await;
-    let mut manifest = reconcile_manifest(&workspace, false)?;
+    let mut manifest = reconcile_manifest(workspace, false)?;
     let mut results = Map::new();
     for name in names {
         let result = if validate_skill_name(&name).is_err()
@@ -754,15 +776,16 @@ async fn batch_set_enabled(
         results.insert(name, result);
     }
     bump_manifest(&mut manifest);
-    write_manifest(&workspace, false, &manifest)?;
+    write_manifest(workspace, false, &manifest)?;
     Ok(Json(json!({"results": results})))
 }
 
 async fn delete_workspace_skill(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     AxumPath(skill_name): AxumPath<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let workspace = selected_workspace(&server).await?;
+    let workspace = request_workspace(&server, &headers).await?;
     delete_skill(&server, &workspace, &skill_name, false).await
 }
 
@@ -812,36 +835,35 @@ async fn delete_skill(
 
 async fn batch_delete(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Json(names): Json<Vec<String>>,
 ) -> Result<Json<Value>, ApiError> {
-    batch_delete_impl(&server, names, false).await
+    let workspace = request_workspace(&server, &headers).await?;
+    batch_delete_impl(&server, &workspace, names, false).await
 }
 
 async fn batch_delete_pool(
     State(server): State<AppServer>,
     Json(names): Json<Vec<String>>,
 ) -> Result<Json<Value>, ApiError> {
-    batch_delete_impl(&server, names, true).await
+    let root = pool_root(&server)?;
+    batch_delete_impl(&server, &root, names, true).await
 }
 
 async fn batch_delete_impl(
     server: &AppServer,
+    root: &Path,
     names: Vec<String>,
     pool: bool,
 ) -> Result<Json<Value>, ApiError> {
-    let root = if pool {
-        pool_root(server)?
-    } else {
-        selected_workspace(server).await?
-    };
     let _guard = server.inner.desktop_skills_lock.lock().await;
-    let mut manifest = reconcile_manifest(&root, pool)?;
+    let mut manifest = reconcile_manifest(root, pool)?;
     let mut results = Map::new();
     for name in names {
         let exists =
             validate_skill_name(&name).is_ok() && manifest_skills(&manifest).contains_key(&name);
         if exists {
-            let directory = skills_directory(&root, pool).join(&name);
+            let directory = skills_directory(root, pool).join(&name);
             if !pool
                 && let Some(entry) = manifest_skills_mut(&mut manifest)
                     .get_mut(&name)
@@ -858,16 +880,17 @@ async fn batch_delete_impl(
         results.insert(name, json!({"success": false, "reason": "delete_failed"}));
     }
     bump_manifest(&mut manifest);
-    write_manifest(&root, pool, &manifest)?;
+    write_manifest(root, pool, &manifest)?;
     Ok(Json(json!({"results": results})))
 }
 
 async fn update_workspace_channels(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     AxumPath(skill_name): AxumPath<String>,
     Json(channels): Json<Vec<String>>,
 ) -> Result<Json<Value>, ApiError> {
-    let workspace = selected_workspace(&server).await?;
+    let workspace = request_workspace(&server, &headers).await?;
     update_entry_array(
         &server,
         &workspace,
@@ -881,10 +904,11 @@ async fn update_workspace_channels(
 
 async fn update_workspace_tags(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     AxumPath(skill_name): AxumPath<String>,
     Json(tags): Json<Vec<String>>,
 ) -> Result<Json<Value>, ApiError> {
-    let workspace = selected_workspace(&server).await?;
+    let workspace = request_workspace(&server, &headers).await?;
     update_entry_array(
         &server,
         &workspace,
@@ -944,9 +968,10 @@ async fn update_entry_array(
 
 async fn get_workspace_config(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     AxumPath(skill_name): AxumPath<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let workspace = selected_workspace(&server).await?;
+    let workspace = request_workspace(&server, &headers).await?;
     get_config(&server, &workspace, &skill_name, false).await
 }
 
@@ -977,10 +1002,11 @@ async fn get_config(
 
 async fn update_workspace_config(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     AxumPath(skill_name): AxumPath<String>,
     Json(body): Json<SkillConfigRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let workspace = selected_workspace(&server).await?;
+    let workspace = request_workspace(&server, &headers).await?;
     update_config(&server, &workspace, &skill_name, Some(body.config), false).await
 }
 
@@ -995,9 +1021,10 @@ async fn update_pool_config(
 
 async fn clear_workspace_config(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     AxumPath(skill_name): AxumPath<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let workspace = selected_workspace(&server).await?;
+    let workspace = request_workspace(&server, &headers).await?;
     update_config(&server, &workspace, &skill_name, None, false).await
 }
 
@@ -1041,10 +1068,11 @@ async fn update_config(
 
 async fn load_workspace_skill_file(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     AxumPath((skill_name, file_path)): AxumPath<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_skill_name(&skill_name)?;
-    let workspace = selected_workspace(&server).await?;
+    let workspace = request_workspace(&server, &headers).await?;
     let root = workspace.join("skills").join(&skill_name);
     let path = safe_relative_path(&root, &file_path)?;
     let metadata = fs::symlink_metadata(&path).map_err(|_| not_found("File not found"))?;
@@ -1062,11 +1090,8 @@ async fn upload_workspace_to_pool(
     State(server): State<AppServer>,
     Json(body): Json<UploadToPoolRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    if body.workspace_id != "default" {
-        return Err(not_found("Workspace not found"));
-    }
     validate_skill_name(&body.skill_name)?;
-    let workspace = selected_workspace(&server).await?;
+    let workspace = super::desktop_agents::workspace_for_agent(&server, &body.workspace_id).await?;
     let pool = pool_root(&server)?;
     let _guard = server.inner.desktop_skills_lock.lock().await;
     let workspace_manifest = reconcile_manifest(&workspace, false)?;
@@ -1106,21 +1131,27 @@ async fn download_pool_to_workspaces(
     Json(body): Json<DownloadFromPoolRequest>,
 ) -> Result<Json<Value>, ApiError> {
     validate_skill_name(&body.skill_name)?;
+    let available = super::desktop_agents::agent_workspaces(&server).await?;
+    let available = available
+        .into_iter()
+        .map(|(id, name, workspace)| (id, (name, workspace)))
+        .collect::<BTreeMap<_, _>>();
     let mut targets = body
         .targets
         .iter()
-        .map(|target| target.workspace_id.as_str())
+        .map(|target| target.workspace_id.clone())
         .collect::<Vec<_>>();
     if body.all_workspaces {
-        targets = vec!["default"];
+        targets = available.keys().cloned().collect();
     }
+    targets.sort();
+    targets.dedup();
     if targets.is_empty() {
         return Err(bad_request("No workspace targets provided"));
     }
-    if targets.iter().any(|target| *target != "default") {
+    if targets.iter().any(|target| !available.contains_key(target)) {
         return Err(not_found("Workspace not found"));
     }
-    let workspace = selected_workspace(&server).await?;
     let pool = pool_root(&server)?;
     let _guard = server.inner.desktop_skills_lock.lock().await;
     let pool_manifest = reconcile_manifest(&pool, true)?;
@@ -1128,17 +1159,24 @@ async fn download_pool_to_workspaces(
         .get(&body.skill_name)
         .cloned()
         .ok_or_else(|| not_found("Pool skill not found"))?;
-    let mut workspace_manifest = reconcile_manifest(&workspace, false)?;
-    if manifest_skills(&workspace_manifest).contains_key(&body.skill_name) && !body.overwrite {
-        return Err(conflict(json!({
-            "downloaded": [],
-            "conflicts": [{
+    let mut conflicts = Vec::new();
+    for target in &targets {
+        let (name, workspace) = &available[target];
+        let manifest = reconcile_manifest(workspace, false)?;
+        if manifest_skills(&manifest).contains_key(&body.skill_name) && !body.overwrite {
+            conflicts.push(json!({
                 "reason": "conflict",
                 "skill_name": body.skill_name,
-                "workspace_id": "default",
-                "workspace_name": "QwenPaw",
-                "suggested_name": suggest_conflict_name(&workspace, &body.skill_name, false)
-            }]
+                "workspace_id": target,
+                "workspace_name": name,
+                "suggested_name": suggest_conflict_name(workspace, &body.skill_name, false)
+            }));
+        }
+    }
+    if !conflicts.is_empty() {
+        return Err(conflict(json!({
+            "downloaded": [],
+            "conflicts": conflicts
         })));
     }
     if body.preview_only {
@@ -1146,26 +1184,29 @@ async fn download_pool_to_workspaces(
     }
     let source = pool.join(&body.skill_name);
     scan_or_reject(&server, &body.skill_name, &source)?;
-    install_directory(
-        &source,
-        &workspace.join("skills").join(&body.skill_name),
-        body.overwrite,
-    )?;
-    let mut entry = pool_entry.as_object().cloned().unwrap_or_default();
-    entry.insert(String::from("enabled"), Value::Bool(false));
-    entry.insert(String::from("channels"), json!(["all"]));
-    entry.remove("automation");
-    manifest_skills_mut(&mut workspace_manifest)
-        .insert(body.skill_name.clone(), Value::Object(entry));
-    bump_manifest(&mut workspace_manifest);
-    write_manifest(&workspace, false, &workspace_manifest)?;
-    Ok(Json(json!({
-        "downloaded": [{
-            "workspace_id": "default",
-            "workspace_name": "QwenPaw",
+    let mut downloaded = Vec::with_capacity(targets.len());
+    for target in targets {
+        let (name, workspace) = &available[&target];
+        install_directory(
+            &source,
+            &workspace.join("skills").join(&body.skill_name),
+            body.overwrite,
+        )?;
+        let mut manifest = reconcile_manifest(workspace, false)?;
+        let mut entry = pool_entry.as_object().cloned().unwrap_or_default();
+        entry.insert(String::from("enabled"), Value::Bool(false));
+        entry.insert(String::from("channels"), json!(["all"]));
+        entry.remove("automation");
+        manifest_skills_mut(&mut manifest).insert(body.skill_name.clone(), Value::Object(entry));
+        bump_manifest(&mut manifest);
+        write_manifest(workspace, false, &manifest)?;
+        downloaded.push(json!({
+            "workspace_id": target,
+            "workspace_name": name,
             "name": body.skill_name
-        }]
-    })))
+        }));
+    }
+    Ok(Json(json!({"downloaded": downloaded})))
 }
 
 async fn update_pool_auto_sync(
@@ -1211,7 +1252,7 @@ async fn update_automation(
 ) -> Result<(bool, Value), ApiError> {
     validate_skill_name(skill_name)?;
     let root = pool_root(server)?;
-    let _guard = server.inner.desktop_skills_lock.lock().await;
+    let guard = server.inner.desktop_skills_lock.lock().await;
     let mut manifest = reconcile_manifest(&root, true)?;
     let entry = manifest_skills_mut(&mut manifest)
         .get_mut(skill_name)
@@ -1249,8 +1290,9 @@ async fn update_automation(
         .unwrap_or_else(|| json!({"enabled": false}));
     bump_manifest(&mut manifest);
     write_manifest(&root, true, &manifest)?;
-    if auto_sync.as_ref().is_some_and(|config| config.enabled) {
-        sync_pool_skill(server, skill_name, &root).await?;
+    drop(guard);
+    if let Some(config) = auto_sync.filter(|config| config.enabled) {
+        sync_pool_skill(server, skill_name, &root, config.targets.as_deref()).await?;
     }
     Ok((auto_update_value, auto_sync_value))
 }
@@ -1259,44 +1301,55 @@ async fn sync_pool_skill(
     server: &AppServer,
     skill_name: &str,
     pool: &Path,
+    targets: Option<&[String]>,
 ) -> Result<(), ApiError> {
-    let workspace = selected_workspace(server).await?;
+    let mut workspaces = super::desktop_agents::agent_workspaces(server).await?;
+    if let Some(targets) = targets {
+        workspaces.retain(|(agent_id, _, _)| targets.contains(agent_id));
+        if workspaces.len() != targets.len() {
+            return Err(not_found("Auto Sync target Workspace was not found"));
+        }
+    }
     let source = pool.join(skill_name);
     if !source.join("SKILL.md").is_file() {
         return Err(not_found("Pool skill not found"));
     }
-    let target = workspace.join("skills").join(skill_name);
-    install_directory(&source, &target, true)?;
-    let mut manifest = reconcile_manifest(&workspace, false)?;
-    let metadata = skill_metadata(&target, skill_name)?;
-    let previous = manifest_skills(&manifest)
-        .get(skill_name)
-        .and_then(Value::as_object)
-        .cloned()
-        .unwrap_or_default();
-    let mut entry = previous;
-    entry.insert(String::from("source"), Value::String(String::from("pool")));
-    entry.insert(
-        String::from("description"),
-        Value::String(metadata.description),
-    );
-    entry
-        .entry(String::from("enabled"))
-        .or_insert(Value::Bool(false));
-    entry
-        .entry(String::from("channels"))
-        .or_insert_with(|| json!(["all"]));
-    manifest_skills_mut(&mut manifest).insert(skill_name.to_owned(), Value::Object(entry));
-    bump_manifest(&mut manifest);
-    write_manifest(&workspace, false, &manifest)
+    for (_, _, workspace) in workspaces {
+        let target = workspace.join("skills").join(skill_name);
+        install_directory(&source, &target, true)?;
+        let mut manifest = reconcile_manifest(&workspace, false)?;
+        let metadata = skill_metadata(&target, skill_name)?;
+        let previous = manifest_skills(&manifest)
+            .get(skill_name)
+            .and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default();
+        let mut entry = previous;
+        entry.insert(String::from("source"), Value::String(String::from("pool")));
+        entry.insert(
+            String::from("description"),
+            Value::String(metadata.description),
+        );
+        entry
+            .entry(String::from("enabled"))
+            .or_insert(Value::Bool(false));
+        entry
+            .entry(String::from("channels"))
+            .or_insert_with(|| json!(["all"]));
+        manifest_skills_mut(&mut manifest).insert(skill_name.to_owned(), Value::Object(entry));
+        bump_manifest(&mut manifest);
+        write_manifest(&workspace, false, &manifest)?;
+    }
+    Ok(())
 }
 
 async fn upload_workspace_zip(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Query(query): Query<ZipQuery>,
     multipart: Multipart,
 ) -> Result<Json<Value>, ApiError> {
-    let workspace = selected_workspace(&server).await?;
+    let workspace = request_workspace(&server, &headers).await?;
     upload_zip(&server, &workspace, query, multipart, false).await
 }
 
@@ -1812,12 +1865,14 @@ async fn import_pool_from_hub(
 
 async fn start_hub_install(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Json(body): Json<HubInstallRequest>,
 ) -> Result<Json<Value>, ApiError> {
     validate_http_url(&body.bundle_url)?;
     if !body.target_name.is_empty() {
         validate_skill_name(&body.target_name)?;
     }
+    let workspace = request_workspace(&server, &headers).await?;
     let now = unix_time_seconds();
     let task = HubInstallTask {
         task_id: Uuid::now_v7().to_string(),
@@ -1846,7 +1901,7 @@ async fn start_hub_install(
     let task_id = task.task_id.clone();
     let worker_server = server.clone();
     tokio::spawn(async move {
-        run_hub_install(worker_server, task_id, body, cancellation).await;
+        run_hub_install(worker_server, task_id, workspace, body, cancellation).await;
     });
     Ok(Json(
         serde_json::to_value(task).expect("task is serializable"),
@@ -1897,17 +1952,11 @@ async fn cancel_hub_install(
 async fn run_hub_install(
     server: AppServer,
     task_id: String,
+    workspace: PathBuf,
     body: HubInstallRequest,
     cancellation: CancellationToken,
 ) {
     update_hub_task(&server, &task_id, "importing", None, None).await;
-    let workspace = match selected_workspace(&server).await {
-        Ok(workspace) => workspace,
-        Err((_, Json(error))) => {
-            update_hub_task(&server, &task_id, "failed", Some(error.to_string()), None).await;
-            return;
-        }
-    };
     let result = install_hub_bundle(
         &server,
         &workspace,
@@ -2305,13 +2354,8 @@ struct SkillMetadata {
     updated_at: String,
 }
 
-async fn selected_workspace(server: &AppServer) -> Result<PathBuf, ApiError> {
-    let workspace = server
-        .inner
-        .desktop_workspace
-        .as_ref()
-        .ok_or_else(|| internal("Desktop Workspace is unavailable"))?;
-    Ok(workspace.selected.read().await.clone())
+async fn request_workspace(server: &AppServer, headers: &HeaderMap) -> Result<PathBuf, ApiError> {
+    super::desktop_agents::workspace_for_request(server, headers).await
 }
 
 fn pool_root(server: &AppServer) -> Result<PathBuf, ApiError> {
@@ -3179,10 +3223,18 @@ fn normalize_targets(targets: Option<Vec<String>>) -> Result<Option<Vec<String>>
     let Some(targets) = targets else {
         return Ok(None);
     };
-    if targets.iter().any(|target| target != "default") {
-        return Err(bad_request("Auto Sync target Workspace was not found"));
+    if targets.iter().any(|target| {
+        !(2..=64).contains(&target.len())
+            || !target
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    }) {
+        return Err(bad_request("Auto Sync target Workspace is invalid"));
     }
-    Ok((!targets.is_empty()).then_some(vec![String::from("default")]))
+    let mut targets = targets;
+    targets.sort();
+    targets.dedup();
+    Ok((!targets.is_empty()).then_some(targets))
 }
 
 fn suggest_conflict_name(root: &Path, name: &str, pool: bool) -> String {

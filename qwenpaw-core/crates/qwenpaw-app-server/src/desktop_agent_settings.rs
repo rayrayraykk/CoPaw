@@ -5,6 +5,7 @@ use std::io::Write as _;
 use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
+use std::time::Instant;
 
 use anyhow::Context as _;
 use axum::Json;
@@ -12,6 +13,7 @@ use axum::Router;
 use axum::extract::DefaultBodyLimit;
 use axum::extract::Multipart;
 use axum::extract::State;
+use axum::http::HeaderMap;
 use axum::http::StatusCode;
 use axum::routing::get;
 use axum::routing::post;
@@ -36,7 +38,6 @@ const MAX_STRING_BYTES: usize = 16 * 1024;
 const MAX_AUDIO_UPLOAD_BYTES: usize = 32 * 1024 * 1024;
 const MAX_SYSTEM_PROMPT_FILES_BODY_BYTES: usize = 64 * 1024;
 const MAX_TRANSCRIPTION_RESPONSE_BYTES: usize = 1024 * 1024;
-const DEFAULT_AGENT_ID: &str = "default";
 const SUPPORTED_AGENT_LANGUAGES: [&str; 4] = ["en", "id", "ru", "zh"];
 const SUPPORTED_AUDIO_MODES: [&str; 2] = ["auto", "native"];
 const SUPPORTED_PROVIDER_TYPES: [&str; 3] = ["disabled", "local_whisper", "whisper_api"];
@@ -119,6 +120,19 @@ struct ProviderRequest {
     provider_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct EmbeddingTestRequest {
+    backend: String,
+    #[serde(default)]
+    api_key: String,
+    base_url: String,
+    model_name: String,
+    dimensions: usize,
+    #[serde(default)]
+    use_dimensions: bool,
+    health_check_timeout: u64,
+}
+
 pub(super) fn router() -> Router<AppServer> {
     Router::new()
         .route(
@@ -131,6 +145,7 @@ pub(super) fn router() -> Router<AppServer> {
             "/api/workspace/running-config",
             get(get_running_config).put(put_running_config),
         )
+        .route("/api/workspace/embedding/test", post(test_embedding))
         .route(
             "/api/workspace/language",
             get(get_language).put(put_language),
@@ -163,25 +178,48 @@ pub(super) fn router() -> Router<AppServer> {
         .layer(DefaultBodyLimit::max(MAX_AUDIO_UPLOAD_BYTES))
 }
 
-async fn get_system_prompt_files(State(server): State<AppServer>) -> Result<Json<Value>, ApiError> {
-    let files = server
-        .inner
-        .core
-        .system_prompt_files()
-        .map_err(|error| internal_error(&error.to_string()))?;
-    Ok(Json(json!(files)))
+async fn get_system_prompt_files(
+    State(server): State<AppServer>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
+    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
+    let config = super::desktop_agents::config_for_agent(&server, &agent_id).await?;
+    Ok(Json(
+        config
+            .get("system_prompt_files")
+            .cloned()
+            .unwrap_or_else(|| json!(["AGENTS.md", "SOUL.md", "PROFILE.md"])),
+    ))
 }
 
 async fn put_system_prompt_files(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Json(files): Json<Vec<String>>,
 ) -> Result<Json<Value>, ApiError> {
+    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
     let _guard = server.inner.desktop_agent_settings_lock.lock().await;
+    let previous = server
+        .inner
+        .core
+        .system_prompt_files()
+        .map_err(|error| internal_error(&error.to_string()))?;
     server
         .inner
         .core
         .replace_system_prompt_files(files.clone())
         .map_err(|error| bad_request(&error.to_string()))?;
+    if let Err(error) = super::desktop_agents::replace_config_field(
+        &server,
+        &agent_id,
+        "system_prompt_files",
+        json!(files),
+    )
+    .await
+    {
+        let _ = server.inner.core.replace_system_prompt_files(previous);
+        return Err(error);
+    }
     Ok(Json(json!(files)))
 }
 
@@ -220,68 +258,198 @@ pub(super) fn user_timezone(core: &Core) -> Result<String, ApiError> {
     Ok(load_settings(core)?.user_timezone)
 }
 
-async fn get_running_config(State(server): State<AppServer>) -> Result<Json<Value>, ApiError> {
+async fn get_running_config(
+    State(server): State<AppServer>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
+    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
     let _guard = server.inner.desktop_agent_settings_lock.lock().await;
-    let settings = load_settings(&server.inner.core)?;
-    let mut config = settings.running_config;
-    hydrate_secrets(&server, &mut config)?;
+    let agent_config = super::desktop_agents::config_for_agent(&server, &agent_id).await?;
+    let mut config = agent_config
+        .get("running")
+        .cloned()
+        .unwrap_or_else(default_running_config);
+    hydrate_secrets(&server, &agent_id, &mut config)?;
     Ok(Json(config))
 }
 
 async fn put_running_config(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Json(submitted): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
     let _guard = server.inner.desktop_agent_settings_lock.lock().await;
     validate_value_bounds(&submitted, 0)?;
-    let mut settings = load_settings(&server.inner.core)?;
-    let previous_settings = settings.clone();
     let mut next = default_running_config();
     merge_json(&mut next, &submitted);
     validate_running_config(&next)?;
     let next_runtime = runtime_config(&next)?;
     let credentials = credentials(&server)?;
-    let previous_secrets = load_secrets(credentials)?;
+    let previous_secrets = load_secrets(credentials, &agent_id)?;
     let next_secrets = submitted_secrets(&submitted, &previous_secrets)?;
     scrub_secrets(&mut next);
-    settings.running_config = next;
-    replace_secrets(credentials, &previous_secrets, &next_secrets)?;
+    replace_secrets(credentials, &agent_id, &previous_secrets, &next_secrets)?;
     let previous_runtime = server
         .inner
         .core
         .agent_runtime_config()
         .map_err(|error| internal_error(&error.to_string()))?;
     if let Err(error) = server.inner.core.replace_agent_runtime_config(next_runtime) {
-        let _ = replace_secrets(credentials, &next_secrets, &previous_secrets);
+        let _ = replace_secrets(credentials, &agent_id, &next_secrets, &previous_secrets);
         return Err(bad_request(&error.to_string()));
     }
-    if let Err(error) = persist_settings(&server.inner.core, &settings) {
+    if let Err(error) =
+        super::desktop_agents::replace_config_field(&server, &agent_id, "running", next.clone())
+            .await
+    {
         let _ = server
             .inner
             .core
             .replace_agent_runtime_config(previous_runtime);
-        let _ = replace_secrets(credentials, &next_secrets, &previous_secrets);
-        let _ = persist_settings(&server.inner.core, &previous_settings);
+        let _ = replace_secrets(credentials, &agent_id, &next_secrets, &previous_secrets);
         return Err(error);
     }
-    let mut response = settings.running_config;
+    let mut response = next;
     hydrate_values(&mut response, &next_secrets);
     Ok(Json(response))
 }
 
-async fn get_language(State(server): State<AppServer>) -> Result<Json<Value>, ApiError> {
-    let _guard = server.inner.desktop_agent_settings_lock.lock().await;
-    let settings = load_settings(&server.inner.core)?;
+async fn test_embedding(
+    State(server): State<AppServer>,
+    headers: HeaderMap,
+    Json(request): Json<EmbeddingTestRequest>,
+) -> Result<Json<Value>, ApiError> {
+    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
+    super::desktop_agents::workspace_for_agent(&server, &agent_id).await?;
+    if request.dimensions == 0 || request.dimensions > 1_000_000 {
+        return Err(bad_request("Embedding dimensions are invalid"));
+    }
+    if request.model_name.trim().is_empty() || request.model_name.len() > 1_024 {
+        return Err(bad_request("Embedding model name is invalid"));
+    }
+    let timeout = request.health_check_timeout.clamp(1, 120);
+    let started = Instant::now();
+    let tested = perform_embedding_test(&request, timeout).await;
+    let latency_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+    let (actual_dimensions, error) = match tested {
+        Ok(dimensions) if dimensions == request.dimensions => (Some(dimensions), None),
+        Ok(dimensions) => (
+            Some(dimensions),
+            Some(format!(
+                "Embedding dimension mismatch: expected {}, got {dimensions}",
+                request.dimensions
+            )),
+        ),
+        Err(message) => {
+            let message = if request.api_key.is_empty() {
+                message
+            } else {
+                message.replace(&request.api_key, "***")
+            };
+            (None, Some(message))
+        }
+    };
     Ok(Json(json!({
-        "language": settings.language,
-        "agent_id": DEFAULT_AGENT_ID
+        "success": error.is_none(),
+        "configured_dimensions": request.dimensions,
+        "actual_dimensions": actual_dimensions,
+        "latency_ms": latency_ms,
+        "message": error.unwrap_or_else(|| String::from("Embedding service is available"))
+    })))
+}
+
+async fn perform_embedding_test(
+    request: &EmbeddingTestRequest,
+    timeout_seconds: u64,
+) -> Result<usize, String> {
+    if !matches!(request.backend.as_str(), "openai" | "dashscope") {
+        return Err(format!(
+            "Embedding backend '{}' is not available in Rust Core",
+            request.backend
+        ));
+    }
+    let base_url = url::Url::parse(request.base_url.trim())
+        .map_err(|_| String::from("Embedding base URL is invalid"))?;
+    if !matches!(base_url.scheme(), "http" | "https")
+        || !base_url.username().is_empty()
+        || base_url.password().is_some()
+        || base_url.host_str().is_none()
+    {
+        return Err(String::from("Embedding base URL is invalid"));
+    }
+    let endpoint = format!(
+        "{}/embeddings",
+        request.base_url.trim().trim_end_matches('/')
+    );
+    let mut body = json!({
+        "model": request.model_name,
+        "input": ["QwenPaw embedding health check"]
+    });
+    if request.use_dimensions {
+        body["dimensions"] = json!(request.dimensions);
+    }
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(timeout_seconds))
+        .build()
+        .map_err(|error| error.to_string())?;
+    let mut builder = client.post(endpoint).json(&body);
+    if !request.api_key.trim().is_empty() {
+        builder = builder.bearer_auth(request.api_key.trim());
+    }
+    let response = builder.send().await.map_err(|error| error.to_string())?;
+    let status = response.status();
+    let mut bytes = Vec::new();
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|error| error.to_string())?;
+        if bytes.len().saturating_add(chunk.len()) > MAX_TRANSCRIPTION_RESPONSE_BYTES {
+            return Err(String::from("Embedding response is too large"));
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    if !status.is_success() {
+        return Err(format!("Embedding service returned HTTP {status}"));
+    }
+    let response = serde_json::from_slice::<Value>(&bytes)
+        .map_err(|_| String::from("Embedding service returned invalid JSON"))?;
+    let embedding = response
+        .pointer("/data/0/embedding")
+        .and_then(Value::as_array)
+        .ok_or_else(|| String::from("Embedding service returned an empty vector"))?;
+    if embedding.is_empty()
+        || embedding
+            .iter()
+            .any(|value| value.as_f64().is_none_or(|number| !number.is_finite()))
+    {
+        return Err(String::from("Embedding service returned invalid numbers"));
+    }
+    Ok(embedding.len())
+}
+
+async fn get_language(
+    State(server): State<AppServer>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
+    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
+    let _guard = server.inner.desktop_agent_settings_lock.lock().await;
+    let config = super::desktop_agents::config_for_agent(&server, &agent_id).await?;
+    let language = config
+        .get("language")
+        .and_then(Value::as_str)
+        .unwrap_or("en");
+    Ok(Json(json!({
+        "language": language,
+        "agent_id": agent_id
     })))
 }
 
 async fn put_language(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Json(request): Json<LanguageRequest>,
 ) -> Result<Json<Value>, ApiError> {
+    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
     let language = request.language.trim().to_ascii_lowercase();
     if !SUPPORTED_AGENT_LANGUAGES.contains(&language.as_str()) {
         return Err(bad_request(&format!(
@@ -290,35 +458,32 @@ async fn put_language(
         )));
     }
     let _guard = server.inner.desktop_agent_settings_lock.lock().await;
-    let mut settings = load_settings(&server.inner.core)?;
-    let copied_files = if settings.language == language {
+    let config = super::desktop_agents::config_for_agent(&server, &agent_id).await?;
+    let current = config
+        .get("language")
+        .and_then(Value::as_str)
+        .unwrap_or("en");
+    let copied_files = if current == language {
         Vec::new()
     } else {
-        copy_agent_templates(&server, &language).await?
+        let workspace = super::desktop_agents::workspace_for_agent(&server, &agent_id).await?;
+        copy_agent_templates_to(&workspace, &language, true)?
     };
-    settings.language.clone_from(&language);
-    persist_settings(&server.inner.core, &settings)?;
+    super::desktop_agents::replace_config_field(
+        &server,
+        &agent_id,
+        "language",
+        Value::String(language.clone()),
+    )
+    .await?;
     Ok(Json(json!({
         "language": language,
         "copied_files": copied_files,
-        "agent_id": DEFAULT_AGENT_ID
+        "agent_id": agent_id
     })))
 }
 
-async fn copy_agent_templates(
-    server: &AppServer,
-    language: &str,
-) -> Result<Vec<&'static str>, ApiError> {
-    let workspace = server
-        .inner
-        .desktop_workspace
-        .as_ref()
-        .ok_or_else(|| internal_error("Desktop workspace is unavailable"))?;
-    let workspace_root = workspace.selected.read().await.clone();
-    copy_agent_templates_to(&workspace_root, language, true)
-}
-
-fn copy_agent_templates_to(
+pub(super) fn copy_agent_templates_to(
     workspace_root: &Path,
     language: &str,
     overwrite: bool,
@@ -424,16 +589,26 @@ async fn put_timezone(
     Ok(Json(json!({"timezone": timezone})))
 }
 
-async fn get_audio_mode(State(server): State<AppServer>) -> Result<Json<Value>, ApiError> {
+async fn get_audio_mode(
+    State(server): State<AppServer>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
+    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
     let _guard = server.inner.desktop_agent_settings_lock.lock().await;
-    let settings = load_settings(&server.inner.core)?;
-    Ok(Json(json!({"audio_mode": settings.audio_mode})))
+    let config = super::desktop_agents::config_for_agent(&server, &agent_id).await?;
+    let audio_mode = config
+        .get("audio_mode")
+        .and_then(Value::as_str)
+        .unwrap_or("auto");
+    Ok(Json(json!({"audio_mode": audio_mode})))
 }
 
 async fn put_audio_mode(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Json(request): Json<AudioModeRequest>,
 ) -> Result<Json<Value>, ApiError> {
+    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
     let audio_mode = request.audio_mode.trim().to_ascii_lowercase();
     if !SUPPORTED_AUDIO_MODES.contains(&audio_mode.as_str()) {
         return Err(bad_request(&format!(
@@ -442,24 +617,38 @@ async fn put_audio_mode(
         )));
     }
     let _guard = server.inner.desktop_agent_settings_lock.lock().await;
-    let mut settings = load_settings(&server.inner.core)?;
-    settings.audio_mode.clone_from(&audio_mode);
-    persist_settings(&server.inner.core, &settings)?;
+    super::desktop_agents::replace_config_field(
+        &server,
+        &agent_id,
+        "audio_mode",
+        Value::String(audio_mode.clone()),
+    )
+    .await?;
     Ok(Json(json!({"audio_mode": audio_mode})))
 }
 
-async fn get_provider_type(State(server): State<AppServer>) -> Result<Json<Value>, ApiError> {
+async fn get_provider_type(
+    State(server): State<AppServer>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
+    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
     let _guard = server.inner.desktop_agent_settings_lock.lock().await;
-    let settings = load_settings(&server.inner.core)?;
+    let config = super::desktop_agents::config_for_agent(&server, &agent_id).await?;
+    let provider_type = config
+        .get("transcription_provider_type")
+        .and_then(Value::as_str)
+        .unwrap_or("disabled");
     Ok(Json(json!({
-        "transcription_provider_type": settings.transcription_provider_type
+        "transcription_provider_type": provider_type
     })))
 }
 
 async fn put_provider_type(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Json(request): Json<ProviderTypeRequest>,
 ) -> Result<Json<Value>, ApiError> {
+    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
     let provider_type = request
         .transcription_provider_type
         .trim()
@@ -471,11 +660,13 @@ async fn put_provider_type(
         )));
     }
     let _guard = server.inner.desktop_agent_settings_lock.lock().await;
-    let mut settings = load_settings(&server.inner.core)?;
-    settings
-        .transcription_provider_type
-        .clone_from(&provider_type);
-    persist_settings(&server.inner.core, &settings)?;
+    super::desktop_agents::replace_config_field(
+        &server,
+        &agent_id,
+        "transcription_provider_type",
+        Value::String(provider_type.clone()),
+    )
+    .await?;
     Ok(Json(json!({
         "transcription_provider_type": provider_type
     })))
@@ -483,9 +674,15 @@ async fn put_provider_type(
 
 async fn get_transcription_providers(
     State(server): State<AppServer>,
+    headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
+    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
     let _guard = server.inner.desktop_agent_settings_lock.lock().await;
-    let settings = load_settings(&server.inner.core)?;
+    let config = super::desktop_agents::config_for_agent(&server, &agent_id).await?;
+    let provider_id = config
+        .get("transcription_provider_id")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     let model = server.inner.core.read_config().config;
     Ok(Json(json!({
         "providers": [{
@@ -493,22 +690,28 @@ async fn get_transcription_providers(
             "name": "OpenAI Compatible",
             "available": model.api_key_configured
         }],
-        "configured_provider_id": settings.transcription_provider_id
+        "configured_provider_id": provider_id
     })))
 }
 
 async fn put_transcription_provider(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Json(request): Json<ProviderRequest>,
 ) -> Result<Json<Value>, ApiError> {
+    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
     let provider_id = request.provider_id.trim();
     if provider_id.len() > 256 || provider_id.chars().any(char::is_control) {
         return Err(bad_request("Invalid transcription provider ID"));
     }
     let _guard = server.inner.desktop_agent_settings_lock.lock().await;
-    let mut settings = load_settings(&server.inner.core)?;
-    provider_id.clone_into(&mut settings.transcription_provider_id);
-    persist_settings(&server.inner.core, &settings)?;
+    super::desktop_agents::replace_config_field(
+        &server,
+        &agent_id,
+        "transcription_provider_id",
+        Value::String(provider_id.to_owned()),
+    )
+    .await?;
     Ok(Json(json!({"provider_id": provider_id})))
 }
 
@@ -524,14 +727,24 @@ async fn get_local_whisper_status() -> Json<Value> {
 
 async fn transcribe_audio(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     multipart: Multipart,
 ) -> Result<Json<Value>, ApiError> {
+    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
     let (provider_type, provider_id) = {
         let _guard = server.inner.desktop_agent_settings_lock.lock().await;
-        let settings = load_settings(&server.inner.core)?;
+        let config = super::desktop_agents::config_for_agent(&server, &agent_id).await?;
         (
-            settings.transcription_provider_type,
-            settings.transcription_provider_id,
+            config
+                .get("transcription_provider_type")
+                .and_then(Value::as_str)
+                .unwrap_or("disabled")
+                .to_owned(),
+            config
+                .get("transcription_provider_id")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_owned(),
         )
     };
     if provider_type == "disabled" {
@@ -868,7 +1081,7 @@ fn validate_embedding(config: &Value) -> Result<(), ApiError> {
     Ok(())
 }
 
-fn runtime_config(config: &Value) -> Result<AgentRuntimeConfig, ApiError> {
+pub(super) fn runtime_config(config: &Value) -> Result<AgentRuntimeConfig, ApiError> {
     validate_running_config(config)?;
     let iteration_enabled = boolean(config, "/loop/iteration/enabled")?;
     let max_agent_steps = if iteration_enabled {
@@ -913,12 +1126,14 @@ fn credentials(server: &AppServer) -> Result<&dyn DesktopCredentialStore, ApiErr
 
 fn load_secrets(
     credentials: &dyn DesktopCredentialStore,
+    agent_id: &str,
 ) -> Result<BTreeMap<String, Option<String>>, ApiError> {
     SECRET_PATHS
         .iter()
         .map(|(key, _)| {
+            let scoped_key = scoped_secret_key(agent_id, key);
             credentials
-                .load_agent_setting_secret(key)
+                .load_agent_setting_secret(&scoped_key)
                 .map(|value| ((*key).to_owned(), value))
                 .map_err(|error| {
                     warn!(%error, "failed to load a Desktop Agent credential");
@@ -966,6 +1181,7 @@ fn validate_secret(value: &str) -> Result<Option<String>, ApiError> {
 
 fn replace_secrets(
     credentials: &dyn DesktopCredentialStore,
+    agent_id: &str,
     previous: &BTreeMap<String, Option<String>>,
     next: &BTreeMap<String, Option<String>>,
 ) -> Result<(), ApiError> {
@@ -975,10 +1191,12 @@ fn replace_secrets(
             continue;
         }
         let value = next.get(key).and_then(Option::as_deref);
-        if let Err(error) = credentials.save_agent_setting_secret(key, value) {
+        let scoped_key = scoped_secret_key(agent_id, key);
+        if let Err(error) = credentials.save_agent_setting_secret(&scoped_key, value) {
             for changed_key in changed.into_iter().rev() {
+                let scoped_changed_key = scoped_secret_key(agent_id, changed_key);
                 let _ = credentials.save_agent_setting_secret(
-                    changed_key,
+                    &scoped_changed_key,
                     previous.get(changed_key).and_then(Option::as_deref),
                 );
             }
@@ -992,10 +1210,18 @@ fn replace_secrets(
     Ok(())
 }
 
-fn hydrate_secrets(server: &AppServer, config: &mut Value) -> Result<(), ApiError> {
-    let values = load_secrets(credentials(server)?)?;
+fn hydrate_secrets(server: &AppServer, agent_id: &str, config: &mut Value) -> Result<(), ApiError> {
+    let values = load_secrets(credentials(server)?, agent_id)?;
     hydrate_values(config, &values);
     Ok(())
+}
+
+fn scoped_secret_key(agent_id: &str, key: &str) -> String {
+    if agent_id == "default" {
+        key.to_owned()
+    } else {
+        format!("agent.{agent_id}.{key}")
+    }
 }
 
 fn hydrate_values(config: &mut Value, values: &BTreeMap<String, Option<String>>) {
@@ -1190,7 +1416,7 @@ fn executable_in_directory(directory: &Path, name: &str) -> bool {
 }
 
 #[allow(clippy::too_many_lines)]
-fn default_running_config() -> Value {
+pub(super) fn default_running_config() -> Value {
     json!({
         "max_iters": 100,
         "loop": {

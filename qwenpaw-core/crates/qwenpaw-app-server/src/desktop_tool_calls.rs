@@ -7,6 +7,7 @@ use axum::Router;
 use axum::body::Bytes;
 use axum::extract::Path;
 use axum::extract::State;
+use axum::http::HeaderMap;
 use axum::http::StatusCode;
 use axum::response::Sse;
 use axum::response::sse::Event;
@@ -80,40 +81,49 @@ async fn set_offload_policy(
 
 async fn list_calls(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Path(session_id): Path<String>,
 ) -> Json<Value> {
-    let Some(thread_id) = existing_thread_id(&server, &session_id).await else {
+    let agent_id = super::desktop_agents::requested_agent_id(&headers)
+        .unwrap_or_else(|_| String::from("default"));
+    let Some(thread_id) = existing_thread_id(&server, &agent_id, &session_id).await else {
         return Json(json!({"items": [], "total": 0}));
     };
     let calls = server.inner.core.list_tool_calls(&thread_id).await;
     let items = calls
         .iter()
-        .map(|call| info_value(call, &session_id))
+        .map(|call| info_value(call, &session_id, &agent_id))
         .collect::<Vec<_>>();
     Json(json!({"total": items.len(), "items": items}))
 }
 
 async fn get_call(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Path((session_id, tool_call_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
-    let call = scoped_call(&server, &session_id, &tool_call_id).await?;
-    Ok(Json(info_value(&call, &session_id)))
+    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
+    let call = scoped_call(&server, &agent_id, &session_id, &tool_call_id).await?;
+    Ok(Json(info_value(&call, &session_id, &agent_id)))
 }
 
 async fn get_output(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Path((session_id, tool_call_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
-    let call = scoped_call(&server, &session_id, &tool_call_id).await?;
+    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
+    let call = scoped_call(&server, &agent_id, &session_id, &tool_call_id).await?;
     Ok(Json(output_value(&call)))
 }
 
 async fn stream_output(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Path((session_id, tool_call_id)): Path<(String, String)>,
 ) -> Result<Sse<impl futures_util::Stream<Item = Result<Event, Infallible>>>, ApiError> {
-    let thread_id = existing_thread_id(&server, &session_id)
+    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
+    let thread_id = existing_thread_id(&server, &agent_id, &session_id)
         .await
         .ok_or_else(not_found)?;
     let mut subscription = server
@@ -164,9 +174,11 @@ async fn send_stream_event(
 
 async fn offload_call(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Path((session_id, tool_call_id)): Path<(String, String)>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
-    let thread_id = existing_thread_id(&server, &session_id)
+    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
+    let thread_id = existing_thread_id(&server, &agent_id, &session_id)
         .await
         .ok_or_else(not_found)?;
     server
@@ -189,6 +201,7 @@ struct CancelRequest {
 
 async fn cancel_call(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Path((session_id, tool_call_id)): Path<(String, String)>,
     body: Bytes,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
@@ -198,7 +211,8 @@ async fn cancel_call(
         serde_json::from_slice::<CancelRequest>(&body)
             .map_err(|error| bad_request(&format!("invalid cancel request: {error}")))?
     };
-    let thread_id = existing_thread_id(&server, &session_id)
+    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
+    let thread_id = existing_thread_id(&server, &agent_id, &session_id)
         .await
         .ok_or_else(not_found)?;
     server
@@ -229,10 +243,12 @@ fn default_deadline_target() -> String {
 
 async fn extend_deadline(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Path((session_id, tool_call_id)): Path<(String, String)>,
     Json(request): Json<ExtendRequest>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
-    let thread_id = existing_thread_id(&server, &session_id)
+    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
+    let thread_id = existing_thread_id(&server, &agent_id, &session_id)
         .await
         .ok_or_else(not_found)?;
     let call = server
@@ -260,10 +276,11 @@ async fn extend_deadline(
 
 async fn scoped_call(
     server: &AppServer,
+    agent_id: &str,
     session_id: &str,
     tool_call_id: &str,
 ) -> Result<ToolCallSnapshot, ApiError> {
-    let thread_id = existing_thread_id(server, session_id)
+    let thread_id = existing_thread_id(server, agent_id, session_id)
         .await
         .ok_or_else(not_found)?;
     server
@@ -274,16 +291,24 @@ async fn scoped_call(
         .map_err(control_error)
 }
 
-async fn existing_thread_id(server: &AppServer, session_id: &str) -> Option<String> {
-    if let Some(thread_id) = server
-        .inner
-        .desktop_session_aliases
-        .read()
-        .await
+async fn existing_thread_id(
+    server: &AppServer,
+    agent_id: &str,
+    session_id: &str,
+) -> Option<String> {
+    let alias_catalog = server.inner.desktop_session_aliases.read().await;
+    let key = format!("{agent_id}\u{0}{session_id}");
+    let resolved_alias = alias_catalog
         .client_to_thread
-        .get(session_id)
+        .get(&key)
         .cloned()
-    {
+        .or_else(|| {
+            (agent_id == "default")
+                .then(|| alias_catalog.client_to_thread.get(session_id).cloned())
+                .flatten()
+        });
+    drop(alias_catalog);
+    if let Some(thread_id) = resolved_alias {
         return Some(thread_id);
     }
     server
@@ -295,12 +320,12 @@ async fn existing_thread_id(server: &AppServer, session_id: &str) -> Option<Stri
         .map(|response| response.thread.id)
 }
 
-fn info_value(call: &ToolCallSnapshot, session_id: &str) -> Value {
+fn info_value(call: &ToolCallSnapshot, session_id: &str, agent_id: &str) -> Value {
     json!({
         "tool_call_id": call.tool_call_id,
         "tool_name": call.tool_name,
         "session_id": session_id,
-        "agent_id": "default",
+        "agent_id": agent_id,
         "status": call.status,
         "started_at": call.started_at,
         "elapsed": call.elapsed,

@@ -129,19 +129,299 @@ function smokeOptions(arguments_) {
   const mcpCrud = arguments_.includes("--mcp-crud");
   const securityCrud = arguments_.includes("--security-crud");
   const skillsCrud = arguments_.includes("--skills-crud");
+  const agentsCrud = arguments_.includes("--agents-crud");
   const navigationArguments = arguments_.filter(
     (argument) =>
       argument !== "--coding-git" &&
       argument !== "--mcp-crud" &&
       argument !== "--security-crud" &&
-      argument !== "--skills-crud",
+      argument !== "--skills-crud" &&
+      argument !== "--agents-crud",
   );
   return {
     codingGit,
     mcpCrud,
     securityCrud,
     skillsCrud,
+    agentsCrud,
     paths: navigationPaths(navigationArguments),
+  };
+}
+
+async function selectAgentFromSidebar(client, agentId) {
+  const opened = await evaluateValue(
+    client,
+    `(() => {
+      const selector = document.querySelector(
+        '[class*="agentSelectorWrapper"] [class*="-select-selector"]'
+      );
+      selector?.dispatchEvent(new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true
+      }));
+      selector?.click();
+      return Boolean(selector);
+    })()`,
+  );
+  if (!opened) throw new Error("Agent selector did not render");
+  await waitForValue(
+    client,
+    `[...document.querySelectorAll('[class*="-select-item-option"]')].some(
+      (item) => (item.innerText ?? "").includes("ID: ${agentId}")
+    )`,
+    `Agent selector option did not render: ${agentId}`,
+  );
+  const selected = await evaluateValue(
+    client,
+    `(() => {
+      const option = [...document.querySelectorAll(
+        '[class*="-select-item-option"]'
+      )].find((item) =>
+        (item.innerText ?? "").includes("ID: ${agentId}")
+      );
+      option?.dispatchEvent(new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true
+      }));
+      option?.click();
+      return Boolean(option);
+    })()`,
+  );
+  if (!selected) throw new Error(`Could not select Agent: ${agentId}`);
+  await waitForValue(
+    client,
+    `localStorage.getItem("qwenpaw-last-used-agent") === ${JSON.stringify(
+      agentId,
+    )}`,
+    `Selected Agent was not persisted: ${agentId}`,
+  );
+}
+
+async function clickAgentRowAction(client, agentId, actionIndex) {
+  const clicked = await evaluateValue(
+    client,
+    `(() => {
+      const row = document.querySelector(
+        'tr[data-row-key=${JSON.stringify(agentId)}]'
+      );
+      const actionCell = row?.querySelector("td:last-child");
+      const buttons = [...(actionCell?.querySelectorAll("button") ?? [])];
+      const button = buttons[${actionIndex}];
+      button?.click();
+      return Boolean(button && !button.disabled);
+    })()`,
+  );
+  if (!clicked) {
+    throw new Error(`Agent row action ${actionIndex} did not render: ${agentId}`);
+  }
+}
+
+async function runAgentsCrudScenario(client) {
+  const agentId = "browser-agent";
+  const initialAgentName = "Browser Agent";
+  const updatedAgentName = "Browser Agent Updated";
+  const copiedAgentName = `${updatedAgentName} Copy`;
+  await waitForValue(
+    client,
+    `document.body.innerText.includes("Create Agent")`,
+    "Agents management page did not render",
+  );
+  const existing = await evaluateValue(
+    client,
+    `fetch("/api/agents").then((response) => response.json()).then(
+      (value) => value.agents.some((agent) => agent.id === ${JSON.stringify(
+        agentId,
+      )})
+    )`,
+  );
+  if (!existing) {
+    await clickButton(client, "Create Agent");
+    await waitForValue(
+      client,
+      `document.body.innerText.includes("Create New Agent")`,
+      "Create Agent modal did not open",
+    );
+    await setInputByPlaceholder(client, "e.g.: my-agent", agentId);
+    await setInputByPlaceholder(client, "e.g.: My Agent", initialAgentName);
+    await clickButton(client, "Save");
+    await waitForValue(
+      client,
+      `fetch("/api/agents").then((response) => response.json()).then(
+        (value) => value.agents.some((agent) =>
+          agent.id === ${JSON.stringify(agentId)} &&
+          agent.name === ${JSON.stringify(initialAgentName)}
+        )
+      )`,
+      "Agent created through the Console did not persist",
+    );
+  }
+  await waitForValue(
+    client,
+    `Boolean(document.querySelector(
+      'tr[data-row-key=${JSON.stringify(agentId)}]'
+    ))`,
+    "Created Agent row did not render",
+  );
+
+  await clickAgentRowAction(client, agentId, 0);
+  await waitForValue(
+    client,
+    `fetch("/api/agents").then((response) => response.json()).then(
+      (value) => value.agents.some((agent) =>
+        agent.id === ${JSON.stringify(agentId)} && agent.pinned === true
+      )
+    )`,
+    "Agent pin action did not persist",
+  );
+
+  await clickAgentRowAction(client, agentId, 1);
+  await waitForValue(
+    client,
+    `document.body.innerText.includes("Edit Agent -")`,
+    "Edit Agent modal did not open",
+  );
+  await setInputByPlaceholder(client, "e.g.: My Agent", updatedAgentName);
+  await clickButton(client, "Save");
+  await waitForValue(
+    client,
+    `fetch("/api/agents").then((response) => response.json()).then(
+      (value) => value.agents.some((agent) =>
+        agent.id === ${JSON.stringify(agentId)} &&
+        agent.name === ${JSON.stringify(updatedAgentName)}
+      )
+    )`,
+    "Agent edit action did not persist",
+  );
+
+  const isolatedFiles = await evaluateValue(
+    client,
+    `fetch("/api/workspace/files/PROFILE.md", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Agent-Id": ${JSON.stringify(agentId)}
+        },
+        body: JSON.stringify({content: "Browser Agent profile"})
+      }).then(async (saved) => {
+        const [agentFile, defaultFile] = await Promise.all([
+          fetch("/api/workspace/files/PROFILE.md", {
+            headers: {"X-Agent-Id": ${JSON.stringify(agentId)}}
+          }).then((response) => response.json()),
+          fetch("/api/workspace/files/PROFILE.md", {
+            headers: {"X-Agent-Id": "default"}
+          }).then((response) => response.json())
+        ]);
+        return {
+          saved: saved.ok,
+          agentContent: agentFile.content,
+          defaultContent: defaultFile.content
+        };
+      })`,
+  );
+  if (
+    !isolatedFiles.saved ||
+    isolatedFiles.agentContent !== "Browser Agent profile" ||
+    isolatedFiles.defaultContent === isolatedFiles.agentContent
+  ) {
+    throw new Error("Agent workspace files were not isolated");
+  }
+
+  await clickAgentRowAction(client, agentId, 2);
+  await waitForValue(
+    client,
+    `document.body.innerText.includes("Copy Agent Configuration")`,
+    "Copy Agent modal did not open",
+  );
+  await clickButton(client, "Confirm");
+  await waitForValue(
+    client,
+    `fetch("/api/agents").then((response) => response.json()).then(
+      (value) => value.agents.some((agent) =>
+        agent.name === ${JSON.stringify(copiedAgentName)}
+      )
+    )`,
+    "Agent copy action did not persist",
+  );
+  const copiedAgentId = await evaluateValue(
+    client,
+    `fetch("/api/agents").then((response) => response.json()).then(
+      (value) => value.agents.find((agent) =>
+        agent.name === ${JSON.stringify(copiedAgentName)}
+      )?.id
+    )`,
+  );
+  const copiedProfile = await evaluateValue(
+    client,
+    `fetch("/api/workspace/files/PROFILE.md", {
+      headers: {"X-Agent-Id": ${JSON.stringify(copiedAgentId)}}
+    }).then((response) => response.json()).then((value) => value.content)`,
+  );
+  if (copiedProfile !== "Browser Agent profile") {
+    throw new Error("Agent copy did not preserve selected Markdown files");
+  }
+
+  await selectAgentFromSidebar(client, agentId);
+  const selectedLabel = await evaluateValue(
+    client,
+    `document.querySelector(
+      '[class*="agentSelectorWrapper"] [class*="-select-selection-item"]'
+    )?.innerText ?? ""`,
+  );
+  if (!selectedLabel.includes(updatedAgentName)) {
+    throw new Error("Original Agent selector did not show the selected Agent");
+  }
+
+  await clickAgentRowAction(client, agentId, 3);
+  await clickButton(client, "Confirm");
+  await waitForValue(
+    client,
+    `fetch("/api/agents").then((response) => response.json()).then(
+      (value) => value.agents.some((agent) =>
+        agent.id === ${JSON.stringify(agentId)} && agent.enabled === false
+      )
+    )`,
+    "Agent disable action did not persist",
+  );
+  await waitForValue(
+    client,
+    `localStorage.getItem("qwenpaw-last-used-agent") === "default"`,
+    "Disabling the selected Agent did not switch the original UI to default",
+  );
+  await clickAgentRowAction(client, agentId, 3);
+  await clickButton(client, "Confirm");
+  await waitForValue(
+    client,
+    `fetch("/api/agents").then((response) => response.json()).then(
+      (value) => value.agents.some((agent) =>
+        agent.id === ${JSON.stringify(agentId)} && agent.enabled === true
+      )
+    )`,
+    "Agent enable action did not persist",
+  );
+  await selectAgentFromSidebar(client, agentId);
+
+  await clickAgentRowAction(client, copiedAgentId, 4);
+  await clickButton(client, "Confirm");
+  await waitForValue(
+    client,
+    `fetch("/api/agents").then((response) => response.json()).then(
+      (value) => !value.agents.some((agent) =>
+        agent.id === ${JSON.stringify(copiedAgentId)}
+      )
+    )`,
+    "Agent delete action did not persist",
+  );
+
+  return {
+    createdThroughOriginalModal: true,
+    editedThroughOriginalModal: true,
+    copiedThroughOriginalModal: true,
+    pinnedThroughOriginalTable: true,
+    toggledThroughOriginalTable: true,
+    deletedThroughOriginalTable: true,
+    selectedThroughOriginalSidebar: true,
+    selectedAgent: agentId,
+    workspaceFilesIsolated: true,
   };
 }
 
@@ -822,7 +1102,14 @@ function apiPath(url, origin) {
 }
 
 async function inspectConsole(client, origin, options) {
-  const { codingGit, mcpCrud, securityCrud, skillsCrud, paths } = options;
+  const {
+    codingGit,
+    mcpCrud,
+    securityCrud,
+    skillsCrud,
+    agentsCrud,
+    paths,
+  } = options;
   let observation;
   client.on("Network.responseReceived", ({ response }) => {
     const requestPath = apiPath(response.url, origin);
@@ -864,6 +1151,7 @@ async function inspectConsole(client, origin, options) {
     let mcpCrudResult;
     let securityCrudResult;
     let skillsCrudResult;
+    let agentsCrudResult;
     if (mcpCrud && navigationPath === "/mcp") {
       try {
         mcpCrudResult = await runMcpCrudScenario(client);
@@ -884,6 +1172,13 @@ async function inspectConsole(client, origin, options) {
     ) {
       try {
         skillsCrudResult = await runSkillsCrudScenario(client, navigationPath);
+      } catch (error) {
+        observation.browserErrors.push(error.stack ?? String(error));
+      }
+    }
+    if (agentsCrud && navigationPath === "/agents") {
+      try {
+        agentsCrudResult = await runAgentsCrudScenario(client);
       } catch (error) {
         observation.browserErrors.push(error.stack ?? String(error));
       }
@@ -959,6 +1254,7 @@ async function inspectConsole(client, origin, options) {
       mcpCrud: mcpCrudResult,
       securityCrud: securityCrudResult,
       skillsCrud: skillsCrudResult,
+      agentsCrud: agentsCrudResult,
       apiResponses: responses,
       failedApi,
       failures,
@@ -999,6 +1295,12 @@ async function main() {
     const browserWebSocketUrl = await waitForDevTools(child);
     const target = await createPage(browserWebSocketUrl);
     pageClient = await connectDevTools(target.webSocketDebuggerUrl);
+    await pageClient.send("Emulation.setDeviceMetricsOverride", {
+      width: 1440,
+      height: 1000,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
     const result = await inspectConsole(pageClient, origin, options);
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     browserClient = await connectDevTools(browserWebSocketUrl);

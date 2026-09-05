@@ -142,6 +142,7 @@ src/.hypothesis/
 # Local File
 /localfile/
 local-docs/
+**/.qwenpaw-core/
 
 # E2E test artifacts
 e2e/reports/

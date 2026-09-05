@@ -485,6 +485,7 @@ async fn skills_routes_preserve_crud_pool_builtin_and_scanner_contracts() {
 #[tokio::test]
 async fn serves_the_console_and_requires_the_desktop_shutdown_token() {
     let console = tempfile::tempdir().expect("temporary Console should be created");
+    let desktop_data = tempfile::tempdir().expect("temporary Desktop data should be created");
     std::fs::create_dir(console.path().join("assets"))
         .expect("Console assets directory should be created");
     std::fs::write(console.path().join("index.html"), "<html>console</html>")
@@ -508,9 +509,14 @@ async fn serves_the_console_and_requires_the_desktop_shutdown_token() {
     });
     core.write_preferred_workspace(workspace.path())
         .expect("temporary Workspace should be selected");
-    let server =
-        AppServer::new_desktop(core, console.path(), String::from("desktop-shutdown-token"))
-            .expect("Desktop server should configure");
+    let server = new_isolated_desktop(
+        core,
+        console.path(),
+        String::from("desktop-shutdown-token"),
+        Arc::new(MemoryCredentialStore::default()),
+        desktop_data.path(),
+    )
+    .expect("Desktop server should configure");
     let task = tokio::spawn(server.run_http(listener));
 
     let version = http_request(
@@ -5250,6 +5256,445 @@ async fn get_json(client: &reqwest::Client, url: String) -> Value {
 
 #[tokio::test]
 #[allow(clippy::too_many_lines)]
+async fn persists_and_isolates_multiple_agent_workspaces_and_chats() {
+    let root = tempfile::tempdir().expect("temporary Agent root should be created");
+    let console = root.path().join("console");
+    let desktop_data = root.path().join("desktop");
+    let workspace = root.path().join("workspace");
+    std::fs::create_dir_all(&console).expect("Console directory should be created");
+    std::fs::create_dir_all(&desktop_data).expect("Desktop directory should be created");
+    std::fs::create_dir_all(&workspace).expect("Workspace directory should be created");
+    std::fs::write(console.join("index.html"), "<html>console</html>")
+        .expect("Console index should be written");
+    let database = root.path().join("agents.sqlite3");
+    let model_base_url = start_model_server().await;
+    let model = ModelConfig {
+        api_key: None,
+        base_url: model_base_url,
+        default_model: String::from("qwen-test"),
+    };
+    let credentials = Arc::new(MemoryCredentialStore::default());
+    let core = Core::persistent(model.clone(), &database).expect("Agent Core should open");
+    let server = AppServer::new_desktop_with_stores_and_workspace(
+        core,
+        &console,
+        String::from("desktop-agents-first-token"),
+        credentials.clone(),
+        &desktop_data,
+        &workspace,
+    )
+    .expect("Agent server should configure");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("Agent listener should bind");
+    let address = listener
+        .local_addr()
+        .expect("Agent listener should have an address");
+    let task = tokio::spawn(server.run_http(listener));
+    let client = reqwest::Client::new();
+    let base = format!("http://{address}/api");
+
+    let created = client
+        .post(format!("{base}/agents"))
+        .json(&json!({
+            "id": "writer",
+            "name": "Writer",
+            "description": "Isolated Rust Agent",
+            "language": "en",
+            "backend": "qwenpaw",
+            "mail": {
+                "is_new_account": false,
+                "credential": {
+                    "name": "writer@example.com",
+                    "domain": "example.com",
+                    "auth_code": "writer-mail-secret"
+                }
+            }
+        }))
+        .send()
+        .await
+        .expect("Agent create should send");
+    assert_eq!(created.status(), reqwest::StatusCode::CREATED);
+    let created = created
+        .json::<Value>()
+        .await
+        .expect("Agent create should return JSON");
+    assert_eq!(created["id"], json!("writer"));
+    let writer_workspace = PathBuf::from(
+        created["workspace_dir"]
+            .as_str()
+            .expect("created Agent should expose its Workspace"),
+    );
+    assert!(writer_workspace.is_dir());
+    let catalog_text = std::fs::read_to_string(desktop_data.join("agents/catalog.json"))
+        .expect("Agent catalog should read");
+    assert!(!catalog_text.contains("writer-mail-secret"));
+    let writer_config = client
+        .get(format!("{base}/agents/writer"))
+        .send()
+        .await
+        .expect("Agent details should send")
+        .json::<Value>()
+        .await
+        .expect("Agent details should return JSON");
+    assert!(
+        writer_config["mail"]["credential"]
+            .get("auth_code")
+            .is_none()
+    );
+
+    let language = client
+        .put(format!("{base}/workspace/language"))
+        .header("X-Agent-Id", "writer")
+        .json(&json!({"language": "zh"}))
+        .send()
+        .await
+        .expect("Agent language update should send")
+        .json::<Value>()
+        .await
+        .expect("Agent language update should return JSON");
+    assert_eq!(language["language"], json!("zh"));
+    assert_eq!(language["agent_id"], json!("writer"));
+    assert_eq!(
+        get_json(&client, format!("{base}/workspace/language")).await,
+        json!({"language": "en", "agent_id": "default"})
+    );
+
+    let active = client
+        .put(format!("{base}/models/active"))
+        .json(&json!({
+            "provider_id": "openai-compatible",
+            "model": "writer-model",
+            "scope": "agent",
+            "agent_id": "writer"
+        }))
+        .send()
+        .await
+        .expect("Agent model update should send")
+        .json::<Value>()
+        .await
+        .expect("Agent model update should return JSON");
+    assert_eq!(active["active_llm"]["model"], json!("writer-model"));
+    let writer_active = get_json(
+        &client,
+        format!("{base}/models/active?scope=effective&agent_id=writer"),
+    )
+    .await;
+    assert_eq!(writer_active["active_llm"]["model"], json!("writer-model"));
+    let default_active = get_json(
+        &client,
+        format!("{base}/models/active?scope=effective&agent_id=default"),
+    )
+    .await;
+    assert_eq!(default_active["active_llm"]["model"], json!("qwen-test"));
+    let embedding_base_url = start_embedding_model_server().await;
+    let embedding = client
+        .post(format!("{base}/workspace/embedding/test"))
+        .header("X-Agent-Id", "writer")
+        .json(&json!({
+            "backend": "openai",
+            "api_key": "embedding-test-secret",
+            "base_url": embedding_base_url,
+            "model_name": "embedding-test",
+            "dimensions": 3,
+            "enable_cache": false,
+            "use_dimensions": true,
+            "max_cache_size": 1,
+            "max_input_length": 1024,
+            "max_batch_size": 1,
+            "health_check_timeout": 5
+        }))
+        .send()
+        .await
+        .expect("Embedding test should send")
+        .json::<Value>()
+        .await
+        .expect("Embedding test should return JSON");
+    assert_eq!(
+        embedding,
+        json!({
+            "success": true,
+            "configured_dimensions": 3,
+            "actual_dimensions": 3,
+            "latency_ms": embedding["latency_ms"],
+            "message": "Embedding service is available"
+        })
+    );
+
+    let written = client
+        .put(format!("{base}/workspace/files/PROFILE"))
+        .header("X-Agent-Id", "writer")
+        .json(&json!({"content": "Writer profile"}))
+        .send()
+        .await
+        .expect("Agent profile write should send");
+    assert_eq!(written.status(), reqwest::StatusCode::OK);
+    let writer_profile = client
+        .get(format!("{base}/workspace/files/PROFILE"))
+        .header("X-Agent-Id", "writer")
+        .send()
+        .await
+        .expect("Agent profile read should send")
+        .json::<Value>()
+        .await
+        .expect("Agent profile read should return JSON");
+    assert_eq!(writer_profile, json!({"content": "Writer profile"}));
+    let default_profile = client
+        .get(format!("{base}/workspace/files/PROFILE"))
+        .send()
+        .await
+        .expect("default profile read should send")
+        .json::<Value>()
+        .await
+        .expect("default profile read should return JSON");
+    assert_ne!(default_profile, writer_profile);
+
+    let created_skill = client
+        .post(format!("{base}/skills"))
+        .header("X-Agent-Id", "writer")
+        .json(&json!({
+            "name": "writer_skill",
+            "content": "---\nname: writer_skill\ndescription: Writer only\n---\nUse the Writer workspace.\n",
+            "enable": true
+        }))
+        .send()
+        .await
+        .expect("Agent Skill create should send");
+    assert_eq!(created_skill.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        created_skill
+            .json::<Value>()
+            .await
+            .expect("Agent Skill create should return JSON"),
+        json!({"created": true, "name": "writer_skill"})
+    );
+    let writer_skills = client
+        .get(format!("{base}/skills"))
+        .header("X-Agent-Id", "writer")
+        .send()
+        .await
+        .expect("Agent Skills should send")
+        .json::<Value>()
+        .await
+        .expect("Agent Skills should return JSON");
+    assert_eq!(writer_skills.as_array().map(Vec::len), Some(1));
+    assert_eq!(writer_skills[0]["name"], json!("writer_skill"));
+    assert_eq!(get_json(&client, format!("{base}/skills")).await, json!([]));
+
+    for (agent_id, session_id) in [("default", "default-session"), ("writer", "writer-session")] {
+        let response = client
+            .post(format!("{base}/chats"))
+            .header("X-Agent-Id", agent_id)
+            .json(&json!({
+                "name": format!("{agent_id} chat"),
+                "session_id": session_id,
+                "user_id": "desktop",
+                "channel": "console"
+            }))
+            .send()
+            .await
+            .expect("Agent chat create should send");
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+    }
+    for agent_id in ["default", "writer"] {
+        let response = client
+            .get(format!("{base}/chats?archived=false"))
+            .header("X-Agent-Id", agent_id)
+            .send()
+            .await
+            .expect("Agent chats should send");
+        let status = response.status();
+        let response_text = response
+            .text()
+            .await
+            .expect("Agent chats response should read");
+        assert_eq!(status, reqwest::StatusCode::OK, "{response_text}");
+        let chats =
+            serde_json::from_str::<Value>(&response_text).expect("Agent chats should return JSON");
+        let chats = chats.as_array().expect("Agent chats should be an array");
+        assert_eq!(chats.len(), 1);
+        assert_eq!(chats[0]["name"], json!(format!("{agent_id} chat")));
+    }
+
+    let response = client
+        .post(format!("{base}/console/chat"))
+        .header("X-Agent-Id", "writer")
+        .json(&json!({
+            "input": [{
+                "role": "user",
+                "content": [{"type": "text", "text": "Use the Writer Agent"}]
+            }],
+            "session_id": "1700000000000-writer",
+            "user_id": "desktop",
+            "channel": "console",
+            "stream": true,
+            "request_context": {}
+        }))
+        .send()
+        .await
+        .expect("Agent chat turn should send");
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let events = parse_sse_events(
+        &response
+            .text()
+            .await
+            .expect("Agent chat stream should read"),
+    );
+    assert_eq!(
+        events.last().expect("Agent chat stream should complete")["status"],
+        json!("completed")
+    );
+    let writer_chats = client
+        .get(format!("{base}/chats?archived=false"))
+        .header("X-Agent-Id", "writer")
+        .send()
+        .await
+        .expect("Agent chats after turn should send")
+        .json::<Value>()
+        .await
+        .expect("Agent chats after turn should return JSON");
+    let writer_thread_id = writer_chats
+        .as_array()
+        .expect("Agent chats should be an array")
+        .iter()
+        .find(|chat| chat["session_id"] == "1700000000000-writer")
+        .and_then(|chat| chat["id"].as_str())
+        .expect("Agent turn should expose its Core Thread ID");
+    let writer_project = client
+        .get(format!("{base}/chats/{writer_thread_id}/project-dir"))
+        .header("X-Agent-Id", "writer")
+        .send()
+        .await
+        .expect("Agent chat Workspace should send")
+        .json::<Value>()
+        .await
+        .expect("Agent chat Workspace should return JSON");
+    assert_eq!(
+        writer_project["project_dir"],
+        json!(writer_workspace.to_string_lossy())
+    );
+    let foreign_project = client
+        .get(format!("{base}/chats/{writer_thread_id}/project-dir"))
+        .header("X-Agent-Id", "default")
+        .send()
+        .await
+        .expect("foreign Agent chat Workspace should send");
+    assert_eq!(foreign_project.status(), reqwest::StatusCode::NOT_FOUND);
+
+    let copied = client
+        .post(format!("{base}/agents/writer/copy"))
+        .json(&json!({
+            "name": "Writer Copy",
+            "copy_agent_json": true,
+            "copy_md_files": true,
+            "copy_skills": true,
+            "copy_jobs": true
+        }))
+        .send()
+        .await
+        .expect("Agent copy should send");
+    assert_eq!(copied.status(), reqwest::StatusCode::CREATED);
+    let copied = copied
+        .json::<Value>()
+        .await
+        .expect("Agent copy should return JSON");
+    let copied_id = copied["id"]
+        .as_str()
+        .expect("copied Agent should expose an ID");
+    assert_eq!(
+        std::fs::read_to_string(
+            PathBuf::from(
+                copied["workspace_dir"]
+                    .as_str()
+                    .expect("copied Agent should expose its Workspace"),
+            )
+            .join("PROFILE.md"),
+        )
+        .expect("copied Agent profile should read"),
+        "Writer profile"
+    );
+    for agent_id in ["writer", copied_id] {
+        let pinned = client
+            .patch(format!("{base}/agents/{agent_id}/pin"))
+            .json(&json!({"pinned": true}))
+            .send()
+            .await
+            .expect("Agent pin should send");
+        assert_eq!(pinned.status(), reqwest::StatusCode::OK);
+    }
+    let reordered = client
+        .put(format!("{base}/agents/order"))
+        .json(&json!({"agent_ids": ["default", copied_id, "writer"]}))
+        .send()
+        .await
+        .expect("Agent order should send");
+    assert_eq!(reordered.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        reordered
+            .json::<Value>()
+            .await
+            .expect("Agent order should return JSON"),
+        json!({
+            "success": true,
+            "agent_ids": ["default", copied_id, "writer"]
+        })
+    );
+    let deleted = client
+        .delete(format!("{base}/agents/{copied_id}"))
+        .send()
+        .await
+        .expect("copied Agent delete should send");
+    assert_eq!(deleted.status(), reqwest::StatusCode::OK);
+
+    let disabled = client
+        .patch(format!("{base}/agents/writer/toggle"))
+        .json(&json!({"enabled": false}))
+        .send()
+        .await
+        .expect("Agent disable should send");
+    assert_eq!(disabled.status(), reqwest::StatusCode::OK);
+    let denied = client
+        .get(format!("{base}/workspace/files"))
+        .header("X-Agent-Id", "writer")
+        .send()
+        .await
+        .expect("disabled Agent request should send");
+    assert_eq!(denied.status(), reqwest::StatusCode::FORBIDDEN);
+
+    task.abort();
+    let _ = task.await;
+    let core = Core::persistent(model, &database).expect("Agent Core should reopen");
+    let server = AppServer::new_desktop_with_stores_and_workspace(
+        core,
+        &console,
+        String::from("desktop-agents-second-token"),
+        credentials,
+        &desktop_data,
+        &workspace,
+    )
+    .expect("persisted Agent server should configure");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("persisted Agent listener should bind");
+    let address = listener
+        .local_addr()
+        .expect("persisted Agent listener should have an address");
+    let task = tokio::spawn(server.run_http(listener));
+    let agents = get_json(&client, format!("http://{address}/api/agents")).await;
+    assert_eq!(agents["agents"].as_array().map(Vec::len), Some(2));
+    assert_eq!(agents["agents"][1]["id"], json!("writer"));
+    assert_eq!(agents["agents"][1]["enabled"], json!(false));
+    assert_eq!(
+        std::fs::read_to_string(writer_workspace.join("PROFILE.md"))
+            .expect("persisted Agent profile should read"),
+        "Writer profile"
+    );
+    task.abort();
+    let _ = task.await;
+}
+
+#[tokio::test]
+#[allow(clippy::too_many_lines)]
 async fn security_routes_preserve_console_contract_and_persist() {
     let root = tempfile::tempdir().expect("temporary Security root should be created");
     let console = root.path().join("console");
@@ -5747,6 +6192,7 @@ async fn assert_streamed_chat_persisted(
 async fn stops_an_active_console_chat_by_its_local_session_id() {
     let model_base_url = start_delayed_model_server().await;
     let console = tempfile::tempdir().expect("temporary Console should be created");
+    let desktop_data = tempfile::tempdir().expect("temporary Desktop data should be created");
     std::fs::write(console.path().join("index.html"), "<html>console</html>")
         .expect("Console index should be written");
     let core = Core::new(ModelConfig {
@@ -5763,8 +6209,14 @@ async fn stops_an_active_console_chat_by_its_local_session_id() {
     let address = listener
         .local_addr()
         .expect("Desktop listener should have an address");
-    let server = AppServer::new_desktop(core, console.path(), String::from("desktop-cancel-token"))
-        .expect("Desktop server should configure");
+    let server = new_isolated_desktop(
+        core,
+        console.path(),
+        String::from("desktop-cancel-token"),
+        Arc::new(MemoryCredentialStore::default()),
+        desktop_data.path(),
+    )
+    .expect("Desktop server should configure");
     let task = tokio::spawn(server.run_http(listener));
     let client = reqwest::Client::new();
     let response = client
@@ -6621,6 +7073,7 @@ async fn skips_missing_and_empty_heartbeat_queries_without_fake_results() {
 async fn exposes_and_denies_tool_approval_through_the_console_contract() {
     let model_base_url = start_tool_model_server().await;
     let console = tempfile::tempdir().expect("temporary Console should be created");
+    let desktop_data = tempfile::tempdir().expect("temporary Desktop data should be created");
     std::fs::write(console.path().join("index.html"), "<html>console</html>")
         .expect("Console index should be written");
     let core = Core::new(ModelConfig {
@@ -6637,9 +7090,14 @@ async fn exposes_and_denies_tool_approval_through_the_console_contract() {
     let address = listener
         .local_addr()
         .expect("Desktop listener should have an address");
-    let server =
-        AppServer::new_desktop(core, console.path(), String::from("desktop-approval-token"))
-            .expect("Desktop server should configure");
+    let server = new_isolated_desktop(
+        core,
+        console.path(),
+        String::from("desktop-approval-token"),
+        Arc::new(MemoryCredentialStore::default()),
+        desktop_data.path(),
+    )
+    .expect("Desktop server should configure");
     let task = tokio::spawn(server.run_http(listener));
     let client = reqwest::Client::new();
     let session_id = "1700000000002-approval";
@@ -8115,6 +8573,39 @@ async fn start_long_tool_model_server() -> String {
         axum::serve(listener, app)
             .await
             .expect("long tool model server should run");
+    });
+    format!("http://{address}")
+}
+
+async fn start_embedding_model_server() -> String {
+    let app = axum::Router::new().route(
+        "/embeddings",
+        axum::routing::post(
+            |headers: axum::http::HeaderMap, axum::Json(body): axum::Json<Value>| async move {
+                assert_eq!(
+                    headers
+                        .get(axum::http::header::AUTHORIZATION)
+                        .and_then(|value| value.to_str().ok()),
+                    Some("Bearer embedding-test-secret")
+                );
+                assert_eq!(body["model"], json!("embedding-test"));
+                assert_eq!(body["dimensions"], json!(3));
+                axum::Json(json!({
+                    "data": [{"embedding": [0.1, 0.2, 0.3]}]
+                }))
+            },
+        ),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("mock embedding listener should bind");
+    let address = listener
+        .local_addr()
+        .expect("mock embedding listener should have an address");
+    tokio::spawn(async move {
+        axum::serve(listener, app)
+            .await
+            .expect("mock embedding server should run");
     });
     format!("http://{address}")
 }

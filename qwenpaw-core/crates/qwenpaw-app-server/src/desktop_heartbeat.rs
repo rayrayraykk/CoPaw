@@ -288,6 +288,7 @@ async fn execute_heartbeat(server: &AppServer) -> Result<HeartbeatExecution, Str
     let workspace_string = workspace.to_string_lossy().into_owned();
     let thread_id = super::desktop_api::resolve_console_thread(
         server,
+        "default",
         Some(&target_session),
         Some(&workspace_string),
     )

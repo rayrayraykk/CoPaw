@@ -3,11 +3,11 @@
   "source": "console/src production TypeScript call sites",
   "callCount": 370,
   "unresolvedCount": 11,
-  "rustRouteCount": 278,
-  "registeredCallCount": 266,
+  "rustRouteCount": 297,
+  "registeredCallCount": 285,
   "placeholderCallCount": 5,
-  "nonPlaceholderRegisteredCallCount": 261,
-  "missingCallCount": 104,
+  "nonPlaceholderRegisteredCallCount": 280,
+  "missingCallCount": 85,
   "rustRoutes": [
     {
       "method": "ANY",
@@ -130,24 +130,150 @@
     },
     {
       "method": "GET",
-      "path": "/api/agents",
-      "handler": "agents",
+      "path": "/api/agent/",
+      "handler": "agent_root",
       "placeholder": false,
-      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_api.rs"
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_agents.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/agent/admin/shutdown",
+      "handler": "agent_shutdown",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_agents.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/agent/admin/status",
+      "handler": "agent_process_status",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_agents.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/agent/health",
+      "handler": "agent_health",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_agents.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/agent/shutdown",
+      "handler": "agent_shutdown",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_agents.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/agents",
+      "handler": "list_agents",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_agents.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/agents",
+      "handler": "create_agent",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_agents.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/agents/{agent_id}",
+      "handler": "delete_agent",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_agents.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/agents/{agent_id}",
+      "handler": "get_agent",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_agents.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/agents/{agent_id}",
+      "handler": "update_agent",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_agents.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/agents/{agent_id}/backend-settings",
+      "handler": "update_backend_settings",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_agents.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/agents/{agent_id}/copy",
+      "handler": "copy_agent",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_agents.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/agents/{agent_id}/memory/graph",
+      "handler": "memory_graph",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_agents.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/agents/{agent_id}/memory/reindex",
+      "handler": "rebuild_memory_index",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_agents.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/agents/{agent_id}/memory/reindex/undo",
+      "handler": "undo_memory_reindex",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_agents.rs"
     },
     {
       "method": "GET",
       "path": "/api/agents/{agent_id}/memory/runtime-status",
       "handler": "memory_runtime_status",
-      "placeholder": true,
-      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_navigation.rs"
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_agents.rs"
     },
     {
       "method": "GET",
       "path": "/api/agents/{agent_id}/memory/status",
       "handler": "memory_status",
-      "placeholder": true,
-      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_navigation.rs"
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_agents.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/agents/{agent_id}/model-settings",
+      "handler": "update_model_settings",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_agents.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/agents/{agent_id}/pin",
+      "handler": "pin_agent",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_agents.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/agents/{agent_id}/toggle",
+      "handler": "toggle_agent",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_agents.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/agents/order",
+      "handler": "reorder_agents",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_agents.rs"
     },
     {
       "method": "POST",
@@ -1585,6 +1711,13 @@
       "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_files.rs"
     },
     {
+      "method": "POST",
+      "path": "/api/workspace/embedding/test",
+      "handler": "test_embedding",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_agent_settings.rs"
+    },
+    {
       "method": "GET",
       "path": "/api/workspace/file-content",
       "handler": "file_content",
@@ -2194,7 +2327,7 @@
       "line": 36,
       "resolved": true,
       "apiPath": "/api/agent/",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -2206,7 +2339,7 @@
       "line": 38,
       "resolved": true,
       "apiPath": "/api/agent/health",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -2230,7 +2363,7 @@
       "line": 46,
       "resolved": true,
       "apiPath": "/api/agent/admin/status",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -2242,7 +2375,7 @@
       "line": 49,
       "resolved": true,
       "apiPath": "/api/agent/shutdown",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -2254,7 +2387,7 @@
       "line": 54,
       "resolved": true,
       "apiPath": "/api/agent/admin/shutdown",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -2290,7 +2423,7 @@
       "line": 69,
       "resolved": true,
       "apiPath": "/api/workspace/embedding/test",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -2434,7 +2567,7 @@
       "line": 62,
       "resolved": true,
       "apiPath": "/api/agents/{agentId}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -2446,7 +2579,7 @@
       "line": 66,
       "resolved": true,
       "apiPath": "/api/agents",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -2458,7 +2591,7 @@
       "line": 73,
       "resolved": true,
       "apiPath": "/api/agents/{agentId}/copy",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -2470,7 +2603,7 @@
       "line": 80,
       "resolved": true,
       "apiPath": "/api/agents/{agentId}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -2482,7 +2615,7 @@
       "line": 86,
       "resolved": true,
       "apiPath": "/api/agents/{agentId}/model-settings",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -2494,7 +2627,7 @@
       "line": 98,
       "resolved": true,
       "apiPath": "/api/agents/{agentId}/backend-settings",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -2506,7 +2639,7 @@
       "line": 107,
       "resolved": true,
       "apiPath": "/api/agents/{agentId}/memory/reindex?scope={scope}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -2518,7 +2651,7 @@
       "line": 116,
       "resolved": true,
       "apiPath": "/api/agents/{agentId}/memory/reindex/undo",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -2578,7 +2711,7 @@
       "line": 135,
       "resolved": true,
       "apiPath": "/api/agents/{agentId}/memory/graph",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -2590,7 +2723,7 @@
       "line": 139,
       "resolved": true,
       "apiPath": "/api/agents/{agentId}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -2602,7 +2735,7 @@
       "line": 145,
       "resolved": true,
       "apiPath": "/api/agents/order",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -2614,7 +2747,7 @@
       "line": 152,
       "resolved": true,
       "apiPath": "/api/agents/{agentId}/toggle",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -2626,7 +2759,7 @@
       "line": 161,
       "resolved": true,
       "apiPath": "/api/agents/{agentId}/pin",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {

@@ -15,6 +15,7 @@ use axum::Router;
 use axum::extract::Multipart;
 use axum::extract::Query;
 use axum::extract::State;
+use axum::http::HeaderMap;
 use axum::http::StatusCode;
 use axum::response::Sse;
 use axum::response::sse::Event;
@@ -136,22 +137,28 @@ struct CloneProjectRequest {
 
 async fn create_project(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Json(request): Json<CreateProjectRequest>,
 ) -> Result<Json<Value>, ApiError> {
+    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
+    super::desktop_agents::workspace_for_agent(&server, &agent_id).await?;
     let _guard = server.inner.desktop_project_lock.lock().await;
     let target = project_destination(&server, &request.name)?;
     tokio::fs::create_dir_all(&target)
         .await
         .map_err(|_| internal_error("Project directory could not be created"))?;
     run_git_init(&target).await?;
-    activate_project(&server, &target).await?;
+    activate_project(&server, &agent_id, &target).await?;
     Ok(project_response(&target))
 }
 
 async fn import_local(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Json(request): Json<ImportLocalRequest>,
 ) -> Result<Json<Value>, ApiError> {
+    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
+    super::desktop_agents::workspace_for_agent(&server, &agent_id).await?;
     let source = canonical_import_source(&request.path)?;
     validate_import_source(&source)?;
     let destination_name = request
@@ -171,7 +178,7 @@ async fn import_local(
         tokio::task::spawn_blocking(move || copy_import_tree(&source_for_copy, &target_for_copy))
             .await
             .map_err(|_| internal_error("Local project import task failed"))??;
-    activate_project(&server, &target).await?;
+    activate_project(&server, &agent_id, &target).await?;
     let mut response = project_response(&target).0;
     if !excluded.is_empty() {
         response["excluded"] = json!(excluded);
@@ -181,9 +188,12 @@ async fn import_local(
 
 async fn upload_zip(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Query(query): Query<UploadZipQuery>,
     multipart: Multipart,
 ) -> Result<Json<Value>, ApiError> {
+    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
+    super::desktop_agents::workspace_for_agent(&server, &agent_id).await?;
     let content = read_zip_upload(multipart).await?;
     let _guard = server.inner.desktop_project_lock.lock().await;
     let target = project_destination(&server, &query.name)?;
@@ -209,14 +219,17 @@ async fn upload_zip(
     if !target.join(".git").is_dir() {
         run_git_init(&target).await?;
     }
-    activate_project(&server, &target).await?;
+    activate_project(&server, &agent_id, &target).await?;
     Ok(project_response(&target))
 }
 
 async fn clone_project(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Json(request): Json<CloneProjectRequest>,
 ) -> Result<Sse<impl futures_util::Stream<Item = Result<Event, Infallible>>>, ApiError> {
+    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
+    super::desktop_agents::workspace_for_agent(&server, &agent_id).await?;
     let url = request.url.trim();
     if url.is_empty() || url.len() > 8_192 || url.chars().any(char::is_control) {
         return Err(bad_request("URL cannot be empty or invalid"));
@@ -235,7 +248,7 @@ async fn clone_project(
     let (event_tx, event_rx) = tokio::sync::mpsc::channel(64);
     tokio::spawn(async move {
         let _guard = server.inner.desktop_project_lock.lock().await;
-        stream_clone(&server, &url, &target, &event_tx).await;
+        stream_clone(&server, &agent_id, &url, &target, &event_tx).await;
     });
     let events = stream::unfold(event_rx, |mut receiver| async move {
         receiver.recv().await.map(|event| (event, receiver))
@@ -245,6 +258,7 @@ async fn clone_project(
 
 async fn stream_clone(
     server: &AppServer,
+    agent_id: &str,
     url: &str,
     target: &Path,
     event_tx: &tokio::sync::mpsc::Sender<Result<Event, Infallible>>,
@@ -280,7 +294,7 @@ async fn stream_clone(
         .await;
         return;
     }
-    if activate_project(server, target).await.is_err() {
+    if activate_project(server, agent_id, target).await.is_err() {
         send_clone_event(
             event_tx,
             json!({
@@ -757,19 +771,31 @@ async fn run_git_init(path: &Path) -> Result<(), ApiError> {
     Ok(())
 }
 
-async fn activate_project(server: &AppServer, path: &Path) -> Result<(), ApiError> {
-    let selected = server
-        .inner
-        .core
-        .write_preferred_workspace(path)
-        .map(PathBuf::from)
-        .map_err(|error| internal_error(&error.to_string()))?;
-    let workspace = server
-        .inner
-        .desktop_workspace
-        .as_ref()
-        .ok_or_else(|| internal_error("Desktop Workspace is unavailable"))?;
-    selected.clone_into(&mut *workspace.selected.write().await);
+async fn activate_project(server: &AppServer, agent_id: &str, path: &Path) -> Result<(), ApiError> {
+    let selected = path
+        .canonicalize()
+        .map_err(|_| internal_error("Project directory could not be resolved"))?;
+    if agent_id == "default" {
+        let selected = server
+            .inner
+            .core
+            .write_preferred_workspace(&selected)
+            .map(PathBuf::from)
+            .map_err(|error| internal_error(&error.to_string()))?;
+        let workspace = server
+            .inner
+            .desktop_workspace
+            .as_ref()
+            .ok_or_else(|| internal_error("Desktop Workspace is unavailable"))?;
+        selected.clone_into(&mut *workspace.selected.write().await);
+    }
+    super::desktop_agents::replace_config_field(
+        server,
+        agent_id,
+        "project_dir",
+        Value::String(selected.to_string_lossy().into_owned()),
+    )
+    .await?;
     Ok(())
 }
 

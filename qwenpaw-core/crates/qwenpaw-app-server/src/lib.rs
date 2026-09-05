@@ -78,6 +78,7 @@ use tracing::warn;
 
 mod desktop_access_control;
 mod desktop_agent_settings;
+mod desktop_agents;
 mod desktop_api;
 mod desktop_channels;
 mod desktop_chats;
@@ -123,6 +124,7 @@ struct AppServerInner {
     desktop_pending_approvals: tokio::sync::RwLock<HashMap<String, DesktopPendingApproval>>,
     desktop_push_messages: tokio::sync::RwLock<Vec<DesktopPushMessage>>,
     desktop_access_control_lock: tokio::sync::Mutex<()>,
+    desktop_agents_lock: tokio::sync::Mutex<()>,
     desktop_agent_settings_lock: tokio::sync::Mutex<()>,
     desktop_mail_access_control_lock: tokio::sync::Mutex<()>,
     desktop_mcp_lock: tokio::sync::Mutex<()>,
@@ -198,6 +200,7 @@ impl AppServer {
                 desktop_pending_approvals: tokio::sync::RwLock::new(HashMap::new()),
                 desktop_push_messages: tokio::sync::RwLock::new(Vec::new()),
                 desktop_access_control_lock: tokio::sync::Mutex::new(()),
+                desktop_agents_lock: tokio::sync::Mutex::new(()),
                 desktop_agent_settings_lock: tokio::sync::Mutex::new(()),
                 desktop_mail_access_control_lock: tokio::sync::Mutex::new(()),
                 desktop_mcp_lock: tokio::sync::Mutex::new(()),
@@ -386,6 +389,7 @@ impl AppServer {
             &selected_workspace,
         )?;
         desktop_mcp::initialize(&core, desktop_credentials.as_ref())?;
+        desktop_agents::initialize(&core, &desktop_workspace, &selected_workspace)?;
         Ok(Self {
             inner: Arc::new(AppServerInner {
                 core,
@@ -393,6 +397,7 @@ impl AppServer {
                 desktop_pending_approvals: tokio::sync::RwLock::new(HashMap::new()),
                 desktop_push_messages: tokio::sync::RwLock::new(Vec::new()),
                 desktop_access_control_lock: tokio::sync::Mutex::new(()),
+                desktop_agents_lock: tokio::sync::Mutex::new(()),
                 desktop_agent_settings_lock: tokio::sync::Mutex::new(()),
                 desktop_mail_access_control_lock: tokio::sync::Mutex::new(()),
                 desktop_mcp_lock: tokio::sync::Mutex::new(()),
@@ -575,6 +580,7 @@ impl AppServer {
             let index = directory.join("index.html");
             router = router
                 .merge(desktop_access_control::router())
+                .merge(desktop_agents::router())
                 .merge(desktop_agent_settings::router())
                 .merge(desktop_channels::router())
                 .merge(desktop_checkpoints::router())

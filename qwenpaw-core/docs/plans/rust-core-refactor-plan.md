@@ -1238,6 +1238,25 @@ Inbox 读取、状态和持久化契约已完成；真实 Agent Cron、Heartbeat
 
 2026-09-05 本机阶段验收：Rust workspace 172 个测试、格式检查与严格 Clippy 通过；真实 HTTP 契约覆盖工作区 CRUD、保留附属文件的编辑保存、channels、tags、启停、Skill Scanner 结构化阻断与持久历史、工作区到 Pool 传输、冲突响应、16 个双语 builtin 的列出和导入。Console 295 个测试文件、2453 个测试、production build 和 inventory 防漂移通过，`console/src` 保持零改动。未修改的原 Skills 页面连接 release Rust Core 完成创建、打开、编辑、保存、禁用和上传 Pool；原 Skill Pool 页面完成条目渲染、打开编辑器、详情读取和 16 个 builtin 读取，两页请求均无 4xx/5xx 且浏览器错误为 0；另外 28 个既有 Console 导航页全量 smoke 均通过。当前 inventory 为 370 个调用点、278 条 Rust 路由、266 个已注册调用点，其中 261 个非占位、5 个占位、104 个未注册和 11 个静态未解析表达式；`skill.ts` 的 35 个显式调用点均已有 Rust 路由，动态 ZIP helper 由两条真实 multipart 路由承接。TypeScript SDK 3 个、Python SDK 4 个真实 Core 测试与 VS Code 57 个测试全部通过。macOS App/ZIP/QA DMG、Core archive、WebUI archive、TypeScript/Python SDK、universal/platform VSIX 与 legacy wheel 均使用本切片源码重建；9 个产物逐个完成执行、解包、sidecar 边界、签名和 DMG 校验，`dist/SHA256SUMS` 全部通过。Hub 多来源页面 URL 的精确解析、任务取消/并发/重启边界以及 ZIP/Hub/Builtin 的完整浏览器点击矩阵仍保留为下一轮检查项；QA DMG 当前为 ad-hoc 签名，待用户提供 Apple 发布凭据后才能生成 Developer ID 签名和 notarized 正式包。
 
+#### 14.2.24.16 当前子切片：多 Agent 配置、工作区隔离与运行路由
+
+本子切片保持原 Agents、Agent Selector、Chat、Skills 与 Files 页面不变。`X-Agent-Id` 必须决定请求实际访问的 Agent 与 Workspace，不能继续只改变前端选中态或把所有请求落到 default Workspace。新 Rust 版本建立自己的 Agent catalog，不读取或迁移 Python 旧配置；default Agent 始终存在且不可删除、禁用或取消置顶。Agent 创建、复制和删除要使用有界文件操作与原子 catalog/`agent.json` 写入，删除默认只注销配置，不递归删除用户自定义 Workspace。
+
+- [x] 固化原 `agent.ts` / `agents.ts` 23 个未注册调用点、Python 成功/错误结构、`X-Agent-Id` 传播及原页面操作顺序；
+- [x] 建立版本化、原子持久化的 Rust Agent catalog，并从新版本 default Workspace 独立启动；
+- [x] 实现 Agent 详情、创建、复制、更新、model/backend settings、删除、启停、置顶和排序契约；
+- [x] 初始化新 Agent 的模板、sessions、memory、skills、jobs、chats 与 `agent.json`，按复制选项只复制白名单文件；
+- [x] 将 Chat/会话、Skills/Skill Pool 传输、Files/Workspace 与相关设置按 `X-Agent-Id` 路由到真实 Agent Workspace；
+- [x] 对 default 的不可删除/禁用/取消置顶、ID/路径逃逸、重复 Workspace、并发 mutation 与失败回滚做强制边界；
+- [x] 实现 `/agent/`、health/admin status/shutdown 的原本地语义；ReMe 未移植写操作明确返回 unavailable，embedding test 连接真实兼容服务并校验向量，不伪造成功；
+- [x] 覆盖 CRUD、copy 选项、排序/置顶约束、跨 Agent 文件与 Skill 隔离、真实 Chat Turn/Thread Workspace、Core 重启和并发测试；
+- [x] 使用未修改的原 Agents 与 Agent Selector 页面验证创建、编辑、复制、置顶、启停、切换和删除，并验证 Files Workspace 隔离；
+- [ ] 使用原页面补做拖拽排序及配置测试模型后的 Chat/Skills 完整点击链；当前无用户模型 key，Rust HTTP 契约已用本地 mock 模型覆盖真实 SSE Turn 与 Skill 隔离，不能冒充外部模型验收；
+- [x] 更新 inventory，确认 `console/src` 零改动并通过 Rust、Console 与各客户端全量回归；
+- [x] 重建 Desktop、Core、WebUI、SDK、VSIX 与 legacy 全部 9 个发布产物，并逐个反向验证。
+
+2026-09-05 本机阶段验收：Rust workspace 174 个测试、格式检查与严格 Clippy 通过；多 Agent 契约覆盖版本化原子 catalog、凭据脱敏、默认/自定义 Workspace、Profile 与 Skill 隔离、真实本地模型 SSE Turn、Thread 所属 Workspace、跨 Agent 404、模型/embedding 配置、复制白名单、置顶/排序、启停、删除和 Core 重启。Console 295 个测试文件、2453 个测试、production build 与 inventory 防漂移通过，`console/src` 保持零改动；未修改的原 Agents 页面和侧栏选择器完成创建、编辑、复制、置顶、禁用/启用、切换和删除，所有请求无 4xx/5xx 且浏览器错误为 0，另外 24 个内置导航页全量 smoke 均通过。当前 inventory 为 370 个调用点、297 条 Rust 路由、285 个已注册调用点，其中 280 个非占位、5 个占位、85 个未注册和 11 个静态未解析表达式。TypeScript SDK 3 个、Python SDK 4 个真实 Core 测试与 VS Code 57 个测试全部通过。macOS App/ZIP/QA DMG、Core archive、WebUI archive、TypeScript/Python SDK、universal/platform VSIX 与 legacy wheel 均用本切片源码重建；9 个产物逐个完成执行、临时安装、解包、只读挂载、manifest/sidecar/签名与哈希校验，`dist/SHA256SUMS` 全部通过。QA DMG 当前为 ad-hoc 签名，待用户提供 Apple 发布凭据后才能生成 Developer ID 签名和 notarized 正式包。
+
 ### 14.3 客户端与发布
 
 - [x] WebUI 启动与导航契约测试通过；
