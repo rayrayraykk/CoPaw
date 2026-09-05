@@ -1257,6 +1257,22 @@ Inbox 读取、状态和持久化契约已完成；真实 Agent Cron、Heartbeat
 
 2026-09-05 本机阶段验收：Rust workspace 174 个测试、格式检查与严格 Clippy 通过；多 Agent 契约覆盖版本化原子 catalog、凭据脱敏、默认/自定义 Workspace、Profile 与 Skill 隔离、真实本地模型 SSE Turn、Thread 所属 Workspace、跨 Agent 404、模型/embedding 配置、复制白名单、置顶/排序、启停、删除和 Core 重启。Console 295 个测试文件、2453 个测试、production build 与 inventory 防漂移通过，`console/src` 保持零改动；未修改的原 Agents 页面和侧栏选择器完成创建、编辑、复制、置顶、禁用/启用、切换和删除，所有请求无 4xx/5xx 且浏览器错误为 0，另外 24 个内置导航页全量 smoke 均通过。当前 inventory 为 370 个调用点、297 条 Rust 路由、285 个已注册调用点，其中 280 个非占位、5 个占位、85 个未注册和 11 个静态未解析表达式。TypeScript SDK 3 个、Python SDK 4 个真实 Core 测试与 VS Code 57 个测试全部通过。macOS App/ZIP/QA DMG、Core archive、WebUI archive、TypeScript/Python SDK、universal/platform VSIX 与 legacy wheel 均用本切片源码重建；9 个产物逐个完成执行、临时安装、解包、只读挂载、manifest/sidecar/签名与哈希校验，`dist/SHA256SUMS` 全部通过。QA DMG 当前为 ad-hoc 签名，待用户提供 Apple 发布凭据后才能生成 Developer ID 签名和 notarized 正式包。
 
+#### 14.2.24.17 当前子切片：ACP 配置、Node Runtime 与控制命令识别
+
+本子切片保持原 ACP 页面、Chat 输入行为以及 `console/src/api/modules/acp.ts`、`commands.ts` 不变。Agent ACP 配置写入该 Agent 的新 Rust catalog/`agent.json`，继续由 `X-Agent-Id` 隔离；全局 Node runtime 单独使用版本化原子文件。Node runtime 状态必须真实检查 `node` 与 `npx` 可执行文件及版本，非法自定义路径不得被保存。控制命令只识别原内置命令的完整首 token，不能把 `/stopx` 等前缀误判为控制命令。
+
+- [x] 固化原 ACP/Node runtime 数据结构、默认 Agent、校验规则和原页面调用顺序；
+- [x] 删除固定空对象占位，实现 Agent 级 ACP 完整读取、整体更新和单 Agent 更新；
+- [x] 实现全局 Node runtime 自动发现、自定义路径校验、版本探测和原子持久化；
+- [x] 实现 `/commands/check`，覆盖空白、大小写、参数、未知命令和相似前缀；
+- [x] 覆盖多 Agent 隔离、默认值合并、错误输入、并发更新、Core 重启和 Node 探测测试；
+- [x] 使用未修改的原 ACP 页面逐项验证读取、编辑、保存、刷新；以原 `commandsApi` 契约测试和真实 Rust HTTP 测试验证命令判定；
+- [x] 更新 inventory，确认相关调用均为非占位且 `console/src` 零改动；
+- [x] 通过 Rust、Console 与各客户端回归，重建并逐个反向验证全部发布产物；
+- [x] 提交并推送本子切片。
+
+2026-09-05 本机阶段验收：Rust workspace 178 个测试、格式检查和严格 Clippy 通过；ACP 契约覆盖四个内置 Agent、整体/单项写入、Agent 隔离、默认值合并、并发更新、非法模式、非法 Node 路径不落盘、真实 `node`/`npx` 版本探测、Core 重启恢复和控制命令完整首 token 判定。Console 295 个测试文件、2453 个测试、production build 和 inventory 防漂移通过，`console/src` 保持零改动；未修改的原 ACP 页面完成内置项展示、自定义项创建/编辑/删除、跨 Agent 隔离和 Node runtime 自动探测/保存，所有请求无 4xx/5xx 且浏览器错误为 0，另外 24 个内置导航页全量 smoke 均通过。当前 inventory 为 370 个调用点、303 条 Rust 路由、291 个已注册调用点，其中 287 个非占位、4 个占位、79 个未注册和 11 个静态未解析表达式。TypeScript SDK 3 个、Python SDK 4 个真实 Core 测试与 VS Code 57 个测试全部通过。macOS App/ZIP/QA DMG、Core archive、WebUI archive、TypeScript/Python SDK、universal/platform VSIX 与 legacy wheel 共 9 个产物均以本切片源码重建，并分别完成签名、只读挂载、解包、运行、临时安装、manifest、sidecar 和 SHA-256 反向校验。QA DMG 当前为 ad-hoc 签名，待用户提供 Apple 发布凭据后才能生成 Developer ID 签名和 notarized 正式包。
+
 ### 14.3 客户端与发布
 
 - [x] WebUI 启动与导航契约测试通过；

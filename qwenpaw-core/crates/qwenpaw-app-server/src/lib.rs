@@ -77,6 +77,7 @@ use tower_http::set_header::SetResponseHeaderLayer;
 use tracing::warn;
 
 mod desktop_access_control;
+mod desktop_acp;
 mod desktop_agent_settings;
 mod desktop_agents;
 mod desktop_api;
@@ -124,6 +125,7 @@ struct AppServerInner {
     desktop_pending_approvals: tokio::sync::RwLock<HashMap<String, DesktopPendingApproval>>,
     desktop_push_messages: tokio::sync::RwLock<Vec<DesktopPushMessage>>,
     desktop_access_control_lock: tokio::sync::Mutex<()>,
+    desktop_acp_lock: tokio::sync::Mutex<()>,
     desktop_agents_lock: tokio::sync::Mutex<()>,
     desktop_agent_settings_lock: tokio::sync::Mutex<()>,
     desktop_mail_access_control_lock: tokio::sync::Mutex<()>,
@@ -200,6 +202,7 @@ impl AppServer {
                 desktop_pending_approvals: tokio::sync::RwLock::new(HashMap::new()),
                 desktop_push_messages: tokio::sync::RwLock::new(Vec::new()),
                 desktop_access_control_lock: tokio::sync::Mutex::new(()),
+                desktop_acp_lock: tokio::sync::Mutex::new(()),
                 desktop_agents_lock: tokio::sync::Mutex::new(()),
                 desktop_agent_settings_lock: tokio::sync::Mutex::new(()),
                 desktop_mail_access_control_lock: tokio::sync::Mutex::new(()),
@@ -397,6 +400,7 @@ impl AppServer {
                 desktop_pending_approvals: tokio::sync::RwLock::new(HashMap::new()),
                 desktop_push_messages: tokio::sync::RwLock::new(Vec::new()),
                 desktop_access_control_lock: tokio::sync::Mutex::new(()),
+                desktop_acp_lock: tokio::sync::Mutex::new(()),
                 desktop_agents_lock: tokio::sync::Mutex::new(()),
                 desktop_agent_settings_lock: tokio::sync::Mutex::new(()),
                 desktop_mail_access_control_lock: tokio::sync::Mutex::new(()),
@@ -580,6 +584,7 @@ impl AppServer {
             let index = directory.join("index.html");
             router = router
                 .merge(desktop_access_control::router())
+                .merge(desktop_acp::router())
                 .merge(desktop_agents::router())
                 .merge(desktop_agent_settings::router())
                 .merge(desktop_channels::router())

@@ -3,11 +3,11 @@
   "source": "console/src production TypeScript call sites",
   "callCount": 370,
   "unresolvedCount": 11,
-  "rustRouteCount": 297,
-  "registeredCallCount": 285,
-  "placeholderCallCount": 5,
-  "nonPlaceholderRegisteredCallCount": 280,
-  "missingCallCount": 85,
+  "rustRouteCount": 303,
+  "registeredCallCount": 291,
+  "placeholderCallCount": 4,
+  "nonPlaceholderRegisteredCallCount": 287,
+  "missingCallCount": 79,
   "rustRoutes": [
     {
       "method": "ANY",
@@ -465,11 +465,53 @@
       "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_api.rs"
     },
     {
+      "method": "POST",
+      "path": "/api/commands/check",
+      "handler": "check_command",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_acp.rs"
+    },
+    {
       "method": "GET",
       "path": "/api/config/acp",
-      "handler": "acp",
-      "placeholder": true,
-      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_navigation.rs"
+      "handler": "get_acp_config",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_acp.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/config/acp",
+      "handler": "put_acp_config",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_acp.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/acp/{agent_name}",
+      "handler": "get_acp_agent_config",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_acp.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/config/acp/{agent_name}",
+      "handler": "put_acp_agent_config",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_acp.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/acp/node-runtime",
+      "handler": "get_node_runtime",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_acp.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/config/acp/node-runtime",
+      "handler": "put_node_runtime",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_acp.rs"
     },
     {
       "method": "GET",
@@ -2256,7 +2298,7 @@
       "resolved": true,
       "apiPath": "/api/config/acp",
       "registered": true,
-      "placeholder": true
+      "placeholder": false
     },
     {
       "method": "GET",
@@ -2267,7 +2309,7 @@
       "line": 13,
       "resolved": true,
       "apiPath": "/api/config/acp/node-runtime",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -2279,7 +2321,7 @@
       "line": 16,
       "resolved": true,
       "apiPath": "/api/config/acp/{agentName}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -2291,7 +2333,7 @@
       "line": 19,
       "resolved": true,
       "apiPath": "/api/config/acp",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -2303,7 +2345,7 @@
       "line": 25,
       "resolved": true,
       "apiPath": "/api/config/acp/node-runtime",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -2315,7 +2357,7 @@
       "line": 31,
       "resolved": true,
       "apiPath": "/api/config/acp/{agentName}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -3599,7 +3641,7 @@
       "line": 16,
       "resolved": true,
       "apiPath": "/api/commands/check",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {

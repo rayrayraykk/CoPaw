@@ -5695,6 +5695,416 @@ async fn persists_and_isolates_multiple_agent_workspaces_and_chats() {
 
 #[tokio::test]
 #[allow(clippy::too_many_lines)]
+async fn persists_and_isolates_acp_config_node_runtime_and_command_detection() {
+    let root = tempfile::tempdir().expect("temporary ACP root should be created");
+    let console = root.path().join("console");
+    let desktop_data = root.path().join("desktop");
+    let workspace = root.path().join("workspace");
+    std::fs::create_dir_all(&console).expect("Console directory should be created");
+    std::fs::create_dir_all(&desktop_data).expect("Desktop directory should be created");
+    std::fs::create_dir_all(&workspace).expect("Workspace directory should be created");
+    std::fs::write(console.join("index.html"), "<html>console</html>")
+        .expect("Console index should be written");
+    let database = root.path().join("acp.sqlite3");
+    let model = ModelConfig {
+        api_key: None,
+        base_url: String::from("http://127.0.0.1:1"),
+        default_model: String::from("qwen-test"),
+    };
+    let credentials = Arc::new(MemoryCredentialStore::default());
+    let core = Core::persistent(model.clone(), &database).expect("ACP Core should open");
+    let server = AppServer::new_desktop_with_stores_and_workspace(
+        core,
+        &console,
+        String::from("desktop-acp-first-token"),
+        credentials.clone(),
+        &desktop_data,
+        &workspace,
+    )
+    .expect("ACP Desktop server should configure");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("ACP listener should bind");
+    let address = listener
+        .local_addr()
+        .expect("ACP listener should have an address");
+    let task = tokio::spawn(server.run_http(listener));
+    let client = reqwest::Client::new();
+    let base = format!("http://{address}/api");
+
+    let initial = get_json(&client, format!("{base}/config/acp")).await;
+    assert_eq!(initial, expected_default_acp_config());
+
+    let created = client
+        .post(format!("{base}/agents"))
+        .json(&json!({
+            "id": "acp-other",
+            "name": "ACP Other",
+            "description": "ACP isolation",
+            "language": "en",
+            "backend": "qwenpaw"
+        }))
+        .send()
+        .await
+        .expect("second Agent should create");
+    assert_eq!(created.status(), reqwest::StatusCode::CREATED);
+
+    let custom = json!({
+        "enabled": true,
+        "command": "custom-acp",
+        "args": ["--stdio"],
+        "env": {"ACP_TEST": "default"},
+        "trusted": false,
+        "tool_parse_mode": "call_title",
+        "stdio_buffer_limit_bytes": 1_048_576
+    });
+    let updated = client
+        .put(format!("{base}/config/acp"))
+        .json(&json!({"agents": {"custom": custom}}))
+        .send()
+        .await
+        .expect("whole ACP config should update");
+    assert_eq!(updated.status(), reqwest::StatusCode::OK);
+    let updated = updated
+        .json::<Value>()
+        .await
+        .expect("whole ACP response should be JSON");
+    assert_eq!(updated["agents"]["custom"], custom);
+    assert_eq!(
+        updated["agents"].as_object().map(serde_json::Map::len),
+        Some(5)
+    );
+
+    let isolated = client
+        .get(format!("{base}/config/acp"))
+        .header("X-Agent-Id", "acp-other")
+        .send()
+        .await
+        .expect("isolated ACP config should send")
+        .json::<Value>()
+        .await
+        .expect("isolated ACP config should be JSON");
+    assert_eq!(isolated, expected_default_acp_config());
+
+    let other_custom = json!({
+        "enabled": false,
+        "command": "other-acp",
+        "args": [],
+        "env": {"ACP_TEST": "other"},
+        "trusted": true,
+        "tool_parse_mode": "update_detail",
+        "stdio_buffer_limit_bytes": 2_097_152
+    });
+    let isolated_update = client
+        .put(format!("{base}/config/acp/custom"))
+        .header("X-Agent-Id", "acp-other")
+        .json(&other_custom)
+        .send()
+        .await
+        .expect("isolated ACP Agent should update");
+    assert_eq!(isolated_update.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        isolated_update
+            .json::<Value>()
+            .await
+            .expect("isolated ACP Agent response should be JSON"),
+        other_custom
+    );
+    assert_eq!(
+        get_json(&client, format!("{base}/config/acp/custom")).await,
+        custom
+    );
+
+    let concurrent_one = json!({
+        "enabled": true,
+        "command": "runner-one",
+        "args": [],
+        "env": {},
+        "trusted": true,
+        "tool_parse_mode": "call_detail",
+        "stdio_buffer_limit_bytes": 4096
+    });
+    let concurrent_two = json!({
+        "enabled": true,
+        "command": "runner-two",
+        "args": ["--two"],
+        "env": {},
+        "trusted": true,
+        "tool_parse_mode": "update_detail",
+        "stdio_buffer_limit_bytes": 8192
+    });
+    let first_request = client
+        .put(format!("{base}/config/acp/runner-one"))
+        .json(&concurrent_one)
+        .send();
+    let second_request = client
+        .put(format!("{base}/config/acp/runner-two"))
+        .json(&concurrent_two)
+        .send();
+    let (first_response, second_response) = tokio::join!(first_request, second_request);
+    assert_eq!(
+        first_response
+            .expect("first concurrent update should send")
+            .status(),
+        reqwest::StatusCode::OK
+    );
+    assert_eq!(
+        second_response
+            .expect("second concurrent update should send")
+            .status(),
+        reqwest::StatusCode::OK
+    );
+    let after_concurrent = get_json(&client, format!("{base}/config/acp")).await;
+    assert_eq!(after_concurrent["agents"]["runner-one"], concurrent_one);
+    assert_eq!(after_concurrent["agents"]["runner-two"], concurrent_two);
+
+    let invalid_mode = client
+        .put(format!("{base}/config/acp/invalid"))
+        .json(&json!({"tool_parse_mode": "not-a-mode"}))
+        .send()
+        .await
+        .expect("invalid mode should send");
+    assert_eq!(invalid_mode.status(), reqwest::StatusCode::BAD_REQUEST);
+    assert_eq!(
+        invalid_mode
+            .json::<Value>()
+            .await
+            .expect("invalid mode response should be JSON"),
+        json!({
+            "detail": "Invalid tool_parse_mode. Allowed values: call_detail, call_title, update_detail"
+        })
+    );
+    let missing = client
+        .get(format!("{base}/config/acp/missing"))
+        .send()
+        .await
+        .expect("missing ACP Agent should send");
+    assert_eq!(missing.status(), reqwest::StatusCode::NOT_FOUND);
+
+    let command_contracts = [
+        (
+            "/approve request-1",
+            json!({"is_control_command": true, "command_token": "/approve"}),
+        ),
+        (
+            "  /STOP session=one  ",
+            json!({"is_control_command": true, "command_token": "/stop"}),
+        ),
+        (
+            "/checkpoint list",
+            json!({"is_control_command": true, "command_token": "/checkpoint"}),
+        ),
+        (
+            "/stopx",
+            json!({"is_control_command": false, "command_token": null}),
+        ),
+        (
+            "hello there",
+            json!({"is_control_command": false, "command_token": null}),
+        ),
+        (
+            "   ",
+            json!({"is_control_command": false, "command_token": null}),
+        ),
+    ];
+    for (text, expected) in command_contracts {
+        let response = client
+            .post(format!("{base}/commands/check"))
+            .json(&json!({"text": text}))
+            .send()
+            .await
+            .expect("command check should send");
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        assert_eq!(
+            response
+                .json::<Value>()
+                .await
+                .expect("command check response should be JSON"),
+            expected
+        );
+    }
+
+    let initial_node = get_json(&client, format!("{base}/config/acp/node-runtime")).await;
+    assert_eq!(initial_node["node_path"], json!(""));
+    assert!(initial_node["effective_node_path"].is_string());
+    assert!(
+        initial_node["candidates"]
+            .as_array()
+            .is_some_and(|candidates| !candidates.is_empty())
+    );
+    let invalid_runtime_response = client
+        .put(format!("{base}/config/acp/node-runtime"))
+        .json(&json!({"node_path": root.path().join("missing-node")}))
+        .send()
+        .await
+        .expect("invalid Node runtime should send");
+    assert_eq!(
+        invalid_runtime_response.status(),
+        reqwest::StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        invalid_runtime_response
+            .json::<Value>()
+            .await
+            .expect("invalid Node response should be JSON"),
+        json!({
+            "detail": {
+                "reason_code": "node_missing",
+                "reason": "Node path does not exist"
+            }
+        })
+    );
+    assert_eq!(
+        get_json(&client, format!("{base}/config/acp/node-runtime")).await["node_path"],
+        json!("")
+    );
+
+    let persisted_node_path = install_test_node_runtime(root.path());
+    if let Some(runtime) = &persisted_node_path {
+        let node_response = client
+            .put(format!("{base}/config/acp/node-runtime"))
+            .json(&json!({"node_path": runtime}))
+            .send()
+            .await
+            .expect("valid Node runtime should send");
+        assert_eq!(node_response.status(), reqwest::StatusCode::OK);
+        let status = node_response
+            .json::<Value>()
+            .await
+            .expect("valid Node runtime response should be JSON");
+        assert_eq!(status["node_path"], json!(runtime));
+        let custom = status["candidates"]
+            .as_array()
+            .and_then(|candidates| {
+                candidates
+                    .iter()
+                    .find(|candidate| candidate["key"] == "custom")
+            })
+            .expect("custom Node candidate should be present");
+        assert_eq!(
+            custom,
+            &json!({
+                "key": "custom",
+                "label": "custom",
+                "node_path": runtime.join("bin/node").to_string_lossy(),
+                "npx_path": runtime.join("bin/npx").to_string_lossy(),
+                "node_version": "v99.1.2",
+                "npx_version": "99.3.4",
+                "available": true,
+                "reason_code": "",
+                "reason": ""
+            })
+        );
+        assert_eq!(status["effective_node_path"], custom["node_path"]);
+    }
+
+    task.abort();
+    let _ = task.await;
+    let core = Core::persistent(model, &database).expect("ACP Core should reopen");
+    let server = AppServer::new_desktop_with_stores_and_workspace(
+        core,
+        &console,
+        String::from("desktop-acp-second-token"),
+        credentials,
+        &desktop_data,
+        &workspace,
+    )
+    .expect("persisted ACP Desktop server should configure");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("persisted ACP listener should bind");
+    let address = listener
+        .local_addr()
+        .expect("persisted ACP listener should have an address");
+    let task = tokio::spawn(server.run_http(listener));
+    let base = format!("http://{address}/api");
+    let restored = get_json(&client, format!("{base}/config/acp")).await;
+    assert_eq!(restored["agents"]["custom"], custom);
+    assert_eq!(restored["agents"]["runner-one"], concurrent_one);
+    assert_eq!(restored["agents"]["runner-two"], concurrent_two);
+    let restored_other = client
+        .get(format!("{base}/config/acp/custom"))
+        .header("X-Agent-Id", "acp-other")
+        .send()
+        .await
+        .expect("restored isolated ACP config should send")
+        .json::<Value>()
+        .await
+        .expect("restored isolated ACP config should be JSON");
+    assert_eq!(restored_other, other_custom);
+    let restored_node = get_json(&client, format!("{base}/config/acp/node-runtime")).await;
+    assert_eq!(
+        restored_node["node_path"],
+        persisted_node_path
+            .as_ref()
+            .map_or_else(|| json!(""), |path| json!(path))
+    );
+    task.abort();
+    let _ = task.await;
+}
+
+fn expected_default_acp_config() -> Value {
+    let agent = |command: &str, args: Value, mode: &str| {
+        json!({
+            "enabled": true,
+            "command": command,
+            "args": args,
+            "env": {},
+            "trusted": true,
+            "tool_parse_mode": mode,
+            "stdio_buffer_limit_bytes": 50 * 1024 * 1024
+        })
+    };
+    json!({
+        "node_path": "",
+        "agents": {
+            "opencode": agent("opencode", json!(["acp"]), "update_detail"),
+            "qwen_code": agent("qwen", json!(["--acp"]), "call_detail"),
+            "claude_code": agent(
+                "npx",
+                json!(["-y", "@zed-industries/claude-agent-acp"]),
+                "update_detail"
+            ),
+            "codex": agent(
+                "npx",
+                json!(["-y", "@zed-industries/codex-acp"]),
+                "call_detail"
+            )
+        }
+    })
+}
+
+#[allow(clippy::unnecessary_wraps)]
+fn install_test_node_runtime(root: &Path) -> Option<PathBuf> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let runtime = root.join("test-node-runtime");
+        let bin = runtime.join("bin");
+        std::fs::create_dir_all(&bin).expect("test Node bin directory should create");
+        for (name, version) in [("node", "v99.1.2"), ("npx", "99.3.4")] {
+            let executable = bin.join(name);
+            std::fs::write(&executable, format!("#!/bin/sh\nprintf '{version}\\n'\n"))
+                .expect("test Node executable should write");
+            let mut permissions = std::fs::metadata(&executable)
+                .expect("test Node metadata should read")
+                .permissions();
+            permissions.set_mode(0o755);
+            std::fs::set_permissions(executable, permissions)
+                .expect("test Node executable should become executable");
+        }
+        Some(runtime)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = root;
+        None
+    }
+}
+
+#[tokio::test]
+#[allow(clippy::too_many_lines)]
 async fn security_routes_preserve_console_contract_and_persist() {
     let root = tempfile::tempdir().expect("temporary Security root should be created");
     let console = root.path().join("console");
@@ -7323,7 +7733,7 @@ async fn assert_navigation_control_contracts(address: SocketAddr) {
                 }),
             ),
             ("/api/tools", expected_builtin_tools()),
-            ("/api/config/acp", json!({"agents": {}})),
+            ("/api/config/acp", expected_default_acp_config()),
         ],
     )
     .await;

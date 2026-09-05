@@ -130,13 +130,15 @@ function smokeOptions(arguments_) {
   const securityCrud = arguments_.includes("--security-crud");
   const skillsCrud = arguments_.includes("--skills-crud");
   const agentsCrud = arguments_.includes("--agents-crud");
+  const acpCrud = arguments_.includes("--acp-crud");
   const navigationArguments = arguments_.filter(
     (argument) =>
       argument !== "--coding-git" &&
       argument !== "--mcp-crud" &&
       argument !== "--security-crud" &&
       argument !== "--skills-crud" &&
-      argument !== "--agents-crud",
+      argument !== "--agents-crud" &&
+      argument !== "--acp-crud",
   );
   return {
     codingGit,
@@ -144,6 +146,7 @@ function smokeOptions(arguments_) {
     securityCrud,
     skillsCrud,
     agentsCrud,
+    acpCrud,
     paths: navigationPaths(navigationArguments),
   };
 }
@@ -422,6 +425,223 @@ async function runAgentsCrudScenario(client) {
     selectedThroughOriginalSidebar: true,
     selectedAgent: agentId,
     workspaceFilesIsolated: true,
+  };
+}
+
+async function clickAcpCard(client, agentKey) {
+  const clicked = await evaluateValue(
+    client,
+    `(() => {
+      const title = [...document.querySelectorAll('[class*="cardTitle"]')].find(
+        (item) => (item.innerText ?? "").trim() === ${JSON.stringify(agentKey)}
+      );
+      title?.click();
+      return Boolean(title);
+    })()`,
+  );
+  if (!clicked) throw new Error(`ACP card did not render: ${agentKey}`);
+}
+
+async function runAcpCrudScenario(client) {
+  const agentKey = "browser_acp";
+  const initialCommand = "browser-acp";
+  const updatedCommand = "browser-acp-updated";
+  await waitForValue(
+    client,
+    `document.body.innerText.includes("codex") &&
+      document.body.innerText.includes("Add Custom Agent")`,
+    "ACP page and built-in cards did not render",
+  );
+  const selectedAgent =
+    (await evaluateValue(
+      client,
+      `localStorage.getItem("qwenpaw-last-used-agent") ?? "default"`,
+    )) || "default";
+  const requestHeaders = JSON.stringify({ "X-Agent-Id": selectedAgent });
+  const existing = await evaluateValue(
+    client,
+    `fetch("/api/config/acp", {headers: ${requestHeaders}})
+      .then((response) => response.json())
+      .then((value) => Boolean(value.agents?.[${JSON.stringify(agentKey)}]))`,
+  );
+  if (!existing) {
+    await clickButton(client, "Add Custom Agent");
+    await waitForValue(
+      client,
+      `document.body.innerText.includes("Create ACP Agent") &&
+        Boolean(document.querySelector('input[placeholder="my_custom_runner"]'))`,
+      "ACP create drawer did not open",
+    );
+    await setInputByPlaceholder(client, "my_custom_runner", agentKey);
+    await setInputByPlaceholder(client, "qwen", initialCommand);
+    await clickButton(client, "Save");
+    await waitForValue(
+      client,
+      `fetch("/api/config/acp", {headers: ${requestHeaders}})
+        .then((response) => response.json())
+        .then((value) =>
+          value.agents?.[${JSON.stringify(agentKey)}]?.command ===
+            ${JSON.stringify(initialCommand)}
+        )`,
+      "ACP Agent created through the original drawer did not persist",
+    );
+  }
+  await waitForValue(
+    client,
+    `[...document.querySelectorAll('[class*="cardTitle"]')].some(
+      (item) => (item.innerText ?? "").trim() === ${JSON.stringify(agentKey)}
+    )`,
+    "Created ACP Agent card did not render",
+  );
+
+  let agentIsolationVerified = selectedAgent === "default";
+  if (selectedAgent !== "default") {
+    await selectAgentFromSidebar(client, "default");
+    await waitForValue(
+      client,
+      `fetch("/api/config/acp", {headers: {"X-Agent-Id": "default"}})
+        .then((response) => response.json())
+        .then((value) => !value.agents?.[${JSON.stringify(agentKey)}])`,
+      "Default Agent unexpectedly shared the custom ACP Agent",
+    );
+    await selectAgentFromSidebar(client, selectedAgent);
+    await waitForValue(
+      client,
+      `[...document.querySelectorAll('[class*="cardTitle"]')].some(
+        (item) => (item.innerText ?? "").trim() === ${JSON.stringify(agentKey)}
+      )`,
+      "Custom ACP Agent did not return after switching Agents",
+    );
+    agentIsolationVerified = true;
+  }
+
+  await clickAcpCard(client, agentKey);
+  await waitForValue(
+    client,
+    `document.body.innerText.includes("Edit ACP Configuration: ${agentKey}")`,
+    "ACP edit drawer did not open",
+  );
+  await setInputByPlaceholder(client, "qwen", updatedCommand);
+  await clickButton(client, "Save");
+  await waitForValue(
+    client,
+    `fetch("/api/config/acp/${agentKey}", {headers: ${requestHeaders}})
+      .then((response) => response.json())
+      .then((value) => value.command === ${JSON.stringify(updatedCommand)})`,
+    "ACP Agent edit through the original drawer did not persist",
+  );
+
+  await clickButton(client, "Node Settings");
+  await waitForValue(
+    client,
+    `document.body.innerText.includes("Node path") &&
+      [...document.querySelectorAll('[role="combobox"]')].some(
+        (element) => element.offsetWidth || element.offsetHeight ||
+          element.getClientRects().length
+      )`,
+    "ACP Node runtime modal did not render",
+  );
+  const effectiveNodePath = await evaluateValue(
+    client,
+    `fetch("/api/config/acp/node-runtime")
+      .then((response) => response.json())
+      .then((value) => value.effective_node_path)`,
+  );
+  let nodeSavedThroughOriginalModal = false;
+  if (effectiveNodePath) {
+    await evaluateValue(
+      client,
+      `(() => {
+        window.prompt = () => ${JSON.stringify(effectiveNodePath)};
+        const visible = (element) => Boolean(
+          element.offsetWidth || element.offsetHeight || element.getClientRects().length
+        );
+        const select = [...document.querySelectorAll('[role="combobox"]')]
+          .filter(visible).at(-1);
+        const selector = select?.closest('[class*="-select"]')?.querySelector(
+          '[class*="-select-selector"]'
+        ) ?? select;
+        selector?.dispatchEvent(new MouseEvent("mousedown", {
+          bubbles: true,
+          cancelable: true,
+          view: window
+        }));
+        selector?.click();
+        return Boolean(selector);
+      })()`,
+    );
+    await waitForValue(
+      client,
+      `[...document.querySelectorAll('[class*="-select-item-option"]')].some(
+        (item) => (item.innerText ?? "").includes("Choose another Node...")
+      )`,
+      "ACP custom Node option did not open",
+    );
+    const selected = await evaluateValue(
+      client,
+      `(() => {
+        const option = [...document.querySelectorAll(
+          '[class*="-select-item-option"]'
+        )].find((item) =>
+          (item.innerText ?? "").includes("Choose another Node...")
+        );
+        option?.dispatchEvent(new MouseEvent("mousedown", {
+          bubbles: true,
+          cancelable: true,
+          view: window
+        }));
+        option?.click();
+        return Boolean(option);
+      })()`,
+    );
+    if (!selected) throw new Error("ACP custom Node option was not selectable");
+    await waitForValue(
+      client,
+      `fetch("/api/config/acp/node-runtime")
+        .then((response) => response.json())
+        .then((value) => value.node_path === ${JSON.stringify(
+          effectiveNodePath,
+        )})`,
+      "Node path selected through the original modal did not persist",
+    );
+    nodeSavedThroughOriginalModal = true;
+  }
+  await client.send("Input.dispatchKeyEvent", {
+    type: "keyDown",
+    key: "Escape",
+    code: "Escape",
+  });
+  await client.send("Input.dispatchKeyEvent", {
+    type: "keyUp",
+    key: "Escape",
+    code: "Escape",
+  });
+  await delay(300);
+
+  await clickAcpCard(client, agentKey);
+  await clickButton(client, "Delete");
+  await waitForValue(
+    client,
+    `document.body.innerText.includes("Delete ${agentKey}")`,
+    "ACP delete confirmation did not open",
+  );
+  await clickButton(client, "Delete");
+  await waitForValue(
+    client,
+    `fetch("/api/config/acp", {headers: ${requestHeaders}})
+      .then((response) => response.json())
+      .then((value) => !value.agents?.[${JSON.stringify(agentKey)}])`,
+    "ACP Agent deletion through the original drawer did not persist",
+  );
+
+  return {
+    builtinsRendered: true,
+    createdThroughOriginalDrawer: true,
+    editedThroughOriginalDrawer: true,
+    deletedThroughOriginalDrawer: true,
+    agentIsolationVerified,
+    nodeRuntimeDetected: Boolean(effectiveNodePath),
+    nodeSavedThroughOriginalModal,
   };
 }
 
@@ -1108,6 +1328,7 @@ async function inspectConsole(client, origin, options) {
     securityCrud,
     skillsCrud,
     agentsCrud,
+    acpCrud,
     paths,
   } = options;
   let observation;
@@ -1152,6 +1373,7 @@ async function inspectConsole(client, origin, options) {
     let securityCrudResult;
     let skillsCrudResult;
     let agentsCrudResult;
+    let acpCrudResult;
     if (mcpCrud && navigationPath === "/mcp") {
       try {
         mcpCrudResult = await runMcpCrudScenario(client);
@@ -1179,6 +1401,13 @@ async function inspectConsole(client, origin, options) {
     if (agentsCrud && navigationPath === "/agents") {
       try {
         agentsCrudResult = await runAgentsCrudScenario(client);
+      } catch (error) {
+        observation.browserErrors.push(error.stack ?? String(error));
+      }
+    }
+    if (acpCrud && navigationPath === "/acp") {
+      try {
+        acpCrudResult = await runAcpCrudScenario(client);
       } catch (error) {
         observation.browserErrors.push(error.stack ?? String(error));
       }
@@ -1255,6 +1484,7 @@ async function inspectConsole(client, origin, options) {
       securityCrud: securityCrudResult,
       skillsCrud: skillsCrudResult,
       agentsCrud: agentsCrudResult,
+      acpCrud: acpCrudResult,
       apiResponses: responses,
       failedApi,
       failures,

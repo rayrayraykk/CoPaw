@@ -11,7 +11,6 @@ use super::AppServer;
 pub(super) fn router() -> Router<AppServer> {
     Router::new()
         .route("/api/pawapps", get(pawapps))
-        .route("/api/config/acp", get(acp))
         .route("/api/console/debug/backend-logs", get(backend_logs))
         .route("/api/backups", get(empty_array))
         .route("/api/backups/jobs/active", get(empty_value))
@@ -27,10 +26,6 @@ async fn empty_value() -> Json<Value> {
 
 async fn pawapps() -> Json<Value> {
     Json(json!({"apps": [], "total": 0}))
-}
-
-async fn acp() -> Json<Value> {
-    Json(json!({"agents": {}}))
 }
 
 async fn backend_logs() -> Json<Value> {
