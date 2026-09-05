@@ -2,9 +2,7 @@
 
 use axum::Json;
 use axum::Router;
-use axum::extract::Query;
 use axum::routing::get;
-use serde::Deserialize;
 use serde_json::Value;
 use serde_json::json;
 
@@ -19,16 +17,6 @@ pub(super) fn router() -> Router<AppServer> {
             get(memory_runtime_status),
         )
         .route("/api/agents/{agent_id}/memory/status", get(memory_status))
-        .route("/api/config/security/sandbox", get(sandbox_status))
-        .route(
-            "/api/config/security/sandbox/deny-paths-protection",
-            get(deny_paths_status),
-        )
-        .route("/api/config/security/tool-guard", get(tool_guard))
-        .route(
-            "/api/config/security/tool-guard/builtin-rules",
-            get(empty_array),
-        )
         .route("/api/console/debug/backend-logs", get(backend_logs))
         .route("/api/backups", get(empty_array))
         .route("/api/backups/jobs/active", get(empty_value))
@@ -77,42 +65,6 @@ fn memory_runtime_value() -> Value {
         "embedding_reindex_required": false,
         "embedding_reindex_undo_available": false
     })
-}
-
-#[derive(Debug, Default, Deserialize)]
-struct SandboxQuery {
-    enabled: Option<bool>,
-}
-
-async fn sandbox_status(Query(query): Query<SandboxQuery>) -> Json<Value> {
-    let enabled = query.enabled.unwrap_or(false);
-    Json(json!({
-        "enabled": enabled,
-        "effective": false,
-        "reason": "Rust Core confines file tools to the selected Workspace"
-    }))
-}
-
-async fn deny_paths_status() -> Json<Value> {
-    Json(json!({
-        "active": false,
-        "protected_paths": [],
-        "failed_paths": [],
-        "platform_supported": false,
-        "message": "Rust Core does not use the legacy Python ACL sandbox"
-    }))
-}
-
-async fn tool_guard() -> Json<Value> {
-    Json(json!({
-        "enabled": true,
-        "guarded_tools": null,
-        "denied_tools": [],
-        "custom_rules": [],
-        "disabled_rules": [],
-        "auto_denied_rules": [],
-        "shell_evasion_checks": {}
-    }))
 }
 
 async fn backend_logs() -> Json<Value> {

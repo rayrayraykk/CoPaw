@@ -93,6 +93,7 @@ mod desktop_mail_access_control;
 mod desktop_mcp;
 mod desktop_navigation;
 mod desktop_projects;
+mod desktop_security;
 mod desktop_stats;
 mod desktop_tool_calls;
 mod desktop_tools;
@@ -135,6 +136,7 @@ struct AppServerInner {
     desktop_heartbeat_revision: tokio::sync::watch::Sender<u64>,
     desktop_heartbeat_running: std::sync::atomic::AtomicBool,
     desktop_project_lock: tokio::sync::Mutex<()>,
+    desktop_security_lock: tokio::sync::Mutex<()>,
     desktop_credentials: Option<Arc<dyn DesktopCredentialStore>>,
     desktop_workspace: Option<DesktopWorkspace>,
     allowed_origins: Vec<String>,
@@ -206,6 +208,7 @@ impl AppServer {
                 desktop_heartbeat_revision: tokio::sync::watch::channel(0).0,
                 desktop_heartbeat_running: std::sync::atomic::AtomicBool::new(false),
                 desktop_project_lock: tokio::sync::Mutex::new(()),
+                desktop_security_lock: tokio::sync::Mutex::new(()),
                 desktop_credentials: None,
                 desktop_workspace: None,
                 allowed_origins: allowed_origins_from_env(),
@@ -397,6 +400,7 @@ impl AppServer {
                 desktop_heartbeat_revision: tokio::sync::watch::channel(0).0,
                 desktop_heartbeat_running: std::sync::atomic::AtomicBool::new(false),
                 desktop_project_lock: tokio::sync::Mutex::new(()),
+                desktop_security_lock: tokio::sync::Mutex::new(()),
                 desktop_credentials: Some(desktop_credentials),
                 desktop_workspace: Some(desktop_workspace),
                 allowed_origins: allowed_origins_from_env(),
@@ -575,6 +579,7 @@ impl AppServer {
                 .merge(desktop_mcp::router())
                 .merge(desktop_navigation::router())
                 .merge(desktop_projects::router())
+                .merge(desktop_security::router())
                 .merge(desktop_stats::router())
                 .merge(desktop_tool_calls::router())
                 .merge(desktop_tools::router())

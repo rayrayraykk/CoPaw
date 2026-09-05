@@ -1,6 +1,7 @@
 mod context;
 mod model;
 mod runtime;
+mod security;
 mod tool_calls;
 
 pub use model::ModelConfig;
@@ -26,6 +27,17 @@ pub use runtime::Core;
 pub use runtime::CoreError;
 pub use runtime::ToolApprovalLevel;
 pub use runtime::TurnEventStream;
+pub use security::BlockedSkillFinding;
+pub use security::BlockedSkillRecord;
+pub use security::FileGuardConfig;
+pub use security::SecuritySettings;
+pub use security::SkillScannerConfig;
+pub use security::SkillScannerMode;
+pub use security::SkillScannerWhitelistEntry;
+pub use security::ToolGuardConfig;
+pub use security::ToolGuardRule;
+pub use security::builtin_tool_guard_rules;
+pub use security::normalize_ip_hosts;
 pub use tool_calls::ToolCallControlError;
 pub use tool_calls::ToolCallSnapshot;
 pub use tool_calls::ToolCallStreamEvent;

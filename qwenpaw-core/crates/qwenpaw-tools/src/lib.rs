@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use serde::Deserialize;
@@ -147,6 +148,31 @@ impl Workspace {
         shell_executable: Option<&str>,
         shell_timeout_override_ms: Option<u64>,
     ) -> Result<ToolOutput, ToolError> {
+        self.execute_with_shell_config_timeout_and_sandbox(
+            call,
+            default_shell_timeout_ms,
+            shell_executable,
+            shell_timeout_override_ms,
+            false,
+        )
+        .await
+    }
+
+    /// Executes a tool with the same shell controls plus optional operating
+    /// system isolation. The sandbox flag only affects the Shell tool.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when sandboxing is requested but unavailable, or for
+    /// the same conditions as [`Self::execute_with_shell_config_and_timeout`].
+    pub async fn execute_with_shell_config_timeout_and_sandbox(
+        &self,
+        call: &ToolCall,
+        default_shell_timeout_ms: u64,
+        shell_executable: Option<&str>,
+        shell_timeout_override_ms: Option<u64>,
+        sandbox_shell: bool,
+    ) -> Result<ToolOutput, ToolError> {
         match call.name.as_str() {
             "list_files" => discovery::list_files(&self.root, &call.arguments),
             "read_file" => self.read_file(&call.arguments).await,
@@ -159,6 +185,7 @@ impl Workspace {
                     default_shell_timeout_ms,
                     shell_executable,
                     shell_timeout_override_ms,
+                    sandbox_shell,
                 )
                 .await
             }
@@ -186,6 +213,7 @@ impl Workspace {
         default_timeout_ms: u64,
         shell_executable: Option<&str>,
         timeout_override_ms: Option<u64>,
+        sandbox: bool,
     ) -> Result<ToolOutput, ToolError> {
         let arguments: ShellArguments = serde_json::from_str(arguments)?;
         if arguments.command.trim().is_empty() {
@@ -194,7 +222,11 @@ impl Workspace {
         let timeout_ms = timeout_override_ms
             .unwrap_or_else(|| arguments.timeout_ms.unwrap_or(default_timeout_ms))
             .clamp(MIN_SHELL_TIMEOUT_MS, MAX_SHELL_TIMEOUT_MS);
-        let mut command = configured_shell(&arguments.command, shell_executable)?;
+        let mut command = if sandbox {
+            sandboxed_shell(&arguments.command, shell_executable, &self.root)?
+        } else {
+            configured_shell(&arguments.command, shell_executable)?
+        };
         command
             .kill_on_drop(true)
             .current_dir(&self.root)
@@ -318,6 +350,169 @@ fn configured_shell(command: &str, executable: Option<&str>) -> Result<Command, 
     let mut process = Command::new(executable);
     configure_shell_arguments(&mut process, executable, command);
     Ok(process)
+}
+
+/// Reports whether this build can apply a real operating-system sandbox to
+/// Shell tool processes on the current host.
+#[must_use]
+pub fn shell_sandbox_available() -> bool {
+    static AVAILABLE: OnceLock<bool> = OnceLock::new();
+    *AVAILABLE.get_or_init(|| sandbox_backend().is_some_and(probe_sandbox_backend))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SandboxBackend {
+    #[cfg(target_os = "macos")]
+    MacOs,
+    #[cfg(target_os = "linux")]
+    LinuxBubblewrap,
+}
+
+#[cfg(target_os = "macos")]
+fn sandbox_backend() -> Option<SandboxBackend> {
+    Path::new("/usr/bin/sandbox-exec")
+        .is_file()
+        .then_some(SandboxBackend::MacOs)
+}
+
+#[cfg(target_os = "linux")]
+fn sandbox_backend() -> Option<SandboxBackend> {
+    ["/usr/bin/bwrap", "/bin/bwrap"]
+        .into_iter()
+        .any(|path| Path::new(path).is_file())
+        .then_some(SandboxBackend::LinuxBubblewrap)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn sandbox_backend() -> Option<SandboxBackend> {
+    None
+}
+
+fn probe_sandbox_backend(backend: SandboxBackend) -> bool {
+    match backend {
+        #[cfg(target_os = "macos")]
+        SandboxBackend::MacOs => std::process::Command::new("/usr/bin/sandbox-exec")
+            .args(["-p", "(version 1) (allow default)", "/usr/bin/true"])
+            .status()
+            .is_ok_and(|status| status.success()),
+        #[cfg(target_os = "linux")]
+        SandboxBackend::LinuxBubblewrap => {
+            let Some(binary) = ["/usr/bin/bwrap", "/bin/bwrap"]
+                .into_iter()
+                .find(|path| Path::new(path).is_file())
+            else {
+                return false;
+            };
+            std::process::Command::new(binary)
+                .args([
+                    "--die-with-parent",
+                    "--new-session",
+                    "--ro-bind",
+                    "/",
+                    "/",
+                    "--dev",
+                    "/dev",
+                    "--proc",
+                    "/proc",
+                    "/usr/bin/true",
+                ])
+                .status()
+                .is_ok_and(|status| status.success())
+        }
+    }
+}
+
+fn sandboxed_shell(
+    command: &str,
+    executable: Option<&str>,
+    workspace_root: &Path,
+) -> Result<Command, ToolError> {
+    let backend = sandbox_backend().ok_or(ToolError::SandboxUnavailable)?;
+    let executable = match executable.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(value) => value,
+        None => default_shell_executable(),
+    };
+    if executable.len() > 4_096 || executable.chars().any(char::is_control) {
+        return Err(ToolError::InvalidShellExecutable);
+    }
+    match backend {
+        #[cfg(target_os = "macos")]
+        SandboxBackend::MacOs => macos_sandboxed_shell(command, executable, workspace_root),
+        #[cfg(target_os = "linux")]
+        SandboxBackend::LinuxBubblewrap => {
+            linux_sandboxed_shell(command, executable, workspace_root)
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[allow(clippy::unnecessary_wraps)]
+fn macos_sandboxed_shell(
+    command: &str,
+    executable: &str,
+    workspace_root: &Path,
+) -> Result<Command, ToolError> {
+    let workspace = sandbox_profile_escape(&workspace_root.to_string_lossy());
+    let profile = format!(
+        "(version 1)\n(allow default)\n(deny file-write*)\n\
+         (allow file-write* (subpath \"{workspace}\"))\n\
+         (allow file-write* (subpath \"/private/tmp\"))\n\
+         (allow file-write* (subpath \"/private/var/folders\"))"
+    );
+    let mut process = Command::new("/usr/bin/sandbox-exec");
+    process.args(["-p", &profile, executable]);
+    configure_shell_arguments(&mut process, executable, command);
+    Ok(process)
+}
+
+#[cfg(target_os = "linux")]
+fn linux_sandboxed_shell(
+    command: &str,
+    executable: &str,
+    workspace_root: &Path,
+) -> Result<Command, ToolError> {
+    let backend = ["/usr/bin/bwrap", "/bin/bwrap"]
+        .into_iter()
+        .find(|path| Path::new(path).is_file())
+        .ok_or(ToolError::SandboxUnavailable)?;
+    let root = workspace_root.to_string_lossy();
+    let mut process = Command::new(backend);
+    process.args([
+        "--die-with-parent",
+        "--new-session",
+        "--ro-bind",
+        "/",
+        "/",
+        "--bind",
+        &root,
+        &root,
+        "--dev",
+        "/dev",
+        "--proc",
+        "/proc",
+        "--tmpfs",
+        "/tmp",
+        "--chdir",
+        &root,
+        executable,
+    ]);
+    configure_shell_arguments(&mut process, executable, command);
+    Ok(process)
+}
+
+#[cfg(target_os = "macos")]
+fn sandbox_profile_escape(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+#[cfg(windows)]
+fn default_shell_executable() -> &'static str {
+    "cmd.exe"
+}
+
+#[cfg(not(windows))]
+fn default_shell_executable() -> &'static str {
+    "sh"
 }
 
 #[cfg(windows)]
@@ -495,6 +690,8 @@ pub enum ToolError {
     ShellTimedOut { timeout_ms: u64 },
     #[error("configured shell executable is invalid")]
     InvalidShellExecutable,
+    #[error("shell sandbox is unavailable on this host")]
+    SandboxUnavailable,
     #[error("unknown tool: {0}")]
     UnknownTool(String),
 }

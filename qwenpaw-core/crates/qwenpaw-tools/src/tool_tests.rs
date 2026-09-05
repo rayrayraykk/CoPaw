@@ -436,3 +436,43 @@ const LONG_RUNNING_COMMAND: &str = "ping -n 30 127.0.0.1 >NUL";
 
 #[cfg(not(windows))]
 const LONG_RUNNING_COMMAND: &str = "sleep 30";
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[tokio::test]
+async fn shell_sandbox_allows_workspace_writes_and_denies_outside_writes() {
+    if !shell_sandbox_available() {
+        return;
+    }
+    let current = std::env::current_dir().expect("current directory should resolve");
+    let parent = tempfile::tempdir_in(current).expect("temporary parent should be created");
+    let workspace_path = parent.path().join("workspace");
+    std::fs::create_dir(&workspace_path).expect("Workspace should be created");
+    let workspace = Workspace::open(&workspace_path).expect("Workspace should open");
+    let outside = parent.path().join("outside.txt");
+    let command = format!(
+        "printf inside > inside.txt; printf outside > '{}'",
+        outside.display()
+    );
+    let output = workspace
+        .execute_with_shell_config_timeout_and_sandbox(
+            &ToolCall {
+                id: String::from("sandbox-call"),
+                name: String::from("shell"),
+                arguments: serde_json::json!({"command": command}).to_string(),
+            },
+            5_000,
+            None,
+            None,
+            true,
+        )
+        .await
+        .expect("sandbox process should run");
+
+    assert!(output.is_error);
+    assert_eq!(
+        std::fs::read_to_string(workspace_path.join("inside.txt"))
+            .expect("inside write should succeed"),
+        "inside"
+    );
+    assert!(!outside.exists());
+}

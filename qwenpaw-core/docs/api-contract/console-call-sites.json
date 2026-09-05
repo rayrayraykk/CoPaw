@@ -3,11 +3,11 @@
   "source": "console/src production TypeScript call sites",
   "callCount": 370,
   "unresolvedCount": 11,
-  "rustRouteCount": 220,
-  "registeredCallCount": 216,
-  "placeholderCallCount": 8,
-  "nonPlaceholderRegisteredCallCount": 208,
-  "missingCallCount": 154,
+  "rustRouteCount": 234,
+  "registeredCallCount": 232,
+  "placeholderCallCount": 5,
+  "nonPlaceholderRegisteredCallCount": 227,
+  "missingCallCount": 138,
   "rustRoutes": [
     {
       "method": "ANY",
@@ -431,31 +431,129 @@
     },
     {
       "method": "GET",
+      "path": "/api/config/security/allow-no-auth-hosts",
+      "handler": "get_allow_no_auth_hosts",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_security.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/config/security/allow-no-auth-hosts",
+      "handler": "put_allow_no_auth_hosts",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_security.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/security/file-guard",
+      "handler": "get_file_guard",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_security.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/config/security/file-guard",
+      "handler": "put_file_guard",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_security.rs"
+    },
+    {
+      "method": "GET",
       "path": "/api/config/security/sandbox",
-      "handler": "sandbox_status",
-      "placeholder": true,
-      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_navigation.rs"
+      "handler": "get_sandbox",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_security.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/config/security/sandbox",
+      "handler": "put_sandbox",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_security.rs"
     },
     {
       "method": "GET",
       "path": "/api/config/security/sandbox/deny-paths-protection",
-      "handler": "deny_paths_status",
-      "placeholder": true,
-      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_navigation.rs"
+      "handler": "get_deny_paths",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_security.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/config/security/sandbox/deny-paths-protection",
+      "handler": "put_deny_paths",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_security.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/security/skill-scanner",
+      "handler": "get_skill_scanner",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_security.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/config/security/skill-scanner",
+      "handler": "put_skill_scanner",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_security.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/config/security/skill-scanner/blocked-history",
+      "handler": "clear_blocked_history",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_security.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/security/skill-scanner/blocked-history",
+      "handler": "get_blocked_history",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_security.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/config/security/skill-scanner/blocked-history/{index}",
+      "handler": "remove_blocked_entry",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_security.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/config/security/skill-scanner/whitelist",
+      "handler": "add_to_whitelist",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_security.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/config/security/skill-scanner/whitelist/{skill_name}",
+      "handler": "remove_from_whitelist",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_security.rs"
     },
     {
       "method": "GET",
       "path": "/api/config/security/tool-guard",
-      "handler": "tool_guard",
-      "placeholder": true,
-      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_navigation.rs"
+      "handler": "get_tool_guard",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_security.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/config/security/tool-guard",
+      "handler": "put_tool_guard",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_security.rs"
     },
     {
       "method": "GET",
       "path": "/api/config/security/tool-guard/builtin-rules",
-      "handler": "empty_array",
-      "placeholder": true,
-      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_navigation.rs"
+      "handler": "get_builtin_rules",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_security.rs"
     },
     {
       "method": "GET",
@@ -3084,7 +3182,7 @@
       "line": 64,
       "resolved": true,
       "apiPath": "/api/{choice:/console/push-messages?session_id={sessionId}|/console/push-messages}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -4669,7 +4767,7 @@
       "resolved": true,
       "apiPath": "/api/config/security/tool-guard",
       "registered": true,
-      "placeholder": true
+      "placeholder": false
     },
     {
       "method": "PUT",
@@ -4680,7 +4778,7 @@
       "line": 123,
       "resolved": true,
       "apiPath": "/api/config/security/tool-guard",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -4693,7 +4791,7 @@
       "resolved": true,
       "apiPath": "/api/config/security/tool-guard/builtin-rules",
       "registered": true,
-      "placeholder": true
+      "placeholder": false
     },
     {
       "method": "GET",
@@ -4704,7 +4802,7 @@
       "line": 134,
       "resolved": true,
       "apiPath": "/api/{choice:/config/security/sandbox?enabled={enabled}|/config/security/sandbox}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -4716,7 +4814,7 @@
       "line": 141,
       "resolved": true,
       "apiPath": "/api/config/security/sandbox",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -4729,7 +4827,7 @@
       "resolved": true,
       "apiPath": "/api/config/security/sandbox/deny-paths-protection",
       "registered": true,
-      "placeholder": true
+      "placeholder": false
     },
     {
       "method": "PUT",
@@ -4740,7 +4838,7 @@
       "line": 154,
       "resolved": true,
       "apiPath": "/api/config/security/sandbox/deny-paths-protection",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -4752,7 +4850,7 @@
       "line": 164,
       "resolved": true,
       "apiPath": "/api/config/security/file-guard",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -4764,7 +4862,7 @@
       "line": 167,
       "resolved": true,
       "apiPath": "/api/config/security/file-guard",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -4776,7 +4874,7 @@
       "line": 175,
       "resolved": true,
       "apiPath": "/api/config/security/skill-scanner",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -4788,7 +4886,7 @@
       "line": 178,
       "resolved": true,
       "apiPath": "/api/config/security/skill-scanner",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -4800,7 +4898,7 @@
       "line": 184,
       "resolved": true,
       "apiPath": "/api/config/security/skill-scanner/blocked-history",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -4812,7 +4910,7 @@
       "line": 189,
       "resolved": true,
       "apiPath": "/api/config/security/skill-scanner/blocked-history",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -4824,7 +4922,7 @@
       "line": 195,
       "resolved": true,
       "apiPath": "/api/config/security/skill-scanner/blocked-history/{index}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -4836,7 +4934,7 @@
       "line": 201,
       "resolved": true,
       "apiPath": "/api/config/security/skill-scanner/whitelist",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -4848,7 +4946,7 @@
       "line": 213,
       "resolved": true,
       "apiPath": "/api/config/security/skill-scanner/whitelist/{skillName}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -4860,7 +4958,7 @@
       "line": 223,
       "resolved": true,
       "apiPath": "/api/config/security/allow-no-auth-hosts",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -4872,7 +4970,7 @@
       "line": 226,
       "resolved": true,
       "apiPath": "/api/config/security/allow-no-auth-hosts",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {

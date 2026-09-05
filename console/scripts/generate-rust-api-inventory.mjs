@@ -183,6 +183,13 @@ function apiPath(path) {
   return `/api${normalized}`;
 }
 
+function callPathAlternatives(path) {
+  if (!path.startsWith("{choice:") || !path.endsWith("}")) {
+    return [path];
+  }
+  return path.slice("{choice:".length, -1).split("|");
+}
+
 function importedNames(sourceFile, moduleSuffix, importedName) {
   const names = new Set();
   for (const statement of sourceFile.statements) {
@@ -450,14 +457,17 @@ callSites.sort(
 const routes = await rustRoutes();
 for (const call of callSites) {
   call.apiPath = apiPath(call.path);
-  const route = routes.find(
-    (candidate) =>
-      candidate.handler !== "api_not_found" &&
-      (candidate.method === "ANY" || candidate.method === call.method) &&
-      routeMatches(candidate.path, call.apiPath),
+  const matchedRoutes = callPathAlternatives(call.path).map((path) =>
+    routes.find(
+      (candidate) =>
+        candidate.handler !== "api_not_found" &&
+        (candidate.method === "ANY" || candidate.method === call.method) &&
+        routeMatches(candidate.path, apiPath(path)),
+    ),
   );
-  call.registered = call.resolved && route !== undefined;
-  call.placeholder = route?.placeholder ?? false;
+  call.registered =
+    call.resolved && matchedRoutes.every((route) => route !== undefined);
+  call.placeholder = matchedRoutes.some((route) => route?.placeholder ?? false);
 }
 
 const missingCalls = callSites.filter((call) => !call.registered);

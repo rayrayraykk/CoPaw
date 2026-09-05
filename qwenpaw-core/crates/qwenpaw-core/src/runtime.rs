@@ -77,6 +77,14 @@ use crate::model::ModelConfig;
 use crate::model::ModelConfigError;
 use crate::model::ModelEvent;
 use crate::model::ModelUsage;
+use crate::security::BlockedSkillRecord;
+use crate::security::SecurityApprovalMode;
+use crate::security::SecurityPolicy;
+use crate::security::SecuritySettings;
+use crate::security::ToolGuardEffect;
+use crate::security::decode_security_settings;
+use crate::security::encode_security_settings;
+use crate::security::trim_blocked_history;
 use crate::tool_calls::ToolCallControlError;
 use crate::tool_calls::ToolCallCoordinator;
 use crate::tool_calls::ToolCallSnapshot;
@@ -117,6 +125,7 @@ const CHANNEL_CONFIG_DATA_SETTING: &str = "desktop_channel_config_data";
 const AGENT_SETTINGS_DATA_SETTING: &str = "desktop_agent_settings_data";
 const HEARTBEAT_DATA_SETTING: &str = "desktop_heartbeat_data";
 const MCP_DATA_SETTING: &str = "desktop_mcp_data";
+const SECURITY_DATA_SETTING: &str = "desktop_security_data";
 const BUILTIN_TOOL_OVERRIDES_SETTING: &str = "builtin_tool_overrides";
 const TOOL_OFFLOAD_POLICY_SETTING: &str = "tool_offload_policy";
 const DEFAULT_UI_LANGUAGE: &str = "en";
@@ -172,6 +181,7 @@ pub struct Core {
 struct CoreInner {
     model: ModelClient,
     mcp: SyncRwLock<McpManager>,
+    security: SyncRwLock<SecurityPolicy>,
     store: ThreadStore,
     state: Mutex<State>,
     runtime_environment: SyncRwLock<BTreeMap<String, String>>,
@@ -302,6 +312,16 @@ impl Core {
             }
             None => default_system_prompt_files(),
         };
+        let security = match store
+            .read_setting(SECURITY_DATA_SETTING)
+            .map_err(CoreError::storage)?
+        {
+            Some(value) => {
+                SecurityPolicy::new(decode_security_settings(&value).map_err(CoreError::Config)?)
+                    .map_err(CoreError::Config)?
+            }
+            None => SecurityPolicy::default(),
+        };
         let snapshots = store.load_all().map_err(CoreError::storage)?;
         let usage_records = store.load_usage().map_err(CoreError::storage)?;
         let mut threads = HashMap::new();
@@ -324,6 +344,7 @@ impl Core {
             inner: Arc::new(CoreInner {
                 model: ModelClient::new(model_config).map_err(|error| CoreError::model(&error))?,
                 mcp: SyncRwLock::new(mcp),
+                security: SyncRwLock::new(security),
                 store,
                 state: Mutex::new(State {
                     threads,
@@ -1096,6 +1117,83 @@ impl Core {
             .map_err(CoreError::storage)
     }
 
+    /// Returns a snapshot of the durable Security configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the runtime lock is poisoned.
+    pub fn security_settings(&self) -> Result<SecuritySettings, CoreError> {
+        self.inner
+            .security
+            .read()
+            .map(|policy| policy.settings().clone())
+            .map_err(|_| CoreError::Config(String::from("Security runtime lock is poisoned")))
+    }
+
+    /// Validates, persists, and hot-reloads a complete Security configuration.
+    /// Active turns retain the immutable policy snapshot captured at start.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid rules, persistence failure, or a poisoned
+    /// runtime lock.
+    pub fn replace_security_settings(
+        &self,
+        mut settings: SecuritySettings,
+    ) -> Result<SecuritySettings, CoreError> {
+        settings.allow_no_auth_hosts =
+            crate::security::normalize_ip_hosts(&settings.allow_no_auth_hosts)
+                .map_err(CoreError::Config)?;
+        trim_blocked_history(&mut settings);
+        let policy = SecurityPolicy::new(settings.clone()).map_err(CoreError::Config)?;
+        let serialized = encode_security_settings(&settings).map_err(CoreError::Config)?;
+        let mut active =
+            self.inner.security.write().map_err(|_| {
+                CoreError::Config(String::from("Security runtime lock is poisoned"))
+            })?;
+        self.inner
+            .store
+            .write_settings(&[(SECURITY_DATA_SETTING, &serialized)])
+            .map_err(CoreError::storage)?;
+        *active = policy;
+        Ok(settings)
+    }
+
+    /// Appends a real blocked Skill scan result to durable bounded history.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when Security state cannot be read or persisted.
+    pub fn record_blocked_skill(&self, record: BlockedSkillRecord) -> Result<(), CoreError> {
+        let mut settings = self.security_settings()?;
+        settings.blocked_skill_history.push(record);
+        self.replace_security_settings(settings).map(|_| ())
+    }
+
+    /// Returns configured and effective shell sandbox status.
+    ///
+    /// A proposed value can be supplied for Console preview without changing
+    /// durable state.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when Security state cannot be read.
+    pub fn sandbox_status(
+        &self,
+        proposed: Option<bool>,
+    ) -> Result<(bool, bool, Option<String>), CoreError> {
+        let enabled = proposed.unwrap_or(self.security_settings()?.sandbox_enabled);
+        if !enabled {
+            return Ok((false, false, None));
+        }
+        let effective = qwenpaw_tools::shell_sandbox_available();
+        Ok((
+            true,
+            effective,
+            (!effective).then(|| String::from("unsupported")),
+        ))
+    }
+
     /// Returns the ordered Markdown files used to compose the Agent system prompt.
     ///
     /// # Errors
@@ -1688,6 +1786,14 @@ impl Core {
             .clone()
     }
 
+    fn security_policy(&self) -> SecurityPolicy {
+        self.inner
+            .security
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
     /// Starts interactive OAuth for a configured remote MCP client.
     ///
     /// # Errors
@@ -1745,6 +1851,7 @@ impl Core {
             return;
         };
         let mcp = self.mcp_manager();
+        let security = self.security_policy();
         let mcp_tools = tokio::select! {
             () = cancellation.cancelled() => {
                 self.finish_turn(
@@ -1813,6 +1920,7 @@ impl Core {
                         workspace: &workspace,
                         runtime_config: &runtime_config,
                         mcp: &mcp,
+                        security: &security,
                         cancellation: &cancellation,
                         event_tx: &event_tx,
                     },
@@ -1918,6 +2026,7 @@ impl Core {
             workspace,
             runtime_config,
             mcp,
+            security,
             cancellation,
             event_tx,
         } = request;
@@ -1925,11 +2034,23 @@ impl Core {
             let mcp_effect = mcp
                 .tool_access_effect(&call.name, "console", thread_id)
                 .await;
-            let normally_requires_approval = match mcp_effect {
+            let security_effect = security.evaluate(
+                &call.name,
+                &call.arguments,
+                match runtime_config.approval_level {
+                    ToolApprovalLevel::Strict => SecurityApprovalMode::Strict,
+                    ToolApprovalLevel::Smart => SecurityApprovalMode::Smart,
+                    ToolApprovalLevel::Auto => SecurityApprovalMode::Auto,
+                    ToolApprovalLevel::Off => SecurityApprovalMode::Off,
+                },
+            );
+            let baseline_requires_approval = match mcp_effect {
                 Some(McpAccessEffect::Ask) => true,
                 Some(McpAccessEffect::Allow | McpAccessEffect::Deny) => false,
                 None => Workspace::approval_requirement(&call) == ApprovalRequirement::Required,
             };
+            let normally_requires_approval =
+                baseline_requires_approval || matches!(security_effect, ToolGuardEffect::Ask(_));
             let requires_approval = match runtime_config.approval_level {
                 ToolApprovalLevel::Strict => true,
                 ToolApprovalLevel::Smart | ToolApprovalLevel::Auto => normally_requires_approval,
@@ -1938,6 +2059,11 @@ impl Core {
             let output = if mcp_effect == Some(McpAccessEffect::Deny) {
                 Ok(ToolOutput {
                     content: String::from("Tool execution was denied by the MCP access policy."),
+                    is_error: true,
+                })
+            } else if let ToolGuardEffect::Deny(message) = security_effect {
+                Ok(ToolOutput {
+                    content: message,
                     is_error: true,
                 })
             } else if requires_approval {
@@ -1952,6 +2078,7 @@ impl Core {
                             &call,
                             runtime_config,
                             mcp,
+                            security,
                             cancellation,
                         )
                         .await?
@@ -1969,6 +2096,7 @@ impl Core {
                     &call,
                     runtime_config,
                     mcp,
+                    security,
                     cancellation,
                 )
                 .await?
@@ -2083,6 +2211,7 @@ impl Core {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn execute_tracked_tool(
         &self,
         thread_id: &str,
@@ -2090,6 +2219,7 @@ impl Core {
         call: &ToolCall,
         runtime_config: &AgentRuntimeConfig,
         mcp: &McpManager,
+        security: &SecurityPolicy,
         turn_cancellation: &CancellationToken,
     ) -> Result<Result<ToolOutput, String>, TurnOutcome> {
         let timeout =
@@ -2115,6 +2245,7 @@ impl Core {
         let call_for_execution = call.clone();
         let runtime_config = runtime_config.clone();
         let mcp = mcp.clone();
+        let security = security.clone();
         let turn_cancellation = turn_cancellation.clone();
         let tool_cancellation = lease.cancellation.clone();
         let mut execution = tokio::spawn(async move {
@@ -2123,6 +2254,7 @@ impl Core {
                 &call_for_execution,
                 &runtime_config,
                 &mcp,
+                &security,
                 &turn_cancellation,
                 &tool_cancellation,
             )
@@ -2205,12 +2337,14 @@ impl Core {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn execute_tool(
         &self,
         workspace: &Workspace,
         call: &ToolCall,
         runtime_config: &AgentRuntimeConfig,
         mcp: &McpManager,
+        security: &SecurityPolicy,
         turn_cancellation: &CancellationToken,
         tool_cancellation: &CancellationToken,
     ) -> Result<Result<ToolOutput, String>, TurnOutcome> {
@@ -2248,12 +2382,13 @@ impl Core {
             () = tool_cancellation.cancelled() => {
                 Ok(Err(self.tool_cancellation_message(&call.id).await))
             }
-            output = workspace.execute_with_shell_config_and_timeout(
+            output = workspace.execute_with_shell_config_timeout_and_sandbox(
                 call,
                 runtime_config.shell_timeout_ms,
                 (!runtime_config.shell_executable.is_empty())
                     .then_some(runtime_config.shell_executable.as_str()),
                 (call.name == "shell").then_some(qwenpaw_tools::MAX_SHELL_TIMEOUT_MS),
+                security.sandbox_active(),
             ) => Ok(output.map_err(|error| error.to_string())),
         }
     }
@@ -2745,6 +2880,7 @@ struct ToolExecutionRequest<'a> {
     workspace: &'a Workspace,
     runtime_config: &'a AgentRuntimeConfig,
     mcp: &'a McpManager,
+    security: &'a SecurityPolicy,
     cancellation: &'a CancellationToken,
     event_tx: &'a mpsc::Sender<CoreEvent>,
 }
@@ -3143,5 +3279,80 @@ fn protocol_config(config: &ModelConfig) -> CoreConfig {
         base_url: config.base_url.clone(),
         default_model: config.default_model.clone(),
         api_key_configured: config.api_key.is_some(),
+    }
+}
+
+#[cfg(test)]
+mod security_snapshot_tests {
+    use super::*;
+
+    #[test]
+    fn security_hot_reload_preserves_existing_snapshot() {
+        let core = Core::new(ModelConfig {
+            api_key: None,
+            base_url: String::from("http://127.0.0.1:1"),
+            default_model: String::from("qwen-test"),
+        });
+        let snapshot = core.security_policy();
+        let mut settings = core.security_settings().expect("settings should read");
+        settings.tool_guard.denied_tools = vec![String::from("shell")];
+        core.replace_security_settings(settings)
+            .expect("Security settings should hot-reload");
+
+        assert_eq!(
+            snapshot.evaluate(
+                "shell",
+                r#"{"command":"echo safe"}"#,
+                SecurityApprovalMode::Auto,
+            ),
+            ToolGuardEffect::Allow
+        );
+        assert!(matches!(
+            core.security_policy().evaluate(
+                "shell",
+                r#"{"command":"echo safe"}"#,
+                SecurityApprovalMode::Auto,
+            ),
+            ToolGuardEffect::Deny(_)
+        ));
+    }
+
+    #[test]
+    fn concurrent_security_updates_keep_runtime_and_storage_consistent() {
+        let directory = tempfile::tempdir().expect("temporary directory should be created");
+        let database = directory.path().join("security.sqlite3");
+        let model = ModelConfig {
+            api_key: None,
+            base_url: String::from("http://127.0.0.1:1"),
+            default_model: String::from("qwen-test"),
+        };
+        let core = Core::persistent(model.clone(), &database).expect("Core should open");
+        let barrier = Arc::new(std::sync::Barrier::new(3));
+        let handles = ["shell", "read_file"].map(|tool| {
+            let core = core.clone();
+            let barrier = Arc::clone(&barrier);
+            std::thread::spawn(move || {
+                let mut settings = core.security_settings().expect("settings should read");
+                settings.tool_guard.denied_tools = vec![tool.to_owned()];
+                barrier.wait();
+                core.replace_security_settings(settings)
+                    .expect("concurrent Security update should persist");
+            })
+        });
+        barrier.wait();
+        for handle in handles {
+            handle.join().expect("Security update thread should finish");
+        }
+        let active = core
+            .security_settings()
+            .expect("active settings should read");
+        drop(core);
+        let reopened = Core::persistent(model, &database).expect("Core should reopen");
+        assert_eq!(
+            reopened
+                .security_settings()
+                .expect("stored settings should read"),
+            active
+        );
     }
 }

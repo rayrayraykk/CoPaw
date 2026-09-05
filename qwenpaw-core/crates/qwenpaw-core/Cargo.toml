@@ -8,11 +8,13 @@ repository.workspace = true
 
 [dependencies]
 bytes.workspace = true
+dirs.workspace = true
 futures-util.workspace = true
 qwenpaw-protocol = { path = "../qwenpaw-protocol" }
 qwenpaw-mcp = { path = "../qwenpaw-mcp" }
 qwenpaw-storage = { path = "../qwenpaw-storage" }
 qwenpaw-tools = { path = "../qwenpaw-tools" }
+regex.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -21,6 +23,7 @@ tokio.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
 uuid.workspace = true
+yaml_serde.workspace = true
 
 [dev-dependencies]
 axum.workspace = true

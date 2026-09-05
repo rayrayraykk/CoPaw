@@ -2,6 +2,8 @@ use futures_util::SinkExt;
 use futures_util::StreamExt;
 use qwenpaw_app_server::AppServer;
 use qwenpaw_app_server::DesktopCredentialStore;
+use qwenpaw_core::BlockedSkillFinding;
+use qwenpaw_core::BlockedSkillRecord;
 use qwenpaw_core::Core;
 use qwenpaw_core::ModelConfig;
 use qwenpaw_core::ToolApprovalLevel;
@@ -5003,6 +5005,278 @@ async fn get_json(client: &reqwest::Client, url: String) -> Value {
     response.json().await.expect("GET response should be JSON")
 }
 
+#[tokio::test]
+#[allow(clippy::too_many_lines)]
+async fn security_routes_preserve_console_contract_and_persist() {
+    let root = tempfile::tempdir().expect("temporary Security root should be created");
+    let console = root.path().join("console");
+    let desktop_data = root.path().join("desktop");
+    let workspace = root.path().join("workspace");
+    std::fs::create_dir_all(&console).expect("Console directory should be created");
+    std::fs::create_dir_all(&desktop_data).expect("Desktop directory should be created");
+    std::fs::create_dir_all(&workspace).expect("Workspace directory should be created");
+    std::fs::write(console.join("index.html"), "<html>console</html>")
+        .expect("Console index should be written");
+    let database = root.path().join("security.sqlite3");
+    let model = ModelConfig {
+        api_key: None,
+        base_url: String::from("http://127.0.0.1:1"),
+        default_model: String::from("qwen-test"),
+    };
+    let core = Core::persistent(model.clone(), &database).expect("Security Core should open");
+    let sandbox_available = core
+        .sandbox_status(Some(true))
+        .expect("Sandbox status should resolve")
+        .1;
+    core.record_blocked_skill(BlockedSkillRecord {
+        skill_name: String::from("unsafe-skill"),
+        blocked_at: String::from("2026-09-05T00:00:00Z"),
+        max_severity: String::from("HIGH"),
+        findings: vec![BlockedSkillFinding {
+            severity: String::from("HIGH"),
+            title: String::from("Unsafe command"),
+            description: String::from("Command execution was detected"),
+            file_path: String::from("SKILL.md"),
+            line_number: Some(7),
+            rule_id: String::from("SKILL_COMMAND_EXECUTION"),
+        }],
+        content_hash: String::from("fixture-hash"),
+        action: String::from("blocked"),
+    })
+    .expect("Blocked skill fixture should persist");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("Security listener should bind");
+    let address = listener
+        .local_addr()
+        .expect("Security address should exist");
+    let server = new_isolated_desktop(
+        core,
+        &console,
+        String::from("desktop-security-first-token"),
+        Arc::new(MemoryCredentialStore::default()),
+        &desktop_data,
+    )
+    .expect("Security server should configure");
+    let task = tokio::spawn(server.run_http(listener));
+    let client = reqwest::Client::new();
+    let base = format!("http://{address}/api/config/security");
+
+    let tool_guard = get_json(&client, format!("{base}/tool-guard")).await;
+    assert_eq!(
+        tool_guard,
+        json!({
+            "enabled": true,
+            "guarded_tools": null,
+            "denied_tools": [],
+            "auto_denied_rules": ["SAFETY_CHECKS_DESTRUCTIVE_COMMAND"],
+            "custom_rules": [],
+            "disabled_rules": [],
+            "shell_evasion_checks": {
+                "backslash_escaped_operators": false,
+                "backslash_escaped_whitespace": false,
+                "command_substitution": false,
+                "comment_quote_desync": false,
+                "newlines": false,
+                "obfuscated_flags": false,
+                "quoted_newline": false
+            }
+        })
+    );
+    let builtins = get_json(&client, format!("{base}/tool-guard/builtin-rules")).await;
+    assert_eq!(
+        builtins
+            .as_array()
+            .expect("builtins should be an array")
+            .len(),
+        21
+    );
+    let mut updated_guard = tool_guard;
+    updated_guard["denied_tools"] = json!(["edit_file"]);
+    updated_guard["shell_evasion_checks"]["newlines"] = json!(true);
+    let response = client
+        .put(format!("{base}/tool-guard"))
+        .json(&updated_guard)
+        .send()
+        .await
+        .expect("Tool Guard update should send");
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        response.json::<Value>().await.expect("Tool Guard JSON"),
+        updated_guard
+    );
+
+    let sandbox = get_json(&client, format!("{base}/sandbox")).await;
+    assert_eq!(
+        sandbox,
+        json!({"enabled": false, "effective": false, "reason": null})
+    );
+    let preview = get_json(&client, format!("{base}/sandbox?enabled=true")).await;
+    assert_eq!(preview["enabled"], json!(true));
+    assert_eq!(preview["effective"], json!(sandbox_available));
+    let sandbox_update = client
+        .put(format!("{base}/sandbox"))
+        .json(&json!({"enabled": true}))
+        .send()
+        .await
+        .expect("Sandbox update should send");
+    assert_eq!(sandbox_update.status(), reqwest::StatusCode::OK);
+
+    for method in ["GET", "PUT"] {
+        let request = if method == "GET" {
+            client.get(format!("{base}/sandbox/deny-paths-protection"))
+        } else {
+            client
+                .put(format!("{base}/sandbox/deny-paths-protection"))
+                .json(&json!({"enabled": true}))
+        };
+        let response = request
+            .send()
+            .await
+            .expect("deny paths request should send");
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        assert_eq!(
+            response.json::<Value>().await.expect("deny paths JSON")["platform_supported"],
+            json!(false)
+        );
+    }
+
+    let file_guard = get_json(&client, format!("{base}/file-guard")).await;
+    assert_eq!(file_guard["enabled"], json!(true));
+    let response = client
+        .put(format!("{base}/file-guard"))
+        .json(&json!({
+            "paths": ["/private/security-test"],
+            "allow_preview_outside_workspace": false
+        }))
+        .send()
+        .await
+        .expect("File Guard update should send");
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        response.json::<Value>().await.expect("File Guard JSON"),
+        json!({
+            "enabled": true,
+            "paths": ["/private/security-test"],
+            "allow_preview_outside_workspace": false
+        })
+    );
+
+    assert_eq!(
+        get_json(&client, format!("{base}/skill-scanner")).await,
+        json!({"mode": "warn", "timeout": 30, "whitelist": []})
+    );
+    let response = client
+        .put(format!("{base}/skill-scanner"))
+        .json(&json!({"mode": "block", "timeout": 45, "whitelist": []}))
+        .send()
+        .await
+        .expect("Skill Scanner update should send");
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let history = get_json(&client, format!("{base}/skill-scanner/blocked-history")).await;
+    assert_eq!(history[0]["skill_name"], json!("unsafe-skill"));
+    assert_eq!(history[0]["findings"][0]["line_number"], json!(7));
+    let removed_history = client
+        .delete(format!("{base}/skill-scanner/blocked-history/0"))
+        .send()
+        .await
+        .expect("blocked entry delete request should send");
+    assert_eq!(removed_history.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        removed_history
+            .json::<Value>()
+            .await
+            .expect("delete history JSON"),
+        json!({"removed": true})
+    );
+    let missing_history = client
+        .delete(format!("{base}/skill-scanner/blocked-history/0"))
+        .send()
+        .await
+        .expect("missing blocked entry request should send");
+    assert_eq!(missing_history.status(), reqwest::StatusCode::NOT_FOUND);
+    let cleared = client
+        .delete(format!("{base}/skill-scanner/blocked-history"))
+        .send()
+        .await
+        .expect("clear history request should send");
+    assert_eq!(cleared.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        cleared.json::<Value>().await.expect("clear JSON"),
+        json!({"cleared": true})
+    );
+
+    let whitelist_url = format!("{base}/skill-scanner/whitelist");
+    let added = client
+        .post(&whitelist_url)
+        .json(&json!({"skill_name": " safe-skill ", "content_hash": "abc"}))
+        .send()
+        .await
+        .expect("whitelist add should send");
+    assert_eq!(added.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        added.json::<Value>().await.expect("whitelist add JSON"),
+        json!({"whitelisted": true, "skill_name": "safe-skill"})
+    );
+    let duplicate = client
+        .post(&whitelist_url)
+        .json(&json!({"skill_name": "safe-skill"}))
+        .send()
+        .await
+        .expect("duplicate whitelist request should send");
+    assert_eq!(duplicate.status(), reqwest::StatusCode::CONFLICT);
+    let removed = client
+        .delete(format!("{whitelist_url}/safe-skill"))
+        .send()
+        .await
+        .expect("whitelist delete should send");
+    assert_eq!(removed.status(), reqwest::StatusCode::OK);
+
+    assert_eq!(
+        get_json(&client, format!("{base}/allow-no-auth-hosts")).await,
+        json!({"hosts": ["127.0.0.1", "::1"]})
+    );
+    let hosts = client
+        .put(format!("{base}/allow-no-auth-hosts"))
+        .json(&json!({"hosts": [" 10.0.0.1 ", "0:0:0:0:0:0:0:1", "10.0.0.1"]}))
+        .send()
+        .await
+        .expect("allow no auth hosts update should send");
+    assert_eq!(hosts.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        hosts.json::<Value>().await.expect("hosts JSON"),
+        json!({"hosts": ["10.0.0.1", "::1"]})
+    );
+    let invalid = client
+        .put(format!("{base}/allow-no-auth-hosts"))
+        .json(&json!({"hosts": ["localhost"]}))
+        .send()
+        .await
+        .expect("invalid hosts request should send");
+    assert_eq!(invalid.status(), reqwest::StatusCode::BAD_REQUEST);
+
+    task.abort();
+    let _ = task.await;
+    let core = Core::persistent(model, &database).expect("persisted Security Core should reopen");
+    let settings = core
+        .security_settings()
+        .expect("Security settings should read");
+    assert_eq!(
+        settings.tool_guard.denied_tools,
+        vec![String::from("edit_file")]
+    );
+    assert!(settings.sandbox_enabled);
+    assert_eq!(
+        settings.file_guard.paths,
+        vec![String::from("/private/security-test")]
+    );
+    assert_eq!(settings.skill_scanner.timeout, 45);
+    assert_eq!(
+        settings.allow_no_auth_hosts,
+        vec![String::from("10.0.0.1"), String::from("::1")]
+    );
+}
+
 async fn post_json(client: &reqwest::Client, url: String, body: Value) -> Value {
     let response = client
         .post(url)
@@ -6480,6 +6754,7 @@ fn empty_agent_stats_days(start: &str, end: &str) -> Vec<Value> {
     days
 }
 
+#[allow(clippy::too_many_lines)]
 async fn assert_navigation_settings_contracts(address: SocketAddr) {
     assert_json_contracts(
         address,
@@ -6494,7 +6769,7 @@ async fn assert_navigation_settings_contracts(address: SocketAddr) {
                 json!({
                     "enabled": false,
                     "effective": false,
-                    "reason": "Rust Core confines file tools to the selected Workspace"
+                    "reason": null
                 }),
             ),
             (
@@ -6504,7 +6779,7 @@ async fn assert_navigation_settings_contracts(address: SocketAddr) {
                     "protected_paths": [],
                     "failed_paths": [],
                     "platform_supported": false,
-                    "message": "Rust Core does not use the legacy Python ACL sandbox"
+                    "message": "Deny paths protection via ACLs is not available in this Rust build."
                 }),
             ),
             (
@@ -6515,11 +6790,25 @@ async fn assert_navigation_settings_contracts(address: SocketAddr) {
                     "denied_tools": [],
                     "custom_rules": [],
                     "disabled_rules": [],
-                    "auto_denied_rules": [],
-                    "shell_evasion_checks": {}
+                    "auto_denied_rules": ["SAFETY_CHECKS_DESTRUCTIVE_COMMAND"],
+                    "shell_evasion_checks": {
+                        "backslash_escaped_operators": false,
+                        "backslash_escaped_whitespace": false,
+                        "command_substitution": false,
+                        "comment_quote_desync": false,
+                        "newlines": false,
+                        "obfuscated_flags": false,
+                        "quoted_newline": false
+                    }
                 }),
             ),
-            ("/api/config/security/tool-guard/builtin-rules", json!([])),
+            (
+                "/api/config/security/tool-guard/builtin-rules",
+                json!(
+                    qwenpaw_core::builtin_tool_guard_rules()
+                        .expect("built-in Security rules should load")
+                ),
+            ),
             ("/api/token-usage/details", json!([])),
             (
                 "/api/token-usage?start_date=2026-08-25&end_date=2026-09-01",

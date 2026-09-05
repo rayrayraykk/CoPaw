@@ -1202,6 +1202,23 @@ Inbox 读取、状态和持久化契约已完成；真实 Agent Cron、Heartbeat
 
 2026-09-05 本机验收：Rust workspace 159 个测试、格式检查与严格 Clippy 通过；Console 295 个测试文件、2453 个测试、production build 和 inventory 防漂移通过，`console/src` 保持零改动。未修改的原 MCP 页面连接 release Rust Core，完成客户端新建、遮罩密钥编辑、真实 `echo` 工具发现、默认访问策略切换为 `deny`、启停、删除和 Core 重启恢复，相关请求全部返回 200 且浏览器错误为 0；HTTP 与 Core 契约另覆盖密钥不落 SQLite、工具白名单、策略优先级、审批边界、断线重连和在途 Turn 的确定性配置快照。当前 inventory 为 370 个调用点、220 条 Rust 路由、216 个已注册调用点，其中 208 个非占位、8 个占位、154 个未注册和 11 个静态未解析表达式；MCP 管理的 10 个调用点已全部注册且均非占位。TypeScript SDK 3 个、Python SDK 4 个真实 Core 测试与 VS Code 57 个测试全部通过。macOS App/ZIP/QA DMG、Core archive、WebUI archive、TypeScript/Python SDK、universal/platform VSIX 与 legacy wheel 均使用本切片源码重建；9 个产物逐个完成执行、真实 Core 静态服务、安装、解包、清单与哈希校验、签名检查或只读挂载反向验证，`dist/SHA256SUMS` 全部通过。QA DMG 当前为 ad-hoc 签名，待用户提供 Apple 发布凭据后才能生成 Developer ID 签名和 notarized 正式包。
 
+#### 14.2.24.14 当前子切片：Security 配置与真实工具执行边界
+
+本子切片保持原 Security 页面不变，替换 Tool Guard、Sandbox、File Guard、Skill Scanner 与免认证主机的固定响应。Tool Guard 配置必须在每个 Turn 开始时形成快照并参与真实工具决策；`denied_tools` 和命中 `auto_denied_rules` 的调用直接拒绝，其余规则命中按 Agent 审批等级处理。Sandbox 只有在当前平台后端真实可用且执行链已采用隔离时才能返回 `effective=true`，不能把 Workspace 路径校验冒充系统级 Sandbox。Skill Scanner 的模式、超时、白名单和阻断历史先形成可供后续 Skills 安装链路调用的持久化 Core 服务，本切片不伪造扫描记录。
+
+- [x] 固化原 Security 页面 18 个调用点、Python 成功/错误响应、默认值和保存顺序；
+- [x] 在 Rust Core 建立有界、版本化、可热更新的 Security 配置与每 Turn 快照；
+- [x] 嵌入原 21 条 Tool Guard 内置规则，实现工具别名、参数规则、禁用规则和自动拒绝求值；
+- [x] 将 Tool Guard 决策接入真实内置工具与 MCP 执行边界，并覆盖 `STRICT` / `SMART` / `AUTO` / `OFF`；
+- [x] 实现 Sandbox 能力探测与诚实状态，确保未隔离时永不报告 `effective=true`；
+- [x] 实现 File Guard、Skill Scanner 配置/白名单/阻断历史及 allow-no-auth hosts 的原 HTTP 契约与持久化；
+- [x] 覆盖非法输入、规则匹配、拒绝/审批、Turn 快照、并发更新、历史索引和 Core 重启测试；
+- [x] 使用未修改的原 Security 页面验证各 Tab 的读取、编辑、保存、刷新和重启恢复；
+- [x] 更新 inventory，确认 `console/src` 零改动并通过 Rust、Console 和客户端全量回归；
+- [x] 重建 Desktop、Core、WebUI、SDK、VSIX 与 legacy 全部 9 个发布产物，并逐个反向验证。
+
+2026-09-05 本机验收：Rust workspace 168 个测试、格式检查与严格 Clippy 通过；macOS 真实 `sandbox-exec` 测试确认 Workspace 内写入成功且 Workspace 外写入被拒绝。Console 295 个测试文件、2453 个测试、production build 和 inventory 防漂移通过，`console/src` 保持零改动。未修改的原 Security 页面连接 release Rust Core，完成 21 条内置规则渲染、Sandbox 开启并真实生效、Hidden Newlines、File Guard 路径、Skill Scanner Block 模式和 allow-no-auth host 的保存、刷新及 Core 重启恢复，相关请求全部返回 200 且浏览器错误为 0。当前 inventory 为 370 个调用点、234 条 Rust 路由、232 个已注册调用点，其中 227 个非占位、5 个占位、138 个未注册和 11 个静态未解析表达式；Security 的 18 个调用点已全部注册且均非占位。TypeScript SDK 3 个、Python SDK 4 个真实 Core 测试与 VS Code 57 个测试全部通过。macOS App/ZIP/QA DMG、Core archive、WebUI archive、TypeScript/Python SDK、universal/platform VSIX 与 legacy wheel 均使用本切片源码重建；9 个产物逐个完成执行、真实 Core 静态服务、临时安装、解包、清单与哈希校验、签名检查或只读挂载反向验证，`dist/SHA256SUMS` 全部通过。QA DMG 当前为 ad-hoc 签名，待用户提供 Apple 发布凭据后才能生成 Developer ID 签名和 notarized 正式包。
+
 ### 14.3 客户端与发布
 
 - [x] WebUI 启动与导航契约测试通过；

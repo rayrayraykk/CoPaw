@@ -36,6 +36,7 @@ notify = "8.2"
 pretty_assertions = "1.4"
 rand = "0.9"
 rcgen = { version = "0.14.10", default-features = false, features = ["aws_lc_rs", "pem"] }
+regex = "1.13"
 reqwest = { version = "0.13.2", default-features = false, features = [
     "form",
     "http2",
@@ -77,6 +78,7 @@ ts-rs = "11.0.1"
 uuid = { version = "1.18", features = ["v7"] }
 url = "2.5"
 zip = { version = "8.1.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+yaml_serde = "0.10"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

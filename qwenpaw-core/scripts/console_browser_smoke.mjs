@@ -127,12 +127,17 @@ function navigationPaths(arguments_) {
 function smokeOptions(arguments_) {
   const codingGit = arguments_.includes("--coding-git");
   const mcpCrud = arguments_.includes("--mcp-crud");
+  const securityCrud = arguments_.includes("--security-crud");
   const navigationArguments = arguments_.filter(
-    (argument) => argument !== "--coding-git" && argument !== "--mcp-crud",
+    (argument) =>
+      argument !== "--coding-git" &&
+      argument !== "--mcp-crud" &&
+      argument !== "--security-crud",
   );
   return {
     codingGit,
     mcpCrud,
+    securityCrud,
     paths: navigationPaths(navigationArguments),
   };
 }
@@ -383,6 +388,200 @@ async function runMcpCrudScenario(client) {
   };
 }
 
+async function clickTab(client, text) {
+  const clicked = await evaluateValue(
+    client,
+    `(() => {
+      const tab = [...document.querySelectorAll('[role="tab"]')].find(
+        (item) => (item.innerText ?? "").trim() === ${JSON.stringify(text)}
+      );
+      tab?.click();
+      return Boolean(tab);
+    })()`,
+  );
+  if (!clicked) throw new Error(`Security UI tab did not render: ${text}`);
+  await delay(400);
+}
+
+async function setInputByPlaceholder(client, placeholder, value) {
+  const focused = await evaluateValue(
+    client,
+    `(() => {
+      const input = [...document.querySelectorAll("input")].find(
+        (item) => item.placeholder === ${JSON.stringify(placeholder)}
+      );
+      input?.focus();
+      input?.select();
+      return Boolean(input);
+    })()`,
+  );
+  if (!focused) {
+    throw new Error(`Security UI input did not render: ${placeholder}`);
+  }
+  await client.send("Input.insertText", { text: value });
+}
+
+async function setSecuritySwitch(client, label, checked) {
+  const changed = await evaluateValue(
+    client,
+    `(() => {
+      const visible = (element) => Boolean(
+        element.offsetWidth || element.offsetHeight || element.getClientRects().length
+      );
+      const label = [...document.querySelectorAll("body *")].find(
+        (item) => visible(item) &&
+          (item.innerText ?? "").trim() === ${JSON.stringify(label)}
+      );
+      let container = label;
+      let control = null;
+      for (let depth = 0; container && depth < 8 && !control; depth += 1) {
+        control = container.querySelector(
+          '[role="switch"], .ant-switch, input[type="checkbox"]'
+        );
+        container = container.parentElement;
+      }
+      if (!control) return false;
+      const current = control.matches('input[type="checkbox"]')
+        ? control.checked
+        : control.getAttribute("aria-checked") === "true" ||
+          control.classList.contains("ant-switch-checked");
+      if (current !== ${checked}) {
+        control.click();
+      }
+      return true;
+    })()`,
+  );
+  if (!changed) throw new Error(`Security switch did not render: ${label}`);
+}
+
+async function runSecurityCrudScenario(client) {
+  await waitForValue(
+    client,
+    `document.body.innerText.includes("TOOL_CMD_DANGEROUS_RM")`,
+    "Security built-in rules did not render",
+  );
+  await setSecuritySwitch(client, "Enable Sandbox Execution", true);
+  await setSecuritySwitch(client, "Hidden Newlines", true);
+  await clickButton(client, "Save");
+  await waitForValue(
+    client,
+    `fetch("/api/config/security/tool-guard").then((response) => response.json())
+      .then((value) => value.shell_evasion_checks.newlines === true)`,
+    "Tool Guard settings did not persist",
+  );
+
+  await clickTab(client, "File Guard");
+  const protectedPath = "/tmp/qwenpaw-browser-security";
+  await setInputByPlaceholder(
+    client,
+    "Enter file or directory path (e.g. ~/.ssh/ or /etc/passwd)",
+    protectedPath,
+  );
+  await clickButton(client, "Add");
+  await clickButton(client, "Save");
+  await waitForValue(
+    client,
+    `fetch("/api/config/security/file-guard").then((response) => response.json())
+      .then((value) => value.paths.includes(${JSON.stringify(protectedPath)}))`,
+    "File Guard path did not persist",
+  );
+
+  await clickTab(client, "Skill Scanner");
+  const selectOpened = await evaluateValue(
+    client,
+    `(() => {
+      const visible = (element) => Boolean(
+        element.offsetWidth || element.offsetHeight || element.getClientRects().length
+      );
+      const select = [...document.querySelectorAll('[role="combobox"]')].find(visible);
+      select?.focus();
+      const selector = select?.closest(".qwenpaw-select")?.querySelector(
+        ".qwenpaw-select-selector"
+      ) ?? select;
+      selector?.dispatchEvent(new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+        view: window
+      }));
+      selector?.click();
+      return Boolean(select);
+    })()`,
+  );
+  if (!selectOpened)
+    throw new Error("Skill Scanner mode selector did not render");
+  await waitForValue(
+    client,
+    `[...document.querySelectorAll('body *')].some(
+      (item) => (item.innerText ?? "").trim().toLowerCase() === "block"
+    )`,
+    "Skill Scanner Block option did not render",
+  );
+  const selected = await evaluateValue(
+    client,
+    `(() => {
+      const visible = (element) => Boolean(
+        element.offsetWidth || element.offsetHeight || element.getClientRects().length
+      );
+      const option = [...document.querySelectorAll('body *')].filter(
+        (item) => visible(item) &&
+          (item.innerText ?? "").trim().toLowerCase() === "block"
+      ).at(-1);
+      option?.dispatchEvent(new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+        view: window
+      }));
+      option?.click();
+      return Boolean(option);
+    })()`,
+  );
+  if (!selected)
+    throw new Error("Skill Scanner Block option was not selectable");
+  await waitForValue(
+    client,
+    `fetch("/api/config/security/skill-scanner").then((response) => response.json())
+      .then((value) => value.mode === "block")`,
+    "Skill Scanner mode did not persist",
+  );
+
+  await clickTab(client, "Allow No Auth Hosts");
+  const allowedHost = "10.20.30.40";
+  await setInputByPlaceholder(
+    client,
+    "Enter IP address (e.g., 192.168.1.100 or ::1)",
+    allowedHost,
+  );
+  await clickButton(client, "Add");
+  await clickButton(client, "Save");
+  await waitForValue(
+    client,
+    `fetch("/api/config/security/allow-no-auth-hosts")
+      .then((response) => response.json())
+      .then((value) => value.hosts.includes(${JSON.stringify(allowedHost)}))`,
+    "Allow No Auth Hosts value did not persist",
+  );
+
+  return evaluateValue(
+    client,
+    `Promise.all([
+      fetch("/api/config/security/tool-guard").then((response) => response.json()),
+      fetch("/api/config/security/tool-guard/builtin-rules").then((response) => response.json()),
+      fetch("/api/config/security/sandbox").then((response) => response.json()),
+      fetch("/api/config/security/file-guard").then((response) => response.json()),
+      fetch("/api/config/security/skill-scanner").then((response) => response.json()),
+      fetch("/api/config/security/allow-no-auth-hosts").then((response) => response.json())
+    ]).then(([guard, rules, sandbox, fileGuard, scanner, hosts]) => ({
+      builtinRules: rules.length,
+      hiddenNewlines: guard.shell_evasion_checks.newlines,
+      sandboxEnabled: sandbox.enabled,
+      sandboxEffective: sandbox.effective,
+      protectedPath: fileGuard.paths.includes(${JSON.stringify(protectedPath)}),
+      scannerMode: scanner.mode,
+      allowedHost: hosts.hosts.includes(${JSON.stringify(allowedHost)})
+    }))`,
+  );
+}
+
 async function enableCodingMode(origin) {
   const response = await fetch(`${origin}/api/coding-mode`, {
     method: "POST",
@@ -456,6 +655,10 @@ class DevToolsClient {
       this.socket.send(JSON.stringify({ id, method, params }));
     });
   }
+
+  close() {
+    this.socket.close();
+  }
 }
 
 async function connectDevTools(webSocketUrl) {
@@ -488,7 +691,7 @@ function apiPath(url, origin) {
 }
 
 async function inspectConsole(client, origin, options) {
-  const { codingGit, mcpCrud, paths } = options;
+  const { codingGit, mcpCrud, securityCrud, paths } = options;
   let observation;
   client.on("Network.responseReceived", ({ response }) => {
     const requestPath = apiPath(response.url, origin);
@@ -528,9 +731,17 @@ async function inspectConsole(client, origin, options) {
       paths.length === 1 ? WAIT_AFTER_LOAD_MS : NAVIGATION_WAIT_AFTER_LOAD_MS,
     );
     let mcpCrudResult;
+    let securityCrudResult;
     if (mcpCrud && navigationPath === "/mcp") {
       try {
         mcpCrudResult = await runMcpCrudScenario(client);
+      } catch (error) {
+        observation.browserErrors.push(error.stack ?? String(error));
+      }
+    }
+    if (securityCrud && navigationPath === "/security") {
+      try {
+        securityCrudResult = await runSecurityCrudScenario(client);
       } catch (error) {
         observation.browserErrors.push(error.stack ?? String(error));
       }
@@ -604,6 +815,7 @@ async function inspectConsole(client, origin, options) {
         textSample: page.bodyText.slice(0, 300),
       },
       mcpCrud: mcpCrudResult,
+      securityCrud: securityCrudResult,
       apiResponses: responses,
       failedApi,
       failures,
@@ -638,18 +850,26 @@ async function main() {
     ],
     { stdio: ["ignore", "ignore", "pipe"] },
   );
+  let pageClient;
+  let browserClient;
   try {
     const browserWebSocketUrl = await waitForDevTools(child);
     const target = await createPage(browserWebSocketUrl);
-    const client = await connectDevTools(target.webSocketDebuggerUrl);
-    const result = await inspectConsole(client, origin, options);
+    pageClient = await connectDevTools(target.webSocketDebuggerUrl);
+    const result = await inspectConsole(pageClient, origin, options);
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-    const browser = await connectDevTools(browserWebSocketUrl);
-    await browser.send("Browser.close");
+    browserClient = await connectDevTools(browserWebSocketUrl);
+    await browserClient.send("Browser.close");
     if (!result.ok) process.exitCode = 1;
   } finally {
+    pageClient?.close();
+    browserClient?.close();
     if (child.exitCode === null) child.kill("SIGTERM");
-    await waitForExit(child);
+    await waitForExit(child, 2_000);
+    if (child.exitCode === null) {
+      child.kill("SIGKILL");
+      await waitForExit(child, 2_000);
+    }
     await rm(profile, {
       recursive: true,
       force: true,

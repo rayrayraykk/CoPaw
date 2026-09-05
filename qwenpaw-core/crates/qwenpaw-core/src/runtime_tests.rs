@@ -1303,6 +1303,66 @@ async fn returns_a_denied_shell_result_to_the_model() {
 }
 
 #[tokio::test]
+async fn tool_guard_denies_a_tool_before_requesting_approval() {
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let base_url = start_tool_model_server(Arc::clone(&requests), "shell").await;
+    let directory = tempfile::tempdir().expect("temporary directory should be created");
+    let core = Core::new(ModelConfig {
+        api_key: None,
+        base_url,
+        default_model: String::from("qwen-test"),
+    });
+    let mut settings = core
+        .security_settings()
+        .expect("Security settings should read");
+    settings.tool_guard.denied_tools = vec![String::from("execute_shell_command")];
+    core.replace_security_settings(settings)
+        .expect("Tool Guard should update");
+    let started = core
+        .start_thread(ThreadStartParams {
+            model: None,
+            workspace_root: Some(directory.path().to_string_lossy().into_owned()),
+        })
+        .await
+        .expect("thread should start");
+    let (_, mut events) = core
+        .start_turn(TurnStartParams {
+            thread_id: started.thread.id.clone(),
+            input: vec![UserInput::Text {
+                text: String::from("Try the denied Shell tool"),
+            }],
+        })
+        .await
+        .expect("turn should start");
+    let mut requested = false;
+    while let Some(event) = events.recv().await {
+        match event {
+            CoreEvent::ToolApprovalRequested(_) => requested = true,
+            CoreEvent::TurnCompleted(_) => break,
+            _ => {}
+        }
+    }
+
+    assert!(!requested);
+    let read = core
+        .read_thread(&started.thread.id)
+        .await
+        .expect("thread should be readable");
+    assert!(matches!(
+        &read.turns[0].items[2],
+        Item::ToolResult {
+            content,
+            is_error: true,
+            ..
+        } if content == "Tool 'shell' is denied by the Tool Guard policy."
+    ));
+    assert_eq!(
+        requests.lock().await[1]["messages"][3]["content"],
+        serde_json::json!("Tool 'shell' is denied by the Tool Guard policy.")
+    );
+}
+
+#[tokio::test]
 async fn interrupts_a_turn_waiting_for_shell_approval() {
     let requests = Arc::new(Mutex::new(Vec::new()));
     let base_url = start_tool_model_server(Arc::clone(&requests), "shell").await;
