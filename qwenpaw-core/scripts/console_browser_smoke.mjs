@@ -133,6 +133,7 @@ function smokeOptions(arguments_) {
   const agentsCrud = arguments_.includes("--agents-crud");
   const acpCrud = arguments_.includes("--acp-crud");
   const modelsCrud = arguments_.includes("--models-crud");
+  const localModelsCrud = arguments_.includes("--local-models-crud");
   const navigationArguments = arguments_.filter(
     (argument) =>
       argument !== "--coding-git" &&
@@ -141,7 +142,8 @@ function smokeOptions(arguments_) {
       argument !== "--skills-crud" &&
       argument !== "--agents-crud" &&
       argument !== "--acp-crud" &&
-      argument !== "--models-crud",
+      argument !== "--models-crud" &&
+      argument !== "--local-models-crud",
   );
   return {
     codingGit,
@@ -151,6 +153,7 @@ function smokeOptions(arguments_) {
     agentsCrud,
     acpCrud,
     modelsCrud,
+    localModelsCrud,
     paths: navigationPaths(navigationArguments),
   };
 }
@@ -1156,6 +1159,145 @@ async function runModelsCrudScenario(client) {
   }
 }
 
+async function clickLocalModelAction(client, modelId, action) {
+  const clicked = await evaluateValue(
+    client,
+    `(() => {
+      const visible = (element) => Boolean(
+        element.offsetWidth || element.offsetHeight || element.getClientRects().length
+      );
+      const id = [...document.querySelectorAll('[class*="modelListItemId"]')]
+        .find((item) => visible(item) &&
+          (item.innerText ?? "").includes(${JSON.stringify(modelId)}));
+      let row = id;
+      while (row && ![...row.querySelectorAll("button")].some(
+        (item) => (item.innerText ?? "").trim() === ${JSON.stringify(action)}
+      )) {
+        row = row.parentElement;
+      }
+      const button = [...(row?.querySelectorAll("button") ?? [])].find(
+        (item) => visible(item) &&
+          (item.innerText ?? "").trim() === ${JSON.stringify(action)}
+      );
+      button?.click();
+      return Boolean(button && !button.disabled);
+    })()`,
+  );
+  if (!clicked) {
+    throw new Error(`Local model action did not render: ${modelId} / ${action}`);
+  }
+}
+
+async function runLocalModelsCrudScenario(client) {
+  const modelId = "AgentScope/Browser-Test-GGUF";
+  await waitForValue(
+    client,
+    `document.body.innerText.includes("Cloud Providers")`,
+    "Models page did not render for local-model smoke",
+  );
+  await clickModelsTab(client, "Local & Custom");
+  await clickProviderCardAction(client, "QwenPaw Local", "Models");
+  await waitForValue(
+    client,
+    `document.body.innerText.includes("QwenPaw Local — Local Models") &&
+      document.body.innerText.includes(${JSON.stringify(modelId)}) &&
+      document.body.innerText.includes("Installed")`,
+    "Original Local Models modal did not render the installed fixture",
+  );
+
+  await clickLocalModelAction(client, modelId, "Start");
+  await waitForValue(
+    client,
+    `fetch("/api/local-models/server").then((response) => response.json()).then(
+      (status) => status.available && status.model_name === ${JSON.stringify(
+        modelId,
+      )}
+    )`,
+    "Local model did not start through the original modal",
+  );
+  await waitForValue(
+    client,
+    `document.body.innerText.includes("Current served model") &&
+      document.body.innerText.includes("Stop")`,
+    "Original Local Models modal did not refresh the running state",
+  );
+  await clickLocalModelAction(client, modelId, "Stop");
+  await waitForValue(
+    client,
+    `fetch("/api/local-models/server").then((response) => response.json()).then(
+      (status) => !status.available && status.model_name === null
+    )`,
+    "Local model did not stop through the original modal",
+  );
+
+  await clickButton(client, "Advanced Local Settings");
+  await waitForValue(
+    client,
+    `[...document.querySelectorAll('input[role="spinbutton"]')].some(
+      (input) => input.value === "65536"
+    )`,
+    "Advanced local-model settings did not render",
+  );
+  const changed = await evaluateValue(
+    client,
+    `(() => {
+      const input = [...document.querySelectorAll('input[role="spinbutton"]')]
+        .find((item) => item.value === "65536");
+      if (!input) return false;
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value"
+      )?.set;
+      setter?.call(input, "98304");
+      input.dispatchEvent(new InputEvent("input", {
+        bubbles: true,
+        inputType: "insertText",
+        data: "98304"
+      }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      return true;
+    })()`,
+  );
+  if (!changed) throw new Error("Max context length input could not be changed");
+  await waitForValue(
+    client,
+    `[...document.querySelectorAll("button")].some(
+      (button) => (button.innerText ?? "").trim() === "Save" && !button.disabled
+    )`,
+    "Advanced local-model Save action did not become available",
+  );
+  const saved = await evaluateValue(
+    client,
+    `(() => {
+      const button = [...document.querySelectorAll("button")].find(
+        (item) => (item.innerText ?? "").trim() === "Save" && !item.disabled
+      );
+      button?.click();
+      return Boolean(button);
+    })()`,
+  );
+  if (!saved) throw new Error("Advanced local-model Save action was unavailable");
+  await waitForValue(
+    client,
+    `fetch("/api/local-models/config").then((response) => response.json()).then(
+      (config) => config.max_context_length === 98304
+    )`,
+    "Advanced local-model settings did not save through the original modal",
+  );
+
+  return {
+    modelId,
+    status: await evaluateValue(
+      client,
+      `fetch("/api/local-models/server").then((response) => response.json())`,
+    ),
+    config: await evaluateValue(
+      client,
+      `fetch("/api/local-models/config").then((response) => response.json())`,
+    ),
+  };
+}
+
 async function clickSkillCard(client, name) {
   const clicked = await evaluateValue(
     client,
@@ -1841,6 +1983,7 @@ async function inspectConsole(client, origin, options) {
     agentsCrud,
     acpCrud,
     modelsCrud,
+    localModelsCrud,
     paths,
   } = options;
   let observation;
@@ -1887,6 +2030,7 @@ async function inspectConsole(client, origin, options) {
     let agentsCrudResult;
     let acpCrudResult;
     let modelsCrudResult;
+    let localModelsCrudResult;
     if (mcpCrud && navigationPath === "/mcp") {
       try {
         mcpCrudResult = await runMcpCrudScenario(client);
@@ -1928,6 +2072,13 @@ async function inspectConsole(client, origin, options) {
     if (modelsCrud && navigationPath === "/models") {
       try {
         modelsCrudResult = await runModelsCrudScenario(client);
+      } catch (error) {
+        observation.browserErrors.push(error.stack ?? String(error));
+      }
+    }
+    if (localModelsCrud && navigationPath === "/models") {
+      try {
+        localModelsCrudResult = await runLocalModelsCrudScenario(client);
       } catch (error) {
         observation.browserErrors.push(error.stack ?? String(error));
       }
@@ -2006,6 +2157,7 @@ async function inspectConsole(client, origin, options) {
       agentsCrud: agentsCrudResult,
       acpCrud: acpCrudResult,
       modelsCrud: modelsCrudResult,
+      localModelsCrud: localModelsCrudResult,
       apiResponses: responses,
       failedApi,
       failures,

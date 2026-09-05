@@ -88,7 +88,7 @@ const BUILTIN_PROVIDER_ORDER: &[&str] = &[
     "mimo",
 ];
 
-type ApiError = (StatusCode, Json<Value>);
+pub(super) type ApiError = (StatusCode, Json<Value>);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ProviderRegistry {
@@ -253,9 +253,9 @@ impl Default for ModelRecord {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default)]
-struct LocalModelConfig {
-    max_context_length: u64,
-    port: Option<u16>,
+pub(super) struct LocalModelConfig {
+    pub(super) max_context_length: u64,
+    pub(super) port: Option<u16>,
 }
 
 impl Default for LocalModelConfig {
@@ -1499,6 +1499,102 @@ async fn put_local_model_config(
         "status": "ok",
         "message": "Local model settings updated"
     })))
+}
+
+pub(super) async fn local_model_config(
+    server: &AppServer,
+) -> Result<(LocalModelConfig, Map<String, Value>), ApiError> {
+    let _guard = server.inner.desktop_models_lock.lock().await;
+    let registry = read_registry(server)?;
+    Ok((registry.local_model, registry.local_generate_kwargs))
+}
+
+pub(super) async fn persisted_local_runtime_model(
+    server: &AppServer,
+) -> Result<Option<(String, bool)>, ApiError> {
+    let _guard = server.inner.desktop_models_lock.lock().await;
+    let registry = read_registry(server)?;
+    let provider = registry
+        .providers
+        .get("qwenpaw-local")
+        .ok_or_else(|| internal("Local model provider is unavailable"))?;
+    Ok(provider.extra_models.first().map(|model| {
+        (
+            model.id.clone(),
+            registry.active_provider_id == "qwenpaw-local",
+        )
+    }))
+}
+
+pub(super) async fn register_local_runtime(
+    server: &AppServer,
+    model_id: &str,
+    port: u16,
+    supports_multimodal: bool,
+    make_active: bool,
+) -> Result<(), ApiError> {
+    validate_model_id(model_id)?;
+    let _guard = server.inner.desktop_models_lock.lock().await;
+    let mut registry = read_registry(server)?;
+    let previous = registry.clone();
+    let max_input_length = registry.local_model.max_context_length;
+    let generate_kwargs = registry.local_generate_kwargs.clone();
+    let provider = registry
+        .providers
+        .get_mut("qwenpaw-local")
+        .ok_or_else(|| internal("Local model provider is unavailable"))?;
+    provider.base_url = format!("http://127.0.0.1:{port}/v1");
+    provider.generate_kwargs = generate_kwargs;
+    provider.extra_models = vec![ModelRecord {
+        id: model_id.to_owned(),
+        name: model_id.to_owned(),
+        supports_multimodal: Some(supports_multimodal),
+        supports_image: Some(supports_multimodal),
+        supports_video: Some(false),
+        probe_source: Some(String::from("probed")),
+        source: String::from("user"),
+        availability_status: String::from("available"),
+        max_input_length,
+        max_input_length_configured: true,
+        ..ModelRecord::default()
+    }];
+    provider.hidden_model_ids.clear();
+    if make_active {
+        registry.active_provider_id = String::from("qwenpaw-local");
+    }
+    bump_registry(&mut registry);
+    write_registry(server, &registry)?;
+    if make_active
+        && let Err(error) = apply_active_provider_with_model(server, &registry, model_id).await
+    {
+        let _ = write_registry(server, &previous);
+        return Err(error);
+    }
+    Ok(())
+}
+
+pub(super) async fn clear_local_runtime(server: &AppServer) -> Result<(), ApiError> {
+    let _guard = server.inner.desktop_models_lock.lock().await;
+    let mut registry = read_registry(server)?;
+    let previous = registry.clone();
+    let provider = registry
+        .providers
+        .get_mut("qwenpaw-local")
+        .ok_or_else(|| internal("Local model provider is unavailable"))?;
+    provider.base_url.clear();
+    provider.extra_models.clear();
+    provider.hidden_model_ids.clear();
+    let was_active = registry.active_provider_id == "qwenpaw-local";
+    if was_active {
+        registry.active_provider_id = String::from(DEFAULT_PROVIDER_ID);
+    }
+    bump_registry(&mut registry);
+    write_registry(server, &registry)?;
+    if was_active && let Err(error) = apply_active_provider(server, &registry).await {
+        let _ = write_registry(server, &previous);
+        return Err(error);
+    }
+    Ok(())
 }
 
 async fn active_models(

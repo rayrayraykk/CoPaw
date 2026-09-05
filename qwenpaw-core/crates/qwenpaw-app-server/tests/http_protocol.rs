@@ -2,6 +2,7 @@ use futures_util::SinkExt;
 use futures_util::StreamExt;
 use qwenpaw_app_server::AppServer;
 use qwenpaw_app_server::DesktopCredentialStore;
+use qwenpaw_app_server::LocalModelDownloadSources;
 use qwenpaw_core::BlockedSkillFinding;
 use qwenpaw_core::BlockedSkillRecord;
 use qwenpaw_core::Core;
@@ -168,6 +169,333 @@ impl DesktopCredentialStore for RejectingModelCredentialStore {
         }
         Ok(())
     }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+#[allow(clippy::too_many_lines)]
+async fn manages_local_runtime_and_model_through_the_console_http_contract() {
+    let runtime = fake_llama_runtime_archive();
+    let model = Arc::new(Vec::from(&b"gguf-test-model"[..]));
+    let source_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("local model source listener should bind");
+    let source_address = source_listener
+        .local_addr()
+        .expect("local model source should have an address");
+    let runtime_body = Arc::new(runtime);
+    let source_router = axum::Router::new()
+        .route(
+            "/b8744/{*archive}",
+            axum::routing::get({
+                let runtime_body = runtime_body.clone();
+                move || {
+                    let runtime_body = runtime_body.clone();
+                    async move { runtime_body.as_ref().clone() }
+                }
+            }),
+        )
+        .route(
+            "/api/v1/models/{owner}/{repository}/repo/files",
+            axum::routing::get(|| async {
+                axum::Json(json!({
+                    "Data": {
+                        "Files": [{"Path": "model.gguf", "Size": 15}]
+                    }
+                }))
+            }),
+        )
+        .route(
+            "/api/v1/models/{owner}/{repository}/repo",
+            axum::routing::get({
+                let model = model.clone();
+                move || {
+                    let model = model.clone();
+                    async move { model.as_ref().clone() }
+                }
+            }),
+        );
+    let source_task =
+        tokio::spawn(async move { axum::serve(source_listener, source_router).await });
+
+    let console = tempfile::tempdir().expect("Console fixture should create");
+    std::fs::write(console.path().join("index.html"), "console")
+        .expect("Console fixture should write");
+    let data = tempfile::tempdir().expect("Desktop data fixture should create");
+    let credentials = Arc::new(MemoryCredentialStore::default());
+    let core = Core::new(ModelConfig {
+        api_key: None,
+        base_url: String::from("http://127.0.0.1:1"),
+        default_model: String::from("qwen-test"),
+    });
+    let origin = format!("http://{source_address}");
+    let sources = LocalModelDownloadSources {
+        llama_cpp_base_url: origin.clone(),
+        hugging_face_base_url: origin.clone(),
+        modelscope_base_url: origin,
+        server_start_timeout: Duration::from_secs(10),
+        ..LocalModelDownloadSources::default()
+    };
+    let server = new_isolated_desktop(
+        core,
+        console.path(),
+        String::from("desktop-local-model-token"),
+        credentials.clone(),
+        data.path(),
+    )
+    .expect("local model Desktop server should configure")
+    .with_local_model_download_sources(sources)
+    .expect("local model fixture sources should configure");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("local model Desktop listener should bind");
+    let address = listener
+        .local_addr()
+        .expect("local model Desktop listener should have an address");
+    let server_task = tokio::spawn(server.run_http(listener));
+    let client = reqwest::Client::new();
+    let base = format!("http://{address}/api/local-models");
+
+    assert_eq!(
+        get_json(&client, format!("{base}/server")).await,
+        json!({
+            "available": false,
+            "installable": true,
+            "installed": false,
+            "port": null,
+            "model_name": null,
+            "message": "llama.cpp is not installed"
+        })
+    );
+    assert_eq!(
+        get_json(&client, format!("{base}/server/update")).await,
+        json!({"has_update": false})
+    );
+    assert_eq!(
+        get_json(&client, format!("{base}/server/download")).await["status"],
+        json!("idle")
+    );
+    assert_eq!(
+        client
+            .delete(format!("{base}/server/download"))
+            .send()
+            .await
+            .expect("idle runtime cancellation should send")
+            .status(),
+        reqwest::StatusCode::OK
+    );
+    assert_eq!(
+        get_json(&client, format!("{base}/models/download")).await["status"],
+        json!("idle")
+    );
+    assert_eq!(
+        client
+            .delete(format!("{base}/models/download"))
+            .send()
+            .await
+            .expect("idle model cancellation should send")
+            .status(),
+        reqwest::StatusCode::OK
+    );
+    assert!(get_json(&client, format!("{base}/models")).await.is_array());
+    assert_eq!(
+        client
+            .post(format!("{base}/server/download"))
+            .send()
+            .await
+            .expect("runtime download should send")
+            .status(),
+        reqwest::StatusCode::OK
+    );
+    let runtime_progress = wait_for_download(&client, &format!("{base}/server/download")).await;
+    assert_eq!(runtime_progress["status"], json!("completed"));
+    assert!(
+        runtime_progress["downloaded_bytes"]
+            .as_u64()
+            .is_some_and(|size| size > 0)
+    );
+    assert_eq!(
+        get_json(&client, format!("{base}/server/update")).await,
+        json!({"has_update": false})
+    );
+
+    assert_eq!(
+        client
+            .post(format!("{base}/models/download"))
+            .json(&json!({
+                "model_name": "AgentScope/Test-GGUF",
+                "source": "modelscope"
+            }))
+            .send()
+            .await
+            .expect("model download should send")
+            .status(),
+        reqwest::StatusCode::OK
+    );
+    let model_progress = wait_for_download(&client, &format!("{base}/models/download")).await;
+    assert_eq!(model_progress["status"], json!("completed"));
+    let models = get_json(&client, format!("{base}/models")).await;
+    assert!(models.as_array().is_some_and(|models| {
+        models
+            .iter()
+            .any(|model| model["id"] == "AgentScope/Test-GGUF" && model["downloaded"] == true)
+    }));
+
+    let started = client
+        .post(format!("{base}/server"))
+        .json(&json!({"model_id": "AgentScope/Test-GGUF"}))
+        .send()
+        .await
+        .expect("local model server start should send");
+    assert_eq!(started.status(), reqwest::StatusCode::OK);
+    let started = started
+        .json::<Value>()
+        .await
+        .expect("local model server start should be JSON");
+    assert!(started["port"].as_u64().is_some_and(|port| port > 0));
+    assert_eq!(started["model_info"]["id"], json!("AgentScope/Test-GGUF"));
+    let status = get_json(&client, format!("{base}/server")).await;
+    assert_eq!(status["available"], json!(true));
+    assert_eq!(status["model_name"], json!("AgentScope/Test-GGUF"));
+
+    let shutdown = client
+        .post(format!("http://{address}/api/desktop/shutdown"))
+        .header(
+            "x-qwenpaw-desktop-shutdown-token",
+            "desktop-local-model-token",
+        )
+        .send()
+        .await
+        .expect("Desktop shutdown should send");
+    assert_eq!(shutdown.status(), reqwest::StatusCode::OK);
+    server_task
+        .await
+        .expect("local model server task should join")
+        .expect("local model server should shut down cleanly");
+
+    let reopened_core = Core::new(ModelConfig {
+        api_key: None,
+        base_url: String::from("http://127.0.0.1:1"),
+        default_model: String::from("qwen-test"),
+    });
+    let reopened = new_isolated_desktop(
+        reopened_core,
+        console.path(),
+        String::from("desktop-local-model-reopen-token"),
+        credentials,
+        data.path(),
+    )
+    .expect("reopened local model Desktop server should configure");
+    let reopened_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("reopened local model listener should bind");
+    let reopened_address = reopened_listener
+        .local_addr()
+        .expect("reopened local model listener should have an address");
+    let reopened_task = tokio::spawn(reopened.run_http(reopened_listener));
+    let reopened_base = format!("http://{reopened_address}/api/local-models");
+    let resumed = wait_for_local_server(&client, &format!("{reopened_base}/server")).await;
+    assert_eq!(resumed["available"], json!(true));
+    assert_eq!(resumed["model_name"], json!("AgentScope/Test-GGUF"));
+    assert_eq!(
+        client
+            .delete(format!("{reopened_base}/server"))
+            .send()
+            .await
+            .expect("resumed local model server stop should send")
+            .status(),
+        reqwest::StatusCode::OK
+    );
+    assert_eq!(
+        client
+            .delete(format!("{reopened_base}/models/AgentScope%2FTest-GGUF"))
+            .send()
+            .await
+            .expect("local model deletion should send")
+            .status(),
+        reqwest::StatusCode::OK
+    );
+    let reopened_shutdown = client
+        .post(format!("http://{reopened_address}/api/desktop/shutdown"))
+        .header(
+            "x-qwenpaw-desktop-shutdown-token",
+            "desktop-local-model-reopen-token",
+        )
+        .send()
+        .await
+        .expect("reopened Desktop shutdown should send");
+    assert_eq!(reopened_shutdown.status(), reqwest::StatusCode::OK);
+    reopened_task
+        .await
+        .expect("reopened local model server task should join")
+        .expect("reopened local model server should shut down cleanly");
+    source_task.abort();
+}
+
+#[cfg(unix)]
+fn fake_llama_runtime_archive() -> Vec<u8> {
+    let script = br#"#!/usr/bin/env python3
+import sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+if "--version" in sys.argv:
+    print("version: 8744")
+    raise SystemExit(0)
+
+port = int(sys.argv[sys.argv.index("--port") + 1])
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200 if self.path == "/health" else 404)
+        self.end_headers()
+        self.wfile.write(b"ok")
+
+    def log_message(self, *args):
+        pass
+
+HTTPServer(("127.0.0.1", port), Handler).serve_forever()
+"#;
+    let output = Vec::new();
+    let encoder = flate2::write::GzEncoder::new(output, flate2::Compression::default());
+    let mut archive = tar::Builder::new(encoder);
+    let mut header = tar::Header::new_gnu();
+    header.set_size(script.len() as u64);
+    header.set_mode(0o755);
+    header.set_cksum();
+    archive
+        .append_data(&mut header, "llama-b8744/llama-server", &script[..])
+        .expect("fake llama.cpp runtime should archive");
+    let encoder = archive
+        .into_inner()
+        .expect("fake llama.cpp tar should finish");
+    encoder.finish().expect("fake llama.cpp gzip should finish")
+}
+
+#[cfg(unix)]
+async fn wait_for_download(client: &reqwest::Client, url: &str) -> Value {
+    for _ in 0..100 {
+        let progress = get_json(client, url.to_owned()).await;
+        if matches!(
+            progress["status"].as_str(),
+            Some("completed" | "failed" | "cancelled")
+        ) {
+            return progress;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("local model download did not finish")
+}
+
+#[cfg(unix)]
+async fn wait_for_local_server(client: &reqwest::Client, url: &str) -> Value {
+    for _ in 0..100 {
+        let status = get_json(client, url.to_owned()).await;
+        if status["available"] == true {
+            return status;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("local model server did not resume")
 }
 
 #[tokio::test]

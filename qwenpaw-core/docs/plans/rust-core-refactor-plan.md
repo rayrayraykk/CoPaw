@@ -1317,14 +1317,40 @@ Inbox 读取、状态和持久化契约已完成；真实 Agent Cron、Heartbeat
 
 本切片实现原 Local Model Manage 弹窗使用的 12 条运行、下载和状态接口。模型与 llama.cpp 必须下载到新 Rust 版本独立数据目录，采用 staging、大小/条目/路径边界和取消语义；启动必须执行真实 `llama-server`、等待 `/health`、注册 `qwenpaw-local` Provider 并切换模型，停止或进程退出后清理运行状态。测试使用本地 HTTP 归档和可执行 fixture，不下载数 GB 公网模型，也不伪造进程在线。
 
-- [ ] 固化原本地运行时状态、下载进度、推荐模型、启动/停止/删除和错误响应；
-- [ ] 实现跨 macOS/Windows/Linux 的 llama.cpp 包选择、安全下载、解压、更新检查与取消；
-- [ ] 实现 Hugging Face/ModelScope GGUF 下载、staging、进度、取消、完成恢复和安全删除；
-- [ ] 实现真实 `llama-server` 进程生命周期、端口占用、health readiness、日志与 Core 退出清理；
-- [ ] 将运行模型写入 `qwenpaw-local` Provider、active model 与实际 Rust Turn 路由，停止后原子清理；
-- [ ] 覆盖本地 mock 下载/归档/进程、异常退出、重启恢复、并发与安全边界；
-- [ ] 使用未修改的 Local Model Manage 弹窗验证高级设置、下载、取消、启动、切换、停止和删除；
-- [ ] 通过全量回归，重建并逐个反向验证 9 个发布产物后提交推送。
+原前端契约与执行边界如下，`console/src/api/modules/localModel.ts`、`LocalModelManageModal.tsx` 及其子组件保持不变：
+
+| 方法 | 路径 | 原页面语义 |
+| --- | --- | --- |
+| `GET/POST/DELETE` | `/api/local-models/server` | 读取 installable/installed/available/port/model 状态，启动指定已下载模型，停止当前进程 |
+| `GET` | `/api/local-models/server/update` | 比较已安装 runtime 与锁定 release，未安装或平台不支持时必须返回 `has_update=false` |
+| `GET/POST/DELETE` | `/api/local-models/server/download` | 读取、启动/更新及取消 llama.cpp 下载，状态严格使用 idle/pending/downloading/canceling/completed/failed/cancelled |
+| `GET` | `/api/local-models/models` | 按物理内存返回原两项推荐模型，并合并磁盘中额外 GGUF 仓库，不重复 ID |
+| `GET/POST/DELETE` | `/api/local-models/models/download` | 读取、启动及取消单个 HF/ModelScope 仓库下载；同一时间最多一个模型任务 |
+| `DELETE` | `/api/local-models/models/{model_id}` | 安全删除已下载仓库；运行中、路径非法或不存在时保持原 409/400/404 边界 |
+| `GET/PUT` | `/api/local-models/config` | 已完成；继续提供 max context、固定/自动端口和 provider generation kwargs 的原子持久化 |
+
+实现约束：
+
+- runtime 固定使用原版本 `b8744` 和原 QwenPaw 镜像命名规则；macOS/Linux 使用 tar.gz，Windows 使用 ZIP，按 OS/arch 选择，下载地址只来自内置 HTTPS origin，测试构造器才能注入 loopback fixture；
+- runtime 和模型分别只允许一个在途任务，但两类任务可并行；取消进入 `canceling` 后必须等待 worker 退出并清理 staging，再成为 `cancelled`，不能提前报告完成；
+- runtime 归档限制响应体、条目数、单文件/总解压量和路径长度，拒绝绝对路径、`..`、符号链接、硬链接、设备文件与嵌套目录逃逸；安装只在完整校验后原子替换，失败不得破坏上一版 runtime；
+- 模型 ID 只接受规范的 `owner/repository`，HF 与 ModelScope adapter 先读取真实仓库目录，只下载常规 `.gguf` 文件；限制文件数、单文件/总大小和目标路径，所有文件写入任务 staging，至少一个非 `mmproj` GGUF 后才原子发布；
+- `llama-server` 仅以参数数组启动，不经 shell；固定端口必须先检查占用，自动端口由 loopback socket 分配；命令包含 host、port、model、alias、log-file、gpu-layers、ctx-size 和可选 mmproj；readiness 只接受同一子进程仍存活且 `/health` 非 5xx；
+- 启动成功后原子写入 `qwenpaw-local` 的 loopback `/v1` URL、唯一模型及能力，并切换全局 active model；停止、更新、异常退出或恢复失败时清空 local Provider 和对应 active 状态；Core 启动时仅恢复自己新数据目录内仍完整的 runtime/model；
+- Core shutdown 必须先取消两类下载并终止自己创建的 llama-server；测试覆盖进程组清理，不能误杀外部 Ollama、LM Studio、Python legacy 或其他 QwenPaw 实例；
+- HTTP 错误不得包含用户目录、临时路径、远端 token、响应体或命令环境；日志只记录有界的模型 ID、阶段和子进程退出状态。
+
+- [x] 固化原本地运行时状态、下载进度、推荐模型、启动/停止/删除和错误响应；
+- [x] 实现跨 macOS/Windows/Linux 的 llama.cpp 包选择、安全下载、解压、更新检查与取消；
+- [x] 实现 Hugging Face/ModelScope GGUF 下载、staging、进度、取消、完成恢复和安全删除；
+- [x] 实现真实 `llama-server` 进程生命周期、端口占用、health readiness、日志与 Core 退出清理；
+- [x] 将运行模型写入 `qwenpaw-local` Provider、active model 与实际 Rust Turn 路由，停止后原子清理；
+- [x] 以 loopback runtime/ModelScope mock 覆盖 12 条 HTTP 接口、安全归档、下载安装、启动、停止、删除和 Core 重启自动恢复；
+- [x] 使用未修改的 Local Model Manage 弹窗验证已安装模型渲染、启动、运行态刷新、停止和高级设置保存；原 Console 单测保持全量通过；
+- [ ] 补强在途下载取消、双模型切换、子进程异常退出及跨任务并发的独立回归；
+- [x] 通过全量 Rust/Console/SDK/VS Code 回归，重建并逐个反向验证 9 个发布产物后提交推送。
+
+2026-09-05 本机阶段验收：Rust workspace 191 个测试、格式检查和严格 all-features/all-targets Clippy 通过；Console 295 个测试文件、2453 个测试、production build 和 inventory 防漂移通过，`console/src` 保持零改动。真实 HTTP 契约使用 loopback llama.cpp 归档、可执行 fixture 和 ModelScope mock 覆盖全部 12 条本地模型路由、runtime/model 安装、health readiness、Provider 激活、正常关闭、Core 重启自动恢复、停止及删除；未修改的原 Local Model Manage 弹窗连接 release Rust Core 完成已安装模型渲染、启动、运行态刷新、停止和 max context 保存，全部请求返回 200 且浏览器错误为 0，另外 24 个内置导航页全量 smoke 均通过。当前 inventory 为 370 个调用点、334 条 Rust 路由、313 个已注册调用点，其中 309 个非占位、4 个占位、57 个未注册和 11 个静态未解析表达式；本地模型调用均已注册且非占位。TypeScript SDK 3 个、Python SDK 4 个真实 Core 测试与 VS Code 57 个测试通过。macOS App/ZIP/QA DMG、Core archive、WebUI archive、TypeScript/Python SDK、universal/platform VSIX 与 legacy wheel 共 9 个发布文件均以本切片源码重建，并分别完成运行、临时安装、解包、只读挂载、manifest、内嵌 Core、签名和 SHA-256 反向校验；legacy wheel 的 CLI/TUI 入口也从安装后成品验证通过。QA DMG 当前为 ad-hoc 签名，待用户提供 Apple 发布凭据后才能生成 Developer ID 签名和 notarized 正式包。
 
 ### 14.3 客户端与发布
 

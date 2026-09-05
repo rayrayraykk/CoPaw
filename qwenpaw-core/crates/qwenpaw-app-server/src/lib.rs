@@ -91,6 +91,7 @@ mod desktop_files;
 mod desktop_git;
 mod desktop_heartbeat;
 mod desktop_inbox;
+mod desktop_local_models;
 mod desktop_mail_access_control;
 mod desktop_mcp;
 mod desktop_model_remote;
@@ -105,6 +106,7 @@ mod desktop_tools;
 
 pub use desktop_credentials::DesktopCredentialStore;
 pub use desktop_credentials::SystemDesktopCredentialStore;
+pub use desktop_local_models::LocalModelDownloadSources;
 
 const OUTBOUND_CHANNEL_CAPACITY: usize = 128;
 const MAX_WEBSOCKET_MESSAGE_BYTES: usize = 1_048_576;
@@ -149,6 +151,7 @@ struct AppServerInner {
     desktop_skill_tasks: tokio::sync::RwLock<HashMap<String, desktop_skills::HubInstallTask>>,
     desktop_skill_cancellations: tokio::sync::RwLock<HashMap<String, CancellationToken>>,
     desktop_credentials: Option<Arc<dyn DesktopCredentialStore>>,
+    desktop_local_models: Option<desktop_local_models::LocalModelsState>,
     desktop_workspace: Option<DesktopWorkspace>,
     allowed_origins: Vec<String>,
     console_static_dir: Option<PathBuf>,
@@ -227,6 +230,7 @@ impl AppServer {
                 desktop_skill_tasks: tokio::sync::RwLock::new(HashMap::new()),
                 desktop_skill_cancellations: tokio::sync::RwLock::new(HashMap::new()),
                 desktop_credentials: None,
+                desktop_local_models: None,
                 desktop_workspace: None,
                 allowed_origins: allowed_origins_from_env(),
                 console_static_dir: None,
@@ -427,6 +431,9 @@ impl AppServer {
                 desktop_skill_tasks: tokio::sync::RwLock::new(HashMap::new()),
                 desktop_skill_cancellations: tokio::sync::RwLock::new(HashMap::new()),
                 desktop_credentials: Some(desktop_credentials),
+                desktop_local_models: Some(desktop_local_models::LocalModelsState::new(
+                    LocalModelDownloadSources::default(),
+                )?),
                 desktop_workspace: Some(desktop_workspace),
                 allowed_origins: allowed_origins_from_env(),
                 console_static_dir: Some(console_static_dir),
@@ -499,11 +506,18 @@ impl AppServer {
             "HTTP App Protocol requires a loopback listener"
         );
         let shutdown = self.inner.shutdown.clone();
+        if self.inner.desktop_local_models.is_some() {
+            let resume_server = self.clone();
+            tokio::spawn(async move {
+                desktop_local_models::resume(&resume_server).await;
+            });
+        }
         let heartbeat = self
             .inner
             .desktop_workspace
             .is_some()
             .then(|| desktop_heartbeat::spawn_scheduler(&self));
+        let cleanup_server = self.clone();
         let result = axum::serve(listener, self.router())
             .with_graceful_shutdown(shutdown.cancelled_owned())
             .await
@@ -512,7 +526,30 @@ impl AppServer {
             heartbeat.abort();
             let _ = heartbeat.await;
         }
+        desktop_local_models::shutdown(&cleanup_server).await;
         result
+    }
+
+    /// Overrides managed local-model download origins before the server is cloned.
+    ///
+    /// This is intended for isolated embedders and deterministic loopback tests.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for non-HTTPS origins other than loopback HTTP, invalid
+    /// release tags, non-Desktop servers, or an already-cloned server.
+    pub fn with_local_model_download_sources(
+        mut self,
+        sources: LocalModelDownloadSources,
+    ) -> anyhow::Result<Self> {
+        let inner = Arc::get_mut(&mut self.inner)
+            .context("local-model sources must be configured before cloning AppServer")?;
+        let state = inner
+            .desktop_local_models
+            .as_mut()
+            .context("local-model sources require Desktop mode")?;
+        state.replace_sources(sources)?;
+        Ok(self)
     }
 
     /// Enables bearer authentication for remote WSS handshakes.
@@ -604,6 +641,7 @@ impl AppServer {
                 .merge(desktop_inbox::router())
                 .merge(desktop_mail_access_control::router())
                 .merge(desktop_mcp::router())
+                .merge(desktop_local_models::router())
                 .merge(desktop_models::router())
                 .merge(desktop_navigation::router())
                 .merge(desktop_projects::router())

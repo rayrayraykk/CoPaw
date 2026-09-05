@@ -3,11 +3,11 @@
   "source": "console/src production TypeScript call sites",
   "callCount": 370,
   "unresolvedCount": 11,
-  "rustRouteCount": 322,
-  "registeredCallCount": 301,
+  "rustRouteCount": 334,
+  "registeredCallCount": 313,
   "placeholderCallCount": 4,
-  "nonPlaceholderRegisteredCallCount": 297,
-  "missingCallCount": 69,
+  "nonPlaceholderRegisteredCallCount": 309,
+  "missingCallCount": 57,
   "rustRoutes": [
     {
       "method": "POST",
@@ -967,6 +967,90 @@
       "handler": "put_local_model_config",
       "placeholder": false,
       "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_models.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/local-models/models",
+      "handler": "list_models",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_local_models.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/local-models/models/{*model_id}",
+      "handler": "delete_model",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_local_models.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/local-models/models/download",
+      "handler": "cancel_model_download",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_local_models.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/local-models/models/download",
+      "handler": "model_download_progress",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_local_models.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/local-models/models/download",
+      "handler": "start_model_download",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_local_models.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/local-models/server",
+      "handler": "stop_server",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_local_models.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/local-models/server",
+      "handler": "server_status",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_local_models.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/local-models/server",
+      "handler": "start_server",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_local_models.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/local-models/server/download",
+      "handler": "cancel_runtime_download",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_local_models.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/local-models/server/download",
+      "handler": "runtime_download_progress",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_local_models.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/local-models/server/download",
+      "handler": "start_runtime_download",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_local_models.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/local-models/server/update",
+      "handler": "server_update_status",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_local_models.rs"
     },
     {
       "method": "GET",
@@ -4350,7 +4434,7 @@
       "line": 14,
       "resolved": true,
       "apiPath": "/api/local-models/server",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -4362,7 +4446,7 @@
       "line": 17,
       "resolved": true,
       "apiPath": "/api/local-models/server/update",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -4374,7 +4458,7 @@
       "line": 20,
       "resolved": true,
       "apiPath": "/api/local-models/server/download",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -4386,7 +4470,7 @@
       "line": 25,
       "resolved": true,
       "apiPath": "/api/local-models/server/download",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -4398,7 +4482,7 @@
       "line": 28,
       "resolved": true,
       "apiPath": "/api/local-models/server/download",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -4410,7 +4494,7 @@
       "line": 33,
       "resolved": true,
       "apiPath": "/api/local-models/models",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -4422,7 +4506,7 @@
       "line": 36,
       "resolved": true,
       "apiPath": "/api/local-models/models/download",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -4434,7 +4518,7 @@
       "line": 42,
       "resolved": true,
       "apiPath": "/api/local-models/models/download",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -4446,7 +4530,7 @@
       "line": 45,
       "resolved": true,
       "apiPath": "/api/local-models/models/download",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -4458,7 +4542,7 @@
       "line": 50,
       "resolved": true,
       "apiPath": "/api/local-models/models/{modelId}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -4470,7 +4554,7 @@
       "line": 58,
       "resolved": true,
       "apiPath": "/api/local-models/server",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -4482,7 +4566,7 @@
       "line": 64,
       "resolved": true,
       "apiPath": "/api/local-models/server",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
