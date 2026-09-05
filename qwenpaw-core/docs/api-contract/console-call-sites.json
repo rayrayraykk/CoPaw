@@ -3,12 +3,40 @@
   "source": "console/src production TypeScript call sites",
   "callCount": 370,
   "unresolvedCount": 11,
-  "rustRouteCount": 311,
-  "registeredCallCount": 299,
+  "rustRouteCount": 322,
+  "registeredCallCount": 301,
   "placeholderCallCount": 4,
-  "nonPlaceholderRegisteredCallCount": 295,
-  "missingCallCount": 71,
+  "nonPlaceholderRegisteredCallCount": 297,
+  "missingCallCount": 69,
   "rustRoutes": [
+    {
+      "method": "POST",
+      "path": "/{protocol}/v1/chat/completions",
+      "handler": "mock_probe",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_model_remote.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/{protocol}/v1/messages",
+      "handler": "mock_probe",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_model_remote.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/{protocol}/v1/models",
+      "handler": "mock_models",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_model_remote.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/{protocol}/v1/responses",
+      "handler": "mock_probe",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_model_remote.rs"
+    },
     {
       "method": "ANY",
       "path": "/api",
@@ -1159,6 +1187,13 @@
     },
     {
       "method": "POST",
+      "path": "/api/models/{provider_id}/discover",
+      "handler": "discover_models",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_models.rs"
+    },
+    {
+      "method": "POST",
       "path": "/api/models/{provider_id}/models",
       "handler": "add_model",
       "placeholder": false,
@@ -1179,6 +1214,13 @@
       "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_models.rs"
     },
     {
+      "method": "POST",
+      "path": "/api/models/{provider_id}/models/{model_id}/probe-multimodal",
+      "handler": "probe_model_multimodal",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_models.rs"
+    },
+    {
       "method": "PUT",
       "path": "/api/models/{provider_id}/models/{model_id}/visibility",
       "handler": "set_model_visibility",
@@ -1189,6 +1231,13 @@
       "method": "POST",
       "path": "/api/models/{provider_id}/models/test",
       "handler": "test_model_connection",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_models.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/models/{provider_id}/test",
+      "handler": "test_provider_connection",
       "placeholder": false,
       "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_models.rs"
     },
@@ -2174,6 +2223,20 @@
     },
     {
       "method": "GET",
+      "path": "/invalid/v1/models",
+      "handler": "mock_invalid_json",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_model_remote.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/oversized/v1/models",
+      "handler": "mock_oversized",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_model_remote.rs"
+    },
+    {
+      "method": "GET",
       "path": "/readyz",
       "handler": "readyz",
       "placeholder": false,
@@ -2185,6 +2248,20 @@
       "handler": "readyz",
       "placeholder": false,
       "source": "qwenpaw-core/crates/qwenpaw-app-server/src/lib.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/redirect/v1/models",
+      "handler": "mock_redirect",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_model_remote.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/unauthorized/v1/models",
+      "handler": "mock_unauthorized",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_model_remote.rs"
     }
   ],
   "calls": [
@@ -5173,7 +5250,7 @@
       "line": 147,
       "resolved": true,
       "apiPath": "/api/models/{providerId}/test",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5209,7 +5286,7 @@
       "line": 181,
       "resolved": true,
       "apiPath": "/api/models/{providerId}/models/{modelId}/probe-multimodal",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {

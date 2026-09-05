@@ -93,6 +93,7 @@ mod desktop_heartbeat;
 mod desktop_inbox;
 mod desktop_mail_access_control;
 mod desktop_mcp;
+mod desktop_model_remote;
 mod desktop_models;
 mod desktop_navigation;
 mod desktop_projects;

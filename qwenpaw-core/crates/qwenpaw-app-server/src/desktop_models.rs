@@ -7,6 +7,7 @@ use std::path::PathBuf;
 
 use axum::Json;
 use axum::Router;
+use axum::body::Bytes;
 use axum::extract::Path;
 use axum::extract::Query;
 use axum::extract::State;
@@ -30,6 +31,7 @@ use serde_json::json;
 use super::AppServer;
 use super::DesktopCredentialStore;
 use super::DesktopWorkspace;
+use super::desktop_model_remote;
 
 const REGISTRY_SCHEMA_VERSION: u32 = 1;
 const DEFAULT_PROVIDER_ID: &str = "openai-compatible";
@@ -47,6 +49,44 @@ const MAX_JSON_STRING_BYTES: usize = 16 * 1024;
 const MODEL_SECRET_PREFIX: &str = "model-provider-api-key:";
 const MODEL_TEST_TIMEOUT_SECONDS: u64 = 5;
 const MODEL_TEST_ERROR_BODY_BYTES: usize = 16 * 1024;
+const BUILTIN_PROVIDERS_JSON: &str = include_str!("../assets/builtin_providers.json");
+const BUILTIN_PROVIDER_ORDER: &[&str] = &[
+    "qwenpaw-local",
+    "ollama",
+    "lmstudio",
+    "openrouter",
+    "github-models",
+    "modelscope",
+    "dashscope",
+    "aliyun-codingplan",
+    "aliyun-codingplan-intl",
+    "aliyun-tokenplan",
+    "aliyun-tokenplan-intl",
+    "opencode",
+    "kilo",
+    "openai",
+    "openai-response",
+    "azure-openai",
+    "anthropic",
+    "gemini",
+    "deepseek",
+    "kimi-cn",
+    "kimi-intl",
+    "kimi-codingplan",
+    "minimax-cn",
+    "minimax",
+    "zhipu-cn",
+    "zhipu-cn-codingplan",
+    "zhipu-intl",
+    "zhipu-intl-codingplan",
+    "siliconflow-cn",
+    "siliconflow-intl",
+    "volcengine-cn",
+    "volcengine-cn-codingplan",
+    "volcengine-cn-agentplan",
+    "mimo-tokenplan",
+    "mimo",
+];
 
 type ApiError = (StatusCode, Json<Value>);
 
@@ -267,6 +307,42 @@ struct TestModelRequest {
     model_id: String,
 }
 
+#[derive(Debug, Default, Deserialize)]
+struct TestProviderRequest {
+    #[serde(default)]
+    api_key: Option<String>,
+    #[serde(default)]
+    base_url: Option<String>,
+    #[serde(default)]
+    chat_model: Option<String>,
+    #[serde(default)]
+    generate_kwargs: Option<Value>,
+    #[serde(default)]
+    custom_headers: Option<BTreeMap<String, String>>,
+    #[serde(default)]
+    auth_mode: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct DiscoverModelsRequest {
+    #[serde(default)]
+    api_key: Option<String>,
+    #[serde(default)]
+    base_url: Option<String>,
+    #[serde(default)]
+    chat_model: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DiscoverModelsQuery {
+    #[serde(default = "default_true")]
+    save: bool,
+}
+
+const fn default_true() -> bool {
+    true
+}
+
 #[derive(Debug)]
 struct ModelConnectionResult {
     success: bool,
@@ -307,6 +383,11 @@ pub(super) fn router() -> Router<AppServer> {
             delete(delete_provider),
         )
         .route("/api/models/{provider_id}/config", put(configure_provider))
+        .route(
+            "/api/models/{provider_id}/test",
+            post(test_provider_connection),
+        )
+        .route("/api/models/{provider_id}/discover", post(discover_models))
         .route("/api/models/{provider_id}/models", post(add_model))
         .route(
             "/api/models/{provider_id}/models/test",
@@ -325,6 +406,10 @@ pub(super) fn router() -> Router<AppServer> {
             put(configure_model),
         )
         .route(
+            "/api/models/{provider_id}/models/{model_id}/probe-multimodal",
+            post(probe_model_multimodal),
+        )
+        .route(
             "/api/local-models/config",
             get(get_local_model_config).put(put_local_model_config),
         )
@@ -337,7 +422,12 @@ pub(super) fn initialize(
 ) -> anyhow::Result<()> {
     let path = registry_path(workspace);
     if path.exists() {
-        let registry = read_registry_from(workspace).map_err(|error| api_error_message(&error))?;
+        let mut registry =
+            read_registry_from(workspace).map_err(|error| api_error_message(&error))?;
+        if normalize_remote_capabilities(&mut registry) {
+            bump_registry(&mut registry);
+            write_registry_to(workspace, &registry).map_err(|error| api_error_message(&error))?;
+        }
         validate_registry(&registry).map_err(|error| api_error_message(&error))?;
         let provider = registry
             .providers
@@ -389,7 +479,7 @@ async fn create_provider(
     validate_provider_id(&body.id)?;
     validate_provider_name(&body.name)?;
     validate_base_url(&body.default_base_url)?;
-    validate_chat_model(&body.chat_model)?;
+    validate_custom_chat_model(&body.chat_model)?;
     validate_optional_short_text(&body.api_key_prefix, "API key prefix")?;
     if body.models.len() > MAX_MODELS_PER_PROVIDER {
         return Err(payload_too_large("Too many provider models"));
@@ -419,7 +509,8 @@ async fn create_provider(
         chat_model: body.chat_model,
         extra_models: models,
         is_custom: true,
-        support_connection_check: false,
+        support_model_discovery: true,
+        support_connection_check: true,
         ..ProviderRecord::default()
     };
     registry.providers.insert(body.id, record.clone());
@@ -534,7 +625,12 @@ async fn add_model(
     let _guard = server.inner.desktop_models_lock.lock().await;
     let mut registry = read_registry(&server)?;
     let provider = provider_mut(&mut registry, &provider_id)?;
-    if all_models(provider).any(|candidate| candidate.id == model.id) {
+    if provider
+        .models
+        .iter()
+        .chain(provider.extra_models.iter())
+        .any(|candidate| candidate.id == model.id)
+    {
         return Err(bad_request(&format!(
             "Model '{}' already exists in provider '{provider_id}'",
             model.id
@@ -548,6 +644,464 @@ async fn add_model(
     bump_registry(&mut registry);
     write_registry(&server, &registry)?;
     Ok((StatusCode::CREATED, Json(response)))
+}
+
+async fn test_provider_connection(
+    State(server): State<AppServer>,
+    Path(provider_id): Path<String>,
+    body: Bytes,
+) -> Result<Json<Value>, ApiError> {
+    let body = optional_json_body::<TestProviderRequest>(&body)?;
+    validate_test_provider_request(&body)?;
+    let provider = {
+        let _guard = server.inner.desktop_models_lock.lock().await;
+        read_registry(&server)?
+            .providers
+            .get(&provider_id)
+            .cloned()
+            .ok_or_else(|| not_found(&format!("Provider '{provider_id}' not found")))?
+    };
+    if !provider.support_connection_check {
+        return Err(bad_request("Provider connection testing is not supported"));
+    }
+    let stored_secret = load_provider_secret(&server, &provider_id).await?;
+    let secret = body
+        .api_key
+        .as_deref()
+        .map(str::trim)
+        .map(str::to_owned)
+        .or(stored_secret)
+        .filter(|secret| !secret.is_empty());
+    let remote = remote_provider(&provider, &body, secret);
+    let fallback_model = provider
+        .models
+        .first()
+        .or_else(|| provider.extra_models.first())
+        .map_or("", |model| model.id.as_str());
+    let result = desktop_model_remote::test_provider(&remote, fallback_model).await;
+    Ok(Json(json!({
+        "success": result.success,
+        "message": result.message,
+        "status": result.status,
+        "http_status": result.http_status,
+        "retryable": result.retryable,
+        "checked_at": Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
+        "verification": "provider_only"
+    })))
+}
+
+async fn discover_models(
+    State(server): State<AppServer>,
+    Path(provider_id): Path<String>,
+    Query(query): Query<DiscoverModelsQuery>,
+    body: Bytes,
+) -> Result<Json<Value>, ApiError> {
+    let body = optional_json_body::<DiscoverModelsRequest>(&body)?;
+    validate_discovery_request(&body)?;
+    let (provider, revision) = {
+        let _guard = server.inner.desktop_models_lock.lock().await;
+        let registry = read_registry(&server)?;
+        let provider = registry
+            .providers
+            .get(&provider_id)
+            .cloned()
+            .ok_or_else(|| not_found(&format!("Provider '{provider_id}' not found")))?;
+        (provider, registry.revision)
+    };
+    if !provider.support_model_discovery {
+        return Err(bad_request("Provider model discovery is not supported"));
+    }
+    let previous_secret = load_provider_secret(&server, &provider_id).await?;
+    let secret = body
+        .api_key
+        .as_deref()
+        .map(str::trim)
+        .map(str::to_owned)
+        .or_else(|| previous_secret.clone())
+        .filter(|secret| !secret.is_empty());
+    let mut request_provider = provider.clone();
+    if let Some(base_url) = &body.base_url {
+        request_provider.base_url = base_url.trim().to_owned();
+    }
+    if let Some(chat_model) = &body.chat_model {
+        request_provider.chat_model.clone_from(chat_model);
+    }
+    let remote = remote_provider(
+        &request_provider,
+        &TestProviderRequest::default(),
+        secret.clone(),
+    );
+    let discovered = match desktop_model_remote::discover_models(&remote).await {
+        Ok(models) if !models.is_empty() => models,
+        Ok(_) => {
+            let failure = desktop_model_remote::RemoteFailure {
+                message: String::from("Provider returned no models"),
+                error_kind: "incompatible_api",
+                http_status: Some(200),
+                retryable: false,
+            };
+            if query.save {
+                record_discovery_failure(&server, &provider_id, revision, &failure.message).await?;
+            }
+            return Ok(Json(discovery_failure_response(&provider, &failure)?));
+        }
+        Err(failure) => {
+            if query.save {
+                record_discovery_failure(&server, &provider_id, revision, &failure.message).await?;
+            }
+            return Ok(Json(discovery_failure_response(&provider, &failure)?));
+        }
+    };
+    let synced_at = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
+    let previous_ids = provider
+        .discovered_models
+        .iter()
+        .map(|model| model.id.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    let discovered_count = discovered
+        .iter()
+        .filter(|model| !previous_ids.contains(model.id.as_str()))
+        .count();
+    let mut records = discovered
+        .into_iter()
+        .map(|model| discovered_model_record(model, &synced_at))
+        .collect::<Vec<_>>();
+    preserve_discovered_state(&provider.discovered_models, &mut records);
+    if query.save {
+        persist_discovery(
+            &server,
+            &provider_id,
+            revision,
+            &body,
+            previous_secret.as_deref(),
+            secret.as_deref(),
+            &records,
+            &synced_at,
+        )
+        .await?;
+    }
+    Ok(Json(json!({
+        "success": true,
+        "models": records,
+        "discovered_count": discovered_count,
+        "last_synced_at": synced_at,
+        "used_static_fallback": false,
+        "message": "",
+        "error_kind": null
+    })))
+}
+
+async fn probe_model_multimodal(
+    State(server): State<AppServer>,
+    Path((provider_id, model_id)): Path<(String, String)>,
+) -> Result<Json<Value>, ApiError> {
+    validate_model_id(&model_id)?;
+    let (provider, revision) = {
+        let _guard = server.inner.desktop_models_lock.lock().await;
+        let registry = read_registry(&server)?;
+        let provider = registry
+            .providers
+            .get(&provider_id)
+            .cloned()
+            .ok_or_else(|| not_found(&format!("Provider '{provider_id}' not found")))?;
+        if !all_models(&provider).any(|model| model.id == model_id) {
+            return Err(not_found(&format!(
+                "Model '{model_id}' not found in provider '{provider_id}'"
+            )));
+        }
+        (provider, registry.revision)
+    };
+    let secret = load_provider_secret(&server, &provider_id).await?;
+    let remote = remote_provider(&provider, &TestProviderRequest::default(), secret);
+    let result = desktop_model_remote::probe_multimodal(&remote, &model_id).await;
+    let _guard = server.inner.desktop_models_lock.lock().await;
+    let mut registry = read_registry(&server)?;
+    if registry.revision != revision {
+        return Err(conflict("Model configuration changed while probing"));
+    }
+    let provider = provider_mut(&mut registry, &provider_id)?;
+    for model in all_models_mut(provider).filter(|model| model.id == model_id) {
+        model.supports_image = Some(result.supports_image);
+        model.supports_video = Some(result.supports_video);
+        model.supports_multimodal = Some(result.supports_image || result.supports_video);
+        model.probe_source = Some(String::from("probed"));
+    }
+    bump_registry(&mut registry);
+    write_registry(&server, &registry)?;
+    Ok(Json(json!({
+        "supports_image": result.supports_image,
+        "supports_video": result.supports_video,
+        "supports_multimodal": result.supports_image || result.supports_video,
+        "image_message": result.image_message,
+        "video_message": result.video_message
+    })))
+}
+
+fn validate_test_provider_request(body: &TestProviderRequest) -> Result<(), ApiError> {
+    if let Some(api_key) = &body.api_key {
+        validate_api_key(api_key)?;
+    }
+    if let Some(base_url) = &body.base_url {
+        validate_base_url(base_url)?;
+    }
+    if let Some(chat_model) = &body.chat_model {
+        validate_chat_model(chat_model)?;
+    }
+    if let Some(generate_kwargs) = &body.generate_kwargs {
+        validate_json_object(generate_kwargs, "generate_kwargs")?;
+    }
+    if let Some(headers) = &body.custom_headers {
+        validate_headers(
+            &serde_json::to_value(headers)
+                .map_err(|_| bad_request("custom_headers must be an object"))?,
+        )?;
+    }
+    if let Some(auth_mode) = &body.auth_mode
+        && !matches!(auth_mode.as_str(), "api_key" | "auth_token")
+    {
+        return Err(bad_request("auth_mode must be api_key or auth_token"));
+    }
+    Ok(())
+}
+
+fn optional_json_body<T>(body: &[u8]) -> Result<T, ApiError>
+where
+    T: Default + serde::de::DeserializeOwned,
+{
+    if body.iter().all(u8::is_ascii_whitespace) {
+        return Ok(T::default());
+    }
+    serde_json::from_slice(body).map_err(|_| bad_request("Request body must be valid JSON"))
+}
+
+fn validate_discovery_request(body: &DiscoverModelsRequest) -> Result<(), ApiError> {
+    if let Some(api_key) = &body.api_key {
+        validate_api_key(api_key)?;
+    }
+    if let Some(base_url) = &body.base_url {
+        validate_base_url(base_url)?;
+    }
+    if let Some(chat_model) = &body.chat_model {
+        validate_chat_model(chat_model)?;
+    }
+    Ok(())
+}
+
+fn remote_provider(
+    provider: &ProviderRecord,
+    body: &TestProviderRequest,
+    secret: Option<String>,
+) -> desktop_model_remote::RemoteProvider {
+    desktop_model_remote::RemoteProvider {
+        base_url: body
+            .base_url
+            .as_deref()
+            .unwrap_or(&provider.base_url)
+            .trim()
+            .to_owned(),
+        chat_model: body
+            .chat_model
+            .clone()
+            .unwrap_or_else(|| provider.chat_model.clone()),
+        custom_headers: body
+            .custom_headers
+            .as_ref()
+            .unwrap_or(&provider.custom_headers)
+            .iter()
+            .map(|(name, value)| (name.clone(), value.clone()))
+            .collect(),
+        auth_mode: body
+            .auth_mode
+            .clone()
+            .unwrap_or_else(|| provider.auth_mode.clone()),
+        secret,
+    }
+}
+
+fn discovered_model_record(
+    model: desktop_model_remote::DiscoveredModel,
+    synced_at: &str,
+) -> ModelRecord {
+    ModelRecord {
+        id: model.id,
+        name: model.name,
+        source: String::from("discovered"),
+        discovery_origin: Some(String::from("api")),
+        max_input_length: model.max_input_length.unwrap_or(128_000),
+        max_input_length_auto_detected: model.max_input_length,
+        max_output_length: model.max_output_length,
+        max_output_length_source: if model.max_output_length.is_some() {
+            String::from("api")
+        } else {
+            String::from("unknown")
+        },
+        max_output_length_updated_at: model
+            .max_output_length
+            .is_some()
+            .then(|| synced_at.to_owned()),
+        ..ModelRecord::default()
+    }
+}
+
+fn preserve_discovered_state(previous: &[ModelRecord], current: &mut [ModelRecord]) {
+    for model in current {
+        let Some(old) = previous.iter().find(|candidate| candidate.id == model.id) else {
+            continue;
+        };
+        model.supports_multimodal = old.supports_multimodal;
+        model.supports_image = old.supports_image;
+        model.supports_video = old.supports_video;
+        model.probe_source.clone_from(&old.probe_source);
+        model
+            .availability_status
+            .clone_from(&old.availability_status);
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn persist_discovery(
+    server: &AppServer,
+    provider_id: &str,
+    expected_revision: u64,
+    body: &DiscoverModelsRequest,
+    previous_secret: Option<&str>,
+    request_secret: Option<&str>,
+    records: &[ModelRecord],
+    synced_at: &str,
+) -> Result<(), ApiError> {
+    let _guard = server.inner.desktop_models_lock.lock().await;
+    let mut registry = read_registry(server)?;
+    if registry.revision != expected_revision {
+        return Err(conflict("Model discovery was superseded by a newer update"));
+    }
+    let previous_registry = registry.clone();
+    let provider = provider_mut(&mut registry, provider_id)?;
+    if let Some(base_url) = &body.base_url {
+        base_url.trim().clone_into(&mut provider.base_url);
+    }
+    if let Some(chat_model) = &body.chat_model {
+        provider.chat_model.clone_from(chat_model);
+    }
+    if body.api_key.is_some() {
+        provider.api_key_configured = request_secret.is_some();
+    }
+    provider.discovered_models = records.to_vec();
+    provider.models_last_synced_at = Some(synced_at.to_owned());
+    provider.models_last_sync_error = None;
+    provider.models_syncing = false;
+    apply_discovered_metadata(provider, records);
+    bump_registry(&mut registry);
+
+    if body.api_key.is_some() {
+        save_provider_secret(server, provider_id, request_secret).await?;
+    }
+    if let Err(error) = write_registry(server, &registry) {
+        if body.api_key.is_some() {
+            let _ = save_provider_secret(server, provider_id, previous_secret).await;
+        }
+        return Err(error);
+    }
+    if registry.active_provider_id == provider_id
+        && let Err(error) = apply_active_provider(server, &registry).await
+    {
+        let _ = write_registry(server, &previous_registry);
+        if body.api_key.is_some() {
+            let _ = save_provider_secret(server, provider_id, previous_secret).await;
+        }
+        return Err(error);
+    }
+    Ok(())
+}
+
+fn apply_discovered_metadata(provider: &mut ProviderRecord, records: &[ModelRecord]) {
+    for configured in provider
+        .models
+        .iter_mut()
+        .chain(provider.extra_models.iter_mut())
+    {
+        let Some(discovered) = records.iter().find(|model| model.id == configured.id) else {
+            continue;
+        };
+        configured.max_input_length_auto_detected = discovered.max_input_length_auto_detected;
+        if !configured.max_input_length_configured
+            && let Some(max_input_length) = discovered.max_input_length_auto_detected
+        {
+            configured.max_input_length = max_input_length;
+        }
+        if discovered.max_output_length.is_some() && configured.max_output_length_source != "user" {
+            configured.max_output_length = discovered.max_output_length;
+            configured
+                .max_output_length_source
+                .clone_from(&discovered.max_output_length_source);
+            configured
+                .max_output_length_updated_at
+                .clone_from(&discovered.max_output_length_updated_at);
+        }
+    }
+}
+
+async fn record_discovery_failure(
+    server: &AppServer,
+    provider_id: &str,
+    expected_revision: u64,
+    message: &str,
+) -> Result<(), ApiError> {
+    let _guard = server.inner.desktop_models_lock.lock().await;
+    let mut registry = read_registry(server)?;
+    if registry.revision != expected_revision {
+        return Err(conflict("Model discovery was superseded by a newer update"));
+    }
+    let provider = provider_mut(&mut registry, provider_id)?;
+    provider.models_last_sync_error = Some(message.to_owned());
+    provider.models_syncing = false;
+    bump_registry(&mut registry);
+    write_registry(server, &registry)
+}
+
+fn discovery_failure_response(
+    provider: &ProviderRecord,
+    failure: &desktop_model_remote::RemoteFailure,
+) -> Result<Value, ApiError> {
+    Ok(json!({
+        "success": false,
+        "models": serde_json::to_value(&provider.discovered_models)
+            .map_err(|_| internal("Discovered models could not be encoded"))?,
+        "discovered_count": 0,
+        "last_synced_at": provider.models_last_synced_at,
+        "used_static_fallback": true,
+        "message": failure.message,
+        "error_kind": discovery_error_kind(failure)
+    }))
+}
+
+fn discovery_error_kind(failure: &desktop_model_remote::RemoteFailure) -> &'static str {
+    match failure.error_kind {
+        "permission_denied" if failure.http_status == Some(401) => "authentication",
+        "permission_denied" => "authorization",
+        "incompatible_api" => "invalid_response",
+        "transient_error" if failure.http_status.is_none() => "network",
+        "model_not_found" => "unsupported",
+        _ => "provider_unavailable",
+    }
+}
+
+fn normalize_remote_capabilities(registry: &mut ProviderRegistry) -> bool {
+    let mut changed = false;
+    for provider in registry
+        .providers
+        .values_mut()
+        .filter(|provider| provider.is_custom || provider.id == DEFAULT_PROVIDER_ID)
+    {
+        if !provider.support_model_discovery {
+            provider.support_model_discovery = true;
+            changed = true;
+        }
+        if !provider.support_connection_check {
+            provider.support_connection_check = true;
+            changed = true;
+        }
+    }
+    changed
 }
 
 async fn test_model_connection(
@@ -571,13 +1125,11 @@ async fn test_model_connection(
         let _guard = server.inner.desktop_models_lock.lock().await;
         let mut registry = read_registry(&server)?;
         let provider = provider_mut(&mut registry, &provider_id)?;
-        let updated =
-            if let Some(model) = all_models_mut(provider).find(|model| model.id == body.model_id) {
-                model.availability_status = String::from(result.status);
-                true
-            } else {
-                false
-            };
+        let mut updated = false;
+        for model in all_models_mut(provider).filter(|model| model.id == body.model_id) {
+            model.availability_status = String::from(result.status);
+            updated = true;
+        }
         if updated {
             bump_registry(&mut registry);
             write_registry(&server, &registry)?;
@@ -619,7 +1171,7 @@ async fn check_model_connection(
             );
         }
     };
-    let url = match model_endpoint(&provider.base_url, endpoint) {
+    let url = match model_endpoint(&provider.base_url, &provider.chat_model, endpoint) {
         Ok(url) => url,
         Err(message) => {
             return failed_model_connection("transient_error", None, true, &message, checked_at);
@@ -690,11 +1242,18 @@ async fn check_model_connection(
     )
 }
 
-fn model_endpoint(base_url: &str, endpoint: &str) -> Result<url::Url, String> {
+fn model_endpoint(base_url: &str, chat_model: &str, endpoint: &str) -> Result<url::Url, String> {
     let base_url = base_url.trim();
     if base_url.is_empty() {
         return Err(String::from("Provider Base URL is empty"));
     }
+    let has_v1_suffix = url::Url::parse(base_url)
+        .is_ok_and(|url| url.path().trim_end_matches('/').ends_with("/v1"));
+    let endpoint = if chat_model == "AnthropicChatModel" && !has_v1_suffix {
+        format!("v1/{endpoint}")
+    } else {
+        endpoint.to_owned()
+    };
     url::Url::parse(&format!("{}/{endpoint}", base_url.trim_end_matches('/')))
         .map_err(|error| format!("Provider Base URL is invalid: {error}"))
 }
@@ -1041,6 +1600,8 @@ fn default_registry(model: &str, base_url: &str, api_key_configured: bool) -> Pr
         name: String::from("OpenAI Compatible"),
         base_url: base_url.to_owned(),
         api_key_configured,
+        support_model_discovery: true,
+        support_connection_check: true,
         models: vec![ModelRecord {
             id: model.to_owned(),
             name: model.to_owned(),
@@ -1049,18 +1610,41 @@ fn default_registry(model: &str, base_url: &str, api_key_configured: bool) -> Pr
         }],
         ..ProviderRecord::default()
     };
+    let mut providers = embedded_builtin_providers();
+    providers.insert(String::from(DEFAULT_PROVIDER_ID), default_provider);
     ProviderRegistry {
         schema_version: REGISTRY_SCHEMA_VERSION,
         revision: 0,
         active_provider_id: String::from(DEFAULT_PROVIDER_ID),
-        providers: BTreeMap::from([(String::from(DEFAULT_PROVIDER_ID), default_provider)]),
+        providers,
         local_model: LocalModelConfig::default(),
         local_generate_kwargs: Map::new(),
     }
 }
 
+fn embedded_builtin_providers() -> BTreeMap<String, ProviderRecord> {
+    serde_json::from_str::<Vec<ProviderRecord>>(BUILTIN_PROVIDERS_JSON)
+        .expect("embedded provider catalog should be valid")
+        .into_iter()
+        .map(|provider| (provider.id.clone(), provider))
+        .collect()
+}
+
 fn provider_responses(registry: &ProviderRegistry) -> Result<Vec<Value>, ApiError> {
-    registry.providers.values().map(provider_response).collect()
+    let mut responses = Vec::with_capacity(registry.providers.len());
+    for provider_id in BUILTIN_PROVIDER_ORDER {
+        if let Some(provider) = registry.providers.get(*provider_id) {
+            responses.push(provider_response(provider)?);
+        }
+    }
+    for provider in registry
+        .providers
+        .values()
+        .filter(|provider| !BUILTIN_PROVIDER_ORDER.contains(&provider.id.as_str()))
+    {
+        responses.push(provider_response(provider)?);
+    }
+    Ok(responses)
 }
 
 fn provider_response(provider: &ProviderRecord) -> Result<Value, ApiError> {
@@ -1356,7 +1940,11 @@ fn validate_registry(registry: &ProviderRegistry) -> Result<(), ApiError> {
 fn validate_provider(provider: &ProviderRecord) -> Result<(), ApiError> {
     validate_provider_name(&provider.name)?;
     validate_base_url(&provider.base_url)?;
-    validate_chat_model(&provider.chat_model)?;
+    if provider.is_custom {
+        validate_custom_chat_model(&provider.chat_model)?;
+    } else {
+        validate_chat_model(&provider.chat_model)?;
+    }
     validate_headers(
         &serde_json::to_value(&provider.custom_headers)
             .map_err(|_| internal("Model provider headers could not be encoded"))?,
@@ -1368,7 +1956,10 @@ fn validate_provider(provider: &ProviderRecord) -> Result<(), ApiError> {
     for model in all_models(provider) {
         validate_model(model)?;
     }
-    ensure_unique_model_ids(all_models(provider))?;
+    ensure_unique_models(&provider.models)?;
+    ensure_unique_models(&provider.extra_models)?;
+    ensure_unique_models(&provider.discovered_models)?;
+    ensure_unique_model_ids(provider.models.iter().chain(provider.extra_models.iter()))?;
     Ok(())
 }
 
@@ -1441,6 +2032,23 @@ fn validate_optional_short_text(value: &str, field: &str) -> Result<(), ApiError
 }
 
 fn validate_chat_model(value: &str) -> Result<(), ApiError> {
+    if matches!(
+        value,
+        "OpenAIChatModel"
+            | "OpenAIResponseModel"
+            | "AnthropicChatModel"
+            | "DashScopeChatModel"
+            | "GeminiChatModel"
+    ) {
+        Ok(())
+    } else {
+        Err(bad_request(&format!(
+            "Unsupported custom protocol: {value}"
+        )))
+    }
+}
+
+fn validate_custom_chat_model(value: &str) -> Result<(), ApiError> {
     if matches!(
         value,
         "OpenAIChatModel" | "OpenAIResponseModel" | "AnthropicChatModel"
@@ -1788,6 +2396,10 @@ fn bad_request(detail: &str) -> ApiError {
     (StatusCode::BAD_REQUEST, Json(json!({"detail": detail})))
 }
 
+fn conflict(detail: &str) -> ApiError {
+    (StatusCode::CONFLICT, Json(json!({"detail": detail})))
+}
+
 fn not_found(detail: &str) -> ApiError {
     (StatusCode::NOT_FOUND, Json(json!({"detail": detail})))
 }
@@ -1829,12 +2441,19 @@ mod tests {
     #[test]
     fn default_registry_contains_real_core_model_without_a_secret() {
         let registry = default_registry("model-a", "https://example.test/v1", true);
+        assert_eq!(registry.providers.len(), 36);
+        validate_registry(&registry).expect("embedded provider registry should be valid");
         let provider = &registry.providers[DEFAULT_PROVIDER_ID];
         assert_eq!(provider.id, DEFAULT_PROVIDER_ID);
         assert_eq!(provider.models[0].id, "model-a");
         let response = provider_response(provider).expect("provider should encode");
         assert_eq!(response["api_key"], "********");
         assert!(response.get("api_key_configured").is_none());
+        let responses = provider_responses(&registry).expect("providers should encode");
+        assert_eq!(responses[0]["id"], "qwenpaw-local");
+        assert_eq!(responses[13]["id"], "openai");
+        assert_eq!(responses[13]["models"].as_array().map(Vec::len), Some(11));
+        assert_eq!(responses[35]["id"], DEFAULT_PROVIDER_ID);
     }
 
     #[test]

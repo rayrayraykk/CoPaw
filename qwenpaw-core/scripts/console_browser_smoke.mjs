@@ -219,7 +219,9 @@ async function clickAgentRowAction(client, agentId, actionIndex) {
     })()`,
   );
   if (!clicked) {
-    throw new Error(`Agent row action ${actionIndex} did not render: ${agentId}`);
+    throw new Error(
+      `Agent row action ${actionIndex} did not render: ${agentId}`,
+    );
   }
 }
 
@@ -651,10 +653,35 @@ async function runAcpCrudScenario(client) {
 
 async function startModelApiMock() {
   const requests = [];
+  let discoveryEnabled = false;
   const server = createServer((request, response) => {
     const chunks = [];
     request.on("data", (chunk) => chunks.push(chunk));
     request.on("end", () => {
+      if (request.method === "GET" && request.url?.startsWith("/v1/models")) {
+        requests.push({
+          method: request.method,
+          path: request.url,
+          body: null,
+        });
+        response.writeHead(200, { "Content-Type": "application/json" });
+        response.end(
+          JSON.stringify({
+            data: discoveryEnabled
+              ? [
+                  {
+                    id: "browser/discovered",
+                    name: "Browser Discovered",
+                    context_length: 131072,
+                    max_output_tokens: 4096,
+                  },
+                ]
+              : [],
+            has_more: false,
+          }),
+        );
+        return;
+      }
       let body;
       try {
         body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
@@ -664,11 +691,17 @@ async function startModelApiMock() {
         return;
       }
       requests.push({ method: request.method, path: request.url, body });
+      const encoded = JSON.stringify(body);
+      const content = encoded.includes("image_url")
+        ? "red"
+        : encoded.includes("video_url")
+        ? "blue"
+        : "pong";
       response.writeHead(200, { "Content-Type": "application/json" });
       response.end(
         JSON.stringify({
           id: "browser-model-response",
-          choices: [{ message: { role: "assistant", content: "pong" } }],
+          choices: [{ message: { role: "assistant", content } }],
         }),
       );
     });
@@ -685,6 +718,9 @@ async function startModelApiMock() {
   return {
     baseUrl: `http://127.0.0.1:${address.port}/v1`,
     requests,
+    enableDiscovery: () => {
+      discoveryEnabled = true;
+    },
     close: () => new Promise((resolve) => server.close(resolve)),
   };
 }
@@ -696,11 +732,14 @@ async function clickModelsTab(client, prefix) {
       const visible = (element) => Boolean(
         element.offsetWidth || element.offsetHeight || element.getClientRects().length
       );
-      const tab = [...document.querySelectorAll("div")].find((item) => {
-        const text = (item.innerText ?? "").trim();
-        return visible(item) && text.startsWith(${JSON.stringify(prefix)}) &&
-          !text.includes("\\n") && text.length < 80;
-      });
+      const tab = [...document.querySelectorAll("div")]
+        .filter((item) => {
+          const text = (item.innerText ?? "").trim();
+          return visible(item) && text.includes(${JSON.stringify(prefix)});
+        })
+        .sort((left, right) =>
+          (left.innerText ?? "").length - (right.innerText ?? "").length
+        )[0];
       tab?.click();
       return Boolean(tab);
     })()`,
@@ -729,7 +768,9 @@ async function clickProviderCardAction(client, providerName, action) {
     })()`,
   );
   if (!clicked) {
-    throw new Error(`Provider action did not render: ${providerName} / ${action}`);
+    throw new Error(
+      `Provider action did not render: ${providerName} / ${action}`,
+    );
   }
 }
 
@@ -837,6 +878,7 @@ async function runModelsCrudScenario(client) {
       if (!removed) throw new Error("Models smoke cleanup failed");
     }
 
+    await clickModelsTab(client, "Local & Custom");
     await clickButton(client, "Add Provider");
     await waitForValue(
       client,
@@ -871,7 +913,10 @@ async function runModelsCrudScenario(client) {
       "Provider created through the original modal did not persist",
     );
 
+    await client.send("Page.reload");
+    await delay(1_500);
     await clickModelsTab(client, "Local & Custom");
+
     await waitForValue(
       client,
       `document.body.innerText.includes(${JSON.stringify(providerName)})`,
@@ -908,7 +953,9 @@ async function runModelsCrudScenario(client) {
       })()`,
     );
     if (!addModelForm.rendered) {
-      throw new Error(`Add Model form did not render: ${JSON.stringify(addModelForm)}`);
+      throw new Error(
+        `Add Model form did not render: ${JSON.stringify(addModelForm)}`,
+      );
     }
     await setModelIdInput(client, modelId);
     await setInputByPlaceholder(
@@ -929,12 +976,10 @@ async function runModelsCrudScenario(client) {
       )`,
       "Model tested and added through the original modal did not persist",
     );
-    if (
-      mock.requests.length !== 1 ||
-      mock.requests[0].method !== "POST" ||
-      mock.requests[0].path !== "/v1/chat/completions" ||
-      mock.requests[0].body.model !== modelId
-    ) {
+    const liveProbe = mock.requests.find(
+      (request) => request.method === "POST" && request.body?.model === modelId,
+    );
+    if (!liveProbe || liveProbe.path !== "/v1/chat/completions") {
       throw new Error(
         `Original Add Model flow did not issue the expected live probe: ${JSON.stringify(
           mock.requests,
@@ -976,6 +1021,55 @@ async function runModelsCrudScenario(client) {
       "Model removal through the original modal did not persist",
     );
 
+    mock.enableDiscovery();
+    await clickButton(client, "Auto Discover Models");
+    await waitForValue(
+      client,
+      `fetch("/api/models").then((response) => response.json()).then(
+        (providers) => providers.find((provider) =>
+          provider.id === ${JSON.stringify(providerId)}
+        )?.discovered_models.some((model) =>
+          model.id === "browser/discovered" &&
+          model.max_input_length === 131072
+        )
+      )`,
+      "Remote model discovery through the original modal did not persist",
+    );
+    await clickButton(client, "Add Model");
+    await setModelIdInput(client, "browser/discovered");
+    await setInputByPlaceholder(
+      client,
+      "e.g. GPT-4o, Gemini 2.0 Flash",
+      "Browser Discovered",
+    );
+    await clickButton(client, "Add Model");
+    await waitForValue(
+      client,
+      `fetch("/api/models").then((response) => response.json()).then(
+        (providers) => providers.find((provider) =>
+          provider.id === ${JSON.stringify(providerId)}
+        )?.extra_models.some((model) => model.id === "browser/discovered")
+      )`,
+      "Discovered candidate added through the original modal did not persist",
+    );
+    await clickModelRowAction(client, "browser/discovered", "Test Multimodal");
+    await waitForValue(
+      client,
+      `fetch("/api/models").then((response) => response.json()).then(
+        (providers) => providers.find((provider) =>
+          provider.id === ${JSON.stringify(providerId)}
+        )?.extra_models.find((model) =>
+          model.id === "browser/discovered"
+        )?.supports_image === true &&
+        providers.find((provider) =>
+          provider.id === ${JSON.stringify(providerId)}
+        )?.extra_models.find((model) =>
+          model.id === "browser/discovered"
+        )?.supports_video === true
+      )`,
+      "Multimodal probe through the original modal did not persist",
+    );
+
     await client.send("Input.dispatchKeyEvent", {
       type: "keyDown",
       key: "Escape",
@@ -986,6 +1080,45 @@ async function runModelsCrudScenario(client) {
       key: "Escape",
       code: "Escape",
     });
+    await evaluateValue(client, `location.assign("/chat")`);
+    await waitForValue(
+      client,
+      `Boolean(document.querySelector('button[aria-label="Select model"]'))`,
+      "Chat Model Selector did not render",
+    );
+    const selectorOpened = await evaluateValue(
+      client,
+      `(() => {
+        const button = document.querySelector('button[aria-label="Select model"]');
+        button?.click();
+        return Boolean(button);
+      })()`,
+    );
+    if (!selectorOpened) throw new Error("Chat Model Selector did not open");
+    await setInputByPlaceholder(
+      client,
+      "Search models...",
+      "Browser Discovered",
+    );
+    await clickButton(client, "Browser Discovered");
+    await waitForValue(
+      client,
+      `fetch("/api/models/active?scope=agent&agent_id=default")
+        .then((response) => response.json())
+        .then((active) =>
+          active.active_llm?.provider_id === ${JSON.stringify(providerId)} &&
+          active.active_llm?.model === "browser/discovered"
+        )`,
+      "Chat Model Selector did not persist the Agent-scoped model",
+    );
+
+    await evaluateValue(client, `location.assign("/models")`);
+    await waitForValue(
+      client,
+      `document.body.innerText.includes("Cloud Providers")`,
+      "Models page did not render after Chat model selection",
+    );
+    await clickModelsTab(client, "Local & Custom");
     await delay(300);
     await clickProviderCardAction(client, providerName, "Delete");
     await waitForValue(
@@ -1008,10 +1141,14 @@ async function runModelsCrudScenario(client) {
 
     return {
       providerCreatedThroughOriginalModal: true,
-      modelLiveProbePath: mock.requests[0].path,
+      modelLiveProbePath: liveProbe.path,
       modelAddedThroughOriginalModal: true,
       modelConfiguredThroughOriginalEditor: true,
       modelRemovedThroughOriginalModal: true,
+      modelsDiscoveredThroughOriginalModal: true,
+      discoveredCandidateAddedThroughOriginalModal: true,
+      multimodalProbePersistedThroughOriginalModal: true,
+      agentModelSelectedThroughOriginalChatSelector: true,
       providerDeletedThroughOriginalCard: true,
     };
   } finally {

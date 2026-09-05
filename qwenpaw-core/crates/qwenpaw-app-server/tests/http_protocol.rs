@@ -7707,7 +7707,8 @@ async fn persists_provider_model_crud_local_settings_and_scoped_selection() {
     assert_eq!(created["id"], json!("acme"));
     assert_eq!(created["name"], json!("Acme Models"));
     assert_eq!(created["is_custom"], json!(true));
-    assert_eq!(created["support_connection_check"], json!(false));
+    assert_eq!(created["support_connection_check"], json!(true));
+    assert_eq!(created["support_model_discovery"], json!(true));
     assert_eq!(created["api_key"], json!(""));
     assert_eq!(created["models"], json!([]));
     assert_eq!(created["extra_models"], json!([]));
@@ -8066,8 +8067,12 @@ async fn persists_provider_model_crud_local_settings_and_scoped_selection() {
         .json::<Value>()
         .await
         .expect("custom provider deletion should be JSON");
-    assert_eq!(deleted.as_array().map(Vec::len), Some(1));
-    assert_eq!(deleted[0]["id"], json!("openai-compatible"));
+    assert_eq!(deleted.as_array().map(Vec::len), Some(36));
+    assert!(
+        deleted
+            .as_array()
+            .is_some_and(|providers| providers.iter().all(|provider| provider["id"] != "acme"))
+    );
     assert_eq!(
         credentials
             .load_agent_setting_secret("model-provider-api-key:acme")
@@ -8076,6 +8081,259 @@ async fn persists_provider_model_crud_local_settings_and_scoped_selection() {
     );
     reopened_task.abort();
     model_task.abort();
+}
+
+#[tokio::test]
+#[allow(clippy::too_many_lines)]
+async fn discovers_persists_and_probes_remote_models_through_console_contract() {
+    let console = tempfile::tempdir().expect("temporary Console should be created");
+    let desktop_data = tempfile::tempdir().expect("temporary Desktop data should be created");
+    std::fs::write(console.path().join("index.html"), "<html>console</html>")
+        .expect("Console index should be written");
+
+    let remote_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("remote model mock should bind");
+    let remote_address = remote_listener
+        .local_addr()
+        .expect("remote model mock should have an address");
+    let models = |axum::extract::Query(query): axum::extract::Query<BTreeMap<String, String>>,
+                  headers: axum::http::HeaderMap| async move {
+        assert_eq!(
+            headers
+                .get(axum::http::header::AUTHORIZATION)
+                .and_then(|value| value.to_str().ok()),
+            Some("Bearer discovery-secret")
+        );
+        assert_eq!(
+            headers
+                .get("x-tenant")
+                .and_then(|value| value.to_str().ok()),
+            Some("team-a")
+        );
+        if query.contains_key("after") {
+            axum::Json(json!({
+                "data": [
+                    {"id": "vision-model"},
+                    {
+                        "id": "text-model",
+                        "display_name": "Text Model",
+                        "max_model_len": 64000
+                    }
+                ],
+                "has_more": false
+            }))
+        } else {
+            axum::Json(json!({
+                "data": [{
+                    "id": "vision-model",
+                    "name": "Vision Model",
+                    "context_length": 262_144,
+                    "max_output_tokens": 8192
+                }],
+                "has_more": true,
+                "last_id": "vision-model"
+            }))
+        }
+    };
+    let probe = |headers: axum::http::HeaderMap, axum::Json(body): axum::Json<Value>| async move {
+        assert_eq!(
+            headers
+                .get(axum::http::header::AUTHORIZATION)
+                .and_then(|value| value.to_str().ok()),
+            Some("Bearer discovery-secret")
+        );
+        let encoded = body.to_string();
+        let answer = if encoded.contains("image") {
+            "red"
+        } else {
+            "blue"
+        };
+        axum::Json(json!({"choices": [{"message": {"content": answer}}]}))
+    };
+    let remote_app = axum::Router::new()
+        .route("/v1/models", axum::routing::get(models))
+        .route("/v1/chat/completions", axum::routing::post(probe));
+    let remote_task = tokio::spawn(async move {
+        axum::serve(remote_listener, remote_app)
+            .await
+            .expect("remote model mock should run");
+    });
+
+    let core = Core::new(ModelConfig {
+        api_key: None,
+        base_url: String::from("http://127.0.0.1:1"),
+        default_model: String::from("qwen-test"),
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("model discovery listener should bind");
+    let address = listener
+        .local_addr()
+        .expect("model discovery listener should have an address");
+    let server = new_isolated_desktop(
+        core,
+        console.path(),
+        String::from("desktop-model-discovery-token"),
+        Arc::new(MemoryCredentialStore::default()),
+        desktop_data.path(),
+    )
+    .expect("model discovery server should configure");
+    let task = tokio::spawn(server.run_http(listener));
+    let client = reqwest::Client::new();
+    let base = format!("http://{address}/api");
+    let created = client
+        .post(format!("{base}/models/custom-providers"))
+        .json(&json!({
+            "id": "discovery",
+            "name": "Discovery Provider",
+            "default_base_url": format!("http://{remote_address}/v1"),
+            "chat_model": "OpenAIChatModel"
+        }))
+        .send()
+        .await
+        .expect("discovery provider creation should send");
+    assert_eq!(created.status(), reqwest::StatusCode::CREATED);
+    let configured = client
+        .put(format!("{base}/models/discovery/config"))
+        .json(&json!({
+            "api_key": "discovery-secret",
+            "custom_headers": {"X-Tenant": "team-a"}
+        }))
+        .send()
+        .await
+        .expect("discovery provider configuration should send");
+    assert_eq!(configured.status(), reqwest::StatusCode::OK);
+
+    let connection = client
+        .post(format!("{base}/models/discovery/test"))
+        .send()
+        .await
+        .expect("provider connection test should send");
+    assert_eq!(connection.status(), reqwest::StatusCode::OK);
+    let connection = connection
+        .json::<Value>()
+        .await
+        .expect("provider connection test should be JSON");
+    assert_eq!(connection["success"], json!(true));
+    assert_eq!(connection["message"], json!("Connection successful"));
+    assert_eq!(connection["status"], json!("available"));
+    assert_eq!(connection["http_status"], json!(200));
+    assert_eq!(connection["retryable"], json!(false));
+    assert!(connection["checked_at"].is_string());
+    assert_eq!(connection["verification"], json!("provider_only"));
+
+    let preview = client
+        .post(format!("{base}/models/discovery/discover?save=false"))
+        .send()
+        .await
+        .expect("model discovery preview should send")
+        .json::<Value>()
+        .await
+        .expect("model discovery preview should be JSON");
+    assert_eq!(preview["success"], json!(true));
+    assert_eq!(preview["discovered_count"], json!(2));
+    assert_eq!(preview["models"].as_array().map(Vec::len), Some(2));
+    let providers = get_json(&client, format!("{base}/models")).await;
+    let provider = providers
+        .as_array()
+        .expect("provider list should be an array")
+        .iter()
+        .find(|provider| provider["id"] == json!("discovery"))
+        .expect("discovery provider should exist");
+    assert_eq!(provider["discovered_models"], json!([]));
+
+    let saved = client
+        .post(format!("{base}/models/discovery/discover?save=true"))
+        .json(&json!({}))
+        .send()
+        .await
+        .expect("saved model discovery should send")
+        .json::<Value>()
+        .await
+        .expect("saved model discovery should be JSON");
+    assert_eq!(saved["success"], json!(true));
+    assert_eq!(saved["discovered_count"], json!(2));
+
+    let added = client
+        .post(format!("{base}/models/discovery/models"))
+        .json(&json!({"id": "vision-model", "name": "Vision Model"}))
+        .send()
+        .await
+        .expect("discovered model addition should send");
+    assert_eq!(added.status(), reqwest::StatusCode::CREATED);
+    let probed = client
+        .post(format!(
+            "{base}/models/discovery/models/vision-model/probe-multimodal"
+        ))
+        .send()
+        .await
+        .expect("multimodal model probe should send");
+    assert_eq!(probed.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        probed
+            .json::<Value>()
+            .await
+            .expect("multimodal probe should be JSON")["supports_multimodal"],
+        json!(true)
+    );
+    let providers = get_json(&client, format!("{base}/models")).await;
+    let provider = providers
+        .as_array()
+        .expect("provider list should be an array")
+        .iter()
+        .find(|provider| provider["id"] == json!("discovery"))
+        .expect("discovery provider should exist");
+    assert_eq!(
+        provider["discovered_models"].as_array().map(Vec::len),
+        Some(2)
+    );
+    assert_eq!(
+        provider["extra_models"][0]["supports_multimodal"],
+        json!(true)
+    );
+    assert_eq!(provider["extra_models"][0]["probe_source"], json!("probed"));
+    assert!(provider["models_last_synced_at"].is_string());
+    assert_eq!(provider["models_last_sync_error"], Value::Null);
+
+    task.abort();
+    task.await.expect_err("first discovery server should stop");
+    let reopened_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("reopened discovery listener should bind");
+    let reopened_address = reopened_listener
+        .local_addr()
+        .expect("reopened discovery listener should have an address");
+    let reopened_server = new_isolated_desktop(
+        Core::new(ModelConfig {
+            api_key: None,
+            base_url: String::from("http://127.0.0.1:1"),
+            default_model: String::from("qwen-test"),
+        }),
+        console.path(),
+        String::from("desktop-model-discovery-reopen-token"),
+        Arc::new(MemoryCredentialStore::default()),
+        desktop_data.path(),
+    )
+    .expect("reopened model discovery server should configure");
+    let reopened_task = tokio::spawn(reopened_server.run_http(reopened_listener));
+    let providers = get_json(&client, format!("http://{reopened_address}/api/models")).await;
+    let provider = providers
+        .as_array()
+        .expect("reopened provider list should be an array")
+        .iter()
+        .find(|provider| provider["id"] == json!("discovery"))
+        .expect("discovery provider should survive restart");
+    assert_eq!(
+        provider["discovered_models"].as_array().map(Vec::len),
+        Some(2)
+    );
+    assert_eq!(
+        provider["extra_models"][0]["supports_multimodal"],
+        json!(true)
+    );
+    reopened_task.abort();
+    remote_task.abort();
 }
 
 #[tokio::test]
@@ -8607,10 +8865,17 @@ async fn assert_model_contract(address: SocketAddr) {
     )
     .await;
     let models = response_json(&models);
-    assert_eq!(models[0]["id"], json!("openai-compatible"));
-    assert_eq!(models[0]["models"][0]["id"], json!("qwen-test"));
-    assert_eq!(models[0]["api_key"], json!(""));
-    assert_eq!(models[0]["base_url"], json!("http://127.0.0.1:1"));
+    assert_eq!(models.as_array().map(Vec::len), Some(36));
+    assert_eq!(models[0]["id"], json!("qwenpaw-local"));
+    let compatible = models
+        .as_array()
+        .expect("provider list should be an array")
+        .iter()
+        .find(|provider| provider["id"] == json!("openai-compatible"))
+        .expect("core compatibility provider should be listed");
+    assert_eq!(compatible["models"][0]["id"], json!("qwen-test"));
+    assert_eq!(compatible["api_key"], json!(""));
+    assert_eq!(compatible["base_url"], json!("http://127.0.0.1:1"));
 }
 
 async fn assert_model_write_contract(

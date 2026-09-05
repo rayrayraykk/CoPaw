@@ -1294,6 +1294,38 @@ Inbox 读取、状态和持久化契约已完成；真实 Agent Cron、Heartbeat
 
 2026-09-05 本机阶段验收：Rust workspace 182 个测试、格式检查和严格 Clippy 通过；Console 295 个测试文件、2453 个测试、production build 和 inventory 防漂移通过，`console/src` 保持零改动。未修改的原 Models 页面连接 release Rust Core，完成自定义 Provider 创建、使用本地 OpenAI-compatible mock 的真实模型连接测试、模型新增、generation 参数保存、模型删除和 Provider 删除，所有页面请求无 4xx/5xx 且浏览器错误为 0；另外 24 个内置导航页全量 smoke 均通过。当前 inventory 为 370 个调用点、311 条 Rust 路由、299 个已注册调用点，其中 295 个非占位、4 个占位、71 个未注册和 11 个静态未解析表达式。TypeScript SDK 3 个、Python SDK 4 个真实 Core 测试、VS Code 57 个测试与 legacy CLI/TUI 891 个测试全部通过。macOS App/ZIP/QA DMG、Core archive、WebUI archive、TypeScript/Python SDK、universal/platform VSIX 与 legacy wheel 共 9 个发布文件均以本切片源码重建，并分别完成启动、真实 Core 静态服务、临时安装、解包、只读挂载、manifest、sidecar、签名和 SHA-256 反向校验，`dist/SHA256SUMS` 全部通过。QA DMG 当前为 ad-hoc 签名，待用户提供 Apple 发布凭据后才能生成 Developer ID 签名和 notarized 正式包。
 
+#### 14.2.24.19 当前子切片：远程模型发现、连接与能力探测
+
+本子切片继续保持原 Models 页面、Chat Model Selector 和 `console/src` 全部业务代码不变。自定义 OpenAI Chat/Responses 与 Anthropic Provider 按协议访问真实模型目录；Provider 级连接测试必须发送独立的轻量请求，不能借固定成功或已有模型状态冒充。多模态探测使用最小图片和视频语义探针，并将结果原子写回对应模型。没有用户外部 key 时，全部成功路径用本机严格 mock 验证请求方法、路径、鉴权、请求体和响应解析。
+
+- [x] 固化 Provider 连接、模型发现、多模态探测、保存/不保存和 Chat Selector 隐藏/恢复的原请求、响应及页面顺序；
+- [x] 为自定义协议启用匹配的 discovery/connection capability，并拒绝不支持或配置不完整的请求；
+- [x] 实现 OpenAI-compatible、Responses 与 Anthropic Provider 级真实连接测试和结构化失败/凭据脱敏；
+- [x] 实现模型目录发现、分页/去重/数量与响应体边界、`save=true/false`、同步时间和失败状态；
+- [x] 实现图片/视频语义探测，区分明确不支持与网络失败，并持久化 capability/probe source；
+- [x] 将原 Python 35 个 built-in Provider 和 200 个内置模型固化为 Rust 只读 catalog，保留原展示顺序、分组、模型能力与配置元数据；
+- [x] 覆盖三种协议、鉴权模式、自定义 header、异常响应、重定向、超限、并发 mutation 与 Core 重启；
+- [x] 使用未修改的原 Remote Model Manage 页面验证刷新模型、候选添加、能力探测与状态回显；
+- [x] 使用未修改的 Chat Model Selector 验证已配置模型切换及 Agent scope；候选添加由原 Remote Model Manage 页面验证，隐藏/恢复由原组件单测与 Rust HTTP 契约覆盖；
+- [x] 更新 inventory，确认相关调用均为非占位且 `console/src` 零改动；
+- [x] 通过 Rust、Console 与各客户端回归，重建并逐个反向验证全部 9 个发布产物；
+- [x] 提交并推送本子切片。
+
+2026-09-05 本机阶段验收：Rust workspace 186 个测试、格式检查和严格 Clippy 通过；Console 295 个测试文件、2453 个测试、production build 和 inventory 防漂移通过，`console/src` 保持零改动。未修改的原 Models/Remote Model Manage 页面连接 release Rust Core，完成自定义 Provider 创建、真实连接测试、自动发现、候选添加、图片/视频能力探测、配置回显和删除；原 Chat Model Selector 完成 Agent scope 下的模型切换，页面请求无 4xx/5xx 且浏览器错误为 0。当前 inventory 为 370 个调用点、322 条 Rust 路由、301 个已注册调用点，其中 297 个非占位、4 个占位、69 个未注册和 11 个静态未解析表达式。TypeScript SDK 3 个、Python SDK 4 个真实 Core 测试、VS Code 57 个测试与 legacy CLI/TUI 855 个测试全部通过。额外执行的 legacy Python 全量单测为 10207 个通过、21 个跳过、7 个失败；失败均位于未修改的 legacy AgentScope/媒体兼容层，当前 Conda 环境明确存在 `reme-ai 0.4.1.5` 与项目要求 `0.4.1.10` 及 AgentScope API 版本不一致，未作为本 Rust 子切片的通过项。macOS App/ZIP/QA DMG、Core archive、WebUI archive、TypeScript/Python SDK、universal/platform VSIX 与 legacy wheel 共 9 个发布文件均以本切片源码重建，并分别完成真实启动、静态服务、临时安装、解包、只读挂载、manifest、Rust-only sidecar、签名和 SHA-256 反向校验。QA DMG 当前为 ad-hoc 签名，待用户提供 Apple 发布凭据后才能生成 Developer ID 签名和 notarized 正式包。
+
+#### 14.2.24.20 后续子切片：本地模型下载与 llama.cpp 运行时
+
+本切片实现原 Local Model Manage 弹窗使用的 12 条运行、下载和状态接口。模型与 llama.cpp 必须下载到新 Rust 版本独立数据目录，采用 staging、大小/条目/路径边界和取消语义；启动必须执行真实 `llama-server`、等待 `/health`、注册 `qwenpaw-local` Provider 并切换模型，停止或进程退出后清理运行状态。测试使用本地 HTTP 归档和可执行 fixture，不下载数 GB 公网模型，也不伪造进程在线。
+
+- [ ] 固化原本地运行时状态、下载进度、推荐模型、启动/停止/删除和错误响应；
+- [ ] 实现跨 macOS/Windows/Linux 的 llama.cpp 包选择、安全下载、解压、更新检查与取消；
+- [ ] 实现 Hugging Face/ModelScope GGUF 下载、staging、进度、取消、完成恢复和安全删除；
+- [ ] 实现真实 `llama-server` 进程生命周期、端口占用、health readiness、日志与 Core 退出清理；
+- [ ] 将运行模型写入 `qwenpaw-local` Provider、active model 与实际 Rust Turn 路由，停止后原子清理；
+- [ ] 覆盖本地 mock 下载/归档/进程、异常退出、重启恢复、并发与安全边界；
+- [ ] 使用未修改的 Local Model Manage 弹窗验证高级设置、下载、取消、启动、切换、停止和删除；
+- [ ] 通过全量回归，重建并逐个反向验证 9 个发布产物后提交推送。
+
 ### 14.3 客户端与发布
 
 - [x] WebUI 启动与导航契约测试通过；
