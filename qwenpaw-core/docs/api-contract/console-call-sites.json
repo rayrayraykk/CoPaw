@@ -3,11 +3,11 @@
   "source": "console/src production TypeScript call sites",
   "callCount": 370,
   "unresolvedCount": 11,
-  "rustRouteCount": 303,
-  "registeredCallCount": 291,
+  "rustRouteCount": 311,
+  "registeredCallCount": 299,
   "placeholderCallCount": 4,
-  "nonPlaceholderRegisteredCallCount": 287,
-  "missingCallCount": 79,
+  "nonPlaceholderRegisteredCallCount": 295,
+  "missingCallCount": 71,
   "rustRoutes": [
     {
       "method": "ANY",
@@ -928,6 +928,20 @@
     },
     {
       "method": "GET",
+      "path": "/api/local-models/config",
+      "handler": "get_local_model_config",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_models.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/local-models/config",
+      "handler": "put_local_model_config",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_models.rs"
+    },
+    {
+      "method": "GET",
       "path": "/api/loops",
       "handler": "loop_modes",
       "placeholder": false,
@@ -1132,37 +1146,79 @@
     {
       "method": "GET",
       "path": "/api/models",
-      "handler": "models",
+      "handler": "list_providers",
       "placeholder": false,
-      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_api.rs"
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_models.rs"
     },
     {
       "method": "PUT",
       "path": "/api/models/{provider_id}/config",
       "handler": "configure_provider",
       "placeholder": false,
-      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_api.rs"
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_models.rs"
     },
     {
       "method": "POST",
       "path": "/api/models/{provider_id}/models",
       "handler": "add_model",
       "placeholder": false,
-      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_api.rs"
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_models.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/models/{provider_id}/models/{model_id}",
+      "handler": "remove_model",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_models.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/models/{provider_id}/models/{model_id}/config",
+      "handler": "configure_model",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_models.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/models/{provider_id}/models/{model_id}/visibility",
+      "handler": "set_model_visibility",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_models.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/models/{provider_id}/models/test",
+      "handler": "test_model_connection",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_models.rs"
     },
     {
       "method": "GET",
       "path": "/api/models/active",
       "handler": "active_models",
       "placeholder": false,
-      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_api.rs"
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_models.rs"
     },
     {
       "method": "PUT",
       "path": "/api/models/active",
       "handler": "set_active_model",
       "placeholder": false,
-      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_api.rs"
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_models.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/models/custom-providers",
+      "handler": "create_provider",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_models.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/models/custom-providers/{provider_id}",
+      "handler": "delete_provider",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_models.rs"
     },
     {
       "method": "GET",
@@ -5021,7 +5077,7 @@
       "line": 83,
       "resolved": true,
       "apiPath": "/api/models/custom-providers",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5033,7 +5089,7 @@
       "line": 89,
       "resolved": true,
       "apiPath": "/api/models/custom-providers/{providerId}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5057,7 +5113,7 @@
       "line": 103,
       "resolved": true,
       "apiPath": "/api/models/{providerId}/models/{modelId}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5069,7 +5125,7 @@
       "line": 111,
       "resolved": true,
       "apiPath": "/api/models/{providerId}/models/{modelId}/visibility",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5081,7 +5137,7 @@
       "line": 126,
       "resolved": true,
       "apiPath": "/api/models/{providerId}/models/{modelId}/config",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5093,7 +5149,7 @@
       "line": 137,
       "resolved": true,
       "apiPath": "/api/local-models/config",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5105,7 +5161,7 @@
       "line": 142,
       "resolved": true,
       "apiPath": "/api/local-models/config",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5129,7 +5185,7 @@
       "line": 156,
       "resolved": true,
       "apiPath": "/api/models/{providerId}/models/test",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {

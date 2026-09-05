@@ -1273,6 +1273,27 @@ Inbox 读取、状态和持久化契约已完成；真实 Agent Cron、Heartbeat
 
 2026-09-05 本机阶段验收：Rust workspace 178 个测试、格式检查和严格 Clippy 通过；ACP 契约覆盖四个内置 Agent、整体/单项写入、Agent 隔离、默认值合并、并发更新、非法模式、非法 Node 路径不落盘、真实 `node`/`npx` 版本探测、Core 重启恢复和控制命令完整首 token 判定。Console 295 个测试文件、2453 个测试、production build 和 inventory 防漂移通过，`console/src` 保持零改动；未修改的原 ACP 页面完成内置项展示、自定义项创建/编辑/删除、跨 Agent 隔离和 Node runtime 自动探测/保存，所有请求无 4xx/5xx 且浏览器错误为 0，另外 24 个内置导航页全量 smoke 均通过。当前 inventory 为 370 个调用点、303 条 Rust 路由、291 个已注册调用点，其中 287 个非占位、4 个占位、79 个未注册和 11 个静态未解析表达式。TypeScript SDK 3 个、Python SDK 4 个真实 Core 测试与 VS Code 57 个测试全部通过。macOS App/ZIP/QA DMG、Core archive、WebUI archive、TypeScript/Python SDK、universal/platform VSIX 与 legacy wheel 共 9 个产物均以本切片源码重建，并分别完成签名、只读挂载、解包、运行、临时安装、manifest、sidecar 和 SHA-256 反向校验。QA DMG 当前为 ad-hoc 签名，待用户提供 Apple 发布凭据后才能生成 Developer ID 签名和 notarized 正式包。
 
+#### 14.2.24.18 当前子切片：Provider、Model 配置与本地模型设置
+
+本子切片保持原 Models 页面、Chat Model Selector 与全部 `console/src` 业务代码不变。把当前仅返回一个固定 Provider 的兼容实现替换为新 Rust 版本化、原子持久化的 Provider registry；API key 继续只进入系统凭据存储，registry 仅记录是否已配置。先完整闭环不依赖外部 key 的 Provider/Model CRUD、本地模型配置，以及原“添加模型”流程硬依赖的单模型实时连接测试；Provider 级连接测试、模型发现、OAuth、multimodal probe 和本地推理进程作为紧邻子切片继续完成，在这些调用全部验收前不把 Models 页面标为全交互等价。
+
+- [x] 固化原 ProviderInfo/ModelInfo、创建/配置/删除、模型增删/可见性/参数配置、本地模型设置的请求、响应和原页面操作顺序；
+- [x] 建立版本化、原子持久化的 Rust Provider registry，并保持新版本空数据启动和内置 Provider 默认值；
+- [x] 将默认及自定义 Provider API key 放入系统凭据存储，读取接口只返回掩码，不把明文写入 JSON、SQLite、日志或响应；
+- [x] 实现自定义 Provider 创建/配置/删除及重复 ID、内置 ID、协议、URL、header 和内容边界校验；
+- [x] 实现内置/自定义 Provider 的模型新增、删除、隐藏/恢复和逐模型 generation/thinking 配置；
+- [x] 实现本地模型 max context、固定/自动端口和 provider generation kwargs 的读取、更新与重启恢复；
+- [x] 修正 active model 的 Provider/Model 存在性校验与 global/agent scope 响应，不再把任意模型写成固定 Provider；
+- [x] 实现原“添加模型”操作前置的单模型实时连接测试，并用本机 OpenAI-compatible/Anthropic mock 验证成功与结构化失败，不伪造在线结果；
+- [x] 覆盖凭据脱敏、失败回滚、并发 mutation、多 Agent scope、非法输入和 Core 重启测试；
+- [x] 使用未修改的原 Models 页面验证 Provider 创建、真实模型探测、模型新增/配置/删除和 Provider 删除；
+- [ ] 使用未修改的 Chat Model Selector 与本地模型弹窗验证隐藏/恢复和本地设置（依赖紧邻切片的模型发现与本地推理进程接口）；
+- [x] 更新 inventory，确认本子切片调用均为非占位且 `console/src` 零改动；
+- [x] 通过 Rust、Console 与各客户端回归，重建并逐个反向验证全部 9 个发布产物；
+- [x] 提交并推送本子切片。
+
+2026-09-05 本机阶段验收：Rust workspace 182 个测试、格式检查和严格 Clippy 通过；Console 295 个测试文件、2453 个测试、production build 和 inventory 防漂移通过，`console/src` 保持零改动。未修改的原 Models 页面连接 release Rust Core，完成自定义 Provider 创建、使用本地 OpenAI-compatible mock 的真实模型连接测试、模型新增、generation 参数保存、模型删除和 Provider 删除，所有页面请求无 4xx/5xx 且浏览器错误为 0；另外 24 个内置导航页全量 smoke 均通过。当前 inventory 为 370 个调用点、311 条 Rust 路由、299 个已注册调用点，其中 295 个非占位、4 个占位、71 个未注册和 11 个静态未解析表达式。TypeScript SDK 3 个、Python SDK 4 个真实 Core 测试、VS Code 57 个测试与 legacy CLI/TUI 891 个测试全部通过。macOS App/ZIP/QA DMG、Core archive、WebUI archive、TypeScript/Python SDK、universal/platform VSIX 与 legacy wheel 共 9 个发布文件均以本切片源码重建，并分别完成启动、真实 Core 静态服务、临时安装、解包、只读挂载、manifest、sidecar、签名和 SHA-256 反向校验，`dist/SHA256SUMS` 全部通过。QA DMG 当前为 ad-hoc 签名，待用户提供 Apple 发布凭据后才能生成 Developer ID 签名和 notarized 正式包。
+
 ### 14.3 客户端与发布
 
 - [x] WebUI 启动与导航契约测试通过；

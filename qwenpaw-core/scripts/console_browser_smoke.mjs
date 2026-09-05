@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { access, mkdtemp, rm } from "node:fs/promises";
+import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -131,6 +132,7 @@ function smokeOptions(arguments_) {
   const skillsCrud = arguments_.includes("--skills-crud");
   const agentsCrud = arguments_.includes("--agents-crud");
   const acpCrud = arguments_.includes("--acp-crud");
+  const modelsCrud = arguments_.includes("--models-crud");
   const navigationArguments = arguments_.filter(
     (argument) =>
       argument !== "--coding-git" &&
@@ -138,7 +140,8 @@ function smokeOptions(arguments_) {
       argument !== "--security-crud" &&
       argument !== "--skills-crud" &&
       argument !== "--agents-crud" &&
-      argument !== "--acp-crud",
+      argument !== "--acp-crud" &&
+      argument !== "--models-crud",
   );
   return {
     codingGit,
@@ -147,6 +150,7 @@ function smokeOptions(arguments_) {
     skillsCrud,
     agentsCrud,
     acpCrud,
+    modelsCrud,
     paths: navigationPaths(navigationArguments),
   };
 }
@@ -643,6 +647,376 @@ async function runAcpCrudScenario(client) {
     nodeRuntimeDetected: Boolean(effectiveNodePath),
     nodeSavedThroughOriginalModal,
   };
+}
+
+async function startModelApiMock() {
+  const requests = [];
+  const server = createServer((request, response) => {
+    const chunks = [];
+    request.on("data", (chunk) => chunks.push(chunk));
+    request.on("end", () => {
+      let body;
+      try {
+        body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      } catch {
+        response.writeHead(400, { "Content-Type": "application/json" });
+        response.end(JSON.stringify({ error: "invalid JSON" }));
+        return;
+      }
+      requests.push({ method: request.method, path: request.url, body });
+      response.writeHead(200, { "Content-Type": "application/json" });
+      response.end(
+        JSON.stringify({
+          id: "browser-model-response",
+          choices: [{ message: { role: "assistant", content: "pong" } }],
+        }),
+      );
+    });
+  });
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    server.close();
+    throw new Error("Model API mock did not expose a TCP address");
+  }
+  return {
+    baseUrl: `http://127.0.0.1:${address.port}/v1`,
+    requests,
+    close: () => new Promise((resolve) => server.close(resolve)),
+  };
+}
+
+async function clickModelsTab(client, prefix) {
+  const clicked = await evaluateValue(
+    client,
+    `(() => {
+      const visible = (element) => Boolean(
+        element.offsetWidth || element.offsetHeight || element.getClientRects().length
+      );
+      const tab = [...document.querySelectorAll("div")].find((item) => {
+        const text = (item.innerText ?? "").trim();
+        return visible(item) && text.startsWith(${JSON.stringify(prefix)}) &&
+          !text.includes("\\n") && text.length < 80;
+      });
+      tab?.click();
+      return Boolean(tab);
+    })()`,
+  );
+  if (!clicked) throw new Error(`Models tab did not render: ${prefix}`);
+}
+
+async function clickProviderCardAction(client, providerName, action) {
+  const clicked = await evaluateValue(
+    client,
+    `(() => {
+      const visible = (element) => Boolean(
+        element.offsetWidth || element.offsetHeight || element.getClientRects().length
+      );
+      const name = [...document.querySelectorAll('[class*="groupCardName"]')].find(
+        (item) => visible(item) &&
+          (item.innerText ?? "").trim() === ${JSON.stringify(providerName)}
+      );
+      const card = name?.closest('[class*="groupCardGlass"]');
+      const button = [...(card?.querySelectorAll("button") ?? [])].find(
+        (item) => visible(item) &&
+          (item.innerText ?? "").trim() === ${JSON.stringify(action)}
+      );
+      button?.click();
+      return Boolean(button);
+    })()`,
+  );
+  if (!clicked) {
+    throw new Error(`Provider action did not render: ${providerName} / ${action}`);
+  }
+}
+
+async function clickModelRowAction(client, modelId, ariaLabel) {
+  const clicked = await evaluateValue(
+    client,
+    `(() => {
+      const visible = (element) => Boolean(
+        element.offsetWidth || element.offsetHeight || element.getClientRects().length
+      );
+      const id = [...document.querySelectorAll('[class*="modelListItemId"]')].find(
+        (item) => visible(item) &&
+          (item.innerText ?? "").trim() === ${JSON.stringify(modelId)}
+      );
+      let row = id;
+      while (row && ![...row.querySelectorAll("button")].some(
+        (item) => item.getAttribute("aria-label") === ${JSON.stringify(
+          ariaLabel,
+        )}
+      )) {
+        row = row.parentElement;
+      }
+      const button = [...(row?.querySelectorAll("button") ?? [])].find(
+        (item) => visible(item) &&
+          item.getAttribute("aria-label") === ${JSON.stringify(ariaLabel)}
+      );
+      button?.click();
+      return Boolean(button);
+    })()`,
+  );
+  if (!clicked) {
+    throw new Error(`Model action did not render: ${modelId} / ${ariaLabel}`);
+  }
+}
+
+async function setFirstVisibleSpinButton(client, value) {
+  const focused = await evaluateValue(
+    client,
+    `(() => {
+      const visible = (element) => Boolean(
+        element.offsetWidth || element.offsetHeight || element.getClientRects().length
+      );
+      const input = [...document.querySelectorAll('input[role="spinbutton"]')]
+        .find(visible);
+      input?.focus();
+      input?.select();
+      return Boolean(input);
+    })()`,
+  );
+  if (!focused) throw new Error("Model Config max tokens input did not render");
+  await client.send("Input.insertText", { text: String(value) });
+}
+
+async function setModelIdInput(client, value) {
+  const focused = await evaluateValue(
+    client,
+    `(() => {
+      const visible = (element) => Boolean(
+        element.offsetWidth || element.offsetHeight || element.getClientRects().length
+      );
+      const nameInput = [...document.querySelectorAll("input")].find(
+        (input) => visible(input) &&
+          input.placeholder === "e.g. GPT-4o, Gemini 2.0 Flash"
+      );
+      const inputs = [...(nameInput?.closest("form")?.querySelectorAll("input") ?? [])]
+        .filter(visible);
+      const input = inputs[inputs.indexOf(nameInput) - 1];
+      input?.focus();
+      input?.select();
+      return Boolean(input);
+    })()`,
+  );
+  if (!focused) throw new Error("Model ID input did not render");
+  await client.send("Input.insertText", { text: value });
+}
+
+async function runModelsCrudScenario(client) {
+  const providerId = "browser-provider";
+  const providerName = "Browser Provider";
+  const modelId = "browser/model-1";
+  const modelName = "Browser Model One";
+  const mock = await startModelApiMock();
+  try {
+    await waitForValue(
+      client,
+      `document.body.innerText.includes("Add Provider") &&
+        document.body.innerText.includes("Cloud Providers")`,
+      "Models page did not render",
+    );
+    const existing = await evaluateValue(
+      client,
+      `fetch("/api/models").then((response) => response.json()).then(
+        (providers) => providers.some((provider) =>
+          provider.id === ${JSON.stringify(providerId)}
+        )
+      )`,
+    );
+    if (existing) {
+      const removed = await evaluateValue(
+        client,
+        `fetch("/api/models/custom-providers/${providerId}", {
+          method: "DELETE"
+        }).then((response) => response.ok)`,
+      );
+      if (!removed) throw new Error("Models smoke cleanup failed");
+    }
+
+    await clickButton(client, "Add Provider");
+    await waitForValue(
+      client,
+      `document.body.innerText.includes("Add Custom Provider")`,
+      "Custom Provider modal did not open",
+    );
+    await setInputByPlaceholder(
+      client,
+      "e.g. openai, google, anthropic",
+      providerId,
+    );
+    await setInputByPlaceholder(
+      client,
+      "e.g. OpenAI, Google Gemini",
+      providerName,
+    );
+    await setInputByPlaceholder(
+      client,
+      "e.g. https://api.example.com",
+      mock.baseUrl,
+    );
+    await clickButton(client, "Create");
+    await waitForValue(
+      client,
+      `fetch("/api/models").then((response) => response.json()).then(
+        (providers) => providers.some((provider) =>
+          provider.id === ${JSON.stringify(providerId)} &&
+          provider.name === ${JSON.stringify(providerName)} &&
+          provider.base_url === ${JSON.stringify(mock.baseUrl)}
+        )
+      )`,
+      "Provider created through the original modal did not persist",
+    );
+
+    await clickModelsTab(client, "Local & Custom");
+    await waitForValue(
+      client,
+      `document.body.innerText.includes(${JSON.stringify(providerName)})`,
+      "Custom Provider card did not render",
+    );
+    await clickProviderCardAction(client, providerName, "Models");
+    await waitForValue(
+      client,
+      `document.body.innerText.includes(${JSON.stringify(
+        `${providerName} — Model Management`,
+      )})`,
+      "Model Management modal did not open",
+    );
+    await clickButton(client, "Add Model");
+    await delay(300);
+    const addModelForm = await evaluateValue(
+      client,
+      `(() => {
+        const visible = (element) => Boolean(
+          element.offsetWidth || element.offsetHeight || element.getClientRects().length
+        );
+        return {
+          rendered: [...document.querySelectorAll("input")].some(
+            (input) => visible(input) &&
+              input.placeholder === "e.g. GPT-4o, Gemini 2.0 Flash"
+          ),
+          inputs: [...document.querySelectorAll("input")].filter(visible).map(
+            (input) => input.placeholder
+          ),
+          buttons: [...document.querySelectorAll("button")].filter(visible).map(
+            (button) => (button.innerText ?? "").trim()
+          )
+        };
+      })()`,
+    );
+    if (!addModelForm.rendered) {
+      throw new Error(`Add Model form did not render: ${JSON.stringify(addModelForm)}`);
+    }
+    await setModelIdInput(client, modelId);
+    await setInputByPlaceholder(
+      client,
+      "e.g. GPT-4o, Gemini 2.0 Flash",
+      modelName,
+    );
+    await clickButton(client, "Add Model");
+    await waitForValue(
+      client,
+      `fetch("/api/models").then((response) => response.json()).then(
+        (providers) => providers.find((provider) =>
+          provider.id === ${JSON.stringify(providerId)}
+        )?.extra_models.some((model) =>
+          model.id === ${JSON.stringify(modelId)} &&
+          model.name === ${JSON.stringify(modelName)}
+        )
+      )`,
+      "Model tested and added through the original modal did not persist",
+    );
+    if (
+      mock.requests.length !== 1 ||
+      mock.requests[0].method !== "POST" ||
+      mock.requests[0].path !== "/v1/chat/completions" ||
+      mock.requests[0].body.model !== modelId
+    ) {
+      throw new Error(
+        `Original Add Model flow did not issue the expected live probe: ${JSON.stringify(
+          mock.requests,
+        )}`,
+      );
+    }
+
+    await clickModelRowAction(client, modelId, "Model Config");
+    await setFirstVisibleSpinButton(client, 3072);
+    await clickButton(client, "Save");
+    await waitForValue(
+      client,
+      `fetch("/api/models").then((response) => response.json()).then(
+        (providers) => providers.find((provider) =>
+          provider.id === ${JSON.stringify(providerId)}
+        )?.extra_models.find((model) =>
+          model.id === ${JSON.stringify(modelId)}
+        )?.generate_kwargs.max_tokens === 3072
+      )`,
+      "Model configuration saved through the original editor did not persist",
+    );
+
+    await clickModelRowAction(client, modelId, "Remove");
+    await waitForValue(
+      client,
+      `document.body.innerText.includes(${JSON.stringify(
+        `Remove model "${modelName}" from ${providerName}?`,
+      )})`,
+      "Model removal confirmation did not open",
+    );
+    await clickButton(client, "Delete");
+    await waitForValue(
+      client,
+      `fetch("/api/models").then((response) => response.json()).then(
+        (providers) => !providers.find((provider) =>
+          provider.id === ${JSON.stringify(providerId)}
+        )?.extra_models.some((model) => model.id === ${JSON.stringify(modelId)})
+      )`,
+      "Model removal through the original modal did not persist",
+    );
+
+    await client.send("Input.dispatchKeyEvent", {
+      type: "keyDown",
+      key: "Escape",
+      code: "Escape",
+    });
+    await client.send("Input.dispatchKeyEvent", {
+      type: "keyUp",
+      key: "Escape",
+      code: "Escape",
+    });
+    await delay(300);
+    await clickProviderCardAction(client, providerName, "Delete");
+    await waitForValue(
+      client,
+      `document.body.innerText.includes(${JSON.stringify(
+        `Delete custom provider "${providerName}" and all its models? This cannot be undone.`,
+      )})`,
+      "Provider deletion confirmation did not open",
+    );
+    await clickButton(client, "Delete");
+    await waitForValue(
+      client,
+      `fetch("/api/models").then((response) => response.json()).then(
+        (providers) => !providers.some((provider) =>
+          provider.id === ${JSON.stringify(providerId)}
+        )
+      )`,
+      "Provider deletion through the original card did not persist",
+    );
+
+    return {
+      providerCreatedThroughOriginalModal: true,
+      modelLiveProbePath: mock.requests[0].path,
+      modelAddedThroughOriginalModal: true,
+      modelConfiguredThroughOriginalEditor: true,
+      modelRemovedThroughOriginalModal: true,
+      providerDeletedThroughOriginalCard: true,
+    };
+  } finally {
+    await mock.close();
+  }
 }
 
 async function clickSkillCard(client, name) {
@@ -1329,6 +1703,7 @@ async function inspectConsole(client, origin, options) {
     skillsCrud,
     agentsCrud,
     acpCrud,
+    modelsCrud,
     paths,
   } = options;
   let observation;
@@ -1374,6 +1749,7 @@ async function inspectConsole(client, origin, options) {
     let skillsCrudResult;
     let agentsCrudResult;
     let acpCrudResult;
+    let modelsCrudResult;
     if (mcpCrud && navigationPath === "/mcp") {
       try {
         mcpCrudResult = await runMcpCrudScenario(client);
@@ -1408,6 +1784,13 @@ async function inspectConsole(client, origin, options) {
     if (acpCrud && navigationPath === "/acp") {
       try {
         acpCrudResult = await runAcpCrudScenario(client);
+      } catch (error) {
+        observation.browserErrors.push(error.stack ?? String(error));
+      }
+    }
+    if (modelsCrud && navigationPath === "/models") {
+      try {
+        modelsCrudResult = await runModelsCrudScenario(client);
       } catch (error) {
         observation.browserErrors.push(error.stack ?? String(error));
       }
@@ -1485,6 +1868,7 @@ async function inspectConsole(client, origin, options) {
       skillsCrud: skillsCrudResult,
       agentsCrud: agentsCrudResult,
       acpCrud: acpCrudResult,
+      modelsCrud: modelsCrudResult,
       apiResponses: responses,
       failedApi,
       failures,

@@ -146,6 +146,30 @@ impl DesktopCredentialStore for MemoryCredentialStore {
     }
 }
 
+#[derive(Default)]
+struct RejectingModelCredentialStore;
+
+impl DesktopCredentialStore for RejectingModelCredentialStore {
+    fn load_api_key(&self) -> anyhow::Result<Option<String>> {
+        Ok(None)
+    }
+
+    fn save_api_key(&self, _api_key: Option<&str>) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn load_agent_setting_secret(&self, _key: &str) -> anyhow::Result<Option<String>> {
+        Ok(None)
+    }
+
+    fn save_agent_setting_secret(&self, key: &str, _value: Option<&str>) -> anyhow::Result<()> {
+        if key.starts_with("model-provider-api-key:") {
+            anyhow::bail!("model credential write rejected")
+        }
+        Ok(())
+    }
+}
+
 #[tokio::test]
 async fn serves_health_and_independent_websocket_sessions() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -5360,6 +5384,13 @@ async fn persists_and_isolates_multiple_agent_workspaces_and_chats() {
         json!({"language": "en", "agent_id": "default"})
     );
 
+    let added_model = client
+        .post(format!("{base}/models/openai-compatible/models"))
+        .json(&json!({"id": "writer-model", "name": "Writer Model"}))
+        .send()
+        .await
+        .expect("Writer model creation should send");
+    assert_eq!(added_model.status(), reqwest::StatusCode::CREATED);
     let active = client
         .put(format!("{base}/models/active"))
         .json(&json!({
@@ -7575,6 +7606,548 @@ async fn exposes_and_denies_tool_approval_through_the_console_contract() {
     task.abort();
 }
 
+#[tokio::test]
+#[allow(clippy::too_many_lines)]
+async fn persists_provider_model_crud_local_settings_and_scoped_selection() {
+    let console = tempfile::tempdir().expect("temporary Console should be created");
+    let desktop_data = tempfile::tempdir().expect("temporary Desktop data should be created");
+    let model_requests = Arc::new(Mutex::new(Vec::<(String, String, Value)>::new()));
+    let model_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("model mock listener should bind");
+    let model_address = model_listener
+        .local_addr()
+        .expect("model mock listener should have an address");
+    let captured_model_requests = model_requests.clone();
+    let model_app = axum::Router::new().route(
+        "/v1/messages",
+        axum::routing::post(
+            move |headers: axum::http::HeaderMap, axum::Json(body): axum::Json<Value>| {
+                let captured_model_requests = captured_model_requests.clone();
+                async move {
+                    let authorization = headers
+                        .get(axum::http::header::AUTHORIZATION)
+                        .and_then(|value| value.to_str().ok())
+                        .unwrap_or_default()
+                        .to_owned();
+                    let tenant = headers
+                        .get("x-tenant")
+                        .and_then(|value| value.to_str().ok())
+                        .unwrap_or_default()
+                        .to_owned();
+                    captured_model_requests
+                        .lock()
+                        .expect("model request lock should be available")
+                        .push((authorization, tenant, body.clone()));
+                    if body["model"] == json!("denied-model") {
+                        (
+                            axum::http::StatusCode::UNAUTHORIZED,
+                            axum::Json(json!({
+                                "error": "invalid credential acme-secret-value"
+                            })),
+                        )
+                    } else {
+                        (
+                            axum::http::StatusCode::OK,
+                            axum::Json(json!({"content": [{"text": "pong"}]})),
+                        )
+                    }
+                }
+            },
+        ),
+    );
+    let model_task = tokio::spawn(async move {
+        axum::serve(model_listener, model_app)
+            .await
+            .expect("model mock should run");
+    });
+    std::fs::write(console.path().join("index.html"), "<html>console</html>")
+        .expect("Console index should be written");
+    let credentials = Arc::new(MemoryCredentialStore::default());
+    let core = Core::new(ModelConfig {
+        api_key: None,
+        base_url: String::from("http://127.0.0.1:1"),
+        default_model: String::from("qwen-test"),
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("model registry listener should bind");
+    let address = listener
+        .local_addr()
+        .expect("model registry listener should have an address");
+    let server = new_isolated_desktop(
+        core,
+        console.path(),
+        String::from("desktop-model-registry-token"),
+        credentials.clone(),
+        desktop_data.path(),
+    )
+    .expect("model registry server should configure");
+    let task = tokio::spawn(server.run_http(listener));
+    let client = reqwest::Client::new();
+    let base = format!("http://{address}/api");
+
+    let created_response = client
+        .post(format!("{base}/models/custom-providers"))
+        .json(&json!({
+            "id": "acme",
+            "name": "Acme Models",
+            "default_base_url": "https://models.example.test/v1",
+            "api_key_prefix": "acme-",
+            "chat_model": "OpenAIResponseModel"
+        }))
+        .send()
+        .await
+        .expect("custom provider creation should send");
+    assert_eq!(created_response.status(), reqwest::StatusCode::CREATED);
+    let created = created_response
+        .json::<Value>()
+        .await
+        .expect("custom provider creation should be JSON");
+    assert_eq!(created["id"], json!("acme"));
+    assert_eq!(created["name"], json!("Acme Models"));
+    assert_eq!(created["is_custom"], json!(true));
+    assert_eq!(created["support_connection_check"], json!(false));
+    assert_eq!(created["api_key"], json!(""));
+    assert_eq!(created["models"], json!([]));
+    assert_eq!(created["extra_models"], json!([]));
+
+    let configured = client
+        .put(format!("{base}/models/acme/config"))
+        .json(&json!({
+            "api_key": "acme-secret-value",
+            "name": "Acme Renamed",
+            "base_url": format!("http://{model_address}/v1"),
+            "chat_model": "AnthropicChatModel",
+            "generate_kwargs": {"temperature": 0.25},
+            "custom_headers": {"X-Tenant": "team-a"},
+            "auth_mode": "auth_token"
+        }))
+        .send()
+        .await
+        .expect("custom provider configuration should send");
+    assert_eq!(configured.status(), reqwest::StatusCode::OK);
+    let configured = configured
+        .json::<Value>()
+        .await
+        .expect("custom provider configuration should be JSON");
+    assert_eq!(configured["name"], json!("Acme Renamed"));
+    assert_eq!(configured["api_key"], json!("********"));
+    assert_eq!(configured["generate_kwargs"], json!({"temperature": 0.25}));
+    assert_eq!(configured["custom_headers"], json!({"X-Tenant": "team-a"}));
+    assert_eq!(configured["auth_mode"], json!("auth_token"));
+
+    let live_model_test = client
+        .post(format!("{base}/models/acme/models/test"))
+        .json(&json!({"model_id": "vendor/model-1"}))
+        .send()
+        .await
+        .expect("live model connection test should send");
+    assert_eq!(live_model_test.status(), reqwest::StatusCode::OK);
+    let live_model_test = live_model_test
+        .json::<Value>()
+        .await
+        .expect("live model connection test should be JSON");
+    assert_eq!(live_model_test["success"], json!(true));
+    assert_eq!(
+        live_model_test["message"],
+        json!("Model connection successful")
+    );
+    assert_eq!(live_model_test["status"], json!("available"));
+    assert_eq!(live_model_test["http_status"], json!(200));
+    assert_eq!(live_model_test["retryable"], json!(false));
+    assert_eq!(live_model_test["verification"], json!("live"));
+    assert!(live_model_test["checked_at"].is_string());
+    assert_eq!(
+        model_requests
+            .lock()
+            .expect("model request lock should be available")[0],
+        (
+            String::from("Bearer acme-secret-value"),
+            String::from("team-a"),
+            json!({
+                "model": "vendor/model-1",
+                "max_tokens": 20,
+                "messages": [{"role": "user", "content": "ping"}]
+            })
+        )
+    );
+
+    let rejected_model_test = client
+        .post(format!("{base}/models/acme/models/test"))
+        .json(&json!({"model_id": "denied-model"}))
+        .send()
+        .await
+        .expect("rejected model connection test should send");
+    assert_eq!(rejected_model_test.status(), reqwest::StatusCode::OK);
+    let rejected_model_test = rejected_model_test
+        .json::<Value>()
+        .await
+        .expect("rejected model connection test should be JSON");
+    assert_eq!(rejected_model_test["success"], json!(false));
+    assert_eq!(rejected_model_test["status"], json!("permission_denied"));
+    assert_eq!(rejected_model_test["http_status"], json!(401));
+    assert_eq!(rejected_model_test["retryable"], json!(false));
+    assert_eq!(rejected_model_test["verification"], json!("live"));
+    assert!(
+        rejected_model_test["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("invalid credential"))
+    );
+    assert!(
+        !rejected_model_test
+            .to_string()
+            .contains("acme-secret-value")
+    );
+
+    let registry_path = desktop_data.path().join("models").join("registry.json");
+    let registry_text = std::fs::read_to_string(&registry_path)
+        .expect("model provider registry should be readable");
+    assert!(!registry_text.contains("acme-secret-value"));
+    assert!(registry_text.contains("api_key_configured"));
+    assert_eq!(
+        credentials
+            .load_agent_setting_secret("model-provider-api-key:acme")
+            .expect("custom provider credential should load"),
+        Some(String::from("acme-secret-value"))
+    );
+
+    let added = client
+        .post(format!("{base}/models/acme/models"))
+        .json(&json!({
+            "id": "vendor/model-1",
+            "name": "Model One",
+            "is_free": true,
+            "supports_image": true
+        }))
+        .send()
+        .await
+        .expect("custom model creation should send");
+    assert_eq!(added.status(), reqwest::StatusCode::CREATED);
+    let added = added
+        .json::<Value>()
+        .await
+        .expect("custom model creation should be JSON");
+    assert_eq!(added["extra_models"][0]["id"], json!("vendor/model-1"));
+    assert_eq!(added["extra_models"][0]["source"], json!("user"));
+
+    let configured_model = client
+        .put(format!("{base}/models/acme/models/vendor%2Fmodel-1/config"))
+        .json(&json!({
+            "max_input_length": 262_144,
+            "generate_kwargs": {"max_tokens": 4096, "temperature": 0.1},
+            "relay_reasoning": false,
+            "thinking_enabled": true,
+            "thinking_budget": 2048,
+            "reasoning_effort": "high"
+        }))
+        .send()
+        .await
+        .expect("custom model configuration should send");
+    assert_eq!(configured_model.status(), reqwest::StatusCode::OK);
+    let configured_model = configured_model
+        .json::<Value>()
+        .await
+        .expect("custom model configuration should be JSON");
+    let model = &configured_model["extra_models"][0];
+    assert_eq!(model["max_input_length"], json!(262_144));
+    assert_eq!(model["max_input_length_configured"], json!(true));
+    assert_eq!(model["generate_kwargs"]["max_tokens"], json!(4096));
+    assert_eq!(model["relay_reasoning"], json!(false));
+    assert_eq!(model["thinking_enabled"], json!(true));
+    assert_eq!(model["thinking_budget"], json!(2048));
+    assert_eq!(model["reasoning_effort"], json!("high"));
+
+    let hidden = client
+        .put(format!(
+            "{base}/models/acme/models/vendor%2Fmodel-1/visibility"
+        ))
+        .json(&json!({"hidden": true}))
+        .send()
+        .await
+        .expect("model visibility update should send");
+    assert_eq!(hidden.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        hidden
+            .json::<Value>()
+            .await
+            .expect("model visibility update should be JSON")["hidden_model_ids"],
+        json!(["vendor/model-1"])
+    );
+
+    let agent_active = client
+        .put(format!("{base}/models/active"))
+        .json(&json!({
+            "provider_id": "acme",
+            "model": "vendor/model-1",
+            "scope": "agent",
+            "agent_id": "default"
+        }))
+        .send()
+        .await
+        .expect("Agent model selection should send");
+    assert_eq!(agent_active.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        agent_active
+            .json::<Value>()
+            .await
+            .expect("Agent model selection should be JSON"),
+        json!({
+            "active_llm": {"provider_id": "acme", "model": "vendor/model-1"},
+            "effective_max_input_length": 262_144
+        })
+    );
+    assert_eq!(
+        get_json(
+            &client,
+            format!("{base}/models/active?scope=agent&agent_id=default")
+        )
+        .await,
+        json!({
+            "active_llm": {"provider_id": "acme", "model": "vendor/model-1"},
+            "effective_max_input_length": 262_144
+        })
+    );
+
+    let default_active = client
+        .put(format!("{base}/models/active"))
+        .json(&json!({
+            "provider_id": "openai-compatible",
+            "model": "qwen-test",
+            "scope": "agent",
+            "agent_id": "default"
+        }))
+        .send()
+        .await
+        .expect("default Agent model selection should send");
+    assert_eq!(default_active.status(), reqwest::StatusCode::OK);
+
+    let removed = client
+        .delete(format!("{base}/models/acme/models/vendor%2Fmodel-1"))
+        .send()
+        .await
+        .expect("custom model removal should send");
+    assert_eq!(removed.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        removed
+            .json::<Value>()
+            .await
+            .expect("custom model removal should be JSON")["extra_models"],
+        json!([])
+    );
+
+    assert_eq!(
+        get_json(&client, format!("{base}/local-models/config")).await,
+        json!({"max_context_length": 65536, "port": null})
+    );
+    let local_updated = client
+        .put(format!("{base}/local-models/config"))
+        .json(&json!({
+            "max_context_length": 131_072,
+            "port": 9421,
+            "generate_kwargs": {"temperature": 0.2}
+        }))
+        .send()
+        .await
+        .expect("local model config should send");
+    assert_eq!(local_updated.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        local_updated
+            .json::<Value>()
+            .await
+            .expect("local model config should be JSON"),
+        json!({"status": "ok", "message": "Local model settings updated"})
+    );
+
+    let invalid_url = client
+        .put(format!("{base}/models/acme/config"))
+        .json(&json!({"base_url": "file:///tmp/not-allowed"}))
+        .send()
+        .await
+        .expect("invalid provider URL should send");
+    assert_eq!(invalid_url.status(), reqwest::StatusCode::BAD_REQUEST);
+    let duplicate = client
+        .post(format!("{base}/models/custom-providers"))
+        .json(&json!({"id": "acme", "name": "Duplicate"}))
+        .send()
+        .await
+        .expect("duplicate custom provider should send");
+    assert_eq!(duplicate.status(), reqwest::StatusCode::BAD_REQUEST);
+    let invalid_model_config = client
+        .put(format!(
+            "{base}/models/openai-compatible/models/qwen-test/config"
+        ))
+        .json(&json!({"generate_kwargs": {"max_tokens": 0}}))
+        .send()
+        .await
+        .expect("invalid model config should send");
+    assert_eq!(
+        invalid_model_config.status(),
+        reqwest::StatusCode::BAD_REQUEST
+    );
+
+    let concurrent_adds = (0..8).map(|index| {
+        let client = client.clone();
+        let url = format!("{base}/models/acme/models");
+        async move {
+            client
+                .post(url)
+                .json(&json!({
+                    "id": format!("parallel-{index}"),
+                    "name": format!("Parallel {index}")
+                }))
+                .send()
+                .await
+                .expect("parallel model creation should send")
+                .status()
+        }
+    });
+    let statuses = futures_util::future::join_all(concurrent_adds).await;
+    assert_eq!(statuses, vec![reqwest::StatusCode::CREATED; 8]);
+    let providers_after_parallel = get_json(&client, format!("{base}/models")).await;
+    let acme_after_parallel = providers_after_parallel
+        .as_array()
+        .expect("provider list should be an array")
+        .iter()
+        .find(|provider| provider["id"] == json!("acme"))
+        .expect("custom provider should remain listed");
+    assert_eq!(
+        acme_after_parallel["extra_models"].as_array().map(Vec::len),
+        Some(8)
+    );
+
+    task.abort();
+    task.await
+        .expect_err("first model registry server should stop");
+
+    let reopened_core = Core::new(ModelConfig {
+        api_key: None,
+        base_url: String::from("http://127.0.0.1:1"),
+        default_model: String::from("qwen-test"),
+    });
+    let reopened_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("reopened model registry listener should bind");
+    let reopened_address = reopened_listener
+        .local_addr()
+        .expect("reopened model registry listener should have an address");
+    let reopened_server = new_isolated_desktop(
+        reopened_core,
+        console.path(),
+        String::from("desktop-model-reopen-token"),
+        credentials.clone(),
+        desktop_data.path(),
+    )
+    .expect("reopened model registry server should configure");
+    let reopened_task = tokio::spawn(reopened_server.run_http(reopened_listener));
+    let reopened_base = format!("http://{reopened_address}/api");
+    let providers = get_json(&client, format!("{reopened_base}/models")).await;
+    let acme = providers
+        .as_array()
+        .expect("provider list should be an array")
+        .iter()
+        .find(|provider| provider["id"] == json!("acme"))
+        .expect("custom provider should survive restart");
+    assert_eq!(acme["name"], json!("Acme Renamed"));
+    assert_eq!(acme["api_key"], json!("********"));
+    assert_eq!(acme["extra_models"].as_array().map(Vec::len), Some(8));
+    assert_eq!(
+        get_json(&client, format!("{reopened_base}/local-models/config")).await,
+        json!({"max_context_length": 131_072, "port": 9421})
+    );
+
+    let deleted = client
+        .delete(format!("{reopened_base}/models/custom-providers/acme"))
+        .send()
+        .await
+        .expect("custom provider deletion should send");
+    assert_eq!(deleted.status(), reqwest::StatusCode::OK);
+    let deleted = deleted
+        .json::<Value>()
+        .await
+        .expect("custom provider deletion should be JSON");
+    assert_eq!(deleted.as_array().map(Vec::len), Some(1));
+    assert_eq!(deleted[0]["id"], json!("openai-compatible"));
+    assert_eq!(
+        credentials
+            .load_agent_setting_secret("model-provider-api-key:acme")
+            .expect("deleted custom provider credential should load"),
+        None
+    );
+    reopened_task.abort();
+    model_task.abort();
+}
+
+#[tokio::test]
+async fn rolls_back_provider_updates_when_credential_storage_fails() {
+    let console = tempfile::tempdir().expect("temporary Console should be created");
+    let desktop_data = tempfile::tempdir().expect("temporary Desktop data should be created");
+    std::fs::write(console.path().join("index.html"), "<html>console</html>")
+        .expect("Console index should be written");
+    let core = Core::new(ModelConfig {
+        api_key: None,
+        base_url: String::from("http://127.0.0.1:1"),
+        default_model: String::from("qwen-test"),
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("credential rollback listener should bind");
+    let address = listener
+        .local_addr()
+        .expect("credential rollback listener should have an address");
+    let server = new_isolated_desktop(
+        core,
+        console.path(),
+        String::from("desktop-model-rollback-token"),
+        Arc::new(RejectingModelCredentialStore),
+        desktop_data.path(),
+    )
+    .expect("credential rollback server should configure");
+    let task = tokio::spawn(server.run_http(listener));
+    let client = reqwest::Client::new();
+    let base = format!("http://{address}/api");
+    let created = client
+        .post(format!("{base}/models/custom-providers"))
+        .json(&json!({
+            "id": "rollback",
+            "name": "Before",
+            "default_base_url": "https://before.example.test/v1"
+        }))
+        .send()
+        .await
+        .expect("rollback provider creation should send");
+    assert_eq!(created.status(), reqwest::StatusCode::CREATED);
+    let failed = client
+        .put(format!("{base}/models/rollback/config"))
+        .json(&json!({
+            "api_key": "must-not-persist",
+            "name": "After",
+            "base_url": "https://after.example.test/v1"
+        }))
+        .send()
+        .await
+        .expect("rejected credential update should send");
+    assert_eq!(failed.status(), reqwest::StatusCode::INTERNAL_SERVER_ERROR);
+    let providers = get_json(&client, format!("{base}/models")).await;
+    let provider = providers
+        .as_array()
+        .expect("provider list should be an array")
+        .iter()
+        .find(|provider| provider["id"] == json!("rollback"))
+        .expect("rollback provider should remain listed");
+    assert_eq!(provider["name"], json!("Before"));
+    assert_eq!(
+        provider["base_url"],
+        json!("https://before.example.test/v1")
+    );
+    assert_eq!(provider["api_key"], json!(""));
+    let registry = std::fs::read_to_string(desktop_data.path().join("models/registry.json"))
+        .expect("rollback registry should read");
+    assert!(!registry.contains("must-not-persist"));
+    assert!(!registry.contains("After"));
+    task.abort();
+}
+
 async fn assert_bootstrap_json_contracts(address: SocketAddr) {
     for (path, expected) in [
         (
@@ -8088,7 +8661,8 @@ async fn assert_model_write_contract(
         .json::<Value>()
         .await
         .expect("model add should be JSON");
-    assert_eq!(added["models"][0]["id"], json!("qwen-next"));
+    assert_eq!(added["models"][0]["id"], json!("qwen-test"));
+    assert_eq!(added["extra_models"][0]["id"], json!("qwen-next"));
 
     let active = client
         .put(format!("http://{address}/api/models/active"))
