@@ -1190,6 +1190,7 @@ async function clickLocalModelAction(client, modelId, action) {
 
 async function runLocalModelsCrudScenario(client) {
   const modelId = "AgentScope/Browser-Test-GGUF";
+  const switchModelId = "AgentScope/Browser-Switch-GGUF";
   await waitForValue(
     client,
     `document.body.innerText.includes("Cloud Providers")`,
@@ -1201,8 +1202,9 @@ async function runLocalModelsCrudScenario(client) {
     client,
     `document.body.innerText.includes("QwenPaw Local — Local Models") &&
       document.body.innerText.includes(${JSON.stringify(modelId)}) &&
+      document.body.innerText.includes(${JSON.stringify(switchModelId)}) &&
       document.body.innerText.includes("Installed")`,
-    "Original Local Models modal did not render the installed fixture",
+    "Original Local Models modal did not render both installed fixtures",
   );
 
   await clickLocalModelAction(client, modelId, "Start");
@@ -1221,7 +1223,30 @@ async function runLocalModelsCrudScenario(client) {
       document.body.innerText.includes("Stop")`,
     "Original Local Models modal did not refresh the running state",
   );
-  await clickLocalModelAction(client, modelId, "Stop");
+
+  await clickLocalModelAction(client, switchModelId, "Start");
+  await waitForValue(
+    client,
+    `document.body.innerText.includes("Switch running model")`,
+    "Original Local Models modal did not request switch confirmation",
+  );
+  await clickButton(client, "Switch");
+  await waitForValue(
+    client,
+    `fetch("/api/local-models/server").then((response) => response.json()).then(
+      (status) => status.available && status.model_name === ${JSON.stringify(
+        switchModelId,
+      )}
+    )`,
+    "Local model did not switch through the original confirmation modal",
+  );
+  await waitForValue(
+    client,
+    `document.body.innerText.includes("Current served model") &&
+      document.body.innerText.includes(${JSON.stringify(switchModelId)})`,
+    "Original Local Models modal did not refresh the switched model",
+  );
+  await clickLocalModelAction(client, switchModelId, "Stop");
   await waitForValue(
     client,
     `fetch("/api/local-models/server").then((response) => response.json()).then(
@@ -1285,8 +1310,30 @@ async function runLocalModelsCrudScenario(client) {
     "Advanced local-model settings did not save through the original modal",
   );
 
+  for (const installedModelId of [modelId, switchModelId]) {
+    await clickLocalModelAction(client, installedModelId, "Delete");
+    await waitForValue(
+      client,
+      `document.body.innerText.includes("Delete local model")`,
+      `Delete confirmation did not open for ${installedModelId}`,
+    );
+    await clickButton(client, "Delete");
+    await waitForValue(
+      client,
+      `fetch("/api/local-models/models").then((response) => response.json()).then(
+        (models) => !models.some((model) =>
+          model.id === ${JSON.stringify(installedModelId)} && model.downloaded
+        )
+      )`,
+      `Local model was not deleted through the original modal: ${installedModelId}`,
+    );
+  }
+
   return {
     modelId,
+    switchModelId,
+    switchedThroughOriginalModal: true,
+    deletedThroughOriginalModal: true,
     status: await evaluateValue(
       client,
       `fetch("/api/local-models/server").then((response) => response.json())`,

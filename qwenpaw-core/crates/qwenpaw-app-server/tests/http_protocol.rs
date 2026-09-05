@@ -209,9 +209,29 @@ async fn manages_local_runtime_and_model_through_the_console_http_contract() {
             "/api/v1/models/{owner}/{repository}/repo",
             axum::routing::get({
                 let model = model.clone();
-                move || {
+                move |axum::extract::Path((_owner, repository)): axum::extract::Path<(
+                    String,
+                    String,
+                )>| {
                     let model = model.clone();
-                    async move { model.as_ref().clone() }
+                    async move {
+                        if repository == "Slow-GGUF" {
+                            let stream = futures_util::stream::unfold((), |()| async move {
+                                tokio::time::sleep(Duration::from_millis(25)).await;
+                                Some((
+                                    Ok::<_, std::convert::Infallible>(
+                                        axum::body::Bytes::from_static(&[0_u8; 1_024]),
+                                    ),
+                                    (),
+                                ))
+                            });
+                            axum::response::Response::new(axum::body::Body::from_stream(stream))
+                        } else {
+                            axum::response::Response::new(axum::body::Body::from(
+                                model.as_ref().clone(),
+                            ))
+                        }
+                    }
                 }
             }),
         );
@@ -323,6 +343,74 @@ async fn manages_local_runtime_and_model_through_the_console_http_contract() {
         client
             .post(format!("{base}/models/download"))
             .json(&json!({
+                "model_name": "AgentScope/Slow-GGUF",
+                "source": "modelscope"
+            }))
+            .send()
+            .await
+            .expect("slow model download should send")
+            .status(),
+        reqwest::StatusCode::OK
+    );
+    wait_for_download_phase(&client, &format!("{base}/models/download"), "downloading").await;
+    assert_eq!(
+        client
+            .post(format!("{base}/server/download"))
+            .send()
+            .await
+            .expect("parallel runtime download should send")
+            .status(),
+        reqwest::StatusCode::OK
+    );
+    assert_eq!(
+        wait_for_download(&client, &format!("{base}/server/download")).await["status"],
+        json!("completed")
+    );
+    assert_eq!(
+        client
+            .post(format!("{base}/models/download"))
+            .json(&json!({
+                "model_name": "AgentScope/Concurrent-GGUF",
+                "source": "modelscope"
+            }))
+            .send()
+            .await
+            .expect("concurrent model download should send")
+            .status(),
+        reqwest::StatusCode::CONFLICT
+    );
+    assert_eq!(
+        client
+            .delete(format!("{base}/models/AgentScope%2FSlow-GGUF"))
+            .send()
+            .await
+            .expect("active model deletion should send")
+            .status(),
+        reqwest::StatusCode::CONFLICT
+    );
+    assert_eq!(
+        client
+            .delete(format!("{base}/models/download"))
+            .send()
+            .await
+            .expect("active model cancellation should send")
+            .status(),
+        reqwest::StatusCode::OK
+    );
+    let cancelled = wait_for_download(&client, &format!("{base}/models/download")).await;
+    assert_eq!(cancelled["status"], json!("cancelled"));
+    assert_eq!(cancelled["local_path"], Value::Null);
+    assert!(
+        std::fs::read_dir(data.path().join("local-models/tmp"))
+            .expect("local model staging root should remain readable")
+            .next()
+            .is_none()
+    );
+
+    assert_eq!(
+        client
+            .post(format!("{base}/models/download"))
+            .json(&json!({
                 "model_name": "AgentScope/Test-GGUF",
                 "source": "modelscope"
             }))
@@ -334,6 +422,23 @@ async fn manages_local_runtime_and_model_through_the_console_http_contract() {
     );
     let model_progress = wait_for_download(&client, &format!("{base}/models/download")).await;
     assert_eq!(model_progress["status"], json!("completed"));
+    assert_eq!(
+        client
+            .post(format!("{base}/models/download"))
+            .json(&json!({
+                "model_name": "AgentScope/Switch-GGUF",
+                "source": "modelscope"
+            }))
+            .send()
+            .await
+            .expect("switch target model download should send")
+            .status(),
+        reqwest::StatusCode::OK
+    );
+    assert_eq!(
+        wait_for_download(&client, &format!("{base}/models/download")).await["status"],
+        json!("completed")
+    );
     let models = get_json(&client, format!("{base}/models")).await;
     assert!(models.as_array().is_some_and(|models| {
         models
@@ -357,6 +462,71 @@ async fn manages_local_runtime_and_model_through_the_console_http_contract() {
     let status = get_json(&client, format!("{base}/server")).await;
     assert_eq!(status["available"], json!(true));
     assert_eq!(status["model_name"], json!("AgentScope/Test-GGUF"));
+
+    let switched = client
+        .post(format!("{base}/server"))
+        .json(&json!({"model_id": "AgentScope/Switch-GGUF"}))
+        .send()
+        .await
+        .expect("local model server switch should send");
+    assert_eq!(switched.status(), reqwest::StatusCode::OK);
+    let switched = switched
+        .json::<Value>()
+        .await
+        .expect("local model server switch should be JSON");
+    let switched_port = switched["port"]
+        .as_u64()
+        .expect("switched local model should expose a port");
+    assert_eq!(
+        get_json(&client, format!("{base}/server")).await["model_name"],
+        json!("AgentScope/Switch-GGUF")
+    );
+    assert_eq!(
+        get_json(
+            &client,
+            format!("http://{address}/api/models/active?scope=global")
+        )
+        .await["active_llm"],
+        json!({
+            "provider_id": "qwenpaw-local",
+            "model": "AgentScope/Switch-GGUF"
+        })
+    );
+
+    assert_eq!(
+        client
+            .get(format!("http://127.0.0.1:{switched_port}/exit"))
+            .send()
+            .await
+            .expect("fake llama.cpp exit should send")
+            .status(),
+        reqwest::StatusCode::OK
+    );
+    let exited = wait_for_local_server_stop(&client, &format!("{base}/server")).await;
+    assert_eq!(exited["available"], json!(false));
+    assert_eq!(exited["model_name"], Value::Null);
+    assert_eq!(
+        get_json(
+            &client,
+            format!("http://{address}/api/models/active?scope=global")
+        )
+        .await["active_llm"],
+        json!({
+            "provider_id": "openai-compatible",
+            "model": "qwen-test"
+        })
+    );
+
+    assert_eq!(
+        client
+            .post(format!("{base}/server"))
+            .json(&json!({"model_id": "AgentScope/Test-GGUF"}))
+            .send()
+            .await
+            .expect("local model restart should send")
+            .status(),
+        reqwest::StatusCode::OK
+    );
 
     let shutdown = client
         .post(format!("http://{address}/api/desktop/shutdown"))
@@ -415,6 +585,15 @@ async fn manages_local_runtime_and_model_through_the_console_http_contract() {
             .status(),
         reqwest::StatusCode::OK
     );
+    assert_eq!(
+        client
+            .delete(format!("{reopened_base}/models/AgentScope%2FSwitch-GGUF"))
+            .send()
+            .await
+            .expect("switch target local model deletion should send")
+            .status(),
+        reqwest::StatusCode::OK
+    );
     let reopened_shutdown = client
         .post(format!("http://{reopened_address}/api/desktop/shutdown"))
         .header(
@@ -436,6 +615,7 @@ async fn manages_local_runtime_and_model_through_the_console_http_contract() {
 fn fake_llama_runtime_archive() -> Vec<u8> {
     let script = br#"#!/usr/bin/env python3
 import sys
+import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 if "--version" in sys.argv:
@@ -446,6 +626,12 @@ port = int(sys.argv[sys.argv.index("--port") + 1])
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
+        if self.path == "/exit":
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"bye")
+            threading.Thread(target=self.server.shutdown, daemon=True).start()
+            return
         self.send_response(200 if self.path == "/health" else 404)
         self.end_headers()
         self.wfile.write(b"ok")
@@ -487,6 +673,18 @@ async fn wait_for_download(client: &reqwest::Client, url: &str) -> Value {
 }
 
 #[cfg(unix)]
+async fn wait_for_download_phase(client: &reqwest::Client, url: &str, expected: &str) -> Value {
+    for _ in 0..100 {
+        let progress = get_json(client, url.to_owned()).await;
+        if progress["status"] == expected {
+            return progress;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("local model download did not reach {expected}")
+}
+
+#[cfg(unix)]
 async fn wait_for_local_server(client: &reqwest::Client, url: &str) -> Value {
     for _ in 0..100 {
         let status = get_json(client, url.to_owned()).await;
@@ -496,6 +694,18 @@ async fn wait_for_local_server(client: &reqwest::Client, url: &str) -> Value {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     panic!("local model server did not resume")
+}
+
+#[cfg(unix)]
+async fn wait_for_local_server_stop(client: &reqwest::Client, url: &str) -> Value {
+    for _ in 0..100 {
+        let status = get_json(client, url.to_owned()).await;
+        if status["available"] == false && status["model_name"].is_null() {
+            return status;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("local model server did not stop after its process exited")
 }
 
 #[tokio::test]

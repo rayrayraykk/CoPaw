@@ -1347,10 +1347,10 @@ Inbox 读取、状态和持久化契约已完成；真实 Agent Cron、Heartbeat
 - [x] 将运行模型写入 `qwenpaw-local` Provider、active model 与实际 Rust Turn 路由，停止后原子清理；
 - [x] 以 loopback runtime/ModelScope mock 覆盖 12 条 HTTP 接口、安全归档、下载安装、启动、停止、删除和 Core 重启自动恢复；
 - [x] 使用未修改的 Local Model Manage 弹窗验证已安装模型渲染、启动、运行态刷新、停止和高级设置保存；原 Console 单测保持全量通过；
-- [ ] 补强在途下载取消、双模型切换、子进程异常退出及跨任务并发的独立回归；
+- [x] 补强在途下载取消、同类任务互斥/两类下载并行、双模型切换、子进程异常退出及 Provider 回退回归；
 - [x] 通过全量 Rust/Console/SDK/VS Code 回归，重建并逐个反向验证 9 个发布产物后提交推送。
 
-2026-09-05 本机阶段验收：Rust workspace 191 个测试、格式检查和严格 all-features/all-targets Clippy 通过；Console 295 个测试文件、2453 个测试、production build 和 inventory 防漂移通过，`console/src` 保持零改动。真实 HTTP 契约使用 loopback llama.cpp 归档、可执行 fixture 和 ModelScope mock 覆盖全部 12 条本地模型路由、runtime/model 安装、health readiness、Provider 激活、正常关闭、Core 重启自动恢复、停止及删除；未修改的原 Local Model Manage 弹窗连接 release Rust Core 完成已安装模型渲染、启动、运行态刷新、停止和 max context 保存，全部请求返回 200 且浏览器错误为 0，另外 24 个内置导航页全量 smoke 均通过。当前 inventory 为 370 个调用点、334 条 Rust 路由、313 个已注册调用点，其中 309 个非占位、4 个占位、57 个未注册和 11 个静态未解析表达式；本地模型调用均已注册且非占位。TypeScript SDK 3 个、Python SDK 4 个真实 Core 测试与 VS Code 57 个测试通过。macOS App/ZIP/QA DMG、Core archive、WebUI archive、TypeScript/Python SDK、universal/platform VSIX 与 legacy wheel 共 9 个发布文件均以本切片源码重建，并分别完成运行、临时安装、解包、只读挂载、manifest、内嵌 Core、签名和 SHA-256 反向校验；legacy wheel 的 CLI/TUI 入口也从安装后成品验证通过。QA DMG 当前为 ad-hoc 签名，待用户提供 Apple 发布凭据后才能生成 Developer ID 签名和 notarized 正式包。
+2026-09-05 本机阶段验收：Rust workspace 191 个测试、格式检查和严格 all-features/all-targets Clippy 通过；Console 295 个测试文件、2453 个测试、production build 和 inventory 防漂移通过，`console/src` 保持零改动。真实 HTTP 契约使用 loopback llama.cpp 归档、可执行 fixture 和 ModelScope mock 覆盖全部 12 条本地模型路由、runtime/model 安装、在途取消与 staging 清理、同类任务互斥、runtime/model 并行、health readiness、双模型切换、Provider 激活、子进程异常退出回退、正常关闭、Core 重启自动恢复、停止及删除；未修改的原 Local Model Manage 弹窗连接 release Rust Core 完成两个已安装模型渲染、启动、切换确认、运行态刷新、停止、逐个删除和 max context 保存，全部请求返回 200 且浏览器错误为 0，另外 24 个内置导航页全量 smoke 均通过。当前 inventory 为 370 个调用点、334 条 Rust 路由、313 个已注册调用点，其中 309 个非占位、4 个占位、57 个未注册和 11 个静态未解析表达式；本地模型调用均已注册且非占位。TypeScript SDK 3 个、Python SDK 4 个真实 Core 测试与 VS Code 57 个测试通过。macOS App/ZIP/QA DMG、Core archive、WebUI archive、TypeScript/Python SDK、universal/platform VSIX 与 legacy wheel 共 9 个发布文件均以本切片源码重建，并分别完成运行、临时安装、解包、只读挂载、manifest、内嵌 Core、签名和 SHA-256 反向校验；legacy wheel 的 CLI/TUI 入口也从安装后成品验证通过。QA DMG 当前为 ad-hoc 签名，待用户提供 Apple 发布凭据后才能生成 Developer ID 签名和 notarized 正式包；Windows/Linux 原生安装态与进程树回收仍由对应平台发布门禁验证。
 
 ### 14.3 客户端与发布
 

@@ -49,6 +49,7 @@ const MODELSCOPE_BASE_URL: &str = "https://modelscope.cn";
 const MIN_MACOS_MAJOR: u64 = 13;
 const MIN_MACOS_MINOR: u64 = 3;
 const DOWNLOAD_TIMEOUT_SECONDS: u64 = 30;
+const DOWNLOAD_SHUTDOWN_TIMEOUT_SECONDS: u64 = 8;
 const HEALTH_REQUEST_TIMEOUT_SECONDS: u64 = 2;
 const HEALTH_POLL_MILLIS: u64 = 250;
 const SERVER_START_TIMEOUT_SECONDS: u64 = 120;
@@ -345,21 +346,15 @@ async fn server_status(State(server): State<AppServer>) -> Result<Json<Value>, A
         })));
     }
 
-    let mut exited = false;
+    let generation = {
+        let slot = state.server.lock().await;
+        slot.child.as_ref().map(|_| slot.generation)
+    };
+    if let Some(generation) = generation {
+        let _ = reap_server_generation(&server, generation).await?;
+    }
     let (running, transitioning, port, model_name) = {
-        let mut slot = state.server.lock().await;
-        if let Some(child) = slot.child.as_mut()
-            && child
-                .try_wait()
-                .map_err(|_| internal("Local server status is unavailable"))?
-                .is_some()
-        {
-            slot.child = None;
-            slot.port = None;
-            slot.model_id = None;
-            slot.transitioning = false;
-            exited = true;
-        }
+        let slot = state.server.lock().await;
         (
             slot.child.is_some(),
             slot.transitioning,
@@ -367,9 +362,6 @@ async fn server_status(State(server): State<AppServer>) -> Result<Json<Value>, A
             slot.model_id.clone(),
         )
     };
-    if exited {
-        desktop_models::clear_local_runtime(&server).await?;
-    }
     let ready = if running && !transitioning {
         if let Some(port) = port {
             false_if_error(check_health(port).await)
@@ -1052,6 +1044,9 @@ async fn runtime_download_inner(
         tokio::task::spawn_blocking(move || extract_runtime_archive(&archive, &extracted))
             .await
             .map_err(|_| String::from("llama.cpp extraction task failed"))??;
+        if cancellation.is_cancelled() {
+            return Err(String::from("Download cancelled"));
+        }
         let install_source = flattened_archive_root(&extract_root)?;
         let executable = install_source.join(if cfg!(windows) {
             "llama-server.exe"
@@ -1065,6 +1060,9 @@ async fn runtime_download_inner(
         installed_runtime_version(&executable)
             .await
             .ok_or_else(|| String::from("Downloaded llama-server failed its version check"))?;
+        if cancellation.is_cancelled() {
+            return Err(String::from("Download cancelled"));
+        }
         let destination = runtime_root(server).map_err(api_detail)?;
         atomic_replace_directory(&install_source, &destination)?;
         Ok(destination.to_string_lossy().into_owned())
@@ -1137,12 +1135,18 @@ async fn model_download_inner(
             )
             .await?;
         }
+        if cancellation.is_cancelled() {
+            return Err(String::from("Download cancelled"));
+        }
         let (_, has_model) = model_directory_summary(&staging)
             .map_err(|error| format!("Downloaded model is invalid: {error}"))?;
         if !has_model {
             return Err(String::from(
                 "Repository does not contain a GGUF model file",
             ));
+        }
+        if cancellation.is_cancelled() {
+            return Err(String::from("Download cancelled"));
         }
         let root = models_root(server).map_err(api_detail)?;
         let destination = model_path(&root, model_id);
@@ -1216,7 +1220,18 @@ async fn download_file(
 
 fn download_client() -> Result<Client, String> {
     Client::builder()
-        .redirect(Policy::limited(5))
+        .redirect(Policy::custom(|attempt| {
+            if attempt.previous().len() >= 5 {
+                return attempt.error("too many download redirects");
+            }
+            let target = attempt.url();
+            if target.scheme() == "https" || (target.scheme() == "http" && is_loopback_url(target))
+            {
+                attempt.follow()
+            } else {
+                attempt.error("download redirect must use HTTPS or loopback HTTP")
+            }
+        }))
         .connect_timeout(Duration::from_secs(DOWNLOAD_TIMEOUT_SECONDS))
         .build()
         .map_err(|error| format!("Download client could not be created: {error}"))
@@ -1778,6 +1793,7 @@ async fn start_server_with_activation(
             .map_err(|error| bad_request(&error))?;
     if let Some(mut previous) = take_server_child(state).await {
         terminate_child(&mut previous).await;
+        desktop_models::clear_local_runtime(server).await?;
     }
     let (config, _) = desktop_models::local_model_config(server).await?;
     let port = reserve_port(config.port)?;
@@ -1930,26 +1946,62 @@ fn spawn_server_monitor(server: AppServer, generation: u64) {
                 () = server.inner.shutdown.cancelled() => return,
                 () = tokio::time::sleep(Duration::from_secs(1)) => {}
             }
-            let Some(state) = server.inner.desktop_local_models.as_ref() else {
-                return;
-            };
-            let exited = {
-                let mut slot = state.server.lock().await;
-                if slot.generation != generation {
-                    return;
-                }
-                slot.child
-                    .as_mut()
-                    .and_then(|child| child.try_wait().ok().flatten())
-                    .is_some()
-            };
-            if exited {
-                clear_server_slot(state, generation).await;
-                let _ = desktop_models::clear_local_runtime(&server).await;
-                return;
+            match reap_server_generation(&server, generation).await {
+                Ok(Some(false)) => {}
+                Ok(Some(true) | None) | Err(_) => return,
             }
         }
     });
+}
+
+async fn reap_server_generation(
+    server: &AppServer,
+    generation: u64,
+) -> Result<Option<bool>, ApiError> {
+    let state = local_state(server)?;
+    let exited = {
+        let mut slot = state.server.lock().await;
+        if slot.generation != generation {
+            return Ok(None);
+        }
+        slot.child
+            .as_mut()
+            .map(tokio::process::Child::try_wait)
+            .transpose()
+            .map_err(|_| internal("Local server status is unavailable"))?
+            .flatten()
+            .is_some()
+    };
+    if !exited {
+        return Ok(Some(false));
+    }
+
+    let _lifecycle = state.lifecycle.lock().await;
+    let reaped = {
+        let mut slot = state.server.lock().await;
+        if slot.generation != generation {
+            return Ok(None);
+        }
+        let exited = slot
+            .child
+            .as_mut()
+            .map(tokio::process::Child::try_wait)
+            .transpose()
+            .map_err(|_| internal("Local server status is unavailable"))?
+            .flatten()
+            .is_some();
+        if exited {
+            slot.child = None;
+            slot.port = None;
+            slot.model_id = None;
+            slot.transitioning = false;
+        }
+        exited
+    };
+    if reaped {
+        desktop_models::clear_local_runtime(server).await?;
+    }
+    Ok(Some(reaped))
 }
 
 fn resolve_model_files(root: &Path) -> Result<(PathBuf, Option<PathBuf>), String> {
@@ -2064,6 +2116,21 @@ pub(super) async fn shutdown(server: &AppServer) {
     };
     state.runtime_download.lock().await.cancel();
     state.model_download.lock().await.cancel();
+    let deadline = Instant::now() + Duration::from_secs(DOWNLOAD_SHUTDOWN_TIMEOUT_SECONDS);
+    loop {
+        let runtime_active = state
+            .runtime_download
+            .lock()
+            .await
+            .progress
+            .phase
+            .is_active();
+        let model_active = state.model_download.lock().await.progress.phase.is_active();
+        if (!runtime_active && !model_active) || Instant::now() >= deadline {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
     let _ = stop_server_inner(server, false).await;
 }
 
