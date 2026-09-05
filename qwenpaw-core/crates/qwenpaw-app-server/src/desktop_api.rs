@@ -109,7 +109,6 @@ pub(super) fn router() -> Router<AppServer> {
         .route("/api/coding-mode", get(coding_mode).post(set_coding_mode))
         .route("/api/loops", get(loop_modes))
         .route("/api/loops/status", get(loop_status))
-        .route("/api/skills", get(skills))
         .route("/api/mcp/oauth/start/{*client_key}", post(start_mcp_oauth))
         .route("/api/mcp/oauth/status/{*client_key}", get(mcp_oauth_status))
         .route("/api/mcp/oauth/{*client_key}", delete(revoke_mcp_oauth))
@@ -185,10 +184,6 @@ async fn loop_modes() -> Json<Value> {
 
 async fn loop_status() -> Json<Value> {
     Json(json!({"state": "idle", "mode": null}))
-}
-
-async fn skills() -> Json<Value> {
-    Json(json!([]))
 }
 
 #[derive(Debug, Default, Deserialize)]

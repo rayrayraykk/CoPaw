@@ -128,18 +128,149 @@ function smokeOptions(arguments_) {
   const codingGit = arguments_.includes("--coding-git");
   const mcpCrud = arguments_.includes("--mcp-crud");
   const securityCrud = arguments_.includes("--security-crud");
+  const skillsCrud = arguments_.includes("--skills-crud");
   const navigationArguments = arguments_.filter(
     (argument) =>
       argument !== "--coding-git" &&
       argument !== "--mcp-crud" &&
-      argument !== "--security-crud",
+      argument !== "--security-crud" &&
+      argument !== "--skills-crud",
   );
   return {
     codingGit,
     mcpCrud,
     securityCrud,
+    skillsCrud,
     paths: navigationPaths(navigationArguments),
   };
+}
+
+async function clickSkillCard(client, name) {
+  const clicked = await evaluateValue(
+    client,
+    `(() => {
+      const title = [...document.querySelectorAll("h3")].find(
+        (item) => (item.innerText ?? "").trim().startsWith(${JSON.stringify(
+          name,
+        )})
+      );
+      title?.click();
+      return Boolean(title);
+    })()`,
+  );
+  if (!clicked) throw new Error(`Skills card did not render: ${name}`);
+}
+
+async function runSkillsCrudScenario(client, navigationPath) {
+  const skillName = "browser_weather";
+  const initialContent = `---
+name: browser_weather
+description: Browser smoke weather
+---
+
+Return a concise weather summary.`;
+  const editedContent = `${initialContent}\n\nAlways include temperature units.`;
+  if (navigationPath === "/skills") {
+    await waitForValue(
+      client,
+      `document.body.innerText.includes("Create First Skill") ||
+        document.body.innerText.includes(${JSON.stringify(skillName)})`,
+      "Skills empty state did not render",
+    );
+    const exists = await evaluateValue(
+      client,
+      `document.body.innerText.includes(${JSON.stringify(skillName)})`,
+    );
+    if (!exists) {
+      await clickButton(client, "Create First Skill");
+      await waitForValue(
+        client,
+        `document.body.innerText.includes("Create Skill")`,
+        "Create Skill drawer did not open",
+      );
+      await setInputByPlaceholder(client, "e.g., weather_query", skillName);
+      await setVisibleTextarea(client, initialContent, "");
+      await clickButton(client, "Create");
+      await waitForValue(
+        client,
+        `document.body.innerText.includes(${JSON.stringify(skillName)})`,
+        "Created Skill card did not appear",
+      );
+    }
+    await clickSkillCard(client, skillName);
+    await waitForValue(
+      client,
+      `document.body.innerText.includes("View Skill: ${skillName}")`,
+      "Skill edit drawer did not open",
+    );
+    await setVisibleTextarea(client, editedContent, "Browser smoke weather");
+    await clickButton(client, "Save");
+    await waitForValue(
+      client,
+      `fetch("/api/skills/${skillName}").then((response) => response.json())
+        .then((value) => value.content.includes("Always include temperature units."))`,
+      "Edited Skill content did not persist",
+    );
+    const disabled = await evaluateValue(
+      client,
+      `fetch("/api/skills/${skillName}/disable", {method: "POST"})
+        .then((response) => response.ok)`,
+    );
+    if (!disabled) throw new Error("Skill disable request failed");
+    const uploaded = await evaluateValue(
+      client,
+      `fetch("/api/skills/pool/upload", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          workspace_id: "default",
+          skill_name: ${JSON.stringify(skillName)},
+          overwrite: true
+        })
+      }).then((response) => response.ok)`,
+    );
+    if (!uploaded) throw new Error("Skill Pool upload request failed");
+    return evaluateValue(
+      client,
+      `Promise.all([
+        fetch("/api/skills/${skillName}").then((response) => response.json()),
+        fetch("/api/skills/pool").then((response) => response.json())
+      ]).then(([skill, pool]) => ({
+        created: skill.name === ${JSON.stringify(skillName)},
+        edited: skill.content.includes("Always include temperature units."),
+        disabled: skill.enabled === false,
+        uploaded: pool.some((item) => item.name === ${JSON.stringify(
+          skillName,
+        )})
+      }))`,
+    );
+  }
+
+  await waitForValue(
+    client,
+    `document.body.innerText.includes(${JSON.stringify(skillName)})`,
+    "Skill Pool item did not render",
+  );
+  await clickSkillCard(client, skillName);
+  await waitForValue(
+    client,
+    `document.body.innerText.includes("Edit ${skillName}")`,
+    "Skill Pool editor did not open",
+  );
+  return evaluateValue(
+    client,
+    `Promise.all([
+      fetch("/api/skills/pool/builtin-sources").then((response) => response.json()),
+      fetch("/api/skills/pool/${skillName}").then((response) => response.json())
+    ]).then(([builtins, skill]) => ({
+      itemRendered: document.body.innerText.includes(${JSON.stringify(
+        skillName,
+      )}),
+      editorOpened: document.body.innerText.includes("Edit ${skillName}"),
+      builtinCount: builtins.length,
+      detailName: skill.name
+    }))`,
+  );
 }
 
 async function evaluateValue(client, expression) {
@@ -691,7 +822,7 @@ function apiPath(url, origin) {
 }
 
 async function inspectConsole(client, origin, options) {
-  const { codingGit, mcpCrud, securityCrud, paths } = options;
+  const { codingGit, mcpCrud, securityCrud, skillsCrud, paths } = options;
   let observation;
   client.on("Network.responseReceived", ({ response }) => {
     const requestPath = apiPath(response.url, origin);
@@ -732,6 +863,7 @@ async function inspectConsole(client, origin, options) {
     );
     let mcpCrudResult;
     let securityCrudResult;
+    let skillsCrudResult;
     if (mcpCrud && navigationPath === "/mcp") {
       try {
         mcpCrudResult = await runMcpCrudScenario(client);
@@ -742,6 +874,16 @@ async function inspectConsole(client, origin, options) {
     if (securityCrud && navigationPath === "/security") {
       try {
         securityCrudResult = await runSecurityCrudScenario(client);
+      } catch (error) {
+        observation.browserErrors.push(error.stack ?? String(error));
+      }
+    }
+    if (
+      skillsCrud &&
+      (navigationPath === "/skills" || navigationPath === "/skill-pool")
+    ) {
+      try {
+        skillsCrudResult = await runSkillsCrudScenario(client, navigationPath);
       } catch (error) {
         observation.browserErrors.push(error.stack ?? String(error));
       }
@@ -816,6 +958,7 @@ async function inspectConsole(client, origin, options) {
       },
       mcpCrud: mcpCrudResult,
       securityCrud: securityCrudResult,
+      skillsCrud: skillsCrudResult,
       apiResponses: responses,
       failedApi,
       failures,

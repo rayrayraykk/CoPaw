@@ -94,6 +94,7 @@ mod desktop_mcp;
 mod desktop_navigation;
 mod desktop_projects;
 mod desktop_security;
+mod desktop_skills;
 mod desktop_stats;
 mod desktop_tool_calls;
 mod desktop_tools;
@@ -137,6 +138,9 @@ struct AppServerInner {
     desktop_heartbeat_running: std::sync::atomic::AtomicBool,
     desktop_project_lock: tokio::sync::Mutex<()>,
     desktop_security_lock: tokio::sync::Mutex<()>,
+    desktop_skills_lock: tokio::sync::Mutex<()>,
+    desktop_skill_tasks: tokio::sync::RwLock<HashMap<String, desktop_skills::HubInstallTask>>,
+    desktop_skill_cancellations: tokio::sync::RwLock<HashMap<String, CancellationToken>>,
     desktop_credentials: Option<Arc<dyn DesktopCredentialStore>>,
     desktop_workspace: Option<DesktopWorkspace>,
     allowed_origins: Vec<String>,
@@ -209,6 +213,9 @@ impl AppServer {
                 desktop_heartbeat_running: std::sync::atomic::AtomicBool::new(false),
                 desktop_project_lock: tokio::sync::Mutex::new(()),
                 desktop_security_lock: tokio::sync::Mutex::new(()),
+                desktop_skills_lock: tokio::sync::Mutex::new(()),
+                desktop_skill_tasks: tokio::sync::RwLock::new(HashMap::new()),
+                desktop_skill_cancellations: tokio::sync::RwLock::new(HashMap::new()),
                 desktop_credentials: None,
                 desktop_workspace: None,
                 allowed_origins: allowed_origins_from_env(),
@@ -401,6 +408,9 @@ impl AppServer {
                 desktop_heartbeat_running: std::sync::atomic::AtomicBool::new(false),
                 desktop_project_lock: tokio::sync::Mutex::new(()),
                 desktop_security_lock: tokio::sync::Mutex::new(()),
+                desktop_skills_lock: tokio::sync::Mutex::new(()),
+                desktop_skill_tasks: tokio::sync::RwLock::new(HashMap::new()),
+                desktop_skill_cancellations: tokio::sync::RwLock::new(HashMap::new()),
                 desktop_credentials: Some(desktop_credentials),
                 desktop_workspace: Some(desktop_workspace),
                 allowed_origins: allowed_origins_from_env(),
@@ -580,6 +590,7 @@ impl AppServer {
                 .merge(desktop_navigation::router())
                 .merge(desktop_projects::router())
                 .merge(desktop_security::router())
+                .merge(desktop_skills::router())
                 .merge(desktop_stats::router())
                 .merge(desktop_tool_calls::router())
                 .merge(desktop_tools::router())

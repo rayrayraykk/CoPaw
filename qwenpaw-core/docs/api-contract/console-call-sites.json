@@ -3,11 +3,11 @@
   "source": "console/src production TypeScript call sites",
   "callCount": 370,
   "unresolvedCount": 11,
-  "rustRouteCount": 234,
-  "registeredCallCount": 232,
+  "rustRouteCount": 278,
+  "registeredCallCount": 266,
   "placeholderCallCount": 5,
-  "nonPlaceholderRegisteredCallCount": 227,
-  "missingCallCount": 138,
+  "nonPlaceholderRegisteredCallCount": 261,
+  "missingCallCount": 104,
   "rustRoutes": [
     {
       "method": "ANY",
@@ -1041,9 +1041,317 @@
     {
       "method": "GET",
       "path": "/api/skills",
-      "handler": "skills",
+      "handler": "list_skills",
       "placeholder": false,
-      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_api.rs"
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills",
+      "handler": "create_workspace_skill",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/skills/{skill_name}",
+      "handler": "delete_workspace_skill",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/{skill_name}",
+      "handler": "get_workspace_skill",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/skills/{skill_name}/channels",
+      "handler": "update_workspace_channels",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/skills/{skill_name}/config",
+      "handler": "clear_workspace_config",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/{skill_name}/config",
+      "handler": "get_workspace_config",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/skills/{skill_name}/config",
+      "handler": "update_workspace_config",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/{skill_name}/disable",
+      "handler": "disable_workspace_skill",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/{skill_name}/enable",
+      "handler": "enable_workspace_skill",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/{skill_name}/files/{*file_path}",
+      "handler": "load_workspace_skill_file",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/skills/{skill_name}/tags",
+      "handler": "update_workspace_tags",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/ai/optimize/stream",
+      "handler": "optimize_skill_stream",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/batch-delete",
+      "handler": "batch_delete",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/batch-disable",
+      "handler": "batch_disable",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/batch-enable",
+      "handler": "batch_enable",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/hub/install/cancel/{task_id}",
+      "handler": "cancel_hub_install",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/hub/install/start",
+      "handler": "start_hub_install",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/hub/install/status/{task_id}",
+      "handler": "hub_install_status",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/hub/search",
+      "handler": "search_hub",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/pool",
+      "handler": "list_pool_skills",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/skills/pool/{skill_name}",
+      "handler": "delete_pool_skill",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/pool/{skill_name}",
+      "handler": "get_pool_skill",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/skills/pool/{skill_name}/auto-sync",
+      "handler": "update_pool_auto_sync",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/skills/pool/{skill_name}/automation",
+      "handler": "update_pool_automation",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/skills/pool/{skill_name}/config",
+      "handler": "clear_pool_config",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/pool/{skill_name}/config",
+      "handler": "get_pool_config",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/skills/pool/{skill_name}/config",
+      "handler": "update_pool_config",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/skills/pool/{skill_name}/tags",
+      "handler": "update_pool_tags",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/pool/{skill_name}/update-builtin",
+      "handler": "update_builtin",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/pool/batch-delete",
+      "handler": "batch_delete_pool",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/pool/builtin-notice",
+      "handler": "get_builtin_notice",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/pool/builtin-sources",
+      "handler": "list_builtin_sources",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/pool/create",
+      "handler": "create_pool_skill",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/pool/download",
+      "handler": "download_pool_to_workspaces",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/pool/import",
+      "handler": "import_pool_from_hub",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/pool/import-builtin",
+      "handler": "import_builtin_sources",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/pool/refresh",
+      "handler": "refresh_pool_skills",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/skills/pool/save",
+      "handler": "save_pool_skill",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/pool/upload",
+      "handler": "upload_workspace_to_pool",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/pool/upload-zip",
+      "handler": "upload_pool_zip",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/refresh",
+      "handler": "refresh_skills",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/skills/save",
+      "handler": "save_workspace_skill",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/upload",
+      "handler": "upload_workspace_zip",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/workspaces",
+      "handler": "list_workspaces",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_skills.rs"
     },
     {
       "method": "GET",
@@ -5006,7 +5314,7 @@
       "line": 140,
       "resolved": true,
       "apiPath": "/api/skills/workspaces",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5018,7 +5326,7 @@
       "line": 150,
       "resolved": true,
       "apiPath": "/api/skills/pool",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5030,7 +5338,7 @@
       "line": 164,
       "resolved": true,
       "apiPath": "/api/skills/{skillName}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5042,7 +5350,7 @@
       "line": 171,
       "resolved": true,
       "apiPath": "/api/skills/pool/{skillName}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5054,7 +5362,7 @@
       "line": 176,
       "resolved": true,
       "apiPath": "/api/skills/refresh",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5066,7 +5374,7 @@
       "line": 183,
       "resolved": true,
       "apiPath": "/api/skills/pool/refresh",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5078,7 +5386,7 @@
       "line": 197,
       "resolved": true,
       "apiPath": "/api/skills/hub/search?q={q}&limit={limit}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5090,7 +5398,7 @@
       "line": 207,
       "resolved": true,
       "apiPath": "/api/skills",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5102,7 +5410,7 @@
       "line": 224,
       "resolved": true,
       "apiPath": "/api/skills/save",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5114,7 +5422,7 @@
       "line": 238,
       "resolved": true,
       "apiPath": "/api/skills/pool/create",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5126,7 +5434,7 @@
       "line": 250,
       "resolved": true,
       "apiPath": "/api/skills/pool/save",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5138,7 +5446,7 @@
       "line": 260,
       "resolved": true,
       "apiPath": "/api/skills/{skillName}/enable",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5150,7 +5458,7 @@
       "line": 265,
       "resolved": true,
       "apiPath": "/api/skills/{skillName}/disable",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5162,7 +5470,7 @@
       "line": 270,
       "resolved": true,
       "apiPath": "/api/skills/batch-enable",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5174,7 +5482,7 @@
       "line": 285,
       "resolved": true,
       "apiPath": "/api/skills/batch-disable",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5186,7 +5494,7 @@
       "line": 293,
       "resolved": true,
       "apiPath": "/api/skills/batch-delete",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5198,7 +5506,7 @@
       "line": 301,
       "resolved": true,
       "apiPath": "/api/skills/pool/batch-delete",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5210,7 +5518,7 @@
       "line": 309,
       "resolved": true,
       "apiPath": "/api/skills/{skillName}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5222,7 +5530,7 @@
       "line": 325,
       "resolved": true,
       "apiPath": "/api/skills/hub/install/start",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5234,7 +5542,7 @@
       "line": 337,
       "resolved": true,
       "apiPath": "/api/skills/pool/import",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5246,7 +5554,7 @@
       "line": 351,
       "resolved": true,
       "apiPath": "/api/skills/hub/install/status/{taskId}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5258,7 +5566,7 @@
       "line": 361,
       "resolved": true,
       "apiPath": "/api/skills/hub/install/cancel/{taskId}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5270,7 +5578,7 @@
       "line": 368,
       "resolved": true,
       "apiPath": "/api/skills/pool/builtin-sources",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5282,7 +5590,7 @@
       "line": 375,
       "resolved": true,
       "apiPath": "/api/skills/pool/builtin-notice",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5294,7 +5602,7 @@
       "line": 386,
       "resolved": true,
       "apiPath": "/api/skills/pool/import-builtin",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5306,7 +5614,7 @@
       "line": 406,
       "resolved": true,
       "apiPath": "/api/skills/pool/{skillName}/update-builtin",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5318,7 +5626,7 @@
       "line": 415,
       "resolved": true,
       "apiPath": "/api/skills/pool/{skillName}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5330,7 +5638,7 @@
       "line": 428,
       "resolved": true,
       "apiPath": "/api/skills/pool/upload",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5342,7 +5650,7 @@
       "line": 440,
       "resolved": true,
       "apiPath": "/api/skills/pool/download",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5354,7 +5662,7 @@
       "line": 461,
       "resolved": true,
       "apiPath": "/api/skills/{skillName}/channels",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5366,7 +5674,7 @@
       "line": 470,
       "resolved": true,
       "apiPath": "/api/skills/{skillName}/tags",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5378,7 +5686,7 @@
       "line": 479,
       "resolved": true,
       "apiPath": "/api/skills/pool/{skillName}/tags",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5390,7 +5698,7 @@
       "line": 491,
       "resolved": true,
       "apiPath": "/api/skills/pool/{skillName}/auto-sync",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5402,7 +5710,7 @@
       "line": 504,
       "resolved": true,
       "apiPath": "/api/skills/pool/{skillName}/automation",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {

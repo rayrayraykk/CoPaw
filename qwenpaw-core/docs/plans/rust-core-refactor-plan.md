@@ -1219,6 +1219,25 @@ Inbox 读取、状态和持久化契约已完成；真实 Agent Cron、Heartbeat
 
 2026-09-05 本机验收：Rust workspace 168 个测试、格式检查与严格 Clippy 通过；macOS 真实 `sandbox-exec` 测试确认 Workspace 内写入成功且 Workspace 外写入被拒绝。Console 295 个测试文件、2453 个测试、production build 和 inventory 防漂移通过，`console/src` 保持零改动。未修改的原 Security 页面连接 release Rust Core，完成 21 条内置规则渲染、Sandbox 开启并真实生效、Hidden Newlines、File Guard 路径、Skill Scanner Block 模式和 allow-no-auth host 的保存、刷新及 Core 重启恢复，相关请求全部返回 200 且浏览器错误为 0。当前 inventory 为 370 个调用点、234 条 Rust 路由、232 个已注册调用点，其中 227 个非占位、5 个占位、138 个未注册和 11 个静态未解析表达式；Security 的 18 个调用点已全部注册且均非占位。TypeScript SDK 3 个、Python SDK 4 个真实 Core 测试与 VS Code 57 个测试全部通过。macOS App/ZIP/QA DMG、Core archive、WebUI archive、TypeScript/Python SDK、universal/platform VSIX 与 legacy wheel 均使用本切片源码重建；9 个产物逐个完成执行、真实 Core 静态服务、临时安装、解包、清单与哈希校验、签名检查或只读挂载反向验证，`dist/SHA256SUMS` 全部通过。QA DMG 当前为 ad-hoc 签名，待用户提供 Apple 发布凭据后才能生成 Developer ID 签名和 notarized 正式包。
 
+#### 14.2.24.15 当前子切片：Skills 工作区、Skill Pool 与安装链路
+
+本子切片保持原 Skills 与 Skill Pool 页面以及 `console/src/api/modules/skill.ts` 不变。Skill 内容与 manifest 使用 Rust 新版本独立数据目录；创建、编辑、重命名、启停、传输和安装必须操作真实文件并原子更新 manifest。所有进入工作区或 Pool 的内容都经过上一切片完成的 Skill Scanner；ZIP/Hub 输入必须有下载、大小、条目数、解压总量、路径和符号链接边界。Hub 或 AI Provider 不可用时返回原页面可处理的真实错误，不使用固定成功结果。
+
+- [x] 固化原 Skills API、Python 路由、manifest/目录格式和原页面调用顺序；
+- [x] 实现工作区 Skill 的 reconcile、列表、详情、创建、保存/重命名、启停、批量操作、删除、channels、tags 与 config 契约；
+- [x] 实现 Skill Pool 的 reconcile、列表、详情、创建、保存/重命名、删除、tags、automation 与工作区双向传输；
+- [x] 实现有界且防 zip-slip 的工作区/Pool ZIP 导入，并保持冲突预览、重命名和 409 结构；
+- [x] 嵌入并列出当前双语 builtin Skills，实现选择性导入、更新通知、单项更新和版本/语言状态；
+- [ ] 实现 Skills Hub 搜索、Pool 同步导入、工作区异步安装任务、状态轮询和取消；
+- [x] 将 create、save、enable、ZIP、Hub、Pool 上传/下载和 builtin 导入全部接入真实 Skill Scanner，并记录结构化 422 阻断；
+- [x] 实现 AI optimize SSE，复用当前 Rust 模型配置并保持增量、done 和 error 事件；
+- [ ] 覆盖正常、冲突、非法名称/路径、ZIP bomb、扫描阻断、并发 mutation、任务取消和 Core 重启测试；
+- [ ] 使用未修改的原 Skills 与 Skill Pool 页面逐项验证 CRUD、启停、编辑、标签、传输、Builtin、ZIP 与 Hub 交互；
+- [x] 更新 inventory，确认 `console/src` 零改动并通过 Rust、Console 与各客户端全量回归；
+- [x] 重建 Desktop、Core、WebUI、SDK、VSIX 与 legacy 全部 9 个发布产物，并逐个反向验证。
+
+2026-09-05 本机阶段验收：Rust workspace 172 个测试、格式检查与严格 Clippy 通过；真实 HTTP 契约覆盖工作区 CRUD、保留附属文件的编辑保存、channels、tags、启停、Skill Scanner 结构化阻断与持久历史、工作区到 Pool 传输、冲突响应、16 个双语 builtin 的列出和导入。Console 295 个测试文件、2453 个测试、production build 和 inventory 防漂移通过，`console/src` 保持零改动。未修改的原 Skills 页面连接 release Rust Core 完成创建、打开、编辑、保存、禁用和上传 Pool；原 Skill Pool 页面完成条目渲染、打开编辑器、详情读取和 16 个 builtin 读取，两页请求均无 4xx/5xx 且浏览器错误为 0；另外 28 个既有 Console 导航页全量 smoke 均通过。当前 inventory 为 370 个调用点、278 条 Rust 路由、266 个已注册调用点，其中 261 个非占位、5 个占位、104 个未注册和 11 个静态未解析表达式；`skill.ts` 的 35 个显式调用点均已有 Rust 路由，动态 ZIP helper 由两条真实 multipart 路由承接。TypeScript SDK 3 个、Python SDK 4 个真实 Core 测试与 VS Code 57 个测试全部通过。macOS App/ZIP/QA DMG、Core archive、WebUI archive、TypeScript/Python SDK、universal/platform VSIX 与 legacy wheel 均使用本切片源码重建；9 个产物逐个完成执行、解包、sidecar 边界、签名和 DMG 校验，`dist/SHA256SUMS` 全部通过。Hub 多来源页面 URL 的精确解析、任务取消/并发/重启边界以及 ZIP/Hub/Builtin 的完整浏览器点击矩阵仍保留为下一轮检查项；QA DMG 当前为 ad-hoc 签名，待用户提供 Apple 发布凭据后才能生成 Developer ID 签名和 notarized 正式包。
+
 ### 14.3 客户端与发布
 
 - [x] WebUI 启动与导航契约测试通过；
