@@ -121,6 +121,56 @@ async fn starts_with_an_empty_store_without_touching_legacy_data() {
 }
 
 #[tokio::test]
+async fn stdin_eof_flushes_responses_and_exits_without_a_termination_signal() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_qwenpaw-core"))
+        .args(["app-server", "--stdio"])
+        .current_dir(directory.path())
+        .env("QWENPAW_HOME", directory.path().join("data"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let mut input = child.stdin.take().unwrap();
+    send(
+        &mut input,
+        json!({"id":1,"method":"initialize","params":{
+            "clientInfo":{"name":"eof-fixture","version":"1"}
+        }}),
+    )
+    .await;
+    send(
+        &mut input,
+        json!({"id":2,"method":"thread/list","params":{}}),
+    )
+    .await;
+    drop(input);
+    let output = timeout(Duration::from_secs(5), child.wait_with_output())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let responses = String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        responses,
+        vec![
+            json!({"id":1,"result":{"protocolVersion":3,"serverInfo":{"name":"qwenpaw-core","version":"0.2.0"}}}),
+            json!({"id":2,"result":{"data":[],"nextCursor":null}})
+        ]
+    );
+}
+
+#[tokio::test]
 async fn desktop_mode_reports_its_port_and_stops_with_the_authenticated_endpoint() {
     let core_home = tempfile::tempdir().expect("temporary core home should be created");
     let workspace = tempfile::tempdir().expect("temporary Workspace should be created");
@@ -144,10 +194,13 @@ async fn desktop_mode_reports_its_port_and_stops_with_the_authenticated_endpoint
         .env("QWENPAW_DEFAULT_WORKSPACE", workspace.path())
         .env("QWENPAW_DESKTOP_PORT_FILE", &port_file)
         .env("QWENPAW_API_KEY", "desktop-test-key")
+        .env("QWENPAW_BASE_URL", "http://127.0.0.1:1/v1")
+        .env("RUST_LOG", "info")
         .env(
             "QWENPAW_DESKTOP_SHUTDOWN_TOKEN",
             "desktop-integration-token",
         )
+        .kill_on_drop(true)
         .spawn()
         .expect("Desktop app server should start");
     let stdout = child.stdout.take().expect("stdout should be piped");
@@ -184,6 +237,8 @@ async fn desktop_mode_reports_its_port_and_stops_with_the_authenticated_endpoint
         .expect("version response should read");
     assert!(String::from_utf8_lossy(&version_response).contains("\"backend\":\"rust-core\""));
 
+    let log = assert_backend_log(port, core_home.path()).await;
+
     let mut shutdown = tokio::net::TcpStream::connect(("127.0.0.1", port))
         .await
         .expect("Desktop shutdown client should connect");
@@ -204,6 +259,55 @@ async fn desktop_mode_reports_its_port_and_stops_with_the_authenticated_endpoint
         .expect("Desktop app server should exit before timeout")
         .expect("Desktop app server should be waitable");
     assert!(status.success());
+    assert_eq!(lines.next_line().await.unwrap(), None);
+    let mut stderr = String::new();
+    child
+        .stderr
+        .take()
+        .unwrap()
+        .read_to_string(&mut stderr)
+        .await
+        .unwrap();
+    assert!(
+        stderr.contains(&log),
+        "file logging must preserve stderr diagnostics"
+    );
+}
+
+async fn assert_backend_log(port: u16, core_home: &std::path::Path) -> String {
+    let response = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .unwrap()
+        .get(format!(
+            "http://127.0.0.1:{port}/api/console/debug/backend-logs?lines=200"
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let body: Value = response.json().await.unwrap();
+    let log_path = core_home.canonicalize().unwrap().join("qwenpaw.log");
+    let log = std::fs::read_to_string(&log_path).unwrap();
+    assert!(log.contains(" INFO qwenpaw_core: QwenPaw HTTP app server listening"));
+    assert!(log.contains(&format!("address=127.0.0.1:{port}")));
+    assert!(!log.contains('\u{001b}'));
+    assert!(!log.contains("desktop-test-key"));
+    let metadata = std::fs::metadata(&log_path).unwrap();
+    let expected = json!({
+        "path": log_path, "exists": true, "lines": 200,
+        "size": metadata.len(),
+        "updated_at": metadata.modified().unwrap()
+            .duration_since(std::time::UNIX_EPOCH).unwrap().as_secs_f64(),
+        "content": log.trim_end_matches('\n')
+    });
+    // Compare the same JSON wire representation, including timestamp rounding.
+    assert_eq!(
+        body,
+        serde_json::from_str::<Value>(&expected.to_string()).unwrap()
+    );
+    log
 }
 
 async fn send(stdin: &mut tokio::process::ChildStdin, message: Value) {

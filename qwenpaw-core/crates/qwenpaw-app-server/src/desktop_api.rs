@@ -24,8 +24,8 @@ use qwenpaw_core::CoreError;
 use qwenpaw_protocol::ApprovalDecision;
 use qwenpaw_protocol::CoreEvent;
 use qwenpaw_protocol::Item;
-use qwenpaw_protocol::ThreadStartParams;
 use qwenpaw_protocol::ThreadStatus;
+use qwenpaw_protocol::Turn;
 use qwenpaw_protocol::TurnInterruptParams;
 use qwenpaw_protocol::TurnStartParams;
 use qwenpaw_protocol::TurnStatus;
@@ -98,6 +98,7 @@ pub(super) fn router() -> Router<AppServer> {
         .route("/api/console/chat/stop", post(stop_console_chat))
         .route("/api/approval/approve", post(approve_tool))
         .route("/api/approval/deny", post(deny_tool))
+        .route("/api/approval/list", get(list_approvals))
         .route("/api/coding-mode", get(coding_mode).post(set_coding_mode))
         .route("/api/loops", get(loop_modes))
         .route("/api/loops/status", get(loop_status))
@@ -121,7 +122,6 @@ pub(super) fn router() -> Router<AppServer> {
             post(create_directory),
         )
         .route("/api/console/push-messages", get(push_messages))
-        .route("/api/frontend_plugin", get(frontend_plugins))
 }
 
 async fn auth_status() -> Json<Value> {
@@ -283,17 +283,33 @@ async fn console_chat(
     headers: HeaderMap,
     Json(request): Json<ConsoleChatRequest>,
 ) -> Result<Sse<impl futures_util::Stream<Item = Result<Event, Infallible>>>, ApiError> {
-    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
-    let agent_workspace = super::desktop_agents::project_for_agent(&server, &agent_id).await?;
+    let operation = server
+        .inner
+        .core
+        .operation_guard()
+        .map_err(|error| api_error(&error))?;
+    let (_lifecycle, context) =
+        super::desktop_checkpoints::quiescence::admit_agent(&server, &headers).await?;
+    let model = super::desktop_models::runtime_for_agent_config(&server, &context.config).await?;
+    let runtime = match context.config.get("running") {
+        Some(running) => super::desktop_agent_settings::runtime_config(running)?,
+        None => server
+            .inner
+            .core
+            .agent_runtime_config()
+            .map_err(|error| api_error(&error))?,
+    };
     let workspace_root = console_workspace_root(request.request_context.as_ref())?
-        .unwrap_or_else(|| agent_workspace.to_string_lossy().into_owned());
-    let thread_id = resolve_console_thread(
+        .unwrap_or(context.project()?.to_string_lossy().into_owned());
+    let thread_id = resolve_bound_console_thread(
         &server,
-        &agent_id,
+        &context,
         request.session_id.as_deref(),
         Some(&workspace_root),
     )
     .await?;
+    let identity =
+        super::desktop_chats::bound_approval_session_info(&server, &thread_id, &context).await?;
     let thread = server
         .inner
         .core
@@ -311,55 +327,26 @@ async fn console_chat(
         std::path::Path::new(workspace_root),
     )
     .await?;
-    let (started, mut core_events) = server
+    let (started, core_events) = server
         .inner
         .core
-        .start_turn(TurnStartParams {
-            thread_id: thread_id.clone(),
-            input,
-        })
+        .start_turn_with_owner(
+            TurnStartParams { thread_id, input },
+            model,
+            runtime,
+            Some(context.usage_owner()),
+        )
         .await
         .map_err(|error| api_error(&error))?;
-    let turn_id = started.turn.id;
-    let core = server.inner.core.clone();
-    let stream_server = server.clone();
-    let (event_tx, event_rx) = tokio::sync::mpsc::channel(64);
-    tokio::spawn(async move {
-        while let Some(core_event) = core_events.recv().await {
-            let terminal = matches!(&core_event, CoreEvent::TurnCompleted(_));
-            let completed = matches!(
-                &core_event,
-                CoreEvent::TurnCompleted(notification)
-                    if notification.turn.status == TurnStatus::Completed
-            );
-            track_pending_approval(&stream_server, &core_event).await;
-            if let Some(payload) = console_event(core_event) {
-                let event = Ok(Event::default().data(payload.to_string()));
-                if event_tx.send(event).await.is_err() {
-                    let _ = core
-                        .interrupt_turn(&TurnInterruptParams {
-                            thread_id: thread_id.clone(),
-                            turn_id: turn_id.clone(),
-                        })
-                        .await;
-                    clear_turn_approvals(&stream_server, &turn_id).await;
-                    return;
-                }
-            }
-            if terminal {
-                clear_turn_approvals(&stream_server, &turn_id).await;
-                if completed {
-                    super::desktop_checkpoints::maybe_create_auto_checkpoint(
-                        &stream_server,
-                        &thread_id,
-                    )
-                    .await;
-                }
-                return;
-            }
-        }
-        clear_turn_approvals(&stream_server, &turn_id).await;
-    });
+    let event_rx = super::desktop_console_runs::spawn(
+        &server,
+        started.turn,
+        core_events,
+        identity,
+        context,
+        super::desktop_checkpoints::console_query(&request.input),
+        operation,
+    );
     let stream = stream::unfold(event_rx, |mut receiver| async move {
         receiver.recv().await.map(|event| (event, receiver))
     });
@@ -367,27 +354,46 @@ async fn console_chat(
 }
 
 pub(super) async fn track_pending_approval(server: &AppServer, event: &CoreEvent) {
+    track_run_approval(server, event, None).await;
+}
+
+pub(super) async fn track_run_approval(
+    server: &AppServer,
+    event: &CoreEvent,
+    identity: Option<&super::desktop_chats::ApprovalSessionInfo>,
+) {
     match event {
         CoreEvent::ToolApprovalRequested(approval) => {
-            let session_id = server
-                .inner
-                .desktop_session_aliases
-                .read()
-                .await
-                .thread_to_client
-                .get(&approval.thread_id)
-                .cloned()
-                .unwrap_or_else(|| approval.thread_id.clone());
+            let resolved = match identity {
+                Some(identity) => Ok(identity.clone()),
+                None => {
+                    super::desktop_chats::approval_session_info(server, &approval.thread_id).await
+                }
+            };
+            let Ok(identity) = resolved else {
+                tracing::warn!("Console approval identity could not be read; denying tool");
+                server
+                    .inner
+                    .core
+                    .respond_tool_approval(qwenpaw_protocol::ToolApprovalRespondParams {
+                        approval_id: approval.approval_id.clone(),
+                        decision: ApprovalDecision::Denied,
+                    })
+                    .await;
+                return;
+            };
             server.inner.desktop_pending_approvals.write().await.insert(
                 approval.approval_id.clone(),
                 DesktopPendingApproval {
+                    agent_id: identity.agent,
                     thread_id: approval.thread_id.clone(),
                     turn_id: approval.turn_id.clone(),
                     call_id: approval.call_id.clone(),
                     tool_name: approval.tool_name.clone(),
                     arguments: approval.arguments.clone(),
                     workspace_root: approval.workspace_root.clone(),
-                    session_id,
+                    session_id: identity.session,
+                    root_session_id: identity.root_session,
                     created_at: unix_timestamp(),
                 },
             );
@@ -453,7 +459,7 @@ async fn resolve_tool_approval(
                 Json(json!({"detail": "Approval request not found"})),
             )
         })?;
-    if pending.session_id != request.session_id {
+    if pending.root_session_id != request.session_id {
         return Err((
             StatusCode::FORBIDDEN,
             Json(json!({"detail": "Root session mismatch"})),
@@ -499,19 +505,18 @@ async fn stop_console_chat(
     let Ok(agent_id) = super::desktop_agents::requested_agent_id(&headers) else {
         return Json(json!({"stopped": false}));
     };
-    let alias_key = console_alias_key(&agent_id, &query.chat_id);
-    let alias_catalog = server.inner.desktop_session_aliases.read().await;
-    let resolved_alias = alias_catalog
-        .client_to_thread
-        .get(&alias_key)
-        .cloned()
-        .or_else(|| {
-            (agent_id == "default")
-                .then(|| alias_catalog.client_to_thread.get(&query.chat_id).cloned())
-                .flatten()
-        });
-    drop(alias_catalog);
-    let thread_id = resolved_alias.as_deref().unwrap_or(&query.chat_id);
+    let Ok(Some(thread_id)) =
+        super::desktop_chats::resolve_existing_thread(&server, &agent_id, &query.chat_id).await
+    else {
+        return Json(json!({"stopped": false}));
+    };
+    let thread_id = thread_id.as_str();
+    if super::desktop_chats::require_console_thread_owner(&server, thread_id, &agent_id)
+        .await
+        .is_err()
+    {
+        return Json(json!({"stopped": false}));
+    }
     let Ok(thread) = server.inner.core.read_thread(thread_id).await else {
         return Json(json!({"stopped": false}));
     };
@@ -542,18 +547,24 @@ pub(super) async fn resolve_console_thread(
     requested_session_id: Option<&str>,
     requested_workspace: Option<&str>,
 ) -> Result<String, ApiError> {
+    let context = super::desktop_agents::context_for_agent(server, agent_id).await?;
+    resolve_bound_console_thread(server, &context, requested_session_id, requested_workspace).await
+}
+
+async fn resolve_bound_console_thread(
+    server: &AppServer,
+    context: &super::desktop_agents::AgentContext,
+    requested_session_id: Option<&str>,
+    requested_workspace: Option<&str>,
+) -> Result<String, ApiError> {
+    let agent_id = context.agent_id.as_str();
     let requested = requested_session_id.map(str::trim).unwrap_or_default();
     if requested.len() > 1024 || requested.chars().any(char::is_control) {
         return Err(bad_request("session_id is invalid"));
     }
-    if let Some(thread_id) = server
-        .inner
-        .desktop_session_aliases
-        .read()
-        .await
-        .client_to_thread
-        .get(&console_alias_key(agent_id, requested))
-        .cloned()
+    if let Some(thread_id) =
+        super::desktop_chats::resolve_bound_thread(server, agent_id, &context.data_key, requested)
+            .await?
     {
         if let Some(workspace) = requested_workspace {
             server
@@ -565,44 +576,22 @@ pub(super) async fn resolve_console_thread(
         }
         return Ok(thread_id);
     }
-    if !requested.is_empty() {
-        match server.inner.core.read_thread(requested).await {
-            Ok(_) => {
-                if let Some(workspace) = requested_workspace {
-                    server
-                        .inner
-                        .core
-                        .set_thread_workspace(requested, &PathBuf::from(workspace))
-                        .await
-                        .map_err(|error| api_error(&error))?;
-                }
-                return Ok(requested.to_owned());
-            }
-            Err(CoreError::ThreadNotFound(_))
-                if requested == "main" || is_console_local_session_id(requested) => {}
-            Err(error) => return Err(api_error(&error)),
-        }
+    if !requested.is_empty() && requested != "main" && !is_console_local_session_id(requested) {
+        return Err(api_error(&CoreError::ThreadNotFound(requested.to_owned())));
     }
     let workspace_root = match requested_workspace {
         Some(workspace) => canonical_workspace_path(workspace)?,
-        None => selected_desktop_workspace(server).await?,
+        None => context.project()?,
     };
-    let model = super::desktop_agents::model_for_agent(server, agent_id).await?;
-    let thread = server
-        .inner
-        .core
-        .start_thread(ThreadStartParams {
-            model,
-            workspace_root: Some(workspace_root.to_string_lossy().into_owned()),
-        })
-        .await
-        .map_err(|error| api_error(&error))?
-        .thread;
+    let thread =
+        super::desktop_chats::create_console_thread(server, context, requested, &workspace_root)
+            .await?;
     if !requested.is_empty() {
         let mut aliases = server.inner.desktop_session_aliases.write().await;
-        aliases
-            .client_to_thread
-            .insert(console_alias_key(agent_id, requested), thread.id.clone());
+        aliases.client_to_thread.insert(
+            super::desktop_chats::alias_key(&context.data_key, requested),
+            thread.id.clone(),
+        );
         if agent_id == "default" {
             aliases
                 .client_to_thread
@@ -612,17 +601,7 @@ pub(super) async fn resolve_console_thread(
             .thread_to_client
             .insert(thread.id.clone(), requested.to_owned());
     }
-    let session_id = if requested.is_empty() {
-        thread.id.as_str()
-    } else {
-        requested
-    };
-    super::desktop_chats::ensure_thread_metadata(server, &thread, session_id, agent_id).await?;
     Ok(thread.id)
-}
-
-fn console_alias_key(agent_id: &str, session_id: &str) -> String {
-    format!("{agent_id}\u{0}{session_id}")
 }
 
 fn console_workspace_root(request_context: Option<&Value>) -> Result<Option<String>, ApiError> {
@@ -662,7 +641,7 @@ fn is_console_local_session_id(value: &str) -> bool {
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
 }
 
-fn console_event(event: CoreEvent) -> Option<Value> {
+pub(super) fn console_event(event: CoreEvent) -> Option<Value> {
     match event {
         CoreEvent::TurnStarted(notification) => Some(json!({
             "object": "response",
@@ -785,11 +764,47 @@ async fn chat_history(
         .await
         .map_err(|error| api_error(&error))?;
     let timestamp = timestamp(response.thread.created_at).unwrap_or_default();
+    let user_inputs = server
+        .inner
+        .core
+        .read_user_inputs(&chat_id)
+        .await
+        .map_err(|error| api_error(&error))?;
     let messages = response
         .turns
         .iter()
-        .flat_map(|turn| turn.items.iter())
-        .map(|item| message_from_item(item, &timestamp))
+        .flat_map(|turn| messages_from_turn(turn, &timestamp))
+        .map(|mut message| {
+            if let Some(input) = user_inputs
+                .iter()
+                .find(|input| message["id"].as_str() == Some(input.item_id.as_str()))
+            {
+                message["content"] = Value::Array(
+                    input
+                        .parts
+                        .iter()
+                        .map(|part| match part {
+                            qwenpaw_storage::StoredUserPart::Text { text } => {
+                                json!({"type": "text", "text": text})
+                            }
+                            qwenpaw_storage::StoredUserPart::Image {
+                                path,
+                                mime_type,
+                                data,
+                                ..
+                            } => {
+                                let url = data.as_ref().map_or_else(
+                                    || path.rsplit('/').next().unwrap_or(path).to_owned(),
+                                    |data| format!("data:{mime_type};base64,{data}"),
+                                );
+                                json!({"type": "image", "image_url": url})
+                            }
+                        })
+                        .collect(),
+                );
+            }
+            message
+        })
         .collect::<Vec<_>>();
     let status = match response.thread.status {
         ThreadStatus::Active => "running",
@@ -798,10 +813,32 @@ async fn chat_history(
     Ok(Json(json!({"messages": messages, "status": status})))
 }
 
+fn messages_from_turn(turn: &Turn, timestamp: &str) -> Vec<Value> {
+    let mut messages = turn
+        .items
+        .iter()
+        .map(|item| message_from_item(item, timestamp))
+        .collect::<Vec<_>>();
+    if let Some(error) = &turn.error {
+        // History uses the unchanged Console's existing error message card.
+        messages.push(json!({
+            "id": format!("{}_error", turn.id),
+            "role": "assistant", "type": "error", "status": "failed",
+            "content": [], "message": error.message,
+            "metadata": {"timestamp": timestamp}
+        }));
+    }
+    messages
+}
+
+#[cfg(test)]
+#[path = "desktop_history_tests.rs"]
+mod history_tests;
+
 fn message_from_item(item: &Item, timestamp: &str) -> Value {
     let metadata = json!({"timestamp": timestamp});
     match item {
-        Item::UserMessage { id, text } => json!({
+        Item::UserMessage { id, text, .. } => json!({
             "id": id,
             "role": "user",
             "content": [{"type": "text", "text": text}],
@@ -862,6 +899,7 @@ fn api_error(error: &CoreError) -> ApiError {
         CoreError::Config(_)
         | CoreError::EmptyInput
         | CoreError::FileReference(_)
+        | CoreError::Media(_)
         | CoreError::Workspace(_) => StatusCode::BAD_REQUEST,
         CoreError::InputTooLarge { .. } => StatusCode::PAYLOAD_TOO_LARGE,
         CoreError::Model(_) => StatusCode::BAD_GATEWAY,
@@ -932,15 +970,9 @@ async fn project_directory(
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
     let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
-    let agent_workspace = super::desktop_agents::workspace_for_agent(&server, &agent_id).await?;
-    let config = super::desktop_agents::config_for_agent(&server, &agent_id).await?;
-    let selected = config
-        .get("project_dir")
-        .and_then(Value::as_str)
-        .map(canonical_workspace_path)
-        .transpose()?
-        .unwrap_or_else(|| agent_workspace.clone());
-    Ok(Json(project_directory_info(&selected, &agent_workspace)))
+    let context = super::desktop_agents::context_for_agent(&server, &agent_id).await?;
+    let selected = context.project()?;
+    Ok(Json(project_directory_info(&selected, &context.workspace)))
 }
 
 async fn set_project_directory(
@@ -949,26 +981,20 @@ async fn set_project_directory(
     Json(request): Json<ProjectDirectoryRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
-    let agent_workspace = super::desktop_agents::workspace_for_agent(&server, &agent_id).await?;
-    let (selected, stored) = match request.path {
-        Some(path) => {
-            let selected = canonical_workspace_path(&path)?;
-            let stored = Value::String(selected.to_string_lossy().into_owned());
-            (selected, stored)
-        }
-        None => (agent_workspace.clone(), Value::Null),
-    };
-    if agent_id == "default" {
-        let persisted = server
-            .inner
-            .core
-            .write_preferred_workspace(&selected)
-            .map(PathBuf::from)
-            .map_err(|error| api_error(&error))?;
-        persisted.clone_into(&mut *desktop_workspace(&server)?.selected.write().await);
-    }
-    super::desktop_agents::replace_config_field(&server, &agent_id, "project_dir", stored).await?;
-    Ok(Json(project_directory_info(&selected, &agent_workspace)))
+    let context = super::desktop_agents::context_for_agent(&server, &agent_id).await?;
+    let requested = request
+        .path
+        .as_deref()
+        .map(canonical_workspace_path)
+        .transpose()?;
+    let selected =
+        super::desktop_agents::set_project_for_context(&server, &context, requested.as_deref())
+            .await?;
+    Ok(Json(json!({
+        "path": selected.to_string_lossy(),
+        "name": path_name(&selected),
+        "is_workspace_default": requested.is_none()
+    })))
 }
 
 async fn project_directory_list(
@@ -976,15 +1002,9 @@ async fn project_directory_list(
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
     let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
-    let agent_workspace = super::desktop_agents::workspace_for_agent(&server, &agent_id).await?;
-    let config = super::desktop_agents::config_for_agent(&server, &agent_id).await?;
-    let selected = config
-        .get("project_dir")
-        .and_then(Value::as_str)
-        .map(canonical_workspace_path)
-        .transpose()?
-        .unwrap_or(agent_workspace);
-    let base = desktop_workspace(&server)?.initial.join("coding_projects");
+    let context = super::desktop_agents::context_for_agent(&server, &agent_id).await?;
+    let selected = context.project()?;
+    let base = super::desktop_projects::projects_base(&context)?;
     let mut paths = if base.is_dir() {
         std::fs::read_dir(&base)
             .map_err(|_| {
@@ -1011,7 +1031,7 @@ async fn project_directory_list(
             json!({
                 "path": path.to_string_lossy(),
                 "name": path_name(&path),
-                "is_git": path.join(".git").is_dir(),
+                "is_git": path.join(".git").exists(),
                 "is_active": path == selected
             })
         })
@@ -1025,14 +1045,8 @@ async fn browse_directories(
     Query(query): Query<BrowseDirectoriesQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
-    let agent_workspace = super::desktop_agents::workspace_for_agent(&server, &agent_id).await?;
-    let config = super::desktop_agents::config_for_agent(&server, &agent_id).await?;
-    let selected = config
-        .get("project_dir")
-        .and_then(Value::as_str)
-        .map(canonical_workspace_path)
-        .transpose()?
-        .unwrap_or(agent_workspace);
+    let context = super::desktop_agents::context_for_agent(&server, &agent_id).await?;
+    let selected = context.project()?;
     let requested = match query.path.as_deref().map(str::trim) {
         None | Some("") => selected.clone(),
         Some("~") => dirs::home_dir().unwrap_or(selected),
@@ -1053,7 +1067,6 @@ async fn browse_directories(
                 "path": entry.path().to_string_lossy()
             }))
         })
-        .take(500)
         .collect::<Vec<_>>();
     directories.sort_by(|left, right| left["name"].as_str().cmp(&right["name"].as_str()));
     Ok(Json(json!({
@@ -1194,19 +1207,6 @@ async fn clear_chat_project_directories(
     chat_project_directories(State(server), headers, Path(chat_id)).await
 }
 
-fn desktop_workspace(server: &AppServer) -> Result<&super::DesktopWorkspace, ApiError> {
-    server.inner.desktop_workspace.as_ref().ok_or_else(|| {
-        (
-            StatusCode::NOT_IMPLEMENTED,
-            Json(json!({"detail": "Desktop Workspace is unavailable"})),
-        )
-    })
-}
-
-async fn selected_desktop_workspace(server: &AppServer) -> Result<PathBuf, ApiError> {
-    Ok(desktop_workspace(server)?.selected.read().await.clone())
-}
-
 fn project_directory_info(selected: &PathBuf, agent_workspace: &PathBuf) -> Value {
     json!({
         "path": selected.to_string_lossy(),
@@ -1310,9 +1310,9 @@ async fn push_messages(
             json!({
                 "request_id": approval_id,
                 "session_id": approval.session_id,
-                "root_session_id": approval.session_id,
-                "owner_agent_id": "default",
-                "agent_id": "default",
+                "root_session_id": approval.root_session_id,
+                "owner_agent_id": approval.agent_id,
+                "agent_id": approval.agent_id,
                 "tool_name": approval.tool_name,
                 "tool_display_name": approval.tool_name,
                 "tool_source": "rust-core",
@@ -1336,6 +1336,40 @@ async fn push_messages(
     Json(json!({"messages": messages, "pending_approvals": pending_approvals}))
 }
 
-async fn frontend_plugins() -> Json<Value> {
-    Json(json!([]))
+async fn list_approvals(
+    State(server): State<AppServer>,
+    Query(query): Query<PushMessagesQuery>,
+) -> Json<Value> {
+    let pending = server.inner.desktop_pending_approvals.read().await;
+    let mut approvals = pending
+        .iter()
+        .filter(|(_, approval)| {
+            query
+                .session_id
+                .as_deref()
+                .filter(|session| !session.is_empty())
+                .is_none_or(|session| approval.root_session_id == session)
+        })
+        .collect::<Vec<_>>();
+    approvals.sort_by(|(left_id, left), (right_id, right)| {
+        left.created_at
+            .cmp(&right.created_at)
+            .then_with(|| left_id.cmp(right_id))
+    });
+    let approvals = approvals
+        .into_iter()
+        .map(|(id, approval)| {
+            json!({
+                "request_id":id, "session_id":approval.session_id,
+                "root_session_id":approval.root_session_id,
+                "owner_agent_id":approval.agent_id, "agent_id":approval.agent_id,
+                "tool_name":approval.tool_name,"tool_display_name":approval.tool_name,
+                "tool_source":"rust-core","exact_target":approval.workspace_root,
+                "similar_target":"","is_generalized":false,
+                "severity":"medium","findings_count":0,"created_at":approval.created_at,
+                "timeout_seconds":120,"result_summary":"","reasoning":""
+            })
+        })
+        .collect::<Vec<_>>();
+    Json(json!({"count":approvals.len(),"pending_approvals":approvals}))
 }

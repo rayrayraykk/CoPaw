@@ -36,9 +36,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if text == "slow" {
                     std::thread::sleep(std::time::Duration::from_secs(30));
                 }
+                let structured = if text == "__qwenpaw_env_fixture__" {
+                    json!({"environment": {
+                        "inherited": std::env::var("QWENPAW_MCP_INHERITED_FIXTURE").ok(),
+                        "expanded": std::env::var("QWENPAW_MCP_EXPANDED_FIXTURE").ok(),
+                        "override": std::env::var("QWENPAW_MCP_OVERRIDE_FIXTURE").ok()
+                    }})
+                } else {
+                    json!({"echo": text})
+                };
                 json!({
                     "content": [{"type": "text", "text": format!("echo: {text}")}],
-                    "structuredContent": {"echo": text},
+                    "structuredContent": structured,
                     "isError": false
                 })
             }

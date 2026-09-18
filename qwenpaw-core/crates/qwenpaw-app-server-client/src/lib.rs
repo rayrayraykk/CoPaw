@@ -3,10 +3,13 @@
 //! This crate owns client-side transport lifecycle and request correlation. It
 //! intentionally contains no agent, tool, storage, or presentation logic.
 
+#![doc = include_str!("../README.md")]
+
 use std::collections::HashMap;
 use std::path::Path;
 use std::process::Stdio;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use qwenpaw_protocol::ClientInfo;
@@ -34,6 +37,14 @@ use tokio::task::JoinHandle;
 const COMMAND_CAPACITY: usize = 64;
 const NOTIFICATION_CAPACITY: usize = 256;
 const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
+const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(30);
+const FORCE_EXIT_TIMEOUT: Duration = Duration::from_secs(5);
+
+mod websocket;
+pub use websocket::{WebSocketConnection, WebSocketOptions};
+
+#[cfg(test)]
+mod stdio_shutdown_tests;
 
 /// One untyped server notification received from App Protocol.
 #[derive(Debug, Clone, PartialEq)]
@@ -84,6 +95,16 @@ pub enum ClientError {
     Io(#[from] std::io::Error),
     #[error("app-server protocol version {actual} does not match SDK version {expected}")]
     ProtocolVersion { expected: u32, actual: u32 },
+    #[error("app-server exited unsuccessfully: {0}")]
+    ProcessExit(std::process::ExitStatus),
+    #[error("app-server shutdown timed out; forced termination does not confirm persistence")]
+    ShutdownTimeout,
+    #[error("app-server transport task failed: {0}")]
+    Worker(#[from] tokio::task::JoinError),
+    #[error("app-server WebSocket connection failed: {0}")]
+    WebSocket(&'static str),
+    #[error("app-server WebSocket handshake returned HTTP {0}")]
+    WebSocketHandshake(u16),
 }
 
 enum ClientCommand {
@@ -96,16 +117,22 @@ enum ClientCommand {
         method: String,
         params: Value,
     },
-    Shutdown,
+    Shutdown {
+        drain: bool,
+    },
 }
 
-/// A connected App Protocol client over an arbitrary asynchronous byte stream.
+type TransportTask = JoinHandle<Result<(), ClientError>>;
+
+/// A connected App Protocol client over a byte stream or WebSocket connection.
 #[derive(Clone)]
 pub struct AppServerClient {
     commands: mpsc::Sender<ClientCommand>,
     notifications: broadcast::Sender<ServerNotification>,
     request_timeout: Duration,
-    worker: Arc<Mutex<Option<JoinHandle<()>>>>,
+    worker: Arc<Mutex<Option<TransportTask>>>,
+    worker_abort: tokio::task::AbortHandle,
+    closing: Arc<AtomicBool>,
 }
 
 impl AppServerClient {
@@ -115,20 +142,28 @@ impl AppServerClient {
         R: AsyncRead + Unpin + Send + 'static,
         W: AsyncWrite + Unpin + Send + 'static,
     {
+        Self::start_worker(move |commands, notifications| {
+            run_transport(reader, writer, commands, notifications)
+        })
+    }
+
+    fn start_worker<F, T>(run: F) -> Self
+    where
+        F: FnOnce(mpsc::Receiver<ClientCommand>, broadcast::Sender<ServerNotification>) -> T,
+        T: std::future::Future<Output = Result<(), ClientError>> + Send + 'static,
+    {
         let (command_tx, command_rx) = mpsc::channel(COMMAND_CAPACITY);
         let (notification_tx, _) = broadcast::channel(NOTIFICATION_CAPACITY);
         let worker_notifications = notification_tx.clone();
-        let worker = tokio::spawn(run_transport(
-            reader,
-            writer,
-            command_rx,
-            worker_notifications,
-        ));
+        let worker = tokio::spawn(run(command_rx, worker_notifications));
+        let worker_abort = worker.abort_handle();
         Self {
             commands: command_tx,
             notifications: notification_tx,
             request_timeout: DEFAULT_REQUEST_TIMEOUT,
             worker: Arc::new(Mutex::new(Some(worker))),
+            worker_abort,
+            closing: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -181,6 +216,9 @@ impl AppServerClient {
         P: Serialize,
         R: DeserializeOwned,
     {
+        if self.closing.load(Ordering::Acquire) {
+            return Err(ClientError::TransportClosed);
+        }
         let params = serde_json::to_value(params)?;
         let (response_tx, response_rx) = oneshot::channel();
         self.commands
@@ -207,6 +245,9 @@ impl AppServerClient {
     where
         P: Serialize,
     {
+        if self.closing.load(Ordering::Acquire) {
+            return Err(ClientError::TransportClosed);
+        }
         self.commands
             .send(ClientCommand::Notify {
                 method: method.to_owned(),
@@ -224,10 +265,29 @@ impl AppServerClient {
 
     /// Stops the transport worker and waits for it to finish.
     pub async fn shutdown(&self) {
-        let _ = self.commands.send(ClientCommand::Shutdown).await;
-        if let Some(worker) = self.worker.lock().await.take() {
-            let _ = worker.await;
+        let _ = self.shutdown_transport(false).await;
+    }
+
+    async fn shutdown_transport(&self, drain: bool) -> Result<(), ClientError> {
+        self.closing.store(true, Ordering::Release);
+        let _ = self.commands.send(ClientCommand::Shutdown { drain }).await;
+        self.join_worker().await
+    }
+
+    async fn join_worker(&self) -> Result<(), ClientError> {
+        let mut slot = self.worker.lock().await;
+        if let Some(worker) = slot.as_mut() {
+            // Retain ownership if the caller's wait is cancelled.
+            let result = worker.await;
+            slot.take();
+            return result?;
         }
+        Ok(())
+    }
+
+    fn abort_worker(&self) {
+        self.closing.store(true, Ordering::Release);
+        self.worker_abort.abort();
     }
 }
 
@@ -235,6 +295,7 @@ impl AppServerClient {
 pub struct StdioAppServer {
     client: AppServerClient,
     child: Child,
+    stderr_worker: Option<TransportTask>,
 }
 
 impl StdioAppServer {
@@ -256,7 +317,8 @@ impl StdioAppServer {
 
     /// Starts a caller-configured Core command over piped stdin/stdout.
     ///
-    /// The caller owns arguments, environment, working directory, and stderr.
+    /// The caller owns arguments, environment, working directory, and stderr
+    /// configuration. Piped stderr is drained; inherited/file stderr is retained.
     /// The SDK always replaces stdin/stdout with pipes.
     ///
     /// # Errors
@@ -268,9 +330,16 @@ impl StdioAppServer {
         let mut child = command.spawn()?;
         let stdout = child.stdout.take().ok_or(ClientError::TransportClosed)?;
         let stdin = child.stdin.take().ok_or(ClientError::TransportClosed)?;
+        let stderr_worker = child.stderr.take().map(|mut stderr| {
+            tokio::spawn(async move {
+                tokio::io::copy(&mut stderr, &mut tokio::io::sink()).await?;
+                Ok(())
+            })
+        });
         Ok(Self {
             client: AppServerClient::connect(stdout, stdin),
             child,
+            stderr_worker,
         })
     }
 
@@ -280,17 +349,42 @@ impl StdioAppServer {
         &self.client
     }
 
-    /// Gracefully closes the client transport and terminates the child.
+    /// Sends EOF, drains output and waits up to 30 seconds for the owned child.
     ///
     /// # Errors
     ///
-    /// Returns an error when process termination or waiting fails.
+    /// Returns transport, unsuccessful exit or timeout errors. Timeout triggers
+    /// forced termination with a further five-second wait, never success.
     pub async fn shutdown(mut self) -> Result<(), ClientError> {
-        self.client.shutdown().await;
-        if self.child.try_wait()?.is_none() {
-            self.child.kill().await?;
+        let result = tokio::time::timeout(SHUTDOWN_TIMEOUT, self.shutdown_owned())
+            .await
+            .unwrap_or(Err(ClientError::ShutdownTimeout));
+        if result.is_err() {
+            let killed = self.child.start_kill();
+            let reaped = tokio::time::timeout(FORCE_EXIT_TIMEOUT, self.child.wait()).await;
+            self.client.abort_worker();
+            let _ = self.client.join_worker().await;
+            if let Some(worker) = self.stderr_worker.take() {
+                worker.abort();
+                let _ = worker.await;
+            }
+            killed?;
+            reaped.map_err(|_| ClientError::ShutdownTimeout)??;
         }
-        let _ = self.child.wait().await?;
+        result
+    }
+
+    async fn shutdown_owned(&mut self) -> Result<(), ClientError> {
+        self.client.shutdown_transport(true).await?;
+        let status = self.child.wait().await?;
+        if let Some(worker) = self.stderr_worker.as_mut() {
+            let result = worker.await;
+            self.stderr_worker.take();
+            result??;
+        }
+        if !status.success() {
+            return Err(ClientError::ProcessExit(status));
+        }
         Ok(())
     }
 }
@@ -298,6 +392,10 @@ impl StdioAppServer {
 impl Drop for StdioAppServer {
     fn drop(&mut self) {
         let _ = self.child.start_kill();
+        self.client.abort_worker();
+        if let Some(worker) = &self.stderr_worker {
+            worker.abort();
+        }
     }
 }
 
@@ -306,7 +404,8 @@ async fn run_transport<R, W>(
     mut writer: W,
     mut commands: mpsc::Receiver<ClientCommand>,
     notifications: broadcast::Sender<ServerNotification>,
-) where
+) -> Result<(), ClientError>
+where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
@@ -314,7 +413,8 @@ async fn run_transport<R, W>(
     let mut next_id = 1_u64;
     let mut pending = HashMap::<u64, oneshot::Sender<Result<Value, ClientError>>>::new();
 
-    loop {
+    let mut drain = false;
+    let result = loop {
         tokio::select! {
             command = commands.recv() => {
                 pending.retain(|_, sender| !sender.is_closed());
@@ -323,33 +423,45 @@ async fn run_transport<R, W>(
                         let id = next_id;
                         next_id = next_id.saturating_add(1);
                         let message = json!({"id": id, "method": method, "params": params});
-                        if write_message(&mut writer, &message).await.is_err() {
+                        if let Err(error) = write_message(&mut writer, &message).await {
                             let _ = response.send(Err(ClientError::TransportClosed));
-                            break;
+                            break Err(error);
                         }
                         pending.insert(id, response);
                     }
                     Some(ClientCommand::Notify { method, params }) => {
                         let message = json!({"method": method, "params": params});
-                        if write_message(&mut writer, &message).await.is_err() {
-                            break;
+                        if let Err(error) = write_message(&mut writer, &message).await {
+                            break Err(error);
                         }
                     }
-                    Some(ClientCommand::Shutdown) | None => break,
+                    Some(ClientCommand::Shutdown { drain: requested }) => {
+                        drain = requested;
+                        break Ok(());
+                    }
+                    None => break Ok(()),
                 }
             }
             line = lines.next_line() => {
                 match line {
                     Ok(Some(line)) => handle_server_line(&line, &mut pending, &notifications),
-                    Ok(None) | Err(_) => break,
+                    Ok(None) => break Ok(()),
+                    Err(error) => break Err(ClientError::Io(error)),
                 }
             }
         }
-    }
+    };
 
+    drop(commands);
     for (_, response) in pending {
         let _ = response.send(Err(ClientError::TransportClosed));
     }
+    if drain {
+        writer.shutdown().await?;
+        drop(writer);
+        tokio::io::copy(&mut lines.into_inner(), &mut tokio::io::sink()).await?;
+    }
+    result
 }
 
 async fn write_message<W>(writer: &mut W, message: &Value) -> Result<(), ClientError>
@@ -371,6 +483,14 @@ fn handle_server_line(
     let Ok(message) = serde_json::from_str::<Value>(line) else {
         return;
     };
+    handle_server_message(&message, pending, notifications);
+}
+
+fn handle_server_message(
+    message: &Value,
+    pending: &mut HashMap<u64, oneshot::Sender<Result<Value, ClientError>>>,
+    notifications: &broadcast::Sender<ServerNotification>,
+) {
     if let Some(id) = message.get("id").and_then(Value::as_u64) {
         let Some(response) = pending.remove(&id) else {
             return;

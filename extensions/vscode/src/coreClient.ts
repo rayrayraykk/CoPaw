@@ -1,4 +1,4 @@
-import { ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import * as vscode from "vscode";
 
 import { AsyncResourceManager } from "./asyncResourceManager";
@@ -24,11 +24,14 @@ import {
   type WorkspaceInfo,
 } from "./generated/protocol";
 import { collectCursorPages } from "./pagination";
+import { OwnedCoreProcess } from "./ownedCoreProcess";
 import { TurnProgressTracker, turnOutcome } from "./turnProgress";
 
 export class CoreClient implements vscode.Disposable {
+  private closing: Promise<void> | undefined;
+
   private constructor(
-    private readonly process: ChildProcessWithoutNullStreams,
+    private readonly process: OwnedCoreProcess,
     private readonly rpc: AppServerClient,
     private readonly output: vscode.OutputChannel,
   ) {}
@@ -68,6 +71,8 @@ export class CoreClient implements vscode.Disposable {
       }),
       stdio: "pipe",
     });
+    const owned = new OwnedCoreProcess(child);
+    const spawnError = new Promise<never>((_resolve, reject) => child.once("error", reject));
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk: string) => output.append(chunk));
     const rpcPromise = AppServerClient.connect(child.stdout, child.stdin, {
@@ -91,8 +96,8 @@ export class CoreClient implements vscode.Disposable {
       disposeRpc();
     });
     try {
-      const rpc = await rpcPromise;
-      const client = new CoreClient(child, rpc, output);
+      const rpc = await Promise.race([rpcPromise, spawnError]);
+      const client = new CoreClient(owned, rpc, output);
       await client.updateConfig({
         baseUrl,
         defaultModel: model,
@@ -102,7 +107,8 @@ export class CoreClient implements vscode.Disposable {
       );
       return client;
     } catch (error) {
-      child.kill();
+      disposeRpc();
+      await owned.close().catch(() => undefined);
       throw error;
     }
   }
@@ -321,11 +327,12 @@ export class CoreClient implements vscode.Disposable {
     }
   }
 
-  public dispose(): void {
-    this.rpc.dispose();
-    if (!this.process.killed) {
-      this.process.kill();
+  public dispose(): Promise<void> {
+    if (!this.closing) {
+      this.closing = Promise.resolve().then(() => this.process.close());
+      this.rpc.dispose();
     }
+    return this.closing;
   }
 
   public onClose(handler: (error: Error) => void): vscode.Disposable {
@@ -384,7 +391,13 @@ export class CoreClientManager implements vscode.Disposable {
   }
 
   public dispose(): void {
-    this.clients.dispose();
+    void this.close().catch((error: unknown) => {
+      this.output.appendLine(`QwenPaw Core shutdown failed: ${String(error)}`);
+    });
+  }
+
+  public close(): Promise<void> {
+    return this.clients.close();
   }
 }
 

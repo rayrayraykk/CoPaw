@@ -43,8 +43,10 @@ use tracing::warn;
 
 mod oauth;
 
+pub use oauth::McpOAuthBackup;
 pub use oauth::McpOAuthCredentialStore;
 pub use oauth::McpOAuthCredentials;
+pub use oauth::McpOAuthRestore;
 pub use oauth::McpOAuthStartOptions;
 pub use oauth::McpOAuthStartResponse;
 pub use oauth::McpOAuthStatus;
@@ -261,9 +263,11 @@ pub struct McpManager {
 
 struct McpManagerInner {
     clients: BTreeMap<String, McpClientConfig>,
+    environment: BTreeMap<String, String>,
     connections: Mutex<HashMap<String, Arc<Connection>>>,
     routes: RwLock<HashMap<String, ToolRoute>>,
     oauth_store: Arc<dyn McpOAuthCredentialStore>,
+    oauth_activity: Arc<oauth::OAuthActivity>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -416,14 +420,87 @@ impl McpManager {
         clients: BTreeMap<String, McpClientConfig>,
         oauth_store: Arc<dyn McpOAuthCredentialStore>,
     ) -> Self {
+        Self::with_oauth_activity(clients, oauth_store, Arc::default(), BTreeMap::new())
+    }
+
+    fn with_oauth_activity(
+        clients: BTreeMap<String, McpClientConfig>,
+        oauth_store: Arc<dyn McpOAuthCredentialStore>,
+        oauth_activity: Arc<oauth::OAuthActivity>,
+        environment: BTreeMap<String, String>,
+    ) -> Self {
         Self {
             inner: Arc::new(McpManagerInner {
                 clients,
+                environment,
                 connections: Mutex::new(HashMap::new()),
                 routes: RwLock::new(HashMap::new()),
                 oauth_store,
+                oauth_activity,
             }),
         }
+    }
+
+    /// Returns the application-owned environment, which may contain secrets.
+    /// This is not a redacted client inventory and does not enumerate host values.
+    #[must_use]
+    pub fn runtime_environment(&self) -> &BTreeMap<String, String> {
+        &self.inner.environment
+    }
+
+    /// Uses an immutable environment for future connections. Changed values
+    /// get independent connection/route caches; existing manager snapshots retain
+    /// their context. OAuth writes still share the same activity tracker.
+    /// Missing application variables retain the legacy host-environment fallback.
+    #[must_use]
+    pub fn with_environment(&self, environment: BTreeMap<String, String>) -> Self {
+        if self.inner.environment == environment {
+            return self.clone();
+        }
+        Self::with_oauth_activity(
+            self.inner.clients.clone(),
+            Arc::clone(&self.inner.oauth_store),
+            Arc::clone(&self.inner.oauth_activity),
+            environment,
+        )
+    }
+
+    fn expand_environment(&self, value: &str) -> Result<String, McpError> {
+        expand_environment(value, &self.inner.environment)
+    }
+
+    /// Validates enabled clients against this environment without opening a
+    /// connection or reading credentials. Disabled configurations remain inert.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for unresolved references, unsafe URLs, or invalid headers.
+    pub fn validate_environment_bindings(&self) -> Result<(), McpError> {
+        for (id, config) in &self.inner.clients {
+            if !config.enabled {
+                continue;
+            }
+            if config.transport == "stdio" {
+                resolve_environment(&config.env, &self.inner.environment)?;
+                continue;
+            }
+            validate_http_url(id, &self.expand_environment(&config.url)?)?;
+            resolve_http_headers(config, &self.inner.environment)?;
+            if let Some(oauth) = &config.oauth {
+                if !oauth.access_token.is_empty() {
+                    validate_bearer_token(&self.expand_environment(&oauth.access_token)?)?;
+                }
+                for endpoint in [&oauth.token_endpoint, &oauth.authorization_endpoint] {
+                    if !endpoint.is_empty() {
+                        validate_http_url(id, &self.expand_environment(endpoint)?)?;
+                    }
+                }
+                for value in [&oauth.refresh_token, &oauth.client_id, &oauth.scope] {
+                    self.expand_environment(value)?;
+                }
+            }
+        }
+        Ok(())
     }
 
     #[must_use]
@@ -448,7 +525,7 @@ impl McpManager {
     }
 
     /// Builds a validated manager that shares the current OAuth credential
-    /// store but owns independent connections and tool routes.
+    /// store and activity tracker, but owns independent connections and routes.
     ///
     /// # Errors
     ///
@@ -471,7 +548,12 @@ impl McpManager {
             validate_access_policy(&config.access)?;
             clients.insert(key, config);
         }
-        Ok(Self::new(clients, Arc::clone(&self.inner.oauth_store)))
+        Ok(Self::with_oauth_activity(
+            clients,
+            Arc::clone(&self.inner.oauth_store),
+            Arc::clone(&self.inner.oauth_activity),
+            self.inner.environment.clone(),
+        ))
     }
 
     #[must_use]
@@ -758,7 +840,7 @@ impl McpManager {
             .ok_or_else(|| McpError::UnknownServer(server_id.to_owned()))?;
         let cancellation = CancellationToken::new();
         let client = match config.transport.as_str() {
-            "stdio" => start_stdio_client(server_id, config, cancellation.clone()).await?,
+            "stdio" => start_stdio_client(self, server_id, config, cancellation.clone()).await?,
             "streamable_http" => {
                 start_http_client(self, server_id, config, cancellation.clone()).await?
             }
@@ -784,6 +866,7 @@ impl McpManager {
 }
 
 async fn start_stdio_client(
+    manager: &McpManager,
     server_id: &str,
     config: &McpClientConfig,
     cancellation: CancellationToken,
@@ -791,7 +874,11 @@ async fn start_stdio_client(
     let mut command = Command::new(&config.command);
     command
         .args(&config.args)
-        .envs(resolve_environment(&config.env)?)
+        .envs(&manager.inner.environment)
+        .envs(resolve_environment(
+            &config.env,
+            &manager.inner.environment,
+        )?)
         .kill_on_drop(true)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped());
@@ -822,14 +909,14 @@ async fn start_http_client(
     config: &McpClientConfig,
     cancellation: CancellationToken,
 ) -> Result<ClientService, McpError> {
-    let url = expand_environment(&config.url)?;
+    let url = manager.expand_environment(&config.url)?;
     validate_http_url(server_id, &url)?;
     let http_client = reqwest::Client::builder()
         .connect_timeout(STARTUP_TIMEOUT)
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|error| McpError::HttpClient(error.to_string()))?;
-    let (headers, configured_token) = resolve_http_headers(config)?;
+    let (headers, configured_token) = resolve_http_headers(config, &manager.inner.environment)?;
     let bearer_token =
         resolve_manager_bearer(manager, server_id, config, configured_token, &http_client).await?;
     let mut transport_config = StreamableHttpClientTransportConfig::with_uri(url)
@@ -901,7 +988,8 @@ impl LegacySseTransport {
         config: &McpClientConfig,
         cancellation: CancellationToken,
     ) -> Result<Self, LegacySseError> {
-        let raw_url = expand_environment(&config.url)
+        let raw_url = manager
+            .expand_environment(&config.url)
             .map_err(|error| LegacySseError::Configuration(error.to_string()))?;
         validate_http_url(server_id, &raw_url)
             .map_err(|error| LegacySseError::Configuration(error.to_string()))?;
@@ -912,8 +1000,9 @@ impl LegacySseTransport {
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|_| LegacySseError::Http("client setup"))?;
-        let (custom_headers, configured_token) = resolve_http_headers(config)
-            .map_err(|error| LegacySseError::Configuration(error.to_string()))?;
+        let (custom_headers, configured_token) =
+            resolve_http_headers(config, &manager.inner.environment)
+                .map_err(|error| LegacySseError::Configuration(error.to_string()))?;
         let bearer_token =
             resolve_manager_bearer(manager, server_id, config, configured_token, &client)
                 .await
@@ -1349,6 +1438,7 @@ fn validate_http_url(server_id: &str, value: &str) -> Result<(), McpError> {
 
 fn resolve_http_headers(
     config: &McpClientConfig,
+    environment: &BTreeMap<String, String>,
 ) -> Result<(HashMap<HeaderName, HeaderValue>, Option<String>), McpError> {
     let mut headers = HashMap::new();
     let mut bearer_token = None;
@@ -1357,7 +1447,7 @@ fn resolve_http_headers(
         let name = HeaderName::from_bytes(raw_name.as_bytes()).map_err(|_| {
             McpError::InvalidConfig(format!("invalid MCP HTTP header name: {raw_name}"))
         })?;
-        let value = expand_environment(raw_value)?;
+        let value = expand_environment(raw_value, environment)?;
         total_bytes = total_bytes.saturating_add(raw_name.len() + value.len());
         if total_bytes > MAX_HTTP_HEADER_BYTES {
             return Err(McpError::InvalidConfig(String::from(
@@ -1401,6 +1491,7 @@ fn resolve_http_headers(
 }
 
 async fn resolve_http_bearer(
+    manager: &McpManager,
     server_id: &str,
     config: &McpClientConfig,
     configured_token: Option<String>,
@@ -1424,7 +1515,7 @@ async fn resolve_http_bearer(
             .duration_since(SystemTime::UNIX_EPOCH)
             .is_ok_and(|now| now.as_secs_f64() >= oauth.expires_at);
     if !oauth.access_token.is_empty() && !expired {
-        let token = expand_environment(&oauth.access_token)?;
+        let token = manager.expand_environment(&oauth.access_token)?;
         validate_bearer_token(&token)?;
         return Ok(Some(token));
     }
@@ -1436,7 +1527,7 @@ async fn resolve_http_bearer(
             "MCP client {server_id} requires a new interactive authorization"
         )));
     }
-    refresh_oauth_token(server_id, oauth, client)
+    refresh_oauth_token(manager, server_id, oauth, client)
         .await
         .map(Some)
 }
@@ -1452,7 +1543,7 @@ async fn resolve_manager_bearer(
         return Ok(configured_token);
     };
     if !oauth.access_token.is_empty() || !oauth.refresh_token.is_empty() {
-        return resolve_http_bearer(server_id, config, configured_token, client).await;
+        return resolve_http_bearer(manager, server_id, config, configured_token, client).await;
     }
     if let Some(stored_token) = manager
         .stored_oauth_bearer(server_id, config, client)
@@ -1465,25 +1556,26 @@ async fn resolve_manager_bearer(
         }
         return Ok(Some(stored_token));
     }
-    resolve_http_bearer(server_id, config, configured_token, client).await
+    resolve_http_bearer(manager, server_id, config, configured_token, client).await
 }
 
 async fn refresh_oauth_token(
+    manager: &McpManager,
     server_id: &str,
     oauth: &McpOAuthConfig,
     client: &reqwest::Client,
 ) -> Result<String, McpError> {
-    let endpoint = expand_environment(&oauth.token_endpoint)?;
+    let endpoint = manager.expand_environment(&oauth.token_endpoint)?;
     validate_http_url(server_id, &endpoint)?;
-    let refresh_token = expand_environment(&oauth.refresh_token)?;
-    let client_id = expand_environment(&oauth.client_id)?;
+    let refresh_token = manager.expand_environment(&oauth.refresh_token)?;
+    let client_id = manager.expand_environment(&oauth.client_id)?;
     let mut form = BTreeMap::from([
         ("client_id", client_id),
         ("grant_type", String::from("refresh_token")),
         ("refresh_token", refresh_token),
     ]);
     if !oauth.scope.is_empty() {
-        form.insert("scope", oauth.scope.clone());
+        form.insert("scope", manager.expand_environment(&oauth.scope)?);
     }
     let response = client
         .post(endpoint)
@@ -1570,25 +1662,33 @@ fn validate_bearer_token(token: &str) -> Result<(), McpError> {
 
 fn resolve_environment(
     values: &HashMap<String, String>,
+    environment: &BTreeMap<String, String>,
 ) -> Result<HashMap<String, String>, McpError> {
     values
         .iter()
-        .map(|(name, value)| Ok((name.clone(), expand_environment(value)?)))
+        .map(|(name, value)| Ok((name.clone(), expand_environment(value, environment)?)))
         .collect()
 }
 
-fn expand_environment(value: &str) -> Result<String, McpError> {
+fn expand_environment(
+    value: &str,
+    environment: &BTreeMap<String, String>,
+) -> Result<String, McpError> {
     let mut expanded = String::new();
     let mut remaining = value;
     while let Some(start) = remaining.find("${") {
         expanded.push_str(&remaining[..start]);
         let after = &remaining[start + 2..];
         let end = after.find('}').ok_or_else(|| {
-            McpError::InvalidConfig(format!("unterminated environment reference in {value}"))
+            McpError::InvalidConfig(String::from("unterminated MCP environment reference"))
         })?;
         let name = &after[..end];
-        let replacement =
-            std::env::var(name).map_err(|_| McpError::MissingEnvironment(name.to_owned()))?;
+        let replacement = match environment.get(name) {
+            Some(value) => value.clone(),
+            None => {
+                std::env::var(name).map_err(|_| McpError::MissingEnvironment(name.to_owned()))?
+            }
+        };
         expanded.push_str(&replacement);
         remaining = &after[end + 1..];
     }

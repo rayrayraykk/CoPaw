@@ -94,6 +94,162 @@ fn parses_usage_only_chunks_and_normalizes_cache_metrics() {
 }
 
 #[tokio::test]
+async fn anthropic_transport_rejects_truncation_and_times_out_idle_streams() {
+    for (payload, expected) in [
+        (
+            "data: {\"type\":\"message_start\",\"message\":{}}\n\n",
+            "Anthropic stream ended before message_stop",
+        ),
+        (
+            "data: {\"type\":\"error\",\"error\":{\"message\":\"private-value\"}}\n\n",
+            "Anthropic stream reported an error",
+        ),
+    ] {
+        let source = Box::pin(futures_util::stream::iter(vec![Ok(Bytes::from_static(
+            payload.as_bytes(),
+        ))]));
+        let events = model_event_stream(
+            source,
+            Duration::from_millis(50),
+            ModelProtocol::AnthropicMessages,
+            None,
+        )
+        .collect::<Vec<_>>()
+        .await;
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].as_ref().unwrap_err().to_string(), expected);
+    }
+    let source = Box::pin(futures_util::stream::pending());
+    let mut events = model_event_stream(
+        source,
+        Duration::from_millis(20),
+        ModelProtocol::AnthropicMessages,
+        None,
+    );
+    assert!(matches!(
+        events.next().await,
+        Some(Err(ModelError::StreamIdleTimeout))
+    ));
+    assert!(events.next().await.is_none());
+}
+
+#[test]
+fn openai_requests_exclude_native_history_fields() {
+    let mut message = StoredMessage::text("assistant", "portable answer");
+    message.provider_content.insert(String::from("anthropic-messages"), vec![serde_json::json!({"type": "thinking", "thinking": "native-only", "signature": "private-signature"})]);
+    message.tool_error = Some(true);
+    let runtime = ModelRuntime {
+        config: ModelConfig {
+            api_key: None,
+            base_url: String::from("http://127.0.0.1/v1"),
+            default_model: String::from("fixture"),
+        },
+        options: ModelRequestOptions::default(),
+    };
+    let (url, body) = model_request(&runtime, "fixture", &[message], &[]).unwrap();
+    assert_eq!(url, "http://127.0.0.1/v1/chat/completions");
+    assert_eq!(
+        body,
+        serde_json::json!({"model": "fixture", "messages": [{"role": "assistant", "content": "portable answer"}],
+        "stream": true, "stream_options": {"include_usage": true}, "tools": [], "tool_choice": "auto"})
+    );
+}
+
+#[test]
+fn model_requests_use_native_image_content_and_exclude_snapshot_metadata() {
+    use qwenpaw_storage::{StoredUserInput, StoredUserPart};
+    let mut message = StoredMessage::text("user", "inspect");
+    message.user_input = Some(StoredUserInput {
+        item_id: String::from("private-item"),
+        parts: vec![
+            StoredUserPart::Image {
+                path: String::from("private-path.png"),
+                mime_type: String::from("image/png"),
+                size: 3,
+                data: Some(String::from("YWJj")),
+            },
+            StoredUserPart::Text {
+                text: String::from("inspect"),
+            },
+        ],
+    });
+    for (protocol, expected) in [
+        (
+            ModelProtocol::OpenAIChat,
+            serde_json::json!([{"role":"user", "content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,YWJj"}},{"type":"text","text":"inspect"}]}]),
+        ),
+        (
+            ModelProtocol::AnthropicMessages,
+            serde_json::json!([{"role":"user", "content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"YWJj"}},{"type":"text","text":"inspect"}]}]),
+        ),
+        (
+            ModelProtocol::GeminiGenerateContent,
+            serde_json::json!([{"role":"user", "parts":[{"inlineData":{"mimeType":"image/png","data":"YWJj"}},{"text":"inspect"}]}]),
+        ),
+    ] {
+        let runtime = ModelRuntime {
+            config: ModelConfig {
+                api_key: None,
+                base_url: String::from("http://127.0.0.1"),
+                default_model: String::from("fixture"),
+            },
+            options: ModelRequestOptions {
+                protocol,
+                ..ModelRequestOptions::default()
+            },
+        };
+        let (_, body) = model_request(&runtime, "fixture", &[message.clone()], &[]).unwrap();
+        let key = if protocol == ModelProtocol::GeminiGenerateContent {
+            "contents"
+        } else {
+            "messages"
+        };
+        assert_eq!(body[key], expected);
+        for private in [
+            "user_input",
+            "private-item",
+            "private-path",
+            "mime_type",
+            "size",
+        ] {
+            assert!(!body.to_string().contains(private), "{body}");
+        }
+    }
+}
+
+#[tokio::test]
+async fn request_headers_override_defaults_and_errors_redact_private_values() {
+    let base_url = start_server(Router::new().route(
+        "/chat/completions",
+        post(|headers: axum::http::HeaderMap| async move {
+            assert_eq!(headers["authorization"], "Bearer private-header");
+            (
+                StatusCode::UNAUTHORIZED,
+                "private-header private-key private-custom",
+            )
+        }),
+    ))
+    .await;
+    let client = test_client(base_url, Duration::from_secs(1));
+    {
+        let mut runtime = client.write_runtime();
+        runtime.config.api_key = Some(String::from("private-key"));
+        runtime.options.custom_headers = std::collections::BTreeMap::from([
+            (
+                String::from("authorization"),
+                String::from("Bearer private-header"),
+            ),
+            (String::from("x-secret"), String::from("private-custom")),
+        ]);
+    }
+    let result = client.chat_stream("qwen-test", &test_messages(), &[]).await;
+    assert!(
+        matches!(result, Err(ModelError::HttpStatus { status: 401, message })
+        if message == "[REDACTED] [REDACTED] [REDACTED]")
+    );
+}
+
+#[tokio::test]
 async fn returns_a_bounded_rate_limit_error() {
     let base_url = start_server(Router::new().route(
         "/chat/completions",

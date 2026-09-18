@@ -10,10 +10,12 @@ use axum::response::IntoResponse;
 use axum::response::Response;
 use axum::routing::post;
 use pretty_assertions::assert_eq;
+use qwenpaw_core::AgentRuntimeConfig;
 use qwenpaw_core::Core;
 use qwenpaw_core::McpAccessEffect;
 use qwenpaw_core::McpManager;
 use qwenpaw_core::ModelConfig;
+use qwenpaw_core::ToolApprovalLevel;
 use qwenpaw_protocol::ApprovalDecision;
 use qwenpaw_protocol::CoreEvent;
 use qwenpaw_protocol::Item;
@@ -44,6 +46,19 @@ async fn discovers_approves_and_calls_http_mcp_through_the_agent_loop() {
 
 #[tokio::test]
 async fn enforces_allow_and_deny_mcp_policies_without_prompting() {
+    check_mcp_policy(None).await;
+}
+
+#[tokio::test]
+async fn off_turn_override_still_enforces_mcp_deny_without_changing_global_runtime() {
+    check_mcp_policy(Some(AgentRuntimeConfig {
+        approval_level: ToolApprovalLevel::Off,
+        ..AgentRuntimeConfig::default()
+    }))
+    .await;
+}
+
+async fn check_mcp_policy(runtime: Option<AgentRuntimeConfig>) {
     for (effect, expected_error) in [
         (McpAccessEffect::Allow, false),
         (McpAccessEffect::Deny, true),
@@ -72,22 +87,35 @@ async fn enforces_allow_and_deny_mcp_policies_without_prompting() {
             })
             .await
             .expect("start thread");
-        let (_, mut events) = core
-            .start_turn(TurnStartParams {
-                thread_id: thread.thread.id.clone(),
-                input: vec![UserInput::Text {
-                    text: String::from("Use the MCP echo tool"),
-                }],
-            })
-            .await
-            .expect("start turn");
+        let input = TurnStartParams {
+            thread_id: thread.thread.id.clone(),
+            input: vec![UserInput::Text {
+                text: String::from("Use the MCP echo tool"),
+            }],
+        };
+        let (_, mut events) = match &runtime {
+            Some(config) => {
+                core.start_turn_with_runtime(input, None, config.clone())
+                    .await
+            }
+            None => core.start_turn(input).await,
+        }
+        .expect("start turn");
 
-        while let Some(event) = events.recv().await {
+        loop {
+            let event = tokio::time::timeout(Duration::from_secs(10), events.recv())
+                .await
+                .expect("MCP turn deadline")
+                .expect("MCP turn completion");
             assert!(!matches!(event, CoreEvent::ToolApprovalRequested(_)));
             if matches!(event, CoreEvent::TurnCompleted(_)) {
                 break;
             }
         }
+        assert_eq!(
+            core.agent_runtime_config().unwrap(),
+            AgentRuntimeConfig::default()
+        );
         let read = core
             .read_thread(&thread.thread.id)
             .await

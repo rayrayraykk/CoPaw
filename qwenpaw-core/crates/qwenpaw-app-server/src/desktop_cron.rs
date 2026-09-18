@@ -1,6 +1,7 @@
 //! Persistent Console-compatible cron job contracts.
 
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
@@ -9,10 +10,10 @@ use axum::Router;
 use axum::extract::Path;
 use axum::extract::Query;
 use axum::extract::State;
+use axum::http::HeaderMap;
 use axum::http::StatusCode;
 use axum::routing::get;
 use chrono::DateTime;
-use chrono::NaiveDateTime;
 use chrono::SecondsFormat;
 use chrono::Utc;
 use serde::Deserialize;
@@ -24,11 +25,36 @@ use uuid::Uuid;
 
 use super::AppServer;
 use super::DesktopPushMessage;
+use super::desktop_agents::identity::WorkspaceDataKey;
 
 const MAX_CRON_JOBS: usize = 256;
 const MAX_CRON_DATA_BYTES: usize = 1_048_576;
-const MAX_CRON_HISTORY: usize = 100;
+const MAX_CRON_HISTORY: usize = 50;
 const MAX_JOB_INPUT_BYTES: usize = 262_144;
+
+#[path = "desktop_cron_agent.rs"]
+mod agent;
+#[path = "desktop_cron_backup.rs"]
+mod backup;
+#[path = "desktop_cron_change.rs"]
+mod change;
+#[path = "desktop_cron_copy.rs"]
+mod copy;
+#[path = "desktop_cron_restart.rs"]
+mod restart;
+#[path = "desktop_cron_runtime.rs"]
+mod runtime;
+#[path = "desktop_cron_schedule.rs"]
+mod schedule;
+pub(super) use agent::RunState;
+pub(super) use agent::shutdown;
+pub(super) use agent::workspace_completions;
+pub(super) use agent::{cancel_agent, drain_runs};
+pub(super) use backup::merge_restore_data;
+pub(super) use backup::{filter_for_bindings, merge_for_bindings};
+pub(super) use copy::prepare_copy;
+pub(super) use restart::prepare_restart;
+pub(super) use runtime::spawn_scheduler;
 
 type ApiError = (StatusCode, Json<Value>);
 
@@ -51,6 +77,23 @@ pub(super) fn router() -> Router<AppServer> {
         .route("/api/cron/jobs/{job_id}/state", get(get_job_state))
         .route("/api/cron/jobs/{job_id}/history", get(get_job_history))
         .route("/api/cron/dispatch-targets", get(dispatch_targets))
+}
+
+async fn request_namespace(
+    server: &AppServer,
+    headers: &HeaderMap,
+) -> Result<WorkspaceDataKey, ApiError> {
+    let agent_id = super::desktop_agents::requested_agent_id(headers)?;
+    if server.inner.desktop_workspace.is_none() {
+        return if agent_id == "default" {
+            super::desktop_agents::default_data_key(server)
+        } else {
+            Err(error(StatusCode::NOT_FOUND, "Agent not found"))
+        };
+    }
+    Ok(super::desktop_agents::context_for_agent(server, &agent_id)
+        .await?
+        .data_key)
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -122,6 +165,9 @@ impl Default for RuntimeSpec {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 struct CronJobSpec {
+    // Hydrated only from the store's identity map, never from a Job request.
+    #[serde(skip)]
+    public_id: Option<String>,
     #[serde(default)]
     id: Option<String>,
     name: String,
@@ -143,6 +189,18 @@ struct CronJobSpec {
     meta: Map<String, Value>,
 }
 
+impl CronJobSpec {
+    fn public_id(&self) -> Option<&str> {
+        self.public_id.as_deref().or(self.id.as_deref())
+    }
+
+    fn public_spec(&self) -> Self {
+        let mut spec = self.clone();
+        spec.id = self.public_id().map(str::to_owned);
+        spec
+    }
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 struct CronJobState {
     next_run_at: Option<String>,
@@ -159,12 +217,34 @@ struct CronExecutionRecord {
     trigger: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 struct CronData {
     version: u32,
     jobs: Vec<CronJobSpec>,
     states: BTreeMap<String, CronJobState>,
     history: BTreeMap<String, Vec<CronExecutionRecord>>,
+    #[serde(default)]
+    scheduled: BTreeSet<String>,
+    #[serde(default)]
+    active_triggers: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    active_runs: BTreeMap<String, AgentRunClaim>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    owners: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    workspace_owners: BTreeMap<String, WorkspaceDataKey>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    public_ids: BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+struct AgentRunClaim {
+    job_id: String,
+    trigger: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    agent_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    data_key: Option<WorkspaceDataKey>,
 }
 
 impl Default for CronData {
@@ -174,27 +254,53 @@ impl Default for CronData {
             jobs: Vec::new(),
             states: BTreeMap::new(),
             history: BTreeMap::new(),
+            scheduled: BTreeSet::new(),
+            active_triggers: BTreeMap::new(),
+            active_runs: BTreeMap::new(),
+            owners: BTreeMap::new(),
+            workspace_owners: BTreeMap::new(),
+            public_ids: BTreeMap::new(),
         }
     }
 }
 
-async fn list_jobs(State(server): State<AppServer>) -> Result<Json<Value>, ApiError> {
+async fn list_jobs(
+    State(server): State<AppServer>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
     let _guard = server.inner.desktop_cron_lock.lock().await;
+    let namespace = request_namespace(&server, &headers).await?;
     let data = read_data(&server)?;
-    json_value(data.jobs).map(Json)
+    json_value(
+        data.jobs
+            .iter()
+            .filter(|job| {
+                job.id
+                    .as_deref()
+                    .is_some_and(|id| owner_key(&data, id) == namespace)
+            })
+            .map(CronJobSpec::public_spec)
+            .collect::<Vec<_>>(),
+    )
+    .map(Json)
 }
 
 async fn create_job(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Json(mut spec): Json<CronJobSpec>,
 ) -> Result<Json<Value>, ApiError> {
     let _guard = server.inner.desktop_cron_lock.lock().await;
+    let namespace = request_namespace(&server, &headers).await?;
     let mut data = read_data(&server)?;
     if data.jobs.len() >= MAX_CRON_JOBS {
         return Err(unprocessable("cron job limit reached"));
     }
     spec.id = Some(Uuid::now_v7().to_string());
+    data.workspace_owners
+        .insert(spec.id.clone().unwrap(), namespace);
     validate_and_normalize(&mut spec)?;
+    reset_schedule(&mut data, &spec, Utc::now())?;
     data.jobs.push(spec.clone());
     write_data(&server, &data)?;
     json_value(spec).map(Json)
@@ -202,118 +308,214 @@ async fn create_job(
 
 async fn get_job(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Path(job_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let _guard = server.inner.desktop_cron_lock.lock().await;
+    let namespace = request_namespace(&server, &headers).await?;
     let data = read_data(&server)?;
-    let spec = find_job(&data, &job_id)?.clone();
-    let state = data.states.get(&job_id).cloned().unwrap_or_default();
+    let key = job_key(&data, &namespace, &job_id)?;
+    let spec = find_job(&data, key)?.public_spec();
+    let state = data.states.get(key).cloned().unwrap_or_default();
     Ok(Json(json!({"spec": spec, "state": state})))
 }
 
 async fn replace_job(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Path(job_id): Path<String>,
     Json(mut spec): Json<CronJobSpec>,
 ) -> Result<Json<Value>, ApiError> {
     let _guard = server.inner.desktop_cron_lock.lock().await;
+    let namespace = request_namespace(&server, &headers).await?;
     if spec.id.as_deref().is_some_and(|id| id != job_id) {
         return Err(error(StatusCode::BAD_REQUEST, "job_id mismatch"));
     }
     spec.id = Some(job_id.clone());
     validate_and_normalize(&mut spec)?;
     let mut data = read_data(&server)?;
-    let index = find_job_index(&data, &job_id)?;
+    let key = if let Ok(key) = job_key(&data, &namespace, &job_id) {
+        key.to_owned()
+    } else {
+        if data.jobs.len() >= MAX_CRON_JOBS {
+            return Err(unprocessable("cron job limit reached"));
+        }
+        if job_id.is_empty() || job_id.len() > 1024 || job_id.chars().any(char::is_control) {
+            return Err(unprocessable("cron job ID is invalid"));
+        }
+        let key = Uuid::now_v7().to_string();
+        data.public_ids.insert(key.clone(), job_id);
+        data.workspace_owners.insert(key.clone(), namespace);
+        spec.id = Some(key.clone());
+        data.jobs.push(spec.clone());
+        key
+    };
+    spec.public_id = data.public_ids.get(&key).cloned();
+    spec.id = Some(key.clone());
+    let index = find_job_index(&data, &key)?;
+    reset_schedule(&mut data, &spec, Utc::now())?;
     data.jobs[index] = spec.clone();
     write_data(&server, &data)?;
-    json_value(spec).map(Json)
+    json_value(spec.public_spec()).map(Json)
 }
 
 async fn delete_job(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Path(job_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let _guard = server.inner.desktop_cron_lock.lock().await;
+    let namespace = request_namespace(&server, &headers).await?;
     let mut data = read_data(&server)?;
+    let job_id = job_key(&data, &namespace, &job_id)?.to_owned();
     let index = find_job_index(&data, &job_id)?;
     data.jobs.remove(index);
     data.states.remove(&job_id);
     data.history.remove(&job_id);
+    data.scheduled.remove(&job_id);
+    data.active_triggers.remove(&job_id);
+    data.active_runs.retain(|_, claim| claim.job_id != job_id);
+    data.owners.remove(&job_id);
+    data.workspace_owners.remove(&job_id);
+    data.public_ids.remove(&job_id);
     write_data(&server, &data)?;
+    agent::cancel_job(&server, &job_id);
     Ok(Json(json!({"deleted": true})))
 }
 
 async fn pause_job(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Path(job_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    set_job_enabled(&server, &job_id, false).await?;
+    set_job_enabled(&server, &headers, &job_id, false).await?;
     Ok(Json(json!({"paused": true})))
 }
 
 async fn resume_job(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Path(job_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    set_job_enabled(&server, &job_id, true).await?;
+    set_job_enabled(&server, &headers, &job_id, true).await?;
     Ok(Json(json!({"resumed": true})))
 }
 
-async fn set_job_enabled(server: &AppServer, job_id: &str, enabled: bool) -> Result<(), ApiError> {
+async fn set_job_enabled(
+    server: &AppServer,
+    headers: &HeaderMap,
+    job_id: &str,
+    enabled: bool,
+) -> Result<(), ApiError> {
     let _guard = server.inner.desktop_cron_lock.lock().await;
+    let namespace = request_namespace(server, headers).await?;
     let mut data = read_data(server)?;
-    let index = find_job_index(&data, job_id)?;
+    let key = job_key(&data, &namespace, job_id)?;
+    let index = find_job_index(&data, key)?;
     data.jobs[index].enabled = enabled;
-    if !enabled {
-        data.states
-            .entry(job_id.to_owned())
-            .or_default()
-            .next_run_at = None;
-    }
+    let spec = data.jobs[index].clone();
+    reset_schedule(&mut data, &spec, Utc::now())?;
     write_data(server, &data)
 }
 
 async fn run_job(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Path(job_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let cron_guard = server.inner.desktop_cron_lock.lock().await;
+    let operation = server.inner.core.operation_guard().map_err(internal)?;
+    let _cron_guard = server.inner.desktop_cron_lock.lock().await;
+    let namespace = request_namespace(&server, &headers).await?;
     let mut data = read_data(&server)?;
-    let spec = find_job(&data, &job_id)?.clone();
-    if spec.task_type != "text" || spec.dispatch.channel != "console" {
+    let key = job_key(&data, &namespace, &job_id)?.to_owned();
+    let mut spec = find_job(&data, &key)?.clone();
+    validate_and_normalize(&mut spec)?;
+    if spec.dispatch.channel != "console" {
         return Err(error(
             StatusCode::NOT_IMPLEMENTED,
-            "Rust Core cron execution currently supports console text jobs only",
+            "Rust Core cron delivery currently supports the Console channel only",
         ));
     }
-    let now = now_rfc3339();
-    let text = spec.text.unwrap_or_default();
-    let job_name = spec.name;
+    let owner = owner_key(&data, &key);
+    if super::desktop_checkpoints::quiescence::is_paused(&server, &owner) {
+        agent::defer_manual(&server, job_id, owner, spec, operation);
+    } else {
+        execute_manual(&server, &mut data, spec, operation).await?;
+    }
+    Ok(Json(json!({"started": true})))
+}
+
+async fn execute_manual(
+    server: &AppServer,
+    data: &mut CronData,
+    spec: CronJobSpec,
+    operation: qwenpaw_core::CoreOperationGuard,
+) -> Result<(), ApiError> {
+    if spec.task_type == "agent" {
+        agent::enqueue(server, data, spec, "manual", operation).await?;
+    } else {
+        execute_text(server, data, &spec, "manual").await?;
+    }
+    Ok(())
+}
+
+async fn manual_job_admission<'a>(
+    server: &'a AppServer,
+    id: &str,
+    namespace: &WorkspaceDataKey,
+) -> Result<(tokio::sync::MutexGuard<'a, ()>, CronData, String), ApiError> {
+    loop {
+        let guard = server.inner.desktop_cron_lock.lock().await;
+        if server.inner.desktop_workspace.is_some() {
+            super::desktop_agents::context_for_data_key(server, namespace).await?;
+        }
+        let data = read_data(server)?;
+        let key = job_key(&data, namespace, id)?.to_owned();
+        let Some(completed) =
+            super::desktop_checkpoints::quiescence::paused(server, &owner_key(&data, &key))
+        else {
+            return Ok((guard, data, key));
+        };
+        drop(guard);
+        super::desktop_checkpoints::quiescence::wait_for_resume(server, completed).await?;
+    }
+}
+
+async fn execute_text(
+    server: &AppServer,
+    data: &mut CronData,
+    spec: &CronJobSpec,
+    trigger: &str,
+) -> Result<(), ApiError> {
+    let job_id = spec
+        .id
+        .as_deref()
+        .ok_or_else(|| internal("cron job id is missing"))?;
+    let actor = if server.inner.desktop_workspace.is_some() {
+        super::desktop_agents::context_for_data_key(server, &owner_key(data, job_id))
+            .await?
+            .agent_id
+    } else {
+        String::from("default")
+    };
+    data.active_triggers
+        .insert(job_id.to_owned(), trigger.to_owned());
+    data.states
+        .entry(job_id.to_owned())
+        .or_default()
+        .last_status = Some(String::from("running"));
+    write_data(server, data)?;
+    let text = spec.text.as_deref().unwrap_or_default().trim().to_owned();
+    let job_name = &spec.name;
+    let public_id = spec.public_id().unwrap_or(job_id);
     let save_result_to_inbox = spec.save_result_to_inbox.unwrap_or(false);
     let push_message = DesktopPushMessage {
         id: Uuid::now_v7().to_string(),
         text: text.clone(),
         sticky: false,
-        session_id: spec.dispatch.target.session_id,
+        session_id: spec.dispatch.target.session_id.clone(),
         created_at: now_epoch_seconds(),
     };
-    let state = data.states.entry(job_id.clone()).or_default();
-    state.last_run_at = Some(now.clone());
-    state.last_status = Some(String::from("success"));
-    state.last_error = None;
-    let history = data.history.entry(job_id.clone()).or_default();
-    history.push(CronExecutionRecord {
-        run_at: now,
-        status: String::from("success"),
-        error: None,
-        trigger: String::from("manual"),
-    });
-    if history.len() > MAX_CRON_HISTORY {
-        history.drain(..history.len() - MAX_CRON_HISTORY);
-    }
-    write_data(&server, &data)?;
-    drop(cron_guard);
-
     let mut messages = server.inner.desktop_push_messages.write().await;
     messages.push(push_message);
     if messages.len() > 500 {
@@ -323,21 +525,21 @@ async fn run_job(
     drop(messages);
     if save_result_to_inbox {
         let inbox_result = super::desktop_inbox::append_event(
-            &server,
+            server,
             super::desktop_inbox::NewInboxEvent {
-                agent_id: String::from("default"),
+                agent_id: actor,
                 source_type: String::from("cron"),
-                source_id: job_id.clone(),
+                source_id: public_id.to_owned(),
                 event_type: String::from("cron_result"),
                 status: String::from("success"),
                 severity: String::from("info"),
                 title: format!("Cron result: {job_name}"),
                 body: text,
                 payload: json!({
-                    "job_id": job_id,
+                    "job_id": public_id,
                     "job_name": job_name,
                     "task_type": "text",
-                    "trigger": "manual",
+                    "trigger": trigger,
                     "run_id": null,
                     "save_result_to_inbox": true
                 }),
@@ -348,27 +550,83 @@ async fn run_job(
             tracing::warn!("failed to save a completed Cron result to the Inbox");
         }
     }
-    Ok(Json(json!({"started": true})))
+    record_result(data, job_id, trigger, "success", None, Utc::now());
+    data.active_triggers.remove(job_id);
+    write_data(server, data)
+}
+
+fn reset_schedule(
+    data: &mut CronData,
+    spec: &CronJobSpec,
+    now: DateTime<Utc>,
+) -> Result<(), ApiError> {
+    let compiled = schedule::Schedule::parse(&spec.schedule)?;
+    let id = spec
+        .id
+        .as_deref()
+        .ok_or_else(|| internal("cron job id is missing"))?;
+    data.states.entry(id.to_owned()).or_default().next_run_at = spec
+        .enabled
+        .then(|| compiled.initial(now))
+        .flatten()
+        .map(format_datetime);
+    data.scheduled.insert(id.to_owned());
+    Ok(())
+}
+
+fn record_result(
+    data: &mut CronData,
+    id: &str,
+    trigger: &str,
+    status: &str,
+    error: Option<String>,
+    now: DateTime<Utc>,
+) {
+    let state = data.states.entry(id.to_owned()).or_default();
+    let now = format_datetime(now);
+    if status != "skipped" {
+        state.last_run_at = Some(now.clone());
+    }
+    state.last_status = Some(status.to_owned());
+    state.last_error.clone_from(&error);
+    let history = data.history.entry(id.to_owned()).or_default();
+    history.push(CronExecutionRecord {
+        run_at: now,
+        status: status.to_owned(),
+        error,
+        trigger: trigger.to_owned(),
+    });
+    if history.len() > MAX_CRON_HISTORY {
+        history.drain(..history.len() - MAX_CRON_HISTORY);
+    }
+}
+
+fn format_datetime(value: DateTime<Utc>) -> String {
+    value.to_rfc3339_opts(SecondsFormat::AutoSi, true)
 }
 
 async fn get_job_state(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Path(job_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let _guard = server.inner.desktop_cron_lock.lock().await;
+    let namespace = request_namespace(&server, &headers).await?;
     let data = read_data(&server)?;
-    find_job(&data, &job_id)?;
-    json_value(data.states.get(&job_id).cloned().unwrap_or_default()).map(Json)
+    let key = job_key(&data, &namespace, &job_id)?;
+    json_value(data.states.get(key).cloned().unwrap_or_default()).map(Json)
 }
 
 async fn get_job_history(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Path(job_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let _guard = server.inner.desktop_cron_lock.lock().await;
+    let namespace = request_namespace(&server, &headers).await?;
     let data = read_data(&server)?;
-    find_job(&data, &job_id)?;
-    json_value(data.history.get(&job_id).cloned().unwrap_or_default()).map(Json)
+    let key = job_key(&data, &namespace, &job_id)?;
+    json_value(data.history.get(key).cloned().unwrap_or_default()).map(Json)
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -380,63 +638,122 @@ struct DispatchTargetsQuery {
 
 async fn dispatch_targets(
     State(server): State<AppServer>,
-    Query(query): Query<DispatchTargetsQuery>,
+    headers: HeaderMap,
+    query: Result<Query<DispatchTargetsQuery>, axum::extract::rejection::QueryRejection>,
 ) -> Result<Json<Value>, ApiError> {
+    let Query(query) = query.map_err(|_| unprocessable("dispatch target query is invalid"))?;
     let limit = query.limit.unwrap_or(500);
     if !(1..=2_000).contains(&limit) {
         return Err(unprocessable("limit must be between 1 and 2000"));
     }
-    let aliases = server.inner.desktop_session_aliases.read().await;
+    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
+    super::desktop_agents::workspace_for_agent(&server, &agent_id).await?;
     let keyword = query.keyword.unwrap_or_default().trim().to_lowercase();
-    let mut session_ids = aliases.client_to_thread.keys().cloned().collect::<Vec<_>>();
-    session_ids.sort();
-    session_ids.dedup();
-    let items = session_ids
+    let targets = super::desktop_chats::cron_dispatch_targets(&server, &agent_id).await?;
+    let mut seen = BTreeSet::new();
+    let items = targets
         .into_iter()
-        .filter(|_session_id| {
+        .filter(|(channel, _, _)| {
             query
                 .channel
                 .as_deref()
-                .is_none_or(|value| value == "console")
+                .is_none_or(|value| value == channel)
         })
-        .filter(|session_id| {
+        .filter(|(channel, user_id, session_id)| {
             keyword.is_empty()
-                || format!("console admin {session_id}")
+                || format!("{channel} {user_id} {session_id}")
                     .to_lowercase()
                     .contains(&keyword)
         })
+        .filter(|target| seen.insert(target.clone()))
         .take(limit)
-        .map(|session_id| {
+        .map(|(channel, user_id, session_id)| {
             json!({
-                "channel": "console",
-                "user_id": "admin",
+                "channel": channel,
+                "user_id": user_id,
                 "session_id": session_id
             })
         })
         .collect::<Vec<_>>();
-    Ok(Json(json!({"channels": ["console"], "items": items})))
+    let mut channels = items
+        .iter()
+        .filter_map(|item| item["channel"].as_str())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    if !channels.contains(&"console") {
+        channels.insert(0, "console");
+    }
+    Ok(Json(json!({"channels": channels, "items": items})))
 }
 
 fn read_data(server: &AppServer) -> Result<CronData, ApiError> {
     let Some(serialized) = server.inner.core.read_cron_data().map_err(internal)? else {
         return Ok(CronData::default());
     };
-    if serialized.len() > MAX_CRON_DATA_BYTES {
-        return Err(internal("stored cron data exceeds its size limit"));
-    }
-    let data = serde_json::from_str::<CronData>(&serialized)
-        .map_err(|_| internal("stored cron data is invalid"))?;
-    if data.version != 1 || data.jobs.len() > MAX_CRON_JOBS {
-        return Err(internal("stored cron data has an unsupported shape"));
+    let mut data = backup::parse_data(&serialized).map_err(internal)?;
+    if data.version < 4 {
+        upgrade_owners(&mut data, &super::desktop_agents::default_data_key(server)?);
     }
     Ok(data)
 }
 
-fn write_data(server: &AppServer, data: &CronData) -> Result<(), ApiError> {
-    let serialized = serde_json::to_string(data).map_err(|_| internal("cron data is invalid"))?;
-    if serialized.len() > MAX_CRON_DATA_BYTES {
-        return Err(unprocessable("cron data exceeds its size limit"));
+fn upgrade_owners(data: &mut CronData, default: &WorkspaceDataKey) {
+    if data.version >= 4 {
+        return;
     }
+    for job in &data.jobs {
+        let Some(id) = &job.id else { continue };
+        let key = if owner(data, id) == "default" {
+            default.clone()
+        } else {
+            WorkspaceDataKey::LegacyAgent(owner(data, id).to_owned())
+        };
+        data.workspace_owners.entry(id.clone()).or_insert(key);
+    }
+    for claim in data.active_runs.values_mut() {
+        claim.agent_id = Some(
+            data.owners
+                .get(&claim.job_id)
+                .map_or("default", String::as_str)
+                .to_owned(),
+        );
+        claim.data_key = data.workspace_owners.get(&claim.job_id).cloned();
+    }
+    data.version = 4;
+}
+
+fn owner<'a>(data: &'a CronData, job_id: &str) -> &'a str {
+    data.owners.get(job_id).map_or("default", String::as_str)
+}
+
+fn owner_key(data: &CronData, job_id: &str) -> WorkspaceDataKey {
+    data.workspace_owners
+        .get(job_id)
+        .cloned()
+        .unwrap_or_else(|| WorkspaceDataKey::LegacyAgent(owner(data, job_id).to_owned()))
+}
+
+fn job_key<'a>(
+    data: &'a CronData,
+    namespace: &WorkspaceDataKey,
+    job_id: &str,
+) -> Result<&'a str, ApiError> {
+    data.jobs
+        .iter()
+        .find_map(|job| {
+            let key = job.id.as_deref()?;
+            (job.public_id() == Some(job_id) && &owner_key(data, key) == namespace).then_some(key)
+        })
+        .ok_or_else(|| error(StatusCode::NOT_FOUND, "job not found"))
+}
+
+fn write_data(server: &AppServer, data: &CronData) -> Result<(), ApiError> {
+    let mut data = data.clone();
+    if data.version < 4 {
+        upgrade_owners(&mut data, &super::desktop_agents::default_data_key(server)?);
+    }
+    let serialized = backup::encode(&data).map_err(unprocessable)?;
     server
         .inner
         .core
@@ -512,9 +829,7 @@ fn validate_and_normalize(spec: &mut CronJobSpec) -> Result<(), ApiError> {
 }
 
 fn validate_schedule(schedule: &mut ScheduleSpec) -> Result<(), ApiError> {
-    if schedule.timezone.trim().is_empty() || schedule.timezone.len() > 128 {
-        return Err(unprocessable("schedule timezone is invalid"));
-    }
+    let zone = schedule::timezone(&schedule.timezone)?;
     match schedule.kind.as_str() {
         "cron" => {
             let cron = schedule
@@ -534,7 +849,7 @@ fn validate_schedule(schedule: &mut ScheduleSpec) -> Result<(), ApiError> {
                 .run_at
                 .as_deref()
                 .ok_or_else(|| unprocessable("schedule.type is once but run_at is missing"))?;
-            let run_timestamp = parse_datetime(run_at)?;
+            let run_timestamp = schedule::datetime(run_at, zone)?;
             schedule.cron = None;
             if schedule.repeat_every_days.is_none() {
                 schedule.repeat_end_type = None;
@@ -557,7 +872,7 @@ fn validate_schedule(schedule: &mut ScheduleSpec) -> Result<(), ApiError> {
                     let repeat_until = schedule.repeat_until.as_deref().ok_or_else(|| {
                         unprocessable("repeat_end_type is until but repeat_until is missing")
                     })?;
-                    if parse_datetime(repeat_until)? <= run_timestamp {
+                    if schedule::datetime(repeat_until, zone)? <= run_timestamp {
                         return Err(unprocessable("repeat_until must be later than run_at"));
                     }
                     schedule.repeat_count = None;
@@ -575,7 +890,7 @@ fn validate_schedule(schedule: &mut ScheduleSpec) -> Result<(), ApiError> {
         }
         _ => return Err(unprocessable("schedule.type must be cron or once")),
     }
-    Ok(())
+    schedule::Schedule::parse(schedule).map(|_| ())
 }
 
 fn validate_dispatch(dispatch: &DispatchSpec) -> Result<(), ApiError> {
@@ -648,19 +963,6 @@ fn weekday(value: &str) -> String {
         "6" => String::from("sat"),
         _ => value.to_owned(),
     }
-}
-
-fn parse_datetime(value: &str) -> Result<i64, ApiError> {
-    if let Ok(value) = DateTime::parse_from_rfc3339(value) {
-        return Ok(value.timestamp());
-    }
-    NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M:%S")
-        .map(|value| value.and_utc().timestamp())
-        .map_err(|_| unprocessable("scheduled datetime is invalid"))
-}
-
-fn now_rfc3339() -> String {
-    DateTime::<Utc>::from(SystemTime::now()).to_rfc3339_opts(SecondsFormat::Secs, true)
 }
 
 fn now_epoch_seconds() -> u64 {
@@ -739,5 +1041,17 @@ mod tests {
         assert_eq!(normalize_cron("9 * * 0").unwrap(), "0 9 * * sun");
         assert_eq!(normalize_cron("1 2 1-5").unwrap(), "0 0 1 2 mon-fri");
         assert!(normalize_cron("0 0 0 1 1 1").is_err());
+    }
+
+    #[test]
+    fn invalid_timezones_and_cron_fields_are_rejected_before_persistence() {
+        for schedule in [
+            json!({"type":"cron", "cron":"0 9 * * *", "timezone":"Not/AZone"}),
+            json!({"type":"cron", "cron":"70 9 * * *"}),
+            json!({"type":"cron", "cron":"*/0 9 * * *"}),
+        ] {
+            let mut schedule: ScheduleSpec = serde_json::from_value(schedule).unwrap();
+            assert!(validate_schedule(&mut schedule).is_err());
+        }
     }
 }

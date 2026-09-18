@@ -480,9 +480,13 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 }
 
-export function deactivate(): void {
-  manager?.dispose();
-  manager = undefined;
+export async function deactivate(): Promise<void> {
+  const closing = manager;
+  try {
+    await closing?.close();
+  } finally {
+    if (manager === closing) manager = undefined;
+  }
 }
 
 function findThreadId(context: vscode.ChatContext): string | undefined {

@@ -95,6 +95,50 @@ struct OAuthFixtureState {
 }
 
 #[tokio::test]
+async fn core_restore_closes_oauth_callbacks_and_releases_authorization_afterwards() {
+    let (origin, fixture_state, oauth_task) = start_oauth_fixture().await;
+    let directory = tempfile::tempdir().unwrap();
+    let config_path = write_mcp_config(directory.path(), &origin);
+    let store = Arc::new(MemoryOAuthStore::default());
+    let mcp = McpManager::from_path_with_oauth_store(&config_path, store.clone()).unwrap();
+    let core = Core::new_with_mcp(
+        ModelConfig {
+            api_key: None,
+            base_url: String::from("http://127.0.0.1:1"),
+            default_model: String::from("test-model"),
+        },
+        mcp,
+    );
+    let options = || qwenpaw_core::McpOAuthStartOptions {
+        client_id: String::from("desktop-client"),
+        ..qwenpaw_core::McpOAuthStartOptions::default()
+    };
+    for _ in 0..2 {
+        let started = core.start_mcp_oauth("remote", options()).await.unwrap();
+        let authorization = Url::parse(&started.authorization_url).unwrap();
+        let query = authorization.query_pairs().collect::<HashMap<_, _>>();
+        let callback = Url::parse(&query["redirect_uri"]).unwrap();
+        let guard = core
+            .begin_restore(std::time::Duration::from_secs(1))
+            .await
+            .unwrap();
+        assert!(
+            tokio::net::TcpStream::connect(("127.0.0.1", callback.port().unwrap()))
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            core.start_mcp_oauth("remote", options()).await,
+            Err(qwenpaw_core::CoreError::RestoreBusy)
+        );
+        assert!(store.values.lock().unwrap().is_empty());
+        assert!(fixture_state.token_forms.lock().await.is_empty());
+        drop(guard);
+    }
+    oauth_task.abort();
+}
+
+#[tokio::test]
 #[allow(clippy::too_many_lines)]
 async fn serves_console_and_app_protocol_mcp_oauth_contracts() {
     let (oauth_origin, fixture_state, oauth_task) = start_oauth_fixture().await;

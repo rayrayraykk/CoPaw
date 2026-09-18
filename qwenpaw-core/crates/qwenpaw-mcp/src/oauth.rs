@@ -13,14 +13,20 @@ use sha2::Digest as _;
 use sha2::Sha256;
 use tokio::io::AsyncReadExt as _;
 use tokio::io::AsyncWriteExt as _;
+use tokio_util::sync::CancellationToken;
+use tokio_util::task::TaskTracker;
 use url::Url;
 
 use super::McpClientConfig;
 use super::McpError;
 use super::McpManager;
-use super::expand_environment;
 use super::validate_bearer_token;
 use super::validate_http_url;
+
+#[path = "oauth_backup.rs"]
+mod backup;
+pub use backup::McpOAuthBackup;
+pub use backup::McpOAuthRestore;
 
 const OAUTH_TIMEOUT: Duration = Duration::from_secs(15);
 const CALLBACK_TIMEOUT: Duration = Duration::from_secs(600);
@@ -28,6 +34,27 @@ const MAX_OAUTH_RESPONSE_BYTES: usize = 65_536;
 const MAX_CALLBACK_REQUEST_BYTES: usize = 16_384;
 const MAX_CALLBACK_ATTEMPTS: usize = 16;
 const CREDENTIAL_SERVICE: &str = "io.qwenpaw.mcp.oauth";
+
+#[derive(Default)]
+pub(super) struct OAuthActivity {
+    callbacks: std::sync::Mutex<std::collections::HashMap<String, CancellationToken>>,
+    tasks: TaskTracker,
+}
+
+struct CallbackRegistration {
+    activity: Arc<OAuthActivity>,
+    session_id: String,
+}
+
+impl Drop for CallbackRegistration {
+    fn drop(&mut self) {
+        self.activity
+            .callbacks
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&self.session_id);
+    }
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct McpOAuthStartOptions {
@@ -191,6 +218,27 @@ struct OAuthSession {
 }
 
 impl McpManager {
+    /// Cancels interactive callbacks and waits for outstanding credential writes.
+    ///
+    /// The caller must prevent new MCP operations while draining (Core holds
+    /// its exclusive restore lease). Reconfigured managers share this activity
+    /// tracker, so flows started before a configuration update are included.
+    /// Dropping this future does not abort a blocking credential-store write;
+    /// a later call still waits for that write to finish.
+    pub async fn cancel_pending_oauth(&self) {
+        let activity = &self.inner.oauth_activity;
+        for cancellation in activity
+            .callbacks
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .values()
+        {
+            cancellation.cancel();
+        }
+        activity.tasks.close();
+        activity.tasks.wait().await;
+    }
+
     /// Starts an interactive OAuth authorization-code flow for one remote MCP client.
     ///
     /// The returned URL is intended to be opened by the caller in the system
@@ -206,7 +254,7 @@ impl McpManager {
         options: McpOAuthStartOptions,
     ) -> Result<McpOAuthStartResponse, McpError> {
         let config = self.oauth_client_config(server_id)?;
-        let configured_url = expand_environment(&config.url)?;
+        let configured_url = self.expand_environment(&config.url)?;
         let resource = if options.url.trim().is_empty() {
             configured_url.clone()
         } else {
@@ -221,7 +269,19 @@ impl McpManager {
 
         let client = oauth_http_client()?;
         let mut discovery = discover_oauth(&client, &resource).await?;
-        let configured_oauth = config.oauth.as_ref();
+        let configured_oauth = config
+            .oauth
+            .clone()
+            .map(|mut value| -> Result<_, McpError> {
+                value.client_id = self.expand_environment(&value.client_id)?;
+                value.scope = self.expand_environment(&value.scope)?;
+                value.authorization_endpoint =
+                    self.expand_environment(&value.authorization_endpoint)?;
+                value.token_endpoint = self.expand_environment(&value.token_endpoint)?;
+                Ok(value)
+            })
+            .transpose()?;
+        let configured_oauth = configured_oauth.as_ref();
         let authorization_override = first_non_empty([
             options.authorization_endpoint.as_str(),
             configured_oauth.map_or("", |value| value.authorization_endpoint.as_str()),
@@ -290,19 +350,39 @@ impl McpManager {
             client_id,
             discovery,
         };
-        let manager = self.clone();
-        tokio::spawn(async move {
-            if let Err(error) =
-                run_callback_listener(listener, &manager, session, CALLBACK_TIMEOUT).await
-            {
-                tracing::warn!(%error, "MCP OAuth callback did not complete");
-            }
-        });
+        self.spawn_oauth_callback(listener, session);
 
         Ok(McpOAuthStartResponse {
             authorization_url: authorization_url.into(),
             session_id: state,
         })
+    }
+
+    fn spawn_oauth_callback(&self, listener: tokio::net::TcpListener, session: OAuthSession) {
+        let manager = self.clone();
+        let cancellation = CancellationToken::new();
+        let registration = CallbackRegistration {
+            activity: Arc::clone(&self.inner.oauth_activity),
+            session_id: session.state.clone(),
+        };
+        registration
+            .activity
+            .callbacks
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(session.state.clone(), cancellation.clone());
+        self.inner.oauth_activity.tasks.spawn(async move {
+            let _registration = registration;
+            tokio::select! {
+                biased;
+                () = cancellation.cancelled() => {}
+                result = run_callback_listener(listener, &manager, session, CALLBACK_TIMEOUT) => {
+                    if let Err(error) = result {
+                        tracing::warn!(%error, "MCP OAuth callback did not complete");
+                    }
+                }
+            }
+        });
     }
 
     /// Returns the current secure-store OAuth status for an MCP client.
@@ -338,7 +418,10 @@ impl McpManager {
         let config = self.oauth_client_config(server_id)?;
         let account = oauth_account(server_id, &config);
         let store = Arc::clone(&self.inner.oauth_store);
-        tokio::task::spawn_blocking(move || store.delete(&account))
+        self.inner
+            .oauth_activity
+            .tasks
+            .spawn_blocking(move || store.delete(&account))
             .await
             .map_err(|_| McpError::OAuth(String::from("OAuth credential deletion failed")))?
             .map_err(McpError::OAuth)?;
@@ -409,10 +492,21 @@ impl McpManager {
     ) -> Result<Option<McpOAuthCredentials>, McpError> {
         let account = oauth_account(server_id, config);
         let store = Arc::clone(&self.inner.oauth_store);
-        tokio::task::spawn_blocking(move || store.load(&account))
+        let stored = tokio::task::spawn_blocking(move || store.load(&account))
             .await
             .map_err(|_| McpError::OAuth(String::from("OAuth credential read failed")))?
-            .map_err(McpError::OAuth)
+            .map_err(McpError::OAuth)?;
+        // The account remains keyed by the configured URL for compatibility.
+        // A placeholder can resolve to a different resource after an environment
+        // change; never reuse that resource's old access or refresh token.
+        if let Some(credentials) = &stored
+            && credentials.resource != self.expand_environment(&config.url)?
+        {
+            // Report this resource as unauthorized so interactive reauthorization
+            // remains available. Do not refresh or disclose the unrelated token.
+            return Ok(None);
+        }
+        Ok(stored)
     }
 
     async fn save_oauth_credentials(
@@ -421,7 +515,10 @@ impl McpManager {
         credentials: McpOAuthCredentials,
     ) -> Result<(), McpError> {
         let store = Arc::clone(&self.inner.oauth_store);
-        tokio::task::spawn_blocking(move || store.save(&account, &credentials))
+        self.inner
+            .oauth_activity
+            .tasks
+            .spawn_blocking(move || store.save(&account, &credentials))
             .await
             .map_err(|_| McpError::OAuth(String::from("OAuth credential save failed")))?
             .map_err(McpError::OAuth)
@@ -1060,6 +1157,83 @@ fn unix_timestamp() -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct BlockingCredentialStore {
+        started: tokio::sync::Notify,
+        release: std::sync::Mutex<std::sync::mpsc::Receiver<()>>,
+        saved: std::sync::Mutex<Option<McpOAuthCredentials>>,
+    }
+
+    impl McpOAuthCredentialStore for BlockingCredentialStore {
+        fn load(&self, _: &str) -> Result<Option<McpOAuthCredentials>, String> {
+            Ok(self.saved.lock().unwrap().clone())
+        }
+
+        fn save(&self, _: &str, credentials: &McpOAuthCredentials) -> Result<(), String> {
+            self.started.notify_one();
+            self.release
+                .lock()
+                .unwrap()
+                .recv_timeout(Duration::from_secs(2))
+                .map_err(|error| error.to_string())?;
+            *self.saved.lock().unwrap() = Some(credentials.clone());
+            Ok(())
+        }
+
+        fn delete(&self, _: &str) -> Result<(), String> {
+            *self.saved.lock().unwrap() = None;
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn drain_waits_for_blocking_credential_writes_even_after_the_request_is_aborted() {
+        let (release, receiver) = std::sync::mpsc::channel();
+        let store = Arc::new(BlockingCredentialStore {
+            started: tokio::sync::Notify::new(),
+            release: std::sync::Mutex::new(receiver),
+            saved: std::sync::Mutex::new(None),
+        });
+        let manager = McpManager::new(std::collections::BTreeMap::new(), store.clone());
+        let credentials = McpOAuthCredentials {
+            issuer: String::from("https://issuer.example"),
+            resource: String::from("https://mcp.example"),
+            client_id: String::from("test-client"),
+            authorization_endpoint: String::from("https://issuer.example/authorize"),
+            token_endpoint: String::from("https://issuer.example/token"),
+            scope: String::from("files:read"),
+            access_token: String::from("test-access"),
+            refresh_token: String::from("test-refresh"),
+            expires_at: 0.0,
+        };
+        let writer = manager.clone();
+        let saved = credentials.clone();
+        let request = tokio::spawn(async move {
+            writer
+                .save_oauth_credentials(String::from("account"), saved)
+                .await
+        });
+        tokio::time::timeout(Duration::from_secs(1), store.started.notified())
+            .await
+            .unwrap();
+        request.abort();
+        assert!(request.await.unwrap_err().is_cancelled());
+        let reconfigured = manager.reconfigured(Vec::new()).unwrap();
+        assert!(
+            tokio::time::timeout(
+                Duration::from_millis(20),
+                reconfigured.cancel_pending_oauth()
+            )
+            .await
+            .is_err()
+        );
+        assert_eq!(store.load("account").unwrap(), None);
+        release.send(()).unwrap();
+        tokio::time::timeout(Duration::from_secs(1), reconfigured.cancel_pending_oauth())
+            .await
+            .unwrap();
+        assert_eq!(store.load("account").unwrap(), Some(credentials));
+    }
 
     #[test]
     fn parses_bearer_challenge_parameters() {

@@ -1,8 +1,60 @@
+use std::collections::BTreeMap;
 use std::fs;
 
 use pretty_assertions::assert_eq;
 use qwenpaw_mcp::McpManager;
 use serde_json::json;
+
+#[tokio::test]
+async fn stdio_uses_snapshot_environment_and_client_overrides_without_changing_the_host() {
+    let keys = [
+        "QWENPAW_MCP_INHERITED_FIXTURE",
+        "QWENPAW_MCP_EXPANDED_FIXTURE",
+        "QWENPAW_MCP_OVERRIDE_FIXTURE",
+    ];
+    let host_before = keys.map(std::env::var_os);
+    let settings = serde_json::from_value(json!([{
+        "key": "environment", "enabled": true, "transport": "stdio",
+        "command": env!("CARGO_BIN_EXE_qwenpaw-mcp-test-server"),
+        "env": {"QWENPAW_MCP_EXPANDED_FIXTURE": "${QWENPAW_MCP_INHERITED_FIXTURE}",
+                "QWENPAW_MCP_OVERRIDE_FIXTURE": "client-value"}
+    }]))
+    .unwrap();
+    let original = McpManager::empty().reconfigured(settings).unwrap();
+    let values = BTreeMap::from([
+        (keys[0].to_owned(), String::from("original-value")),
+        (keys[2].to_owned(), String::from("application-value")),
+    ]);
+    let first = original.with_environment(values.clone());
+    let mut next = values;
+    next.insert(keys[0].to_owned(), String::from("restored-value"));
+    let restored = first.with_environment(next);
+    for (manager, value) in [
+        (&first, "original-value"),
+        (&restored, "restored-value"),
+        (&first, "original-value"),
+    ] {
+        manager.validate_environment_bindings().unwrap();
+        assert_eq!(manager.definitions().await.len(), 1);
+        let output = manager
+            .call_tool(
+                "mcp__environment__echo",
+                r#"{"text":"__qwenpaw_env_fixture__"}"#,
+            )
+            .await
+            .unwrap();
+        assert!(!output.is_error);
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&output.content).unwrap(),
+            json!({"environment": {
+                "inherited": value, "expanded": value, "override": "client-value"
+            }})
+        );
+    }
+    first.cancel_tool("mcp__environment__echo").await;
+    restored.cancel_tool("mcp__environment__echo").await;
+    assert_eq!(keys.map(std::env::var_os), host_before);
+}
 
 #[tokio::test]
 async fn discovers_and_calls_a_namespaced_stdio_tool() {

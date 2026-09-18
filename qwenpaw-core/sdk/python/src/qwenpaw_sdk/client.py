@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from __future__ import annotations
 
 import json
@@ -6,15 +7,17 @@ import queue
 import shutil
 import subprocess
 import threading
+import time
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TextIO
+from typing import IO, Any
 
 from .errors import (
     ProtocolVersionError,
     RequestTimeoutError,
     RpcRequestError,
+    ShutdownError,
     TransportClosedError,
 )
 from .models import JsonObject, Notification, TurnResult
@@ -23,6 +26,9 @@ from .protocol import PROTOCOL_VERSION
 NotificationHandler = Callable[[Notification], None]
 CloseHandler = Callable[[Exception], None]
 ApprovalHandler = Callable[[Notification], str]
+
+_SHUTDOWN_TIMEOUT = 30.0
+_CLEANUP_TIMEOUT = 5.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +60,7 @@ class AppServerClient:
         self.config = config or QwenPawConfig()
         self._process: subprocess.Popen[str] | None = None
         self._reader: threading.Thread | None = None
+        self._drainer: threading.Thread | None = None
         self._next_id = 1
         self._pending: dict[int, _PendingRequest] = {}
         self._handlers: set[NotificationHandler] = set()
@@ -61,10 +68,17 @@ class AppServerClient:
         self._state_lock = threading.Lock()
         self._write_lock = threading.Lock()
         self._closed_error: Exception | None = None
+        self._close_owner: threading.Thread | None = None
+        self._close_done = threading.Event()
+        self._close_result: Exception | None = None
+        self._reader_transferred = False
+        self._reader_error: Exception | None = None
 
     def start(self) -> JsonObject:
         """Start and initialize the configured App Server."""
 
+        if self._close_owner is not None:
+            raise RuntimeError(f"Create a new client after closing this one")
         if self._process is not None:
             raise RuntimeError(f"QwenPaw App Server is already started")
         args = self._launch_args()
@@ -87,6 +101,9 @@ class AppServerClient:
             daemon=True,
         )
         self._reader.start()
+        return self._initialize()
+
+    def _initialize(self) -> JsonObject:
         try:
             response = self.request(
                 f"initialize",
@@ -95,18 +112,18 @@ class AppServerClient:
                         f"name": self.config.client_name,
                         f"title": self.config.client_title,
                         f"version": self.config.client_version,
-                    }
+                    },
                 },
             )
         except Exception:
-            self.close()
+            self._cleanup_after_error()
             raise
         actual = response.get(f"protocolVersion")
         if actual != PROTOCOL_VERSION:
-            self.close()
+            self._cleanup_after_error()
             raise ProtocolVersionError(
                 f"QwenPaw protocol version {actual} does not match "
-                f"SDK version {PROTOCOL_VERSION}"
+                f"SDK version {PROTOCOL_VERSION}",
             )
         self.notify(f"initialized", {})
         return response
@@ -119,10 +136,6 @@ class AppServerClient:
     ) -> JsonObject:
         """Send one App Protocol request and await its response."""
 
-        process = self._require_process()
-        stdin = process.stdin
-        if stdin is None:
-            raise TransportClosedError(f"App Server stdin is unavailable")
         with self._state_lock:
             if self._closed_error is not None:
                 raise self._closed_error
@@ -136,7 +149,7 @@ class AppServerClient:
             f"params": params,
         }
         try:
-            self._write(stdin, message)
+            self._send_message(message)
         except Exception:
             with self._state_lock:
                 self._pending.pop(request_id, None)
@@ -144,31 +157,38 @@ class AppServerClient:
         wait_timeout = (
             self.config.request_timeout if timeout is None else timeout
         )
-        if not pending.event.wait(wait_timeout):
+        if not self._wait_response(pending, wait_timeout):
             with self._state_lock:
                 self._pending.pop(request_id, None)
             raise RequestTimeoutError(
-                f"QwenPaw Core request timed out: {method}"
+                f"QwenPaw Core request timed out: {method}",
             )
         if pending.error is not None:
             raise pending.error
         if not isinstance(pending.result, dict):
             raise TransportClosedError(
-                f"QwenPaw Core returned a non-object result"
+                f"QwenPaw Core returned a non-object result",
             )
         return pending.result
+
+    def _wait_response(
+        self,
+        pending: _PendingRequest,
+        timeout: float,
+    ) -> bool:
+        return pending.event.wait(timeout)
 
     def notify(self, method: str, params: JsonObject) -> None:
         """Send one client notification."""
 
+        self._send_message({f"method": method, f"params": params})
+
+    def _send_message(self, message: JsonObject) -> None:
         process = self._require_process()
         stdin = process.stdin
         if stdin is None:
             raise TransportClosedError(f"App Server stdin is unavailable")
-        self._write(
-            stdin,
-            {f"method": method, f"params": params},
-        )
+        self._write(stdin, message)
 
     def on_notification(
         self,
@@ -203,30 +223,132 @@ class AppServerClient:
         return unsubscribe
 
     def close(self) -> None:
-        """Close the transport and terminate the owned child process."""
+        """Send EOF and await owned process completion; retain failures."""
 
-        process = self._process
-        if process is None:
+        current = threading.current_thread()
+        with self._state_lock:
+            first = self._close_owner is None
+            process = self._process
+            if first:
+                if process is None:
+                    return
+                self._close_owner = current
+        if not first:
+            if not self._close_done.is_set():
+                if current in {self._close_owner, self._reader}:
+                    return
+                if not self._close_done.wait(
+                    timeout=_SHUTDOWN_TIMEOUT + _CLEANUP_TIMEOUT,
+                ):
+                    raise ShutdownError(f"Concurrent shutdown did not finish")
+            if self._close_result is not None:
+                raise self._close_result
             return
-        self._close_with_error(
-            TransportClosedError(f"QwenPaw App Server was closed")
-        )
-        if process.stdin is not None:
-            process.stdin.close()
-        if process.poll() is None:
-            process.terminate()
+        assert process is not None
+        error = TransportClosedError(f"QwenPaw App Server was closed")
+        handlers = self._close_with_error(error, defer_handlers=True)
+        try:
+            reader = self._reader
+            if current is reader and process.stdout is not None:
+                self._reader_transferred = True
+                reader = threading.Thread(
+                    target=self._drain_output,
+                    args=(process.stdout,),
+                    name=f"qwenpaw-app-server-drainer",
+                    daemon=True,
+                )
+                self._drainer = reader
+                reader.start()
+            self._finish_close(process, reader)
+        except Exception as failure:
+            self._close_result = failure
+        finally:
+            if process.poll() is not None and (
+                process.stdin is None or process.stdin.closed
+            ):
+                self._process = None
+            self._close_done.set()
+            self._notify_close_handlers(handlers, error)
+        if self._close_result is not None:
+            raise self._close_result
+
+    def _finish_close(
+        self,
+        process: subprocess.Popen[str],
+        reader: threading.Thread | None,
+    ) -> None:
+        deadline = time.monotonic() + _SHUTDOWN_TIMEOUT
+        try:
+            self._end_input(process, deadline)
+            code = self._wait_closed(process, reader, deadline)
+        except Exception as error:
+            deadline = time.monotonic() + _CLEANUP_TIMEOUT
             try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=5)
-        reader = self._reader
-        if reader is not None and reader is not threading.current_thread():
-            reader.join(timeout=5)
-        if process.stdout is not None:
-            process.stdout.close()
-        self._reader = None
-        self._process = None
+                if process.poll() is None:
+                    process.kill()
+                self._end_input(process, deadline)
+                self._wait_closed(process, reader, deadline)
+            except Exception as cleanup_error:
+                raise ShutdownError(
+                    f"Shutdown failed; cleanup could not be confirmed",
+                ) from cleanup_error
+            raise ShutdownError(
+                f"Shutdown failed or timed out; forced termination "
+                f"does not confirm persistence",
+            ) from error
+        if code != 0:
+            raise ShutdownError(f"QwenPaw Core exited with code {code}")
+        if self._reader_error is not None:
+            raise ShutdownError(f"Shutdown output drain failed") from (
+                self._reader_error
+            )
+
+    def _end_input(
+        self,
+        process: subprocess.Popen[str],
+        deadline: float,
+    ) -> None:
+        if not self._write_lock.acquire(
+            timeout=max(0, deadline - time.monotonic()),
+        ):
+            raise TimeoutError(f"App Server input write did not finish")
+        try:
+            if process.stdin is not None and not process.stdin.closed:
+                try:
+                    process.stdin.close()
+                except BrokenPipeError:
+                    pass
+        finally:
+            self._write_lock.release()
+
+    @staticmethod
+    def _wait_closed(
+        process: subprocess.Popen[str],
+        reader: threading.Thread | None,
+        deadline: float,
+    ) -> int:
+        code = process.wait(timeout=max(0, deadline - time.monotonic()))
+        if reader is not None:
+            reader.join(timeout=max(0, deadline - time.monotonic()))
+            if reader.is_alive():
+                raise TimeoutError(f"App Server output reader did not finish")
+        return code
+
+    def _drain_output(self, output: IO[str]) -> None:
+        try:
+            while output.read(65_536):
+                pass
+        except Exception as error:
+            self._reader_error = error
+        finally:
+            output.close()
+
+    def _cleanup_after_error(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            # Preserve the original startup/body exception, not cleanup noise.
+            pass
 
     def _launch_args(self) -> list[str]:
         override = self.config.launch_args_override
@@ -239,7 +361,7 @@ class AppServerClient:
         resolved = core_bin or shutil.which(f"qwenpaw-core")
         if resolved is None:
             raise FileNotFoundError(
-                f"qwenpaw-core was not found; set QwenPawConfig.core_bin"
+                f"qwenpaw-core was not found; set QwenPawConfig.core_bin",
             )
         return [resolved, f"app-server", f"--stdio"]
 
@@ -249,9 +371,12 @@ class AppServerClient:
             raise TransportClosedError(f"QwenPaw App Server is not started")
         return process
 
-    def _write(self, stream: TextIO, message: JsonObject) -> None:
+    def _write(self, stream: IO[str], message: JsonObject) -> None:
         encoded = json.dumps(message, separators=(f",", f":"))
         with self._write_lock:
+            with self._state_lock:
+                if self._closed_error is not None:
+                    raise self._closed_error
             stream.write(f"{encoded}\n")
             stream.flush()
 
@@ -261,13 +386,19 @@ class AppServerClient:
             return
         try:
             for line in process.stdout:
-                self._handle_line(line)
+                if self._closed_error is None:
+                    self._handle_line(line)
+                if self._reader_transferred:
+                    return
         except Exception as error:
+            self._reader_error = error
             self._close_with_error(error)
         finally:
             self._close_with_error(
-                TransportClosedError(f"QwenPaw App Server closed stdout")
+                TransportClosedError(f"QwenPaw App Server closed stdout"),
             )
+            if not self._reader_transferred:
+                process.stdout.close()
 
     def _handle_line(self, line: str) -> None:
         try:
@@ -304,10 +435,15 @@ class AppServerClient:
             except Exception:
                 continue
 
-    def _close_with_error(self, error: Exception) -> None:
+    def _close_with_error(
+        self,
+        error: Exception,
+        *,
+        defer_handlers: bool = False,
+    ) -> tuple[CloseHandler, ...]:
         with self._state_lock:
             if self._closed_error is not None:
-                return
+                return ()
             self._closed_error = error
             pending = tuple(self._pending.values())
             self._pending.clear()
@@ -317,7 +453,16 @@ class AppServerClient:
         for request in pending:
             request.error = error
             request.event.set()
-        for handler in close_handlers:
+        if not defer_handlers:
+            self._notify_close_handlers(close_handlers, error)
+        return close_handlers
+
+    @staticmethod
+    def _notify_close_handlers(
+        handlers: tuple[CloseHandler, ...],
+        error: Exception,
+    ) -> None:
+        for handler in handlers:
             try:
                 handler(error)
             except Exception:
@@ -362,7 +507,7 @@ class Thread:
 
         unsubscribe = self._client.on_notification(receive)
         unsubscribe_close = self._client.on_close(events.put)
-        input_items = (
+        input_items: list[JsonObject] = (
             [{f"type": f"text", f"text": prompt}]
             if isinstance(prompt, str)
             else list(prompt)
@@ -377,11 +522,11 @@ class Thread:
             while True:
                 try:
                     notification = events.get(
-                        timeout=self._client.config.turn_timeout
+                        timeout=self._client.config.turn_timeout,
                     )
                 except queue.Empty as error:
                     raise RequestTimeoutError(
-                        f"QwenPaw turn timed out: {turn_id}"
+                        f"QwenPaw turn timed out: {turn_id}",
                     ) from error
                 if isinstance(notification, Exception):
                     raise notification
@@ -415,7 +560,7 @@ class Thread:
                     completed = value
         if completed is None:
             raise TransportClosedError(
-                f"QwenPaw turn ended without a completion"
+                f"QwenPaw turn ended without a completion",
             )
         status = completed.get(f"status")
         if status != f"completed":
@@ -475,7 +620,10 @@ class QwenPaw:
         return self
 
     def __exit__(self, _type: object, _value: object, _trace: object) -> None:
-        self.close()
+        if _type is None:
+            self.close()
+        else:
+            self._client._cleanup_after_error()
 
     def start(self) -> JsonObject:
         """Start and initialize the local App Server."""

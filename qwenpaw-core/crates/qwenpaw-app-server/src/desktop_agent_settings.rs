@@ -226,7 +226,7 @@ async fn put_system_prompt_files(
 pub(super) fn initialize(
     core: &Core,
     _credentials: &dyn DesktopCredentialStore,
-    workspace_root: &Path,
+    workspace_root: Option<&Path>,
 ) -> anyhow::Result<()> {
     let settings = load_settings(core).map_err(|(_, body)| {
         anyhow::anyhow!(body.0["detail"].as_str().unwrap_or("invalid").to_owned())
@@ -236,6 +236,9 @@ pub(super) fn initialize(
     )?)
     .map_err(anyhow::Error::msg)
     .context("failed to apply persisted Desktop Agent settings")?;
+    let Some(workspace_root) = workspace_root else {
+        return Ok(());
+    };
     copy_agent_templates_to(workspace_root, &settings.language, false)
         .map_err(|(_, body)| {
             anyhow::anyhow!(
@@ -253,6 +256,46 @@ pub(super) fn memory_directories(core: &Core) -> Result<(PathBuf, PathBuf), ApiE
     let settings = load_settings(core)?;
     memory_directory_paths(&settings.running_config)
 }
+
+pub(super) fn memory_directories_for_agent(
+    agent: &super::desktop_agents::AgentContext,
+) -> Result<(PathBuf, PathBuf), ApiError> {
+    match agent.config.get("running") {
+        Some(running) => memory_directory_paths(running),
+        None => memory_directory_paths(&default_running_config()),
+    }
+}
+
+/// Validates planned Agent settings without copying Workspace templates.
+/// All profiles are checked before the detached candidate's runtime is changed.
+pub(super) fn hydrate_restore(
+    core: &Core,
+    agents: &super::desktop_agents::AgentBackupSnapshot,
+) -> Result<(), &'static str> {
+    super::desktop_agents::validate_backup_snapshot(agents)
+        .map_err(|_| "Restored Agent profiles are invalid")?;
+    if !agents.agents.iter().any(|agent| agent.id == "default") {
+        return Err("Restored default Agent is missing");
+    }
+    let settings = load_settings(core).map_err(|_| "Restored Agent settings are invalid")?;
+    let mut selected = runtime_config(&settings.running_config)
+        .map_err(|_| "Restored Agent runtime is invalid")?;
+    for agent in &agents.agents {
+        if let Some(running) = agent.config.get("running") {
+            let runtime =
+                runtime_config(running).map_err(|_| "Restored Agent runtime is invalid")?;
+            if agent.id == "default" {
+                selected = runtime;
+            }
+        }
+    }
+    core.replace_agent_runtime_config(selected)
+        .map_err(|_| "Restored Agent runtime could not be applied")
+}
+
+#[cfg(test)]
+#[path = "desktop_agent_settings_restore_tests.rs"]
+mod restore_tests;
 
 pub(super) fn user_timezone(core: &Core) -> Result<String, ApiError> {
     Ok(load_settings(core)?.user_timezone)
@@ -1221,6 +1264,42 @@ fn scoped_secret_key(agent_id: &str, key: &str) -> String {
         key.to_owned()
     } else {
         format!("agent.{agent_id}.{key}")
+    }
+}
+
+pub(super) fn backup_secret_keys(agent_id: &str) -> Vec<String> {
+    SECRET_PATHS
+        .iter()
+        .map(|(key, _)| scoped_secret_key(agent_id, key))
+        .chain(std::iter::once(format!("agent.{agent_id}.mail-auth-code")))
+        .collect()
+}
+
+pub(super) fn validate_backup_secret(key: &str, value: &str) -> Result<(), &'static str> {
+    if value.len() > MAX_STRING_BYTES {
+        return Err("Backup Agent credential is too large");
+    }
+    let (agent_id, setting) = if let Some(scoped) = key.strip_prefix("agent.") {
+        scoped
+            .split_once('.')
+            .ok_or("Backup Agent credential key is invalid")?
+    } else {
+        ("default", key)
+    };
+    super::desktop_agents::validate_agent_id(agent_id, true)
+        .map_err(|_| "Backup Agent credential key is invalid")?;
+    if !backup_secret_keys(agent_id)
+        .iter()
+        .any(|allowed| allowed == key)
+    {
+        return Err("Backup Agent credential key is invalid");
+    }
+    if setting == "mail-auth-code" {
+        Ok(())
+    } else {
+        validate_secret(value)
+            .map(|_| ())
+            .map_err(|_| "Backup Agent credential is invalid")
     }
 }
 

@@ -5,6 +5,9 @@ use qwenpaw_protocol::ThreadStartParams;
 use qwenpaw_protocol::ThreadStartResponse;
 use tokio::process::Command;
 
+#[path = "support/sdk_shutdown.rs"]
+mod shutdown;
+
 #[tokio::test]
 async fn rust_sdk_connects_to_the_real_app_server() {
     let home = tempfile::tempdir().expect("temporary Core home should be created");

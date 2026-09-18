@@ -8,6 +8,7 @@ version = "0.2.0"
 description = "Python client SDK for qwenpaw-core app-server"
 readme = "README.md"
 requires-python = ">=3.10"
+dependencies = ["websockets==15.0.1"]
 license = "Apache-2.0"
 authors = [{ name = "QwenPaw contributors" }]
 classifiers = [

@@ -7,10 +7,10 @@ use qwenpaw_core::BlockedSkillFinding;
 use qwenpaw_core::BlockedSkillRecord;
 use qwenpaw_core::Core;
 use qwenpaw_core::ModelConfig;
-use qwenpaw_core::ToolApprovalLevel;
 use qwenpaw_protocol::ThreadStartParams;
 use serde_json::Value;
 use serde_json::json;
+use sha2::Digest as _;
 use std::collections::BTreeMap;
 use std::io::Write as _;
 use std::net::SocketAddr;
@@ -52,6 +52,7 @@ struct MemoryCredentialStore {
     environment: Mutex<BTreeMap<String, String>>,
     agent_settings: Mutex<BTreeMap<String, String>>,
     mcp_clients: Mutex<BTreeMap<String, String>>,
+    backup_signing_key: Mutex<Option<String>>,
 }
 
 impl DesktopCredentialStore for MemoryCredentialStore {
@@ -143,6 +144,22 @@ impl DesktopCredentialStore for MemoryCredentialStore {
                 clients.remove(key);
             }
         }
+        Ok(())
+    }
+
+    fn load_backup_signing_key(&self) -> anyhow::Result<Option<String>> {
+        Ok(self
+            .backup_signing_key
+            .lock()
+            .expect("test backup credential lock should be available")
+            .clone())
+    }
+
+    fn save_backup_signing_key(&self, value: &str) -> anyhow::Result<()> {
+        *self
+            .backup_signing_key
+            .lock()
+            .expect("test backup credential lock should be available") = Some(value.to_owned());
         Ok(())
     }
 }
@@ -1088,7 +1105,8 @@ async fn serves_the_console_and_requires_the_desktop_shutdown_token() {
     .await;
     assert!(version.starts_with("HTTP/1.1 200 OK"));
     assert!(
-        version.contains("{\"backend\":\"rust-core\",\"protocolVersion\":3,\"version\":\"0.2.0\"}")
+        version
+            .contains("{\"backend\":\"rust-core\",\"protocolVersion\":3,\"version\":\"2.2.0b5\"}")
     );
 
     let console_index = http_request(
@@ -1230,7 +1248,8 @@ async fn serves_the_unchanged_console_bootstrap_contracts() {
 
     assert_bootstrap_json_contracts(address).await;
     assert_language_write_contract(address).await;
-    assert_navigation_json_contracts(address).await;
+    assert_navigation_json_contracts(address, &thread.id).await;
+    assert_debug_log_bootstrap(address, desktop_data.path()).await;
     assert_agent_contract(address).await;
     assert_model_contract(address).await;
     assert_model_write_contract(address, &credentials).await;
@@ -2375,10 +2394,21 @@ async fn assert_cron_contract(address: SocketAddr) {
     let item_url = format!("{collection_url}/{job_id}");
     let view = get_json(&client, item_url.clone()).await;
     assert_eq!(view["spec"]["name"], json!("Console reminder"));
+    let next = chrono::DateTime::parse_from_rfc3339(view["state"]["next_run_at"].as_str().unwrap())
+        .unwrap();
+    assert_eq!(chrono::Datelike::weekday(&next), chrono::Weekday::Sun);
+    assert_eq!(
+        (
+            chrono::Timelike::hour(&next),
+            chrono::Timelike::minute(&next)
+        ),
+        (9, 0)
+    );
+    assert!(next > chrono::Utc::now() && next <= chrono::Utc::now() + chrono::Duration::days(7));
     assert_eq!(
         view["state"],
         json!({
-            "next_run_at": null,
+            "next_run_at": view["state"]["next_run_at"],
             "last_run_at": null,
             "last_status": null,
             "last_error": null
@@ -2417,9 +2447,23 @@ async fn assert_access_control_contract(address: SocketAddr) {
 
 async fn assert_mail_access_control_contract(address: SocketAddr) {
     let client = reqwest::Client::new();
+    enable_fixture_mail(&client, address).await;
     let base = format!("http://{address}/api/mail-access-control");
     assert_mail_pending_contract(&client, &base).await;
     assert_mail_list_contract(&client, &base).await;
+}
+
+async fn enable_fixture_mail(client: &reqwest::Client, address: SocketAddr) {
+    client
+        .put(format!("http://{address}/api/agents/default"))
+        .json(&json!({"mail": {"push": {
+            "mode": "agent_all", "access_control_enabled": true
+        }}}))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
 }
 
 async fn assert_mail_pending_contract(client: &reqwest::Client, base: &str) {
@@ -5065,7 +5109,17 @@ async fn persists_restores_and_collects_real_workspace_checkpoints() {
         .text()
         .await
         .expect("auto-checkpoint stream should read");
-    let auto_graph = get_json(&client, format!("{base}/graph?limit=500")).await;
+    let auto_graph = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let graph = get_json(&client, format!("{base}/graph?limit=500")).await;
+            if graph["summary"]["auto"] == json!(1) {
+                break graph;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("debounced automatic checkpoint should finish");
     assert_eq!(auto_graph["summary"]["auto"], json!(1));
     assert!(
         auto_graph["nodes"][0]["query"]
@@ -5429,6 +5483,7 @@ async fn persists_mail_access_control_across_desktop_restarts() {
     .expect("first Desktop server should configure");
     let first_task = tokio::spawn(first_server.run_http(first_listener));
     let client = reqwest::Client::new();
+    enable_fixture_mail(&client, first_address).await;
     assert_eq!(
         post_json(
             &client,
@@ -7266,15 +7321,24 @@ async fn controls_and_streams_a_real_background_tool_call() {
         desktop_data.path(),
     )
     .expect("Tool Calls server should configure");
-    let mut runtime_config = core
-        .agent_runtime_config()
-        .expect("Tool Calls runtime config should read");
-    runtime_config.approval_level = ToolApprovalLevel::Off;
-    core.replace_agent_runtime_config(runtime_config)
-        .expect("Tool Calls runtime config should update");
     let task = tokio::spawn(server.run_http(listener));
     let client = reqwest::Client::new();
     let base = format!("http://{address}/api");
+    // Console snapshots its Agent profile, not another caller's global policy.
+    let configured = client
+        .put(format!("{base}/workspace/running-config"))
+        .json(&json!({"approval_level": "OFF"}))
+        .send()
+        .await
+        .expect("Tool Calls Agent policy should configure");
+    assert_eq!(configured.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        configured
+            .json::<Value>()
+            .await
+            .expect("Agent policy should be JSON")["approval_level"],
+        json!("OFF")
+    );
     assert_eq!(
         get_json(&client, format!("{base}/settings/offload-policy")).await,
         json!({"default_action": "keep_foreground"})
@@ -7365,6 +7429,64 @@ async fn controls_and_streams_a_real_background_tool_call() {
     assert_eq!(
         list["items"][0]["tool_call_id"],
         json!("call_http_long_shell")
+    );
+    for (agent, status, detail) in [
+        (
+            "../default",
+            reqwest::StatusCode::BAD_REQUEST,
+            "Agent ID '../default' contains invalid characters. Only letters, digits, hyphens, and underscores are allowed. Cannot start or end with '-' or '_'.",
+        ),
+        (
+            "missing-agent",
+            reqwest::StatusCode::NOT_FOUND,
+            "Agent 'missing-agent' not found",
+        ),
+    ] {
+        let response = client
+            .get(format!("{base}/tool-calls/{session_id}"))
+            .header("X-Agent-Id", agent)
+            .send()
+            .await
+            .expect("scoped tool list should respond");
+        assert_eq!(response.status(), status, "Agent: {agent}");
+        assert_eq!(
+            response.json::<Value>().await.unwrap(),
+            json!({"detail": detail})
+        );
+    }
+    let invalid_header = client
+        .get(format!("{base}/tool-calls/{session_id}"))
+        .header(
+            "X-Agent-Id",
+            reqwest::header::HeaderValue::from_bytes(&[0xff]).unwrap(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(invalid_header.status(), reqwest::StatusCode::BAD_REQUEST);
+    assert_eq!(
+        invalid_header.json::<Value>().await.unwrap(),
+        json!({"detail": "X-Agent-Id is invalid"})
+    );
+    for agent in ["", " ", "default", " default "] {
+        let response = client
+            .get(format!("{base}/tool-calls/{session_id}"))
+            .header("X-Agent-Id", agent)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        let mut actual = response.json::<Value>().await.unwrap();
+        // The clock advances between requests; every other field must agree.
+        for field in ["elapsed", "offload_remaining", "kill_remaining"] {
+            assert!(actual["items"][0][field].as_f64().is_some());
+            actual["items"][0][field] = list["items"][0][field].clone();
+        }
+        assert_eq!(actual, list);
+    }
+    assert_eq!(
+        get_json(&client, format!("{base}/tool-calls/missing-session")).await,
+        json!({"items": [], "total": 0})
     );
     assert_eq!(
         get_json(&client, format!("{info_url}/output")).await,
@@ -9016,9 +9138,9 @@ async fn assert_bootstrap_json_contracts(address: SocketAddr) {
     );
 }
 
-async fn assert_navigation_json_contracts(address: SocketAddr) {
+async fn assert_navigation_json_contracts(address: SocketAddr, thread_id: &str) {
     assert_navigation_control_contracts(address).await;
-    assert_navigation_agent_contracts(address).await;
+    assert_navigation_agent_contracts(address, thread_id).await;
     assert_navigation_settings_contracts(address).await;
 
     let checkpoint_status = http_request(
@@ -9108,8 +9230,12 @@ async fn assert_navigation_control_contracts(address: SocketAddr) {
     .await;
 }
 
-async fn assert_navigation_agent_contracts(address: SocketAddr) {
+async fn assert_navigation_agent_contracts(address: SocketAddr, thread_id: &str) {
     let memory_runtime = memory_runtime_contract();
+    // The fixture already owns an SDK chat. A missing project root must not
+    // hide that chat from the complete default Workspace session catalog.
+    let identity = serde_json::to_vec(&["console", "desktop", thread_id]).unwrap();
+    let session_key = format!("session-{:x}", sha2::Sha256::digest(identity));
     assert_json_contracts(
         address,
         vec![
@@ -9172,7 +9298,14 @@ async fn assert_navigation_agent_contracts(address: SocketAddr) {
                 "/api/workspace/checkpoints/graph?limit=500",
                 json!({
                     "nodes": [],
-                    "sessions": [],
+                    "sessions": [{
+                        "session_key":session_key,
+                        "session_id":thread_id,
+                        "user_id":"desktop",
+                        "channel":"console",
+                        "title":"New Chat",
+                        "archived":false
+                    }],
                     "summary": {
                         "total": 0,
                         "auto": 0,
@@ -9317,17 +9450,6 @@ async fn assert_navigation_settings_contracts(address: SocketAddr) {
                     "configured_provider_id": ""
                 }),
             ),
-            (
-                "/api/console/debug/backend-logs?lines=200",
-                json!({
-                    "path": "",
-                    "exists": false,
-                    "lines": 0,
-                    "updated_at": null,
-                    "size": 0,
-                    "content": ""
-                }),
-            ),
             ("/api/backups", json!([])),
             ("/api/backups/jobs/active", Value::Null),
         ],
@@ -9347,6 +9469,22 @@ async fn assert_navigation_settings_contracts(address: SocketAddr) {
                 && local_whisper["whisper_installed"] == json!(true)
         )
     );
+}
+
+async fn assert_debug_log_bootstrap(address: SocketAddr, data: &Path) {
+    assert_json_contracts(
+        address,
+        vec![(
+            "/api/console/debug/backend-logs?lines=200",
+            json!({
+                "path": data.canonicalize().unwrap().join("qwenpaw.log"),
+                "exists": false, "lines": 200,
+                "updated_at": null, "size": 0, "content": ""
+            }),
+        )],
+    )
+    .await;
+    assert!(!data.join("qwenpaw.log").exists());
 }
 
 async fn assert_json_contracts(address: SocketAddr, contracts: Vec<(&str, Value)>) {
@@ -9945,9 +10083,14 @@ async fn assert_global_workspace_contract(
     let selected = selected
         .canonicalize()
         .expect("selected Workspace should resolve");
-    assert_eq!(selected_info["path"], json!(selected.to_string_lossy()));
-    assert_eq!(selected_info["exists"], json!(true));
-    assert_eq!(selected_info["is_workspace_default"], json!(false));
+    assert_eq!(
+        selected_info,
+        json!({
+            "path": selected.to_string_lossy(),
+            "name": selected.file_name().unwrap().to_string_lossy(),
+            "is_workspace_default": false
+        })
+    );
 
     let projects = client
         .get(format!(

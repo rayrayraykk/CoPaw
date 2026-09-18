@@ -31,6 +31,7 @@ use uuid::Uuid;
 use zip::ZipArchive;
 
 use super::AppServer;
+use super::desktop_agents::AgentContext;
 
 const PROJECTS_DIRECTORY: &str = "coding_projects";
 const MAX_PROJECT_NAME_BYTES: usize = 255;
@@ -141,14 +142,16 @@ async fn create_project(
     Json(request): Json<CreateProjectRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
-    super::desktop_agents::workspace_for_agent(&server, &agent_id).await?;
+    let context = super::desktop_agents::context_for_agent(&server, &agent_id).await?;
+    let _operation = project_operation(&server)?;
     let _guard = server.inner.desktop_project_lock.lock().await;
-    let target = project_destination(&server, &request.name)?;
+    validate_context(&server, &context).await?;
+    let target = project_destination(&context, &request.name)?;
     tokio::fs::create_dir_all(&target)
         .await
         .map_err(|_| internal_error("Project directory could not be created"))?;
     run_git_init(&target).await?;
-    activate_project(&server, &agent_id, &target).await?;
+    activate_project(&server, &context, &target).await?;
     Ok(project_response(&target))
 }
 
@@ -158,7 +161,8 @@ async fn import_local(
     Json(request): Json<ImportLocalRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
-    super::desktop_agents::workspace_for_agent(&server, &agent_id).await?;
+    let context = super::desktop_agents::context_for_agent(&server, &agent_id).await?;
+    let _operation = project_operation(&server)?;
     let source = canonical_import_source(&request.path)?;
     validate_import_source(&source)?;
     let destination_name = request
@@ -166,7 +170,8 @@ async fn import_local(
         .as_deref()
         .unwrap_or_else(|| path_name(&source));
     let _guard = server.inner.desktop_project_lock.lock().await;
-    let target = project_destination(&server, destination_name)?;
+    validate_context(&server, &context).await?;
+    let target = project_destination(&context, destination_name)?;
     if target.starts_with(&source) {
         return Err(bad_request(
             "Project destination cannot be inside the imported source",
@@ -178,7 +183,7 @@ async fn import_local(
         tokio::task::spawn_blocking(move || copy_import_tree(&source_for_copy, &target_for_copy))
             .await
             .map_err(|_| internal_error("Local project import task failed"))??;
-    activate_project(&server, &agent_id, &target).await?;
+    activate_project(&server, &context, &target).await?;
     let mut response = project_response(&target).0;
     if !excluded.is_empty() {
         response["excluded"] = json!(excluded);
@@ -193,16 +198,19 @@ async fn upload_zip(
     multipart: Multipart,
 ) -> Result<Json<Value>, ApiError> {
     let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
-    super::desktop_agents::workspace_for_agent(&server, &agent_id).await?;
-    let content = read_zip_upload(multipart).await?;
+    let context = super::desktop_agents::context_for_agent(&server, &agent_id).await?;
+    let _operation = project_operation(&server)?;
+    let archive_bytes = read_zip_upload(multipart).await?;
     let _guard = server.inner.desktop_project_lock.lock().await;
-    let target = project_destination(&server, &query.name)?;
-    let staging = projects_base(&server)?.join(format!(".qwenpaw-upload-{}", Uuid::now_v7()));
+    validate_context(&server, &context).await?;
+    let target = project_destination(&context, &query.name)?;
+    let staging = projects_base(&context)?.join(format!(".qwenpaw-upload-{}", Uuid::now_v7()));
     let staging_for_extract = staging.clone();
-    let extraction =
-        tokio::task::spawn_blocking(move || extract_zip_safely(&content, &staging_for_extract))
-            .await
-            .map_err(|_| internal_error("Project archive extraction task failed"))?;
+    let extraction = tokio::task::spawn_blocking(move || {
+        extract_zip_safely(&archive_bytes, &staging_for_extract)
+    })
+    .await
+    .map_err(|_| internal_error("Project archive extraction task failed"))?;
     if let Err(error) = extraction {
         let _ = std::fs::remove_dir_all(&staging);
         return Err(error);
@@ -219,7 +227,7 @@ async fn upload_zip(
     if !target.join(".git").is_dir() {
         run_git_init(&target).await?;
     }
-    activate_project(&server, &agent_id, &target).await?;
+    activate_project(&server, &context, &target).await?;
     Ok(project_response(&target))
 }
 
@@ -229,7 +237,8 @@ async fn clone_project(
     Json(request): Json<CloneProjectRequest>,
 ) -> Result<Sse<impl futures_util::Stream<Item = Result<Event, Infallible>>>, ApiError> {
     let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
-    super::desktop_agents::workspace_for_agent(&server, &agent_id).await?;
+    let context = super::desktop_agents::context_for_agent(&server, &agent_id).await?;
+    let operation = project_operation(&server)?;
     let url = request.url.trim();
     if url.is_empty() || url.len() > 8_192 || url.chars().any(char::is_control) {
         return Err(bad_request("URL cannot be empty or invalid"));
@@ -243,12 +252,23 @@ async fn clone_project(
         Some(name) => name.to_owned(),
         None => repository_name(url)?,
     };
-    let target = project_destination(&server, &name)?;
+    validate_project_name(&name)?;
     let url = url.to_owned();
     let (event_tx, event_rx) = tokio::sync::mpsc::channel(64);
     tokio::spawn(async move {
+        let _operation = operation;
         let _guard = server.inner.desktop_project_lock.lock().await;
-        stream_clone(&server, &agent_id, &url, &target, &event_tx).await;
+        let prepared = match validate_context(&server, &context).await {
+            Ok(()) => project_destination(&context, &name),
+            Err(error) => Err(error),
+        };
+        match prepared {
+            Ok(target) => stream_clone(&server, &context, &url, &target, &event_tx).await,
+            Err((_, Json(error))) => {
+                send_clone_event(&event_tx, json!({"type":"error", "detail":error["detail"]}))
+                    .await;
+            }
+        }
     });
     let events = stream::unfold(event_rx, |mut receiver| async move {
         receiver.recv().await.map(|event| (event, receiver))
@@ -258,7 +278,7 @@ async fn clone_project(
 
 async fn stream_clone(
     server: &AppServer,
-    agent_id: &str,
+    context: &AgentContext,
     url: &str,
     target: &Path,
     event_tx: &tokio::sync::mpsc::Sender<Result<Event, Infallible>>,
@@ -294,7 +314,7 @@ async fn stream_clone(
         .await;
         return;
     }
-    if activate_project(server, agent_id, target).await.is_err() {
+    if activate_project(server, context, target).await.is_err() {
         send_clone_event(
             event_tx,
             json!({
@@ -668,9 +688,9 @@ fn validate_import_source(source: &Path) -> Result<(), ApiError> {
     Ok(())
 }
 
-fn project_destination(server: &AppServer, name: &str) -> Result<PathBuf, ApiError> {
+fn project_destination(context: &AgentContext, name: &str) -> Result<PathBuf, ApiError> {
     let name = validate_project_name(name)?;
-    let base = projects_base(server)?;
+    let base = projects_base(context)?;
     std::fs::create_dir_all(&base)
         .map_err(|_| internal_error("Project storage directory could not be created"))?;
     let base = base
@@ -694,14 +714,36 @@ fn project_destination(server: &AppServer, name: &str) -> Result<PathBuf, ApiErr
     Ok(target)
 }
 
-fn projects_base(server: &AppServer) -> Result<PathBuf, ApiError> {
-    let workspace = server.inner.desktop_workspace.as_ref().ok_or_else(|| {
+pub(super) fn projects_base(context: &AgentContext) -> Result<PathBuf, ApiError> {
+    let base = context.workspace.join(PROJECTS_DIRECTORY);
+    match base.symlink_metadata() {
+        Ok(metadata) if is_link_or_junction(&metadata) || !metadata.is_dir() => {
+            Err(bad_request("Project storage is not a safe directory"))
+        }
+        Ok(_) => Ok(base),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(base),
+        Err(_) => Err(internal_error("Project storage could not be inspected")),
+    }
+}
+
+async fn validate_context(server: &AppServer, context: &AgentContext) -> Result<(), ApiError> {
+    let current = super::desktop_agents::context_for_agent(server, &context.agent_id).await?;
+    if current.data_key != context.data_key || current.workspace != context.workspace {
+        return Err((
+            StatusCode::CONFLICT,
+            Json(json!({"detail":"Agent Workspace binding has changed"})),
+        ));
+    }
+    Ok(())
+}
+
+fn project_operation(server: &AppServer) -> Result<qwenpaw_core::CoreOperationGuard, ApiError> {
+    server.inner.core.operation_guard().map_err(|_| {
         (
-            StatusCode::NOT_IMPLEMENTED,
-            Json(json!({"detail": "Desktop Workspace is unavailable"})),
+            StatusCode::CONFLICT,
+            Json(json!({"detail":"Core restoration is in progress"})),
         )
-    })?;
-    Ok(workspace.initial.join(PROJECTS_DIRECTORY))
+    })
 }
 
 fn validate_project_name(name: &str) -> Result<&str, ApiError> {
@@ -771,31 +813,12 @@ async fn run_git_init(path: &Path) -> Result<(), ApiError> {
     Ok(())
 }
 
-async fn activate_project(server: &AppServer, agent_id: &str, path: &Path) -> Result<(), ApiError> {
-    let selected = path
-        .canonicalize()
-        .map_err(|_| internal_error("Project directory could not be resolved"))?;
-    if agent_id == "default" {
-        let selected = server
-            .inner
-            .core
-            .write_preferred_workspace(&selected)
-            .map(PathBuf::from)
-            .map_err(|error| internal_error(&error.to_string()))?;
-        let workspace = server
-            .inner
-            .desktop_workspace
-            .as_ref()
-            .ok_or_else(|| internal_error("Desktop Workspace is unavailable"))?;
-        selected.clone_into(&mut *workspace.selected.write().await);
-    }
-    super::desktop_agents::replace_config_field(
-        server,
-        agent_id,
-        "project_dir",
-        Value::String(selected.to_string_lossy().into_owned()),
-    )
-    .await?;
+async fn activate_project(
+    server: &AppServer,
+    context: &AgentContext,
+    path: &Path,
+) -> Result<(), ApiError> {
+    super::desktop_agents::set_project_for_context(server, context, Some(path)).await?;
     Ok(())
 }
 

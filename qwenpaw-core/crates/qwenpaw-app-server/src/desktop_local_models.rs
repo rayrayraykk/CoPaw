@@ -414,6 +414,11 @@ async fn runtime_download_progress(
 }
 
 async fn start_runtime_download(State(server): State<AppServer>) -> Result<Json<Value>, ApiError> {
+    let operation = server
+        .inner
+        .core
+        .operation_guard()
+        .map_err(|error| conflict(&error.to_string()))?;
     let state = local_state(&server)?;
     let (installable, message) = runtime_installability();
     if !installable {
@@ -436,6 +441,7 @@ async fn start_runtime_download(State(server): State<AppServer>) -> Result<Json<
         .begin(Some(String::from("llama.cpp")), Some(source.to_string()))?;
     let task_server = server.clone();
     tokio::spawn(async move {
+        let _operation = operation;
         run_runtime_download(task_server, generation, cancellation, source).await;
     });
     Ok(Json(json!({
@@ -484,6 +490,11 @@ async fn start_model_download(
     State(server): State<AppServer>,
     Json(body): Json<StartModelDownloadRequest>,
 ) -> Result<Json<Value>, ApiError> {
+    let operation = server
+        .inner
+        .core
+        .operation_guard()
+        .map_err(|error| conflict(&error.to_string()))?;
     let model_id = normalize_repo_id(&body.model_name)?;
     let state = local_state(&server)?;
     let (generation, cancellation) = state.model_download.lock().await.begin(
@@ -492,6 +503,7 @@ async fn start_model_download(
     )?;
     let task_server = server.clone();
     tokio::spawn(async move {
+        let _operation = operation;
         run_model_download(task_server, generation, cancellation, model_id, body.source).await;
     });
     Ok(Json(json!({
@@ -512,6 +524,11 @@ async fn delete_model(
     State(server): State<AppServer>,
     AxumPath(model_id): AxumPath<String>,
 ) -> Result<Json<Value>, ApiError> {
+    let operation = server
+        .inner
+        .core
+        .operation_guard()
+        .map_err(|error| conflict(&error.to_string()))?;
     let model_id = normalize_repo_id(&model_id)?;
     let state = local_state(&server)?;
     let _lifecycle = state.lifecycle.lock().await;
@@ -526,13 +543,16 @@ async fn delete_model(
     }
     let root = models_root(&server)?;
     let target = model_path(&root, &model_id);
-    tokio::task::spawn_blocking(move || remove_model_directory(&root, &target))
-        .await
-        .map_err(|_| internal("Local model could not be deleted"))?
-        .map_err(|error| match error.kind() {
-            std::io::ErrorKind::NotFound => not_found("Downloaded local model not found"),
-            _ => bad_request("Downloaded local model could not be deleted"),
-        })?;
+    tokio::task::spawn_blocking(move || {
+        let _operation = operation;
+        remove_model_directory(&root, &target)
+    })
+    .await
+    .map_err(|_| internal("Local model could not be deleted"))?
+    .map_err(|error| match error.kind() {
+        std::io::ErrorKind::NotFound => not_found("Downloaded local model not found"),
+        _ => bad_request("Downloaded local model could not be deleted"),
+    })?;
     Ok(Json(json!({
         "status": "ok",
         "message": format!("Local model deleted: {model_id}")
@@ -1041,9 +1061,17 @@ async fn runtime_download_inner(
         let extract_root = staging.join("extracted");
         let archive = archive_path.clone();
         let extracted = extract_root.clone();
-        tokio::task::spawn_blocking(move || extract_runtime_archive(&archive, &extracted))
-            .await
-            .map_err(|_| String::from("llama.cpp extraction task failed"))??;
+        let operation = server
+            .inner
+            .core
+            .operation_guard()
+            .map_err(|error| error.to_string())?;
+        tokio::task::spawn_blocking(move || {
+            let _operation = operation;
+            extract_runtime_archive(&archive, &extracted)
+        })
+        .await
+        .map_err(|_| String::from("llama.cpp extraction task failed"))??;
         if cancellation.is_cancelled() {
             return Err(String::from("Download cancelled"));
         }
@@ -1946,6 +1974,9 @@ fn spawn_server_monitor(server: AppServer, generation: u64) {
                 () = server.inner.shutdown.cancelled() => return,
                 () = tokio::time::sleep(Duration::from_secs(1)) => {}
             }
+            let Ok(_operation) = server.inner.core.operation_guard() else {
+                continue;
+            };
             match reap_server_generation(&server, generation).await {
                 Ok(Some(false)) => {}
                 Ok(Some(true) | None) | Err(_) => return,

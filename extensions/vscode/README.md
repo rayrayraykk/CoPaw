@@ -3,6 +3,21 @@
 The extension connects VS Code Chat to the local `qwenpaw-core` process. It
 does not call a model API directly and does not duplicate agent runtime logic.
 
+## Owned Core shutdown
+
+The extension still owns its local stdio Core; it does not yet attach to a shared
+background host. Restart waits for the old Core to finish before starting its
+replacement. Deactivation returns an asynchronous shutdown result: stdin closes,
+output continues draining, and a nonzero exit or signal is reported as a failure.
+After 30 seconds, only the owned process is forcibly stopped with up to 5 seconds
+of further waiting; a forced stop is never a successful save acknowledgement.
+
+Repeated shutdown calls share one result. If process cleanup fails, the resource
+manager retains the failure instead of silently starting another Core; recreate
+the extension host after investigating the reported failure. VS Code or the OS
+can forcibly terminate an extension host, so this protocol does not guarantee
+that native application exit will always wait for shutdown.
+
 ## Development
 
 Build QwenPaw Core from the CoPaw repository:

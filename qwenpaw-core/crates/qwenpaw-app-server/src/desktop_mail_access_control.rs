@@ -14,8 +14,12 @@ use serde_json::Value;
 use serde_json::json;
 
 use super::AppServer;
+use super::desktop_agents::AgentContext;
 
-const DEFAULT_AGENT_ID: &str = "default";
+#[path = "desktop_mail_identity.rs"]
+mod identity;
+pub(super) use identity::{filter_backup_data, merge_restore_data};
+
 const MAX_DATA_BYTES: usize = 2_097_152;
 const MAX_AGENTS: usize = 128;
 const MAX_ENTRIES: usize = 10_000;
@@ -108,29 +112,36 @@ struct AgentMailAccessControl {
     approved_replay: Vec<MailPendingEntry>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct MailAccessControlData {
     version: u32,
+    workspaces: Vec<MailWorkspace>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct MailWorkspace {
+    data_key: qwenpaw_storage::WorkspaceDataKey,
     agents: BTreeMap<String, AgentMailAccessControl>,
 }
 
 impl Default for MailAccessControlData {
     fn default() -> Self {
         Self {
-            version: 1,
-            agents: BTreeMap::new(),
+            version: 2,
+            workspaces: Vec::new(),
         }
     }
 }
 
 #[derive(Debug, Deserialize)]
 struct ActionEntry {
-    #[serde(default)]
     agent_id: String,
     address: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "nullable_text")]
     remark: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "nullable_text")]
     display_name: String,
 }
 
@@ -146,34 +157,61 @@ struct RemarkBody {
     remark: String,
 }
 
-async fn list_agents() -> Json<Value> {
-    Json(json!({"agents": [DEFAULT_AGENT_ID]}))
+fn nullable_text<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    Ok(Option::<String>::deserialize(deserializer)?.unwrap_or_default())
+}
+
+async fn list_agents(State(server): State<AppServer>) -> Result<Json<Value>, ApiError> {
+    let agents = super::desktop_agents::mail_contexts(&server)
+        .await?
+        .into_iter()
+        .map(|context| context.agent_id)
+        .collect::<Vec<_>>();
+    Ok(Json(json!({"agents": agents})))
+}
+
+async fn visible_acls(
+    server: &AppServer,
+) -> Result<Vec<(String, AgentMailAccessControl)>, ApiError> {
+    let _lifecycle = server.inner.desktop_agent_lifecycle_lock.lock().await;
+    let contexts = super::desktop_agents::mail_contexts(server).await?;
+    if contexts.is_empty() {
+        return Ok(Vec::new());
+    }
+    let _guard = server.inner.desktop_mail_access_control_lock.lock().await;
+    let data = read_data(server)?;
+    Ok(contexts
+        .into_iter()
+        .map(|context| {
+            let acl = data.get(&context).cloned().unwrap_or_default();
+            (context.agent_id, acl)
+        })
+        .collect())
 }
 
 async fn list_access_control(State(server): State<AppServer>) -> Result<Json<Value>, ApiError> {
-    let _guard = server.inner.desktop_mail_access_control_lock.lock().await;
-    let mut agents = read_data(&server)?.agents;
-    agents.entry(String::from(DEFAULT_AGENT_ID)).or_default();
-    json_value(agents).map(Json)
+    let acls = visible_acls(&server)
+        .await?
+        .into_iter()
+        .collect::<BTreeMap<_, _>>();
+    json_value(acls).map(Json)
 }
 
 async fn list_all_pending(State(server): State<AppServer>) -> Result<Json<Value>, ApiError> {
-    let _guard = server.inner.desktop_mail_access_control_lock.lock().await;
-    let mut pending = read_data(&server)?
-        .agents
-        .into_values()
-        .flat_map(|agent| agent.pending)
+    let mut pending = visible_acls(&server)
+        .await?
+        .into_iter()
+        .flat_map(|(_, agent)| agent.pending)
         .collect::<Vec<_>>();
     pending.sort_by(|left, right| right.timestamp.total_cmp(&left.timestamp));
     json_value(pending).map(Json)
 }
 
 async fn pending_count(State(server): State<AppServer>) -> Result<Json<Value>, ApiError> {
-    let _guard = server.inner.desktop_mail_access_control_lock.lock().await;
-    let count = read_data(&server)?
-        .agents
-        .values()
-        .map(|agent| agent.pending.len())
+    let count = visible_acls(&server)
+        .await?
+        .iter()
+        .map(|(_, agent)| agent.pending.len())
         .sum::<usize>();
     Ok(Json(json!({"count": count})))
 }
@@ -230,13 +268,15 @@ async fn mutate_list(
     mutation: ListMutation,
 ) -> Result<Json<Value>, ApiError> {
     validate_action_body(&body, mutation.validates_address())?;
+    let _lifecycle = server.inner.desktop_agent_lifecycle_lock.lock().await;
+    let targets = resolve_targets(&server, &body, mutation.broadcasts()).await?;
     let _guard = server.inner.desktop_mail_access_control_lock.lock().await;
     let mut data = read_data(&server)?;
     let mut count = 0;
-    for entry in body.entries {
+    for (entry, targets) in body.entries.into_iter().zip(targets) {
         let address = normalize_address(&entry.address);
-        for agent_id in target_agents(&entry.agent_id, mutation.broadcasts()) {
-            let agent = data.agents.entry(agent_id).or_default();
+        for context in targets {
+            let agent = data.entry(&context);
             match mutation {
                 ListMutation::WhitelistAdd => add_whitelist(agent, &entry, &address),
                 ListMutation::WhitelistRemove => {
@@ -250,7 +290,9 @@ async fn mutate_list(
             count += 1;
         }
     }
-    persist(&server, &data)?;
+    if count > 0 {
+        persist(&server, &data)?;
+    }
     Ok(action_response(count))
 }
 
@@ -323,25 +365,29 @@ async fn move_pending(
     action: PendingAction,
 ) -> Result<Json<Value>, ApiError> {
     validate_action_body(&body, !matches!(action, PendingAction::Dismiss))?;
+    let _lifecycle = server.inner.desktop_agent_lifecycle_lock.lock().await;
+    let targets = resolve_targets(&server, &body, false).await?;
     let mail_access_control_guard = server.inner.desktop_mail_access_control_lock.lock().await;
     let mut data = read_data(&server)?;
     let mut count = 0;
     let mut inbox_read_targets = Vec::new();
-    for entry in body.entries {
+    for (entry, targets) in body.entries.into_iter().zip(targets) {
         let address = normalize_address(&entry.address);
-        for agent_id in target_agents(&entry.agent_id, false) {
-            let agent = data.agents.entry(agent_id.clone()).or_default();
+        for context in targets {
+            let agent = data.entry(&context);
             let pending = take_pending(agent, &address);
             match action {
                 PendingAction::Approve => approve(agent, &entry, &address, pending),
                 PendingAction::Deny => deny(agent, &entry, &address, pending.as_ref()),
                 PendingAction::Dismiss => {}
             }
-            inbox_read_targets.push((agent_id, address.clone()));
+            inbox_read_targets.push((context.agent_id, address.clone()));
             count += 1;
         }
     }
-    persist(&server, &data)?;
+    if count > 0 {
+        persist(&server, &data)?;
+    }
     drop(mail_access_control_guard);
     for (agent_id, address) in inbox_read_targets {
         super::desktop_inbox::mark_read_by_acl_sender(&server, &agent_id, &address).await?;
@@ -439,10 +485,14 @@ async fn update_pending_remark(
     Json(body): Json<RemarkBody>,
 ) -> Result<Json<Value>, ApiError> {
     validate_remark_body(&body)?;
+    let _lifecycle = server.inner.desktop_agent_lifecycle_lock.lock().await;
+    let context = super::desktop_agents::mail_context(&server, &body.agent_id)
+        .await?
+        .ok_or_else(|| not_found("Pending entry not found"))?;
     let _guard = server.inner.desktop_mail_access_control_lock.lock().await;
     let mut data = read_data(&server)?;
     let address = normalize_address(&body.address);
-    let Some(agent) = data.agents.get_mut(&body.agent_id) else {
+    let Some(agent) = data.get_mut(&context) else {
         return Err(not_found("Pending entry not found"));
     };
     let pending = agent
@@ -460,10 +510,14 @@ async fn update_remark(
     Json(body): Json<RemarkBody>,
 ) -> Result<Json<Value>, ApiError> {
     validate_remark_body(&body)?;
+    let _lifecycle = server.inner.desktop_agent_lifecycle_lock.lock().await;
+    let context = super::desktop_agents::mail_context(&server, &body.agent_id)
+        .await?
+        .ok_or_else(|| not_found("Address not found in any list"))?;
     let _guard = server.inner.desktop_mail_access_control_lock.lock().await;
     let mut data = read_data(&server)?;
     let address = normalize_address(&body.address);
-    let Some(agent) = data.agents.get_mut(&body.agent_id) else {
+    let Some(agent) = data.get_mut(&context) else {
         return Err(not_found("Address not found in any list"));
     };
     let user = agent
@@ -476,12 +530,33 @@ async fn update_remark(
     Ok(ok_response())
 }
 
-fn target_agents(agent_id: &str, broadcast: bool) -> Vec<String> {
-    if agent_id == DEFAULT_AGENT_ID || (broadcast && agent_id.is_empty()) {
-        vec![String::from(DEFAULT_AGENT_ID)]
-    } else {
-        Vec::new()
+async fn resolve_targets(
+    server: &AppServer,
+    body: &ActionBody,
+    broadcast: bool,
+) -> Result<Vec<Vec<AgentContext>>, ApiError> {
+    let broadcast_targets =
+        if broadcast && body.entries.iter().any(|entry| entry.agent_id.is_empty()) {
+            super::desktop_agents::mail_contexts(server).await?
+        } else {
+            Vec::new()
+        };
+    let mut direct = BTreeMap::new();
+    let mut result = Vec::new();
+    for entry in &body.entries {
+        if broadcast && entry.agent_id.is_empty() {
+            result.push(broadcast_targets.clone());
+        } else {
+            if !direct.contains_key(&entry.agent_id) {
+                direct.insert(
+                    entry.agent_id.clone(),
+                    super::desktop_agents::mail_context(server, &entry.agent_id).await?,
+                );
+            }
+            result.push(direct[&entry.agent_id].clone().into_iter().collect());
+        }
     }
+    Ok(result)
 }
 
 fn validate_action_body(body: &ActionBody, require_valid_address: bool) -> Result<(), ApiError> {
@@ -574,63 +649,22 @@ fn preserve_if_empty(value: &str, previous: Option<&String>) -> String {
 }
 
 fn read_data(server: &AppServer) -> Result<MailAccessControlData, ApiError> {
-    let Some(serialized) = server
+    let serialized = server
         .inner
         .core
         .read_mail_access_control_data()
-        .map_err(internal)?
-    else {
-        return Ok(MailAccessControlData::default());
-    };
-    if serialized.len() > MAX_DATA_BYTES {
-        return Err(internal(
-            "stored mail access-control data exceeds its size limit",
-        ));
-    }
-    let data = serde_json::from_str::<MailAccessControlData>(&serialized)
-        .map_err(|_| internal("stored mail access-control data is invalid"))?;
-    validate_stored_data(&data)?;
-    Ok(data)
+        .map_err(internal)?;
+    let default_key = super::desktop_agents::default_data_key(server)?;
+    identity::decode(serialized.as_deref(), Some(&default_key)).map_err(internal)
 }
 
 fn persist(server: &AppServer, data: &MailAccessControlData) -> Result<(), ApiError> {
-    validate_stored_data(data)?;
-    let serialized =
-        serde_json::to_string(data).map_err(|_| internal("mail access-control data is invalid"))?;
-    if serialized.len() > MAX_DATA_BYTES {
-        return Err(bad_request(
-            "mail access-control data exceeds its size limit",
-        ));
-    }
+    let serialized = identity::encode(data).map_err(internal)?;
     server
         .inner
         .core
         .write_mail_access_control_data(&serialized)
         .map_err(internal)
-}
-
-fn validate_stored_data(data: &MailAccessControlData) -> Result<(), ApiError> {
-    if data.version != 1 || data.agents.len() > MAX_AGENTS {
-        return Err(internal(
-            "stored mail access-control data has an unsupported shape",
-        ));
-    }
-    let entries = data
-        .agents
-        .values()
-        .map(|agent| {
-            agent.whitelist.len()
-                + agent.blacklist.len()
-                + agent.pending.len()
-                + agent.approved_replay.len()
-        })
-        .sum::<usize>();
-    if entries > MAX_ENTRIES {
-        return Err(internal(
-            "stored mail access-control data has too many entries",
-        ));
-    }
-    Ok(())
 }
 
 fn action_response(count: usize) -> Json<Value> {
@@ -685,10 +719,20 @@ mod tests {
     }
 
     #[test]
-    fn resolves_only_the_current_rust_agent() {
-        assert_eq!(target_agents("default", false), vec!["default"]);
-        assert_eq!(target_agents("", true), vec!["default"]);
-        assert!(target_agents("missing", true).is_empty());
-        assert!(target_agents("", false).is_empty());
+    fn nullable_action_metadata_matches_the_original_optional_fields() {
+        let body: ActionBody = serde_json::from_value(json!({"entries":[{
+            "agent_id":"writer","address":"alice@example.com","remark":null,"display_name":null
+        }]}))
+        .unwrap();
+        assert_eq!(
+            (&body.entries[0].remark, &body.entries[0].display_name),
+            (&String::new(), &String::new())
+        );
+        assert!(
+            serde_json::from_value::<ActionBody>(
+                json!({"entries":[{"address":"alice@example.com"}]})
+            )
+            .is_err()
+        );
     }
 }

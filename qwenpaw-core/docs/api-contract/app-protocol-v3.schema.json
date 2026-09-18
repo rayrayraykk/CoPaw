@@ -175,6 +175,15 @@
             "id": {
               "type": "string"
             },
+            "input": {
+              "items": {
+                "$ref": "#/definitions/UserInput"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
             "text": {
               "type": "string"
             },
@@ -1014,6 +1023,24 @@
           },
           "required": [
             "text",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "image"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
             "type"
           ],
           "type": "object"

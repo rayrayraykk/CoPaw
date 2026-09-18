@@ -1,7 +1,29 @@
 #!/usr/bin/env node
 
-import { access, mkdtemp, rm } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm } from "node:fs/promises";
+import {
+  runBackupsCrudScenario,
+  runBackupsJobsScenario,
+} from "./console_backups_smoke.mjs";
 import { createServer } from "node:http";
+import { runOpenRouterScenario } from "./console_openrouter_smoke.mjs";
+import { runMarketScenario } from "./console_market_smoke.mjs";
+import { runPawAppsScenario } from "./console_pawapps_smoke.mjs";
+import { runDebugLogsScenario } from "./console_debug_smoke.mjs";
+import { runProjectOwnershipScenario } from "./console_projects_smoke.mjs";
+import { runProviderOAuthScenario } from "./console_provider_oauth_smoke.mjs";
+import { runAnthropicScenario } from "./console_anthropic_smoke.mjs";
+import { runCronScenario } from "./console_cron_smoke.mjs";
+import { attachBrowserDiagnostics } from "./console_browser_diagnostics.mjs";
+import { DevToolsClient, closeBrowser } from "./console_devtools.mjs";
+import { runChatGroupsScenario } from "./console_chat_groups_smoke.mjs";
+import { runApprovalsScenario } from "./console_approvals_smoke.mjs";
+import { runMailAccessScenario } from "./console_mail_access_smoke.mjs";
+import { runCheckpointsScenario } from "./console_checkpoints_smoke.mjs";
+import { runFinalPersistenceScenario } from "./console_final_persistence_smoke.mjs";
+import { runAgentJobsCopyScenario } from "./console_agent_copy_smoke.mjs";
+import { runCronAgentStopScenario } from "./console_cron_agent_stop_smoke.mjs";
+import { runChannelScopeScenario } from "./console_channels_smoke.mjs";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -131,9 +153,33 @@ function smokeOptions(arguments_) {
   const securityCrud = arguments_.includes("--security-crud");
   const skillsCrud = arguments_.includes("--skills-crud");
   const agentsCrud = arguments_.includes("--agents-crud");
+  const channelScope = arguments_.includes("--channel-scope");
+  const agentJobsCopy = arguments_.includes("--agent-jobs-copy");
+  const cronAgentStop = arguments_.includes("--cron-agent-stop");
   const acpCrud = arguments_.includes("--acp-crud");
   const modelsCrud = arguments_.includes("--models-crud");
   const localModelsCrud = arguments_.includes("--local-models-crud");
+  const backupsCrud = arguments_.includes("--backups-crud");
+  const backupsJobs = arguments_.includes("--backups-jobs");
+  const openrouterCrud = arguments_.includes("--openrouter-crud");
+  const marketCrud = arguments_.includes("--market-crud");
+  const pawappsCrud = arguments_.includes("--pawapps-crud");
+  const debugLogs = arguments_.includes("--debug-logs");
+  const projectOwnership = arguments_.includes("--project-ownership");
+  const providerOAuth = arguments_.includes("--provider-oauth");
+  const anthropicChat = arguments_.includes("--anthropic-chat");
+  const geminiChat = arguments_.includes("--gemini-chat");
+  const responsesChat = arguments_.includes("--responses-chat");
+  const cronCrud = arguments_.includes("--cron-crud");
+  const cronMapped = arguments_.includes("--cron-mapped-crud");
+  const cronWriter = arguments_.includes("--cron-writer-crud");
+  const cronAgent = arguments_.includes("--cron-agent-crud") || cronMapped || cronWriter;
+  const chatGroupsCrud = arguments_.includes("--chat-groups-crud");
+  const finalPersistence = arguments_.includes("--final-persistence");
+  const approvalsCrud = arguments_.includes("--approvals-crud");
+  const mailAccessCrud = arguments_.includes("--mail-access-crud");
+  const checkpointsRunningRestore = arguments_.includes("--checkpoints-running-restore");
+  const checkpointsCrud = arguments_.includes("--checkpoints-crud") || checkpointsRunningRestore;
   const navigationArguments = arguments_.filter(
     (argument) =>
       argument !== "--coding-git" &&
@@ -141,9 +187,33 @@ function smokeOptions(arguments_) {
       argument !== "--security-crud" &&
       argument !== "--skills-crud" &&
       argument !== "--agents-crud" &&
+      argument !== "--channel-scope" &&
+      argument !== "--agent-jobs-copy" &&
+      argument !== "--cron-agent-stop" &&
       argument !== "--acp-crud" &&
       argument !== "--models-crud" &&
-      argument !== "--local-models-crud",
+      argument !== "--local-models-crud" &&
+      argument !== "--backups-crud" &&
+      argument !== "--backups-jobs" &&
+      argument !== "--openrouter-crud" &&
+      argument !== "--market-crud" &&
+      argument !== "--pawapps-crud" &&
+      argument !== "--debug-logs" &&
+      argument !== "--project-ownership" &&
+      argument !== "--provider-oauth" &&
+      argument !== "--anthropic-chat" &&
+      argument !== "--gemini-chat" &&
+      argument !== "--responses-chat" &&
+      argument !== "--cron-crud" &&
+      argument !== "--cron-agent-crud" &&
+      argument !== "--cron-mapped-crud" &&
+      argument !== "--cron-writer-crud" &&
+      argument !== "--approvals-crud" &&
+      argument !== "--mail-access-crud" &&
+      argument !== "--checkpoints-crud" &&
+      argument !== "--checkpoints-running-restore" &&
+      argument !== "--final-persistence" &&
+      argument !== "--chat-groups-crud",
   );
   return {
     codingGit,
@@ -151,9 +221,33 @@ function smokeOptions(arguments_) {
     securityCrud,
     skillsCrud,
     agentsCrud,
+    channelScope,
+    agentJobsCopy,
+    cronAgentStop,
     acpCrud,
     modelsCrud,
     localModelsCrud,
+    backupsCrud,
+    backupsJobs,
+    openrouterCrud,
+    marketCrud,
+    pawappsCrud,
+    debugLogs,
+    projectOwnership,
+    providerOAuth,
+    anthropicChat,
+    geminiChat,
+    responsesChat,
+    cronCrud,
+    cronAgent,
+    cronMapped,
+    cronWriter,
+    approvalsCrud,
+    mailAccessCrud,
+    checkpointsCrud,
+    checkpointsRunningRestore,
+    chatGroupsCrud,
+    finalPersistence,
     paths: navigationPaths(navigationArguments),
   };
 }
@@ -1184,7 +1278,9 @@ async function clickLocalModelAction(client, modelId, action) {
     })()`,
   );
   if (!clicked) {
-    throw new Error(`Local model action did not render: ${modelId} / ${action}`);
+    throw new Error(
+      `Local model action did not render: ${modelId} / ${action}`,
+    );
   }
 }
 
@@ -1283,7 +1379,8 @@ async function runLocalModelsCrudScenario(client) {
       return true;
     })()`,
   );
-  if (!changed) throw new Error("Max context length input could not be changed");
+  if (!changed)
+    throw new Error("Max context length input could not be changed");
   await waitForValue(
     client,
     `[...document.querySelectorAll("button")].some(
@@ -1301,7 +1398,8 @@ async function runLocalModelsCrudScenario(client) {
       return Boolean(button);
     })()`,
   );
-  if (!saved) throw new Error("Advanced local-model Save action was unavailable");
+  if (!saved)
+    throw new Error("Advanced local-model Save action was unavailable");
   await waitForValue(
     client,
     `fetch("/api/local-models/config").then((response) => response.json()).then(
@@ -1951,47 +2049,6 @@ function waitForDevTools(child) {
   });
 }
 
-class DevToolsClient {
-  constructor(socket) {
-    this.socket = socket;
-    this.nextId = 1;
-    this.pending = new Map();
-    this.listeners = new Map();
-    socket.addEventListener("message", (event) => {
-      const message = JSON.parse(event.data);
-      if (message.id) {
-        const pending = this.pending.get(message.id);
-        if (!pending) return;
-        this.pending.delete(message.id);
-        if (message.error) pending.reject(new Error(message.error.message));
-        else pending.resolve(message.result);
-        return;
-      }
-      for (const listener of this.listeners.get(message.method) ?? []) {
-        listener(message.params);
-      }
-    });
-  }
-
-  on(method, listener) {
-    const listeners = this.listeners.get(method) ?? [];
-    listeners.push(listener);
-    this.listeners.set(method, listeners);
-  }
-
-  send(method, params = {}) {
-    const id = this.nextId++;
-    return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
-      this.socket.send(JSON.stringify({ id, method, params }));
-    });
-  }
-
-  close() {
-    this.socket.close();
-  }
-}
-
 async function connectDevTools(webSocketUrl) {
   const socket = new WebSocket(webSocketUrl);
   await new Promise((resolve, reject) => {
@@ -2028,12 +2085,38 @@ async function inspectConsole(client, origin, options) {
     securityCrud,
     skillsCrud,
     agentsCrud,
+    channelScope,
+    agentJobsCopy,
+    cronAgentStop,
     acpCrud,
     modelsCrud,
     localModelsCrud,
+    backupsCrud,
+    backupsJobs,
+    openrouterCrud,
+    marketCrud,
+    pawappsCrud,
+    debugLogs,
+    projectOwnership,
+    providerOAuth,
+    anthropicChat,
+    geminiChat,
+    responsesChat,
+    cronCrud,
+    cronAgent,
+    cronMapped,
+    cronWriter,
+    approvalsCrud,
+    mailAccessCrud,
+    checkpointsCrud,
+    checkpointsRunningRestore,
+    chatGroupsCrud,
+    finalPersistence,
+    downloadDirectory,
     paths,
   } = options;
   let observation;
+  const diagnostics = attachBrowserDiagnostics(client, origin);
   client.on("Network.responseReceived", ({ response }) => {
     const requestPath = apiPath(response.url, origin);
     if (requestPath)
@@ -2062,6 +2145,8 @@ async function inspectConsole(client, origin, options) {
   ]);
   const pages = [];
   for (const navigationPath of paths) {
+    process.stderr.write(`Browser navigation started: ${navigationPath}\n`);
+    const navigationDiagnostics = diagnostics.begin(navigationPath);
     observation = {
       apiResponses: new Map(),
       requestFailures: [],
@@ -2075,9 +2160,181 @@ async function inspectConsole(client, origin, options) {
     let securityCrudResult;
     let skillsCrudResult;
     let agentsCrudResult;
+    let channelScopeResult;
+    let agentJobsCopyResult;
+    let cronAgentStopResult;
     let acpCrudResult;
     let modelsCrudResult;
     let localModelsCrudResult;
+    let backupsCrudResult;
+    let backupsJobsResult;
+    let openrouterCrudResult;
+    let marketCrudResult;
+    let pawappsCrudResult;
+    let debugLogsResult;
+    let projectOwnershipResult;
+    let providerOAuthResult;
+    let anthropicChatResult;
+    let geminiChatResult;
+    let responsesChatResult;
+    let cronCrudResult;
+    let chatGroupsCrudResult;
+    let finalPersistenceResult;
+    if (finalPersistence && navigationPath === "/chat") {
+      try {
+        finalPersistenceResult = await runFinalPersistenceScenario(client, { evaluateValue, waitForValue });
+      } catch (error) {
+        observation.browserErrors.push(`final-persistence: ${error.message}: ${await evaluateValue(client, "document.body.innerText.slice(-4000)")}`);
+      }
+    }
+    if (chatGroupsCrud && navigationPath === "/chat") {
+      try {
+        chatGroupsCrudResult = await runChatGroupsScenario(client, { evaluateValue, waitForValue, clickButton });
+      } catch (error) {
+        observation.browserErrors.push(`chat-groups: ${error.message}: ${await evaluateValue(client, "document.body.innerText.slice(-4000)")}`);
+      }
+    }
+    let approvalsCrudResult;
+    let mailAccessCrudResult;
+    let checkpointsCrudResult;
+    if (checkpointsCrud && navigationPath === "/checkpoints") {
+      try {
+        checkpointsCrudResult = await runCheckpointsScenario(client, { evaluateValue, waitForValue, selectAgentFromSidebar,
+          runningRestore: checkpointsRunningRestore });
+      } catch (error) {
+        observation.browserErrors.push(`checkpoints-crud: ${error.message}: ${await evaluateValue(client, 'document.body.innerText.slice(-4000)')}`);
+      }
+    }
+    if (mailAccessCrud && navigationPath === "/inbox") {
+      try {
+        mailAccessCrudResult = await runMailAccessScenario(client, { evaluateValue, waitForValue });
+      } catch (error) {
+        observation.browserErrors.push(`mail-access-crud: ${error.message}: ${await evaluateValue(client, 'document.body.innerText.slice(-4000)')}`);
+      }
+    }
+    if (approvalsCrud && navigationPath === "/inbox") {
+      try {
+        approvalsCrudResult = await runApprovalsScenario(client, { evaluateValue, waitForValue });
+      } catch (error) {
+        observation.browserErrors.push(`approvals-crud: ${error.message}: ${await evaluateValue(client, 'document.body.innerText.slice(-4000)')}`);
+      }
+    }
+    if ((cronCrud || cronAgent) && navigationPath === "/cron-jobs") {
+      try {
+        if (cronWriter) await selectAgentFromSidebar(client, "writer");
+        cronCrudResult = await runCronScenario(client, { evaluateValue, waitForValue, clickButton, agent: cronAgent, existing: cronMapped, actor: cronWriter ? "writer" : "default" });
+        if (cronWriter) await selectAgentFromSidebar(client, "default");
+      } catch (error) {
+        observation.browserErrors.push(`cron-crud: ${error.message}: ${await evaluateValue(client, 'document.body.innerText.slice(-4000)')}`);
+      }
+    }
+    if ((anthropicChat || geminiChat || responsesChat) && navigationPath === "/models") {
+      try {
+        const result = await runAnthropicScenario(client, {
+          evaluateValue, waitForValue, clickModelsTab, clickProviderCardAction,
+          clickButton, setInputByPlaceholder, setModelIdInput,
+        }, geminiChat, responsesChat);
+        if (responsesChat) responsesChatResult = result;
+        else if (geminiChat) geminiChatResult = result;
+        else anthropicChatResult = result;
+      } catch (error) {
+        observation.browserErrors.push(error.stack ?? String(error));
+      }
+    }
+    if (providerOAuth && navigationPath === "/chat") {
+      try {
+        providerOAuthResult = await runProviderOAuthScenario(client, {
+          evaluateValue, waitForValue, clickModelsTab, clickProviderCardAction, clickButton,
+        });
+      } catch (error) {
+        observation.browserErrors.push(error.stack ?? String(error));
+      }
+    }
+    if (projectOwnership && navigationPath === "/agent-config") {
+      try {
+        projectOwnershipResult = await runProjectOwnershipScenario(client, {
+          evaluateValue, waitForValue, selectAgentFromSidebar, setInputByPlaceholder,
+        });
+      } catch (error) {
+        observation.browserErrors.push(`${error.stack ?? error}: ${await evaluateValue(client, "document.body.innerText.slice(-4500)")}`);
+      }
+    }
+    if (debugLogs && navigationPath === "/debug") {
+      try {
+        debugLogsResult = await runDebugLogsScenario(client, {
+          evaluateValue, waitForValue, clickButton, setInputByPlaceholder,
+        });
+      } catch (error) {
+        observation.browserErrors.push(error.stack ?? String(error));
+      }
+    }
+    if (pawappsCrud && navigationPath === "/market") {
+      try {
+        pawappsCrudResult = await runPawAppsScenario(client, {
+          evaluateValue, waitForValue, clickButton, setInputByPlaceholder,
+        });
+      } catch (error) {
+        observation.browserErrors.push(error.stack ?? String(error));
+      }
+    }
+    if (marketCrud && navigationPath === "/market?tab=skills") {
+      try {
+        marketCrudResult = await runMarketScenario(client, {
+          evaluateValue, waitForValue, clickButton, setInputByPlaceholder,
+        });
+      } catch (error) {
+        observation.browserErrors.push(error.stack ?? String(error));
+      }
+    }
+    if (openrouterCrud && navigationPath === "/models") {
+      try {
+        openrouterCrudResult = await runOpenRouterScenario(client, {
+          evaluateValue,
+          waitForValue,
+          clickModelsTab,
+          clickProviderCardAction,
+          clickButton,
+          setInputByPlaceholder,
+        });
+      } catch (error) {
+        observation.browserErrors.push(error.stack ?? String(error));
+      }
+    }
+    if (backupsJobs && navigationPath === "/backups") {
+      try {
+        backupsJobsResult = await runBackupsJobsScenario(client, {
+          evaluateValue,
+          waitForValue,
+          clickButton,
+          setInputByPlaceholder,
+        });
+      } catch (error) {
+        observation.browserErrors.push(error.stack ?? String(error));
+      }
+    }
+    if (backupsCrud && navigationPath === "/backups") {
+      try {
+        backupsCrudResult = await runBackupsCrudScenario(client, {
+          evaluateValue,
+          waitForValue,
+          clickButton,
+          setInputByPlaceholder,
+          downloadDirectory,
+        });
+      } catch (error) {
+        observation.browserErrors.push(error.stack ?? String(error));
+        observation.browserErrors.push(
+          await evaluateValue(
+            client,
+            `JSON.stringify([...document.querySelectorAll('[role="dialog"]')].map(dialog => ({
+            text: dialog.innerText,
+            inputs: [...dialog.querySelectorAll('input')].map(input => ({type: input.type, checked: input.checked})),
+            buttons: [...dialog.querySelectorAll('button')].map(button => ({text: button.innerText, disabled: button.disabled}))
+          })))`,
+          ),
+        );
+      }
+    }
     if (mcpCrud && navigationPath === "/mcp") {
       try {
         mcpCrudResult = await runMcpCrudScenario(client);
@@ -2105,6 +2362,35 @@ async function inspectConsole(client, origin, options) {
     if (agentsCrud && navigationPath === "/agents") {
       try {
         agentsCrudResult = await runAgentsCrudScenario(client);
+      } catch (error) {
+        observation.browserErrors.push(error.stack ?? String(error));
+      }
+    }
+    if (channelScope && navigationPath === "/channels") {
+      try {
+        channelScopeResult = await runChannelScopeScenario(client, {
+          evaluateValue, waitForValue, selectAgentFromSidebar, setInputByPlaceholder,
+        });
+      } catch (error) {
+        observation.browserErrors.push(error.stack ?? String(error));
+      }
+    }
+    if (agentJobsCopy && navigationPath === "/agents") {
+      try {
+        agentJobsCopyResult = await runAgentJobsCopyScenario(client, {
+          evaluateValue, waitForValue, clickAgentRowAction,
+          clickButton, setInputByPlaceholder,
+        });
+      } catch (error) {
+        observation.browserErrors.push(error.stack ?? String(error));
+      }
+    }
+    if (cronAgentStop && navigationPath === "/agents") {
+      try {
+        cronAgentStopResult = await runCronAgentStopScenario(client, {
+          evaluateValue, waitForValue, clickAgentRowAction,
+          clickButton, selectAgentFromSidebar,
+        });
       } catch (error) {
         observation.browserErrors.push(error.stack ?? String(error));
       }
@@ -2202,13 +2488,35 @@ async function inspectConsole(client, origin, options) {
       securityCrud: securityCrudResult,
       skillsCrud: skillsCrudResult,
       agentsCrud: agentsCrudResult,
+      channelScope: channelScopeResult,
+      agentJobsCopy: agentJobsCopyResult,
+      cronAgentStop: cronAgentStopResult,
       acpCrud: acpCrudResult,
       modelsCrud: modelsCrudResult,
       localModelsCrud: localModelsCrudResult,
+      backupsCrud: backupsCrudResult,
+      backupsJobs: backupsJobsResult,
+      openrouterCrud: openrouterCrudResult,
+      marketCrud: marketCrudResult,
+      pawappsCrud: pawappsCrudResult,
+      debugLogs: debugLogsResult,
+      projectOwnership: projectOwnershipResult,
+      providerOAuth: providerOAuthResult,
+      anthropicChat: anthropicChatResult,
+      geminiChat: geminiChatResult,
+      responsesChat: responsesChatResult,
+      cronCrud: cronCrudResult,
+      approvalsCrud: approvalsCrudResult,
+      mailAccessCrud: mailAccessCrudResult,
+      checkpointsCrud: checkpointsCrudResult,
+      chatGroupsCrud: chatGroupsCrudResult,
+      finalPersistence: finalPersistenceResult,
       apiResponses: responses,
       failedApi,
       failures,
+      diagnostics: failures.length ? navigationDiagnostics : undefined,
     });
+    process.stderr.write(`Browser navigation completed: ${navigationPath}\n`);
   }
   observation = undefined;
   return {
@@ -2225,6 +2533,8 @@ async function main() {
   const profile = await mkdtemp(
     path.join(os.tmpdir(), "qwenpaw-chrome-smoke-"),
   );
+  options.downloadDirectory = path.join(profile, "downloads");
+  await mkdir(options.downloadDirectory);
   const child = spawn(
     executable,
     [
@@ -2242,8 +2552,11 @@ async function main() {
   let pageClient;
   let browserClient;
   try {
+    process.stderr.write("Browser startup: waiting for DevTools\n");
     const browserWebSocketUrl = await waitForDevTools(child);
+    process.stderr.write("Browser startup: creating page\n");
     const target = await createPage(browserWebSocketUrl);
+    process.stderr.write("Browser startup: connecting page\n");
     pageClient = await connectDevTools(target.webSocketDebuggerUrl);
     await pageClient.send("Emulation.setDeviceMetricsOverride", {
       width: 1440,
@@ -2253,10 +2566,12 @@ async function main() {
     });
     const result = await inspectConsole(pageClient, origin, options);
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    process.stderr.write("Browser report written; closing browser\n");
     browserClient = await connectDevTools(browserWebSocketUrl);
-    await browserClient.send("Browser.close");
+    await closeBrowser(browserClient, child);
     if (!result.ok) process.exitCode = 1;
   } finally {
+    process.stderr.write("Browser cleanup started\n");
     pageClient?.close();
     browserClient?.close();
     if (child.exitCode === null) child.kill("SIGTERM");
@@ -2271,6 +2586,7 @@ async function main() {
       maxRetries: 10,
       retryDelay: 200,
     });
+    process.stderr.write("Browser cleanup completed\n");
   }
 }
 

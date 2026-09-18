@@ -1,9 +1,14 @@
+# -*- coding: utf-8 -*-
 class QwenPawError(Exception):
     """Base SDK error."""
 
 
 class TransportClosedError(QwenPawError):
     """Raised when the App Server transport closes."""
+
+
+class ShutdownError(QwenPawError):
+    """Raised when owned process shutdown cannot confirm normal completion."""
 
 
 class RequestTimeoutError(QwenPawError):

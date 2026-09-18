@@ -14,6 +14,7 @@ use axum::Json;
 use axum::Router;
 use axum::extract::Query;
 use axum::extract::State;
+use axum::http::HeaderMap;
 use axum::http::StatusCode;
 use axum::routing::delete;
 use axum::routing::get;
@@ -35,9 +36,18 @@ use zip::ZipWriter;
 use zip::write::SimpleFileOptions;
 
 use super::AppServer;
+use super::desktop_agents::AgentContext;
+use super::desktop_agents::identity::WorkspaceDataKey;
 use super::desktop_chats::CheckpointSessionInfo;
 
-const STATE_VERSION: u32 = 1;
+#[path = "desktop_checkpoint_runtime.rs"]
+pub(crate) mod runtime;
+
+#[path = "desktop_checkpoint_quiescence.rs"]
+pub(crate) mod quiescence;
+
+const STATE_VERSION: u32 = 2;
+const MAX_SNAPSHOT_IDENTITY_BYTES: u64 = 1024 * 1024;
 const MAX_STATE_BYTES: u64 = 8 * 1_024 * 1_024;
 const MAX_CHECKPOINTS: usize = 5_000;
 const MAX_SNAPSHOT_FILES: usize = 100_000;
@@ -53,6 +63,9 @@ const MAX_GC_DAYS: u32 = 36_500;
 const MILLIS_PER_DAY: u64 = 86_400_000;
 
 type ApiError = (StatusCode, Json<Value>);
+
+#[path = "desktop_checkpoint_backup_restore.rs"]
+pub(super) mod backup_restore;
 
 pub(super) fn router() -> Router<AppServer> {
     Router::new()
@@ -79,12 +92,38 @@ struct WorkspaceContext {
     root: PathBuf,
     root_text: String,
     state_dir: PathBuf,
+    control_dir: PathBuf,
+    identity: CheckpointIdentity,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CheckpointIdentity {
+    data_key: WorkspaceDataKey,
+    workspace_root: String,
+}
+
+impl CheckpointIdentity {
+    fn is_valid(&self) -> bool {
+        self.data_key.is_valid()
+            && !self.workspace_root.is_empty()
+            && self.workspace_root.len() <= 256 * 1024
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SnapshotIdentity {
+    version: u32,
+    id: Uuid,
+    workspace: CheckpointIdentity,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(deny_unknown_fields)]
 struct CheckpointState {
     version: u32,
+    identity: CheckpointIdentity,
     auto_enabled: bool,
     gc_keep_count: u32,
     gc_keep_days: u32,
@@ -93,10 +132,11 @@ struct CheckpointState {
     entries: Vec<CheckpointEntry>,
 }
 
-impl Default for CheckpointState {
-    fn default() -> Self {
+impl CheckpointState {
+    fn new(identity: CheckpointIdentity) -> Self {
         Self {
             version: STATE_VERSION,
+            identity,
             auto_enabled: false,
             gc_keep_count: DEFAULT_GC_KEEP_COUNT,
             gc_keep_days: DEFAULT_GC_KEEP_DAYS,
@@ -195,10 +235,13 @@ struct SnapshotIndex {
     file_hashes: HashMap<String, String>,
 }
 
-async fn status(State(server): State<AppServer>) -> Result<Json<Value>, ApiError> {
-    let context = selected_context(&server).await?;
+async fn status(
+    State(server): State<AppServer>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
+    let (_lifecycle, _, context) = selected_context(&server, &headers).await?;
     let _guard = server.inner.desktop_checkpoint_lock.lock().await;
-    let state = read_state_async(context.state_dir.clone()).await?;
+    let state = read_state_async(context.clone()).await?;
     Ok(Json(json!({
         "auto_enabled": state.auto_enabled,
         "has_checkpoints": !state.entries.is_empty(),
@@ -208,16 +251,17 @@ async fn status(State(server): State<AppServer>) -> Result<Json<Value>, ApiError
 
 async fn graph(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Query(query): Query<GraphQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = query.limit.unwrap_or(500);
     if !(1..=1_000).contains(&limit) {
         return Err(unprocessable("limit must be between 1 and 1000"));
     }
-    let context = selected_context(&server).await?;
+    let (_lifecycle, agent, context) = selected_context(&server, &headers).await?;
     let _guard = server.inner.desktop_checkpoint_lock.lock().await;
-    let state = read_state_async(context.state_dir.clone()).await?;
-    let sessions = super::desktop_chats::checkpoint_sessions(&server, &context.root_text).await?;
+    let state = read_state_async(context.clone()).await?;
+    let sessions = super::desktop_chats::bound_checkpoint_sessions(&server, &agent).await?;
     let titles = sessions
         .iter()
         .map(|session| {
@@ -292,24 +336,29 @@ async fn graph(
 
 async fn set_auto(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Json(request): Json<AutoRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let context = selected_context(&server).await?;
+    let (_lifecycle, _, context) = selected_context(&server, &headers).await?;
     let _guard = server.inner.desktop_checkpoint_lock.lock().await;
-    let mut state = read_state_async(context.state_dir.clone()).await?;
+    let mut state = read_state_async(context.clone()).await?;
     state.auto_enabled = request.enabled;
     write_state_async(context.state_dir, state).await?;
+    if !request.enabled {
+        runtime::cancel_workspace(&server, &context.identity.data_key);
+    }
     Ok(Json(json!({"auto_enabled": request.enabled})))
 }
 
 async fn snapshot(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Json(request): Json<SnapshotRequest>,
 ) -> Result<Json<Value>, ApiError> {
     validate_snapshot_request(&request)?;
-    let context = selected_context(&server).await?;
+    let (_lifecycle, agent, context) = selected_context(&server, &headers).await?;
     let _guard = server.inner.desktop_checkpoint_lock.lock().await;
-    let session = resolve_session(&server, &context, &request).await?;
+    let session = resolve_session(&server, &agent, &request).await?;
     let checkpoint = server
         .inner
         .core
@@ -322,31 +371,115 @@ async fn snapshot(
         session,
         String::from("snap"),
         request.name,
+        None,
     )
     .await?;
     Ok(Json(json!({"ref": entry.ref_name, "commit": entry.commit})))
 }
 
-pub(super) async fn maybe_create_auto_checkpoint(server: &AppServer, thread_id: &str) {
-    let Ok(thread) = server.inner.core.read_thread(thread_id).await else {
-        return;
+pub(super) fn auto_snapshot_eligible(turn: &qwenpaw_protocol::Turn, query: Option<&str>) -> bool {
+    turn.status == qwenpaw_protocol::TurnStatus::Completed
+        && query.is_none_or(|text| {
+            // Python str.lstrip also includes the four information separators.
+            !text
+                .trim_start_matches(|c: char| c.is_whitespace() || matches!(c, '\u{1c}'..='\u{1f}'))
+                .starts_with('/')
+        })
+}
+
+pub(super) fn console_query(input: &[Value]) -> Option<String> {
+    let content = input.last()?.get("content")?;
+    let text = if let Some(text) = content.as_str() {
+        text.to_owned()
+    } else {
+        content
+            .as_array()?
+            .iter()
+            .filter_map(|part| {
+                (part["type"] == "text")
+                    .then(|| part["text"].as_str())
+                    .flatten()
+            })
+            .filter(|text| !text.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n")
     };
-    let Some(workspace_root) = thread.thread.workspace_root else {
+    (!text.is_empty()).then_some(text)
+}
+
+pub(super) async fn schedule_auto_checkpoint(
+    server: &AppServer,
+    thread_id: &str,
+    turn_id: &str,
+    agent: &AgentContext,
+    query: Option<String>,
+    cancellation: &tokio_util::sync::CancellationToken,
+) {
+    if !server
+        .inner
+        .core
+        .turn_was_persisted(thread_id, turn_id)
+        .await
+    {
         return;
-    };
-    let workspace_root = PathBuf::from(workspace_root);
-    let Ok(context) = context_for_root(server, &workspace_root) else {
-        return;
-    };
+    }
     let _guard = server.inner.desktop_checkpoint_lock.lock().await;
-    let Ok(state) = read_state_async(context.state_dir.clone()).await else {
+    if cancellation.is_cancelled() {
+        return;
+    }
+    let Ok(context) = context_for_root(server, &agent.workspace, &agent.data_key) else {
+        return;
+    };
+    let Ok(state) = read_state_async(context).await else {
         return;
     };
     if !state.auto_enabled {
         return;
     }
-    let Ok(sessions) = super::desktop_chats::checkpoint_sessions(server, &context.root_text).await
+    let Ok(sessions) = super::desktop_chats::bound_checkpoint_sessions(server, agent).await else {
+        return;
+    };
+    let Some(session) = sessions
+        .into_iter()
+        .find(|session| session.thread_id == thread_id)
     else {
+        return;
+    };
+    let _ = runtime::enqueue(
+        server,
+        agent,
+        thread_id,
+        checkpoint_session_key(&session.channel, &session.user_id, &session.session_id),
+        query,
+        cancellation,
+    );
+}
+
+pub(super) async fn maybe_create_auto_checkpoint(
+    server: &AppServer,
+    thread_id: &str,
+    agent: &AgentContext,
+    query: Option<String>,
+    cancellation: &tokio_util::sync::CancellationToken,
+) {
+    // Completion must not reacquire lifecycle admission: deletion may already
+    // hold it while waiting for this run to drain.
+    let Some(_guard) = quiescence::admit_auto(server, &agent.data_key, cancellation).await else {
+        return;
+    };
+    if cancellation.is_cancelled() {
+        return;
+    }
+    let Ok(context) = context_for_root(server, &agent.workspace, &agent.data_key) else {
+        return;
+    };
+    let Ok(state) = read_state_async(context.clone()).await else {
+        return;
+    };
+    if !state.auto_enabled {
+        return;
+    }
+    let Ok(sessions) = super::desktop_chats::bound_checkpoint_sessions(server, agent).await else {
         return;
     };
     let Some(session) = sessions
@@ -358,42 +491,138 @@ pub(super) async fn maybe_create_auto_checkpoint(server: &AppServer, thread_id: 
     let Ok(checkpoint) = server.inner.core.export_thread_checkpoint(thread_id).await else {
         return;
     };
-    if let Err(error) = create_snapshot_async(
-        context,
+    let result = create_snapshot_async(
+        context.clone(),
         checkpoint,
         session,
         String::from("auto"),
         String::new(),
+        query,
     )
-    .await
-    {
+    .await;
+    if let Err(error) = result {
         tracing::warn!(detail = %error.1.0, "automatic checkpoint failed");
+    } else if !quiescence::is_paused(server, &agent.data_key)
+        && server
+            .inner
+            .desktop_checkpoint_runtime
+            .gc_due(&agent.data_key)
+    {
+        let thread_id = thread_id.to_owned();
+        let result = tokio::task::spawn_blocking(move || automatic_gc(&context, &thread_id)).await;
+        if !matches!(result, Ok(Ok(()))) {
+            tracing::warn!("automatic checkpoint cleanup failed");
+        }
     }
+}
+
+fn automatic_gc(context: &WorkspaceContext, thread: &str) -> Result<(), ApiError> {
+    let state = read_state(&context.state_dir, &context.identity)?;
+    let (deleted, _) = gc_selection(
+        &state,
+        state.gc_keep_count,
+        state.gc_keep_days,
+        state.pre_restore_retention_days,
+        false,
+        Some(thread),
+    );
+    let deleted = deleted
+        .into_iter()
+        .map(|entry| entry.commit)
+        .collect::<HashSet<_>>();
+    prune_commits(context, state, &deleted)
+}
+
+pub(super) struct SessionDeletion {
+    context: WorkspaceContext,
+    state: CheckpointState,
+}
+
+/// The caller holds lifecycle and checkpoint locks through Thread deletion.
+pub(super) async fn prepare_session_deletion(
+    server: &AppServer,
+    agent: &AgentContext,
+) -> Result<SessionDeletion, ApiError> {
+    let context = context_for_root(server, &agent.workspace, &agent.data_key)?;
+    let state = read_state_async(context.clone()).await?;
+    Ok(SessionDeletion { context, state })
+}
+
+impl SessionDeletion {
+    pub(super) async fn apply(
+        self,
+        server: &AppServer,
+        threads: &[String],
+    ) -> Result<(), ApiError> {
+        runtime::cancel_threads(server, &self.context.identity.data_key, threads);
+        let deleted = self
+            .state
+            .entries
+            .iter()
+            .filter(|entry| threads.contains(&entry.thread_id))
+            .map(|entry| entry.commit.clone())
+            .collect::<HashSet<_>>();
+        tokio::task::spawn_blocking(move || prune_commits(&self.context, self.state, &deleted))
+            .await
+            .map_err(|_| internal("Checkpoint session cleanup task failed"))?
+    }
+}
+
+fn prune_commits(
+    context: &WorkspaceContext,
+    mut state: CheckpointState,
+    deleted: &HashSet<String>,
+) -> Result<(), ApiError> {
+    if deleted.is_empty() {
+        return Ok(());
+    }
+    state
+        .entries
+        .retain(|entry| !deleted.contains(&entry.commit));
+    state.heads.retain(|_, commit| !deleted.contains(commit));
+    write_state(&context.state_dir, &state)?;
+    for commit in deleted {
+        let path = context
+            .state_dir
+            .join("snapshots")
+            .join(format!("{commit}.zip"));
+        if let Err(error) = fs::remove_file(path)
+            && error.kind() != std::io::ErrorKind::NotFound
+        {
+            tracing::warn!(%error, "unreferenced checkpoint archive could not be removed");
+        }
+    }
+    Ok(())
 }
 
 async fn preview_restore(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Json(request): Json<RestoreRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    restore_impl(&server, request, true).await
+    restore_impl(&server, &headers, request, true).await
 }
 
 async fn restore(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Json(request): Json<RestoreRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    restore_impl(&server, request, false).await
+    restore_impl(&server, &headers, request, false).await
 }
 
 async fn restore_impl(
     server: &AppServer,
+    headers: &HeaderMap,
     request: RestoreRequest,
     dry_run: bool,
 ) -> Result<Json<Value>, ApiError> {
     validate_restore_request(&request, dry_run)?;
-    let context = selected_context(server).await?;
-    let _guard = server.inner.desktop_checkpoint_lock.lock().await;
-    let state = read_state_async(context.state_dir.clone()).await?;
+    let (lifecycle, agent, context) = selected_context(server, headers).await?;
+    let mut lifecycle = Some(lifecycle);
+    let cron = server.inner.desktop_cron_lock.lock().await;
+    let checkpoint_guard = server.inner.desktop_checkpoint_lock.lock().await;
+    let state = read_state_async(context.clone()).await?;
     let target = resolve_checkpoint(&state, &request.commit)?.clone();
     if target.session_id != request.session_id
         || target.user_id != request.user_id
@@ -403,7 +632,7 @@ async fn restore_impl(
             "Checkpoint does not belong to the requested session",
         ));
     }
-    let sessions = super::desktop_chats::checkpoint_sessions(server, &context.root_text).await?;
+    let sessions = super::desktop_chats::bound_checkpoint_sessions(server, &agent).await?;
     let session = sessions
         .into_iter()
         .find(|session| {
@@ -413,7 +642,24 @@ async fn restore_impl(
                 && session.channel == request.channel
         })
         .ok_or_else(|| not_found("Checkpoint session was not found in this Workspace"))?;
-    let memory_directories = super::desktop_agent_settings::memory_directories(&server.inner.core)?;
+    let (_restoration, _checkpoint_guard) = if dry_run {
+        drop(cron);
+        (None, checkpoint_guard)
+    } else {
+        let frozen = quiescence::freeze(server, &agent)?;
+        drop(checkpoint_guard);
+        drop(cron);
+        drop(lifecycle.take());
+        let frozen = frozen
+            .drain(&agent, std::time::Duration::from_secs(30))
+            .await?;
+        (
+            Some(frozen),
+            server.inner.desktop_checkpoint_lock.lock().await,
+        )
+    };
+    let context = context_for_root(server, &agent.workspace, &agent.data_key)?;
+    let memory_directories = super::desktop_agent_settings::memory_directories_for_agent(&agent)?;
     let prepare_memory_directories = memory_directories.clone();
     let prepare_context = context.clone();
     let prepare_target = target.clone();
@@ -504,13 +750,14 @@ async fn apply_prepared_restore(
         session,
         String::from("pre-restore"),
         format!("Before restore to {}", target.commit),
+        None,
     )
     .await?;
-    let mut state = read_state_async(context.state_dir.clone()).await?;
+    let mut state = read_state_async(context.clone()).await?;
     let apply_context = context.clone();
     let apply_target = target.clone();
     let apply_paths = mutation_paths.clone();
-    tokio::task::spawn_blocking(move || {
+    let mut files = tokio::task::spawn_blocking(move || {
         apply_archive_paths_sync(&apply_context, &apply_target, &apply_paths)
     })
     .await
@@ -524,11 +771,12 @@ async fn apply_prepared_restore(
         Some(&safety.ref_name),
         Some(&selected_files),
     );
+    let rollback_state = state.clone();
     state
         .heads
         .insert(target.session_key.clone(), target.commit.clone());
     if let Err(error) = write_state_async(context.state_dir.clone(), state).await {
-        rollback_to_safety(&context, &safety, &mutation_paths).await;
+        rollback_restored_files(files).await?;
         return Err(error);
     }
     if let Err(error) = server
@@ -537,69 +785,75 @@ async fn apply_prepared_restore(
         .restore_thread_checkpoint(&target.thread_id, prepared.checkpoint)
         .await
     {
-        rollback_to_safety(&context, &safety, &mutation_paths).await;
-        if let Ok(mut rollback_state) = read_state_async(context.state_dir.clone()).await {
-            rollback_state
-                .heads
-                .insert(safety.session_key.clone(), safety.commit.clone());
-            if write_state_async(context.state_dir.clone(), rollback_state)
-                .await
-                .is_err()
-            {
-                tracing::error!("Checkpoint head rollback failed after Thread restore rejection");
-            }
-        }
+        let file_rollback = rollback_restored_files(files).await;
+        let head_rollback = write_state_async(context.state_dir.clone(), rollback_state).await;
+        file_rollback?;
+        head_rollback?;
         return Err(core_error(error));
+    }
+    // Once the Thread is durable, dropping a pending cleanup task must never
+    // undo only the files. Mark the file transaction committed before await.
+    files.commit();
+    if tokio::task::spawn_blocking(move || drop(files))
+        .await
+        .is_err()
+    {
+        tracing::warn!("Checkpoint restore committed but recovery cleanup did not finish");
     }
     Ok(Json(applied_response))
 }
 
-async fn rollback_to_safety(
-    context: &WorkspaceContext,
-    safety: &CheckpointEntry,
-    paths: &HashSet<String>,
-) {
-    let rollback_context = context.clone();
-    let rollback_safety = safety.clone();
-    let rollback_paths = paths.clone();
-    let rollback = tokio::task::spawn_blocking(move || {
-        apply_archive_paths_sync(&rollback_context, &rollback_safety, &rollback_paths)
+async fn rollback_restored_files(
+    mut files: super::desktop_restore_files::RestoreFiles,
+) -> Result<(), ApiError> {
+    tokio::task::spawn_blocking(move || {
+        files.rollback().map_err(|_| {
+            internal("Checkpoint file rollback failed; recovery data has been retained")
+        })
     })
-    .await;
-    if !matches!(rollback, Ok(Ok(()))) {
-        tracing::error!("Checkpoint file rollback failed");
-    }
+    .await
+    .map_err(|_| internal("Checkpoint file rollback task failed"))?
 }
 
 async fn preview_gc(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Json(request): Json<GcRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    gc_impl(&server, request, true).await
+    gc_impl(&server, &headers, request, true).await
 }
 
 async fn gc(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Json(request): Json<GcRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    gc_impl(&server, request, false).await
+    gc_impl(&server, &headers, request, false).await
 }
 
 async fn gc_impl(
     server: &AppServer,
+    headers: &HeaderMap,
     request: GcRequest,
     dry_run: bool,
 ) -> Result<Json<Value>, ApiError> {
     validate_gc_request(&request)?;
-    let context = selected_context(server).await?;
+    let (_lifecycle, _, context) = selected_context(server, headers).await?;
     let _guard = server.inner.desktop_checkpoint_lock.lock().await;
-    let mut state = read_state_async(context.state_dir.clone()).await?;
+    let mut state = read_state_async(context.clone()).await?;
     let keep_count = request.keep_count.unwrap_or(state.gc_keep_count);
     let keep_days = request.keep_days.unwrap_or(state.gc_keep_days);
     let pre_restore_days = request
         .pre_restore_days
         .unwrap_or(state.pre_restore_retention_days);
-    let (deleted, kept) = gc_selection(&state, keep_count, keep_days, pre_restore_days);
+    let (deleted, kept) = gc_selection(
+        &state,
+        keep_count,
+        keep_days,
+        pre_restore_days,
+        request.compact,
+        None,
+    );
     if !dry_run {
         let deleted_commits = deleted
             .iter()
@@ -608,6 +862,11 @@ async fn gc_impl(
         state
             .entries
             .retain(|entry| !deleted_commits.contains(entry.commit.as_str()));
+        let live = state
+            .entries
+            .iter()
+            .map(|entry| format!("{}.zip", entry.commit))
+            .collect::<HashSet<_>>();
         write_state_async(context.state_dir.clone(), state).await?;
         let archives = context.state_dir.join("snapshots");
         let paths = deleted
@@ -615,10 +874,6 @@ async fn gc_impl(
             .map(|entry| archives.join(format!("{}.zip", entry.commit)))
             .collect::<Vec<_>>();
         let compact = request.compact;
-        let live = kept
-            .iter()
-            .map(|entry| format!("{}.zip", entry.commit))
-            .collect::<HashSet<_>>();
         tokio::task::spawn_blocking(move || {
             for path in paths {
                 match fs::remove_file(path) {
@@ -723,7 +978,7 @@ fn prepare_restore_sync(
     include_files: bool,
 ) -> Result<PreparedRestore, ApiError> {
     let snapshot = load_snapshot_index(context, target)?;
-    let current = current_file_hashes(&context.root)?;
+    let current = current_file_hashes(context)?;
     let mut paths = snapshot
         .file_hashes
         .keys()
@@ -799,19 +1054,41 @@ fn load_snapshot_index(
                 }
                 let mut bytes =
                     Vec::with_capacity(usize::try_from(entry.size()).unwrap_or(MAX_THREAD_BYTES));
+                let expected = entry.size();
                 entry
+                    .by_ref()
+                    .take(expected.saturating_add(1))
                     .read_to_end(&mut bytes)
                     .map_err(|_| internal("Checkpoint Thread state could not be read"))?;
+                if bytes.len() as u64 != expected {
+                    return Err(internal(
+                        "Checkpoint Thread size does not match its metadata",
+                    ));
+                }
                 thread = Some(
                     serde_json::from_slice::<ThreadCheckpoint>(&bytes)
                         .map_err(|_| internal("Checkpoint Thread state is invalid"))?,
                 );
             }
             "checkpoint.id" => {
-                if checkpoint_id_seen || entry.size() > 256 {
+                if checkpoint_id_seen || entry.size() > MAX_SNAPSHOT_IDENTITY_BYTES {
                     return Err(internal("Checkpoint archive identifier is invalid"));
                 }
                 checkpoint_id_seen = true;
+                let expected = entry.size();
+                let mut bytes = Vec::new();
+                entry
+                    .by_ref()
+                    .take(expected.saturating_add(1))
+                    .read_to_end(&mut bytes)
+                    .map_err(|_| internal("Checkpoint identity could not be read"))?;
+                if bytes.len() as u64 != expected
+                    || decode_snapshot_identity(&bytes)?.workspace != context.identity
+                {
+                    return Err(conflict(
+                        "Checkpoint archive Workspace identity does not match",
+                    ));
+                }
             }
             _ => {
                 let Some(path) = name.strip_prefix("files/") else {
@@ -819,7 +1096,16 @@ fn load_snapshot_index(
                 };
                 validate_relative_path(path)
                     .map_err(|_| internal("Checkpoint archive contains an unsafe path"))?;
-                let hash = reader_digest(&mut entry)?;
+                let destination = context.root.join(relative_path_buf(path)?);
+                let control = PathBuf::from(context.control_dir.to_string_lossy().to_lowercase());
+                let root = PathBuf::from(context.root.to_string_lossy().to_lowercase());
+                let destination_key = PathBuf::from(destination.to_string_lossy().to_lowercase());
+                if is_control_path(context, &destination)
+                    || (control.starts_with(root) && control.starts_with(destination_key))
+                {
+                    return Err(internal("Checkpoint archive contains Core control data"));
+                }
+                let hash = bounded_entry_digest(&mut entry)?;
                 if file_hashes.insert(path.to_owned(), hash).is_some() {
                     return Err(internal("Checkpoint archive contains duplicate paths"));
                 }
@@ -827,10 +1113,7 @@ fn load_snapshot_index(
         }
     }
     let checkpoint = thread.ok_or_else(|| internal("Checkpoint archive has no Thread state"))?;
-    if !checkpoint_id_seen
-        || checkpoint.thread.id != target.thread_id
-        || checkpoint.thread.workspace_root.as_deref() != Some(context.root_text.as_str())
-    {
+    if !checkpoint_id_seen || checkpoint.thread.id != target.thread_id {
         return Err(internal(
             "Checkpoint archive identity does not match its metadata",
         ));
@@ -841,10 +1124,10 @@ fn load_snapshot_index(
     })
 }
 
-fn current_file_hashes(root: &Path) -> Result<HashMap<String, String>, ApiError> {
+fn current_file_hashes(context: &WorkspaceContext) -> Result<HashMap<String, String>, ApiError> {
     let mut hashes = HashMap::new();
     let mut total = 0_u64;
-    for (path, relative) in collect_workspace_files(root)? {
+    for (path, relative) in collect_workspace_files(context)? {
         let metadata = fs::symlink_metadata(&path)
             .map_err(|_| bad_request("Workspace changed while preparing the restore"))?;
         total = total.saturating_add(metadata.len());
@@ -904,6 +1187,17 @@ fn reader_digest(reader: &mut impl Read) -> Result<String, ApiError> {
     Ok(format!("{:x}", digest.finalize()))
 }
 
+fn bounded_entry_digest(entry: &mut zip::read::ZipFile<'_, fs::File>) -> Result<String, ApiError> {
+    let expected = entry.size();
+    let mut reader = entry.take(expected.saturating_add(1));
+    let digest = reader_digest(&mut reader)?;
+    if reader.limit() != 1 {
+        return Err(internal(
+            "Checkpoint entry size does not match its metadata",
+        ));
+    }
+    Ok(digest)
+}
 fn archive_entry_is_link(entry: &zip::read::ZipFile<'_, fs::File>) -> bool {
     entry
         .unix_mode()
@@ -914,109 +1208,51 @@ fn apply_archive_paths_sync(
     context: &WorkspaceContext,
     target: &CheckpointEntry,
     paths: &HashSet<String>,
-) -> Result<(), ApiError> {
+) -> Result<super::desktop_restore_files::RestoreFiles, ApiError> {
+    let mut files = super::desktop_restore_files::RestoreFiles::default();
     if paths.is_empty() {
-        return Ok(());
+        return Ok(files);
     }
     let snapshot = load_snapshot_index(context, target)?;
     for path in paths {
         validate_relative_path(path)?;
     }
-    ensure_state_directories(&context.state_dir)?;
-    let transaction = tempfile::tempdir_in(&context.state_dir)
-        .map_err(|_| internal("Checkpoint restore transaction could not be created"))?;
-    let staged = transaction.path().join("staged");
-    let backup = transaction.path().join("backup");
-    fs::create_dir_all(&staged)
-        .and_then(|()| fs::create_dir_all(&backup))
-        .map_err(|_| internal("Checkpoint restore transaction could not be prepared"))?;
     let archive_path = checkpoint_archive_path(context, target)?;
     let input = fs::File::open(archive_path)
         .map_err(|_| internal("Checkpoint archive could not be opened"))?;
     let mut archive =
         ZipArchive::new(input).map_err(|_| internal("Checkpoint archive is invalid"))?;
-    let mut originally_missing = HashSet::new();
     let mut ordered = paths.iter().cloned().collect::<Vec<_>>();
     ordered.sort_unstable();
     for path in &ordered {
         let relative = relative_path_buf(path)?;
-        let current = inspect_workspace_target(&context.root, &relative)?;
-        match current {
-            Some(current) => {
-                let backup_path = backup.join(&relative);
-                if let Some(parent) = backup_path.parent() {
-                    fs::create_dir_all(parent)
-                        .map_err(|_| internal("Checkpoint backup could not be prepared"))?;
-                }
-                fs::copy(current, backup_path)
-                    .map_err(|_| internal("Checkpoint backup could not be written"))?;
-            }
-            None => {
-                originally_missing.insert(path.clone());
-            }
-        }
+        let target_path = prepare_workspace_target(&context.root, &relative, &mut files)?;
         if snapshot.file_hashes.contains_key(path) {
             let mut source = archive
                 .by_name(&format!("files/{path}"))
                 .map_err(|_| internal("Checkpoint archive file is missing"))?;
-            let staged_path = staged.join(&relative);
-            if let Some(parent) = staged_path.parent() {
-                fs::create_dir_all(parent)
-                    .map_err(|_| internal("Checkpoint restore file could not be staged"))?;
-            }
-            let mut output = fs::File::create(staged_path)
+            files
+                .stage_replace(&target_path, |staged_path| {
+                    let parent = staged_path.parent().expect("staged file has a parent");
+                    let mut output = NamedTempFile::new_in(parent)?;
+                    std::io::copy(&mut source, &mut output)?;
+                    output.as_file_mut().sync_all()?;
+                    output
+                        .persist_noclobber(staged_path)
+                        .map(|_| ())
+                        .map_err(|error| error.error)
+                })
                 .map_err(|_| internal("Checkpoint restore file could not be staged"))?;
-            std::io::copy(&mut source, &mut output)
-                .and_then(|_| output.sync_all())
-                .map_err(|_| internal("Checkpoint restore file could not be staged"))?;
-        }
-    }
-    let mut applied = Vec::new();
-    for path in &ordered {
-        let relative = relative_path_buf(path)?;
-        let target_path = prepare_workspace_target(&context.root, &relative)?;
-        let result = if snapshot.file_hashes.contains_key(path) {
-            atomic_copy(&staged.join(&relative), &target_path)
         } else {
-            match fs::remove_file(&target_path) {
-                Ok(()) => Ok(()),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-                Err(_) => Err(internal("Checkpoint restore file could not be deleted")),
-            }
-        };
-        if let Err(error) = result {
-            if rollback_paths(&context.root, &backup, &originally_missing, &applied).is_err() {
-                return Err(internal(
-                    "Checkpoint restore failed and its file rollback also failed",
-                ));
-            }
-            return Err(error);
-        }
-        applied.push(path.clone());
-    }
-    Ok(())
-}
-
-fn rollback_paths(
-    root: &Path,
-    backup: &Path,
-    originally_missing: &HashSet<String>,
-    paths: &[String],
-) -> Result<(), ApiError> {
-    for path in paths.iter().rev() {
-        let relative = relative_path_buf(path)?;
-        let target = prepare_workspace_target(root, &relative)?;
-        if originally_missing.contains(path) {
-            match fs::remove_file(target) {
-                Ok(()) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(_) => return Err(internal("Checkpoint rollback could not delete a file")),
-            }
-        } else {
-            atomic_copy(&backup.join(relative), &target)?;
+            files
+                .stage_delete(&target_path)
+                .map_err(|_| internal("Checkpoint restore deletion could not be staged"))?;
         }
     }
-    Ok(())
+    files.apply().map_err(|_| {
+        internal("Checkpoint file restore failed; any incomplete rollback data has been retained")
+    })?;
+    Ok(files)
 }
 
 fn inspect_workspace_target(root: &Path, relative: &Path) -> Result<Option<PathBuf>, ApiError> {
@@ -1049,7 +1285,11 @@ fn inspect_workspace_target(root: &Path, relative: &Path) -> Result<Option<PathB
     Ok(None)
 }
 
-fn prepare_workspace_target(root: &Path, relative: &Path) -> Result<PathBuf, ApiError> {
+fn prepare_workspace_target(
+    root: &Path,
+    relative: &Path,
+    files: &mut super::desktop_restore_files::RestoreFiles,
+) -> Result<PathBuf, ApiError> {
     let parent = relative
         .parent()
         .ok_or_else(|| bad_request("Checkpoint restore path is invalid"))?;
@@ -1067,7 +1307,8 @@ fn prepare_workspace_target(root: &Path, relative: &Path) -> Result<PathBuf, Api
             }
             Ok(_) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                fs::create_dir(&current)
+                files
+                    .create_directory(&current)
                     .map_err(|_| internal("Checkpoint restore directory could not be created"))?;
             }
             Err(_) => return Err(internal("Checkpoint restore path could not be inspected")),
@@ -1091,32 +1332,6 @@ fn prepare_workspace_target(root: &Path, relative: &Path) -> Result<PathBuf, Api
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(target),
         Err(_) => Err(internal("Checkpoint restore target could not be inspected")),
     }
-}
-
-fn atomic_copy(source: &Path, target: &Path) -> Result<(), ApiError> {
-    let parent = target
-        .parent()
-        .ok_or_else(|| bad_request("Checkpoint restore target is invalid"))?;
-    let permissions = fs::metadata(target)
-        .ok()
-        .map(|metadata| metadata.permissions());
-    let mut input = fs::File::open(source)
-        .map_err(|_| internal("Checkpoint restore source could not be opened"))?;
-    let mut temporary = NamedTempFile::new_in(parent)
-        .map_err(|_| internal("Checkpoint restore file could not be staged"))?;
-    if let Some(permissions) = permissions {
-        temporary
-            .as_file()
-            .set_permissions(permissions)
-            .map_err(|_| internal("Checkpoint restore permissions could not be applied"))?;
-    }
-    std::io::copy(&mut input, &mut temporary)
-        .and_then(|_| temporary.as_file_mut().sync_all())
-        .map_err(|_| internal("Checkpoint restore file could not be written"))?;
-    temporary
-        .persist(target)
-        .map_err(|_| internal("Checkpoint restore file could not be installed"))?;
-    Ok(())
 }
 
 fn restore_value(
@@ -1230,13 +1445,19 @@ fn gc_selection(
     keep_count: u32,
     keep_days: u32,
     pre_restore_days: u32,
+    compact: bool,
+    thread: Option<&str>,
 ) -> (Vec<CheckpointEntry>, Vec<CheckpointEntry>) {
     let now = now_millis();
     let regular_cutoff = now.saturating_sub(u64::from(keep_days) * MILLIS_PER_DAY);
     let safety_cutoff = now.saturating_sub(u64::from(pre_restore_days) * MILLIS_PER_DAY);
     let heads = state.heads.values().collect::<HashSet<_>>();
     let mut by_session = HashMap::<&str, Vec<&CheckpointEntry>>::new();
-    for entry in &state.entries {
+    let scoped = state
+        .entries
+        .iter()
+        .filter(|entry| thread.is_none_or(|id| entry.thread_id == id));
+    for entry in scoped.clone().filter(|entry| entry.kind == "auto") {
         by_session
             .entry(entry.session_key.as_str())
             .or_default()
@@ -1245,26 +1466,25 @@ fn gc_selection(
     let mut retained = HashSet::new();
     for entries in by_session.values_mut() {
         entries.sort_by_key(|entry| std::cmp::Reverse(entry.timestamp_ms));
-        for (index, entry) in entries.iter().enumerate() {
-            let age_cutoff = if entry.kind == "pre-restore" {
-                safety_cutoff
-            } else {
-                regular_cutoff
-            };
-            let within_count = entry.kind != "pre-restore"
-                && index < usize::try_from(keep_count).unwrap_or(usize::MAX);
-            if heads.contains(&entry.commit)
-                || within_count
-                || (age_cutoff < now && entry.timestamp_ms >= age_cutoff)
-            {
-                retained.insert(entry.commit.as_str());
-            }
+        for entry in entries
+            .iter()
+            .take(usize::try_from(keep_count).unwrap_or(usize::MAX))
+        {
+            retained.insert(entry.commit.as_str());
         }
     }
     let mut deleted = Vec::new();
     let mut kept = Vec::new();
-    for entry in &state.entries {
-        if retained.contains(entry.commit.as_str()) {
+    for entry in scoped.filter(|entry| matches!(entry.kind.as_str(), "auto" | "pre-restore")) {
+        let keep = heads.contains(&entry.commit)
+            || if entry.kind == "auto" {
+                !compact
+                    && (retained.contains(entry.commit.as_str())
+                        || entry.timestamp_ms >= regular_cutoff)
+            } else {
+                entry.timestamp_ms >= safety_cutoff
+            };
+        if keep {
             kept.push(entry.clone());
         } else {
             deleted.push(entry.clone());
@@ -1289,21 +1509,25 @@ fn is_link_or_junction(metadata: &fs::Metadata) -> bool {
     metadata.file_type().is_symlink()
 }
 
-async fn get_gc_settings(State(server): State<AppServer>) -> Result<Json<Value>, ApiError> {
-    let context = selected_context(&server).await?;
+async fn get_gc_settings(
+    State(server): State<AppServer>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
+    let (_lifecycle, _, context) = selected_context(&server, &headers).await?;
     let _guard = server.inner.desktop_checkpoint_lock.lock().await;
-    let state = read_state_async(context.state_dir).await?;
+    let state = read_state_async(context.clone()).await?;
     Ok(Json(gc_settings_value(&state)))
 }
 
 async fn update_gc_settings(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Json(settings): Json<GcSettings>,
 ) -> Result<Json<Value>, ApiError> {
     validate_gc_settings(&settings)?;
-    let context = selected_context(&server).await?;
+    let (_lifecycle, _, context) = selected_context(&server, &headers).await?;
     let _guard = server.inner.desktop_checkpoint_lock.lock().await;
-    let mut state = read_state_async(context.state_dir.clone()).await?;
+    let mut state = read_state_async(context.clone()).await?;
     state.gc_keep_count = settings.gc_keep_count;
     state.gc_keep_days = settings.gc_keep_days;
     state.pre_restore_retention_days = settings.pre_restore_retention_days;
@@ -1311,23 +1535,175 @@ async fn update_gc_settings(
     Ok(Json(json!(settings)))
 }
 
-async fn reset(State(server): State<AppServer>) -> Result<Json<Value>, ApiError> {
-    let context = selected_context(&server).await?;
+async fn reset(
+    State(server): State<AppServer>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
+    let (_lifecycle, _, context) = selected_context(&server, &headers).await?;
     let _guard = server.inner.desktop_checkpoint_lock.lock().await;
+    read_state_async(context.clone()).await?;
+    runtime::cancel_workspace(&server, &context.identity.data_key);
     reset_async(context.state_dir).await?;
     Ok(Json(json!({"reset": true, "auto_enabled": false})))
 }
 
-async fn selected_context(server: &AppServer) -> Result<WorkspaceContext, ApiError> {
-    let workspace = server
-        .inner
-        .desktop_workspace
-        .as_ref()
-        .ok_or_else(|| not_implemented("Desktop Workspace is unavailable"))?;
-    context_for_root(server, &workspace.selected.read().await)
+async fn selected_context<'a>(
+    server: &'a AppServer,
+    headers: &HeaderMap,
+) -> Result<
+    (
+        tokio::sync::MutexGuard<'a, ()>,
+        AgentContext,
+        WorkspaceContext,
+    ),
+    ApiError,
+> {
+    let (lifecycle, agent) = quiescence::admit_agent(server, headers).await?;
+    let context = context_for_root(server, &agent.workspace, &agent.data_key)?;
+    Ok((lifecycle, agent, context))
 }
 
-fn context_for_root(server: &AppServer, root: &Path) -> Result<WorkspaceContext, ApiError> {
+#[cfg(test)]
+pub(super) async fn backup_sources(
+    server: &AppServer,
+    root: &Path,
+) -> Result<(PathBuf, Vec<String>), ApiError> {
+    let root = root
+        .canonicalize()
+        .map_err(|_| bad_request("Workspace directory is unavailable"))?;
+    let agent = super::desktop_agents::backup_agent_snapshot(server)
+        .await?
+        .agents
+        .into_iter()
+        .find(|agent| Path::new(&agent.workspace_dir) == root)
+        .ok_or_else(|| not_found("Checkpoint Workspace is not registered"))?;
+    let key = agent
+        .data_key
+        .ok_or_else(|| internal("Checkpoint Workspace identity is missing"))?;
+    let context = context_for_root(server, &root, &key)?;
+    let state = read_state(&context.state_dir, &context.identity)?;
+    let mut files = Vec::new();
+    if context.state_dir.join("state.json").is_file() {
+        files.push(String::from("state.json"));
+    }
+    let mut seen = HashSet::new();
+    for entry in &state.entries {
+        // Validate nested snapshots before another archive can carry them.
+        // Orphan/staging files are not part of the checkpoint state.
+        load_snapshot_index(&context, entry)?;
+        if seen.insert(&entry.commit) {
+            files.push(format!("snapshots/{}.zip", entry.commit));
+        }
+    }
+    Ok((context.state_dir, files))
+}
+
+pub(super) struct ScopedCheckpointBackup {
+    pub(super) directory: PathBuf,
+    pub(super) state: Option<Vec<u8>>,
+    pub(super) archives: Vec<String>,
+}
+
+/// Inject mixed historical ownership to exercise export filtering. The live
+/// producer must never recreate this intentionally inconsistent test state.
+#[cfg(test)]
+pub(super) async fn seed_mixed_owner_snapshot(server: &AppServer, thread_id: &str) {
+    let default = super::desktop_agents::context_for_agent(server, "default")
+        .await
+        .unwrap();
+    let owner = super::desktop_chats::approval_session_info(server, thread_id)
+        .await
+        .unwrap();
+    let session = super::desktop_chats::checkpoint_sessions(server, &owner.agent)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|session| session.thread_id == thread_id)
+        .unwrap();
+    let context = context_for_root(server, &default.workspace, &default.data_key).unwrap();
+    let checkpoint = server
+        .inner
+        .core
+        .export_thread_checkpoint(thread_id)
+        .await
+        .unwrap();
+    let _guard = server.inner.desktop_checkpoint_lock.lock().await;
+    create_snapshot_async(
+        context,
+        checkpoint,
+        session,
+        String::from("auto"),
+        String::new(),
+        None,
+    )
+    .await
+    .unwrap();
+}
+
+pub(super) fn scoped_backup_sources(
+    server: &AppServer,
+    root: &Path,
+    key: &WorkspaceDataKey,
+    thread_ids: &std::collections::BTreeSet<String>,
+) -> Result<ScopedCheckpointBackup, ApiError> {
+    let context = context_for_root(server, root, key)?;
+    let mut state = read_state(&context.state_dir, &context.identity)?;
+    let excluded = state
+        .entries
+        .iter()
+        .filter(|entry| !thread_ids.contains(&entry.thread_id))
+        .map(|entry| entry.commit.clone())
+        .collect::<HashSet<_>>();
+    state
+        .entries
+        .retain(|entry| thread_ids.contains(&entry.thread_id));
+    state.heads.retain(|_, commit| !excluded.contains(commit));
+    for entry in &mut state.entries {
+        if entry
+            .parent_commit
+            .as_ref()
+            .is_some_and(|parent| excluded.contains(parent))
+        {
+            entry.parent_commit = None;
+        }
+    }
+    validate_state(&state).map_err(internal)?;
+    let mut archives = Vec::new();
+    for entry in &state.entries {
+        let snapshot = load_snapshot_index(&context, entry)?;
+        super::Core::validate_thread_checkpoint(&snapshot.checkpoint).map_err(core_error)?;
+        archives.push(format!("snapshots/{}.zip", entry.commit));
+    }
+    let state_path = context.state_dir.join("state.json");
+    let bytes = if !state_path.exists() {
+        None
+    } else if excluded.is_empty() {
+        Some(fs::read(state_path).map_err(|_| internal("Checkpoint state could not be read"))?)
+    } else {
+        Some(
+            serde_json::to_vec(&state)
+                .map_err(|_| internal("Checkpoint state could not be encoded"))?,
+        )
+    };
+    Ok(ScopedCheckpointBackup {
+        directory: context.state_dir,
+        state: bytes,
+        archives,
+    })
+}
+
+pub(super) fn state_directory(control: &Path, key: &WorkspaceDataKey) -> PathBuf {
+    let encoded = serde_json::to_vec(key).expect("Workspace identity is serializable");
+    control
+        .join("checkpoints")
+        .join(format!("workspace-{}", hex_digest(&encoded)))
+}
+
+fn context_for_root(
+    server: &AppServer,
+    root: &Path,
+    key: &WorkspaceDataKey,
+) -> Result<WorkspaceContext, ApiError> {
     let workspace = server
         .inner
         .desktop_workspace
@@ -1339,21 +1715,29 @@ fn context_for_root(server: &AppServer, root: &Path) -> Result<WorkspaceContext,
     if !root.is_dir() {
         return Err(bad_request("Workspace directory is unavailable"));
     }
+    if !super::desktop_agents::identity::matches_marker(&root, key)? {
+        return Err(conflict("Checkpoint Workspace binding has changed"));
+    }
     let root_text = root.to_string_lossy().into_owned();
-    let key = hex_digest(root_text.as_bytes());
+    server.inner.desktop_checkpoint_runtime.touch(key);
     Ok(WorkspaceContext {
+        identity: CheckpointIdentity {
+            data_key: key.clone(),
+            workspace_root: root_text.clone(),
+        },
         root,
         root_text,
-        state_dir: workspace.data_dir.join("checkpoints").join(key),
+        state_dir: state_directory(&workspace.data_dir, key),
+        control_dir: workspace.data_dir.clone(),
     })
 }
 
 async fn resolve_session(
     server: &AppServer,
-    context: &WorkspaceContext,
+    agent: &AgentContext,
     request: &SnapshotRequest,
 ) -> Result<CheckpointSessionInfo, ApiError> {
-    super::desktop_chats::checkpoint_sessions(server, &context.root_text)
+    super::desktop_chats::bound_checkpoint_sessions(server, agent)
         .await?
         .into_iter()
         .find(|session| {
@@ -1370,9 +1754,10 @@ async fn create_snapshot_async(
     session: CheckpointSessionInfo,
     kind: String,
     name: String,
+    query: Option<String>,
 ) -> Result<CheckpointEntry, ApiError> {
     tokio::task::spawn_blocking(move || {
-        create_snapshot_sync(&context, &checkpoint, &session, &kind, &name)
+        create_snapshot_sync(&context, &checkpoint, &session, &kind, &name, query)
     })
     .await
     .map_err(|error| internal(&format!("Checkpoint task failed: {error}")))?
@@ -1384,8 +1769,9 @@ fn create_snapshot_sync(
     session: &CheckpointSessionInfo,
     kind: &str,
     name: &str,
+    query: Option<String>,
 ) -> Result<CheckpointEntry, ApiError> {
-    let mut state = read_state(&context.state_dir)?;
+    let mut state = read_state(&context.state_dir, &context.identity)?;
     if state.entries.len() >= MAX_CHECKPOINTS {
         return Err(payload_too_large(
             "Checkpoint count reached the 5000 item limit",
@@ -1395,7 +1781,7 @@ fn create_snapshot_sync(
     let archives = context.state_dir.join("snapshots");
     let mut temporary = NamedTempFile::new_in(&archives)
         .map_err(|_| internal("Checkpoint archive could not be created"))?;
-    write_snapshot_archive(temporary.as_file_mut(), &context.root, checkpoint)?;
+    write_snapshot_archive(temporary.as_file_mut(), context, checkpoint)?;
     temporary
         .as_file_mut()
         .sync_all()
@@ -1428,7 +1814,7 @@ fn create_snapshot_sync(
         "pre-restore" => format!("refs/pre-restore/{timestamp_ms}-{key}-{}", Uuid::now_v7()),
         _ => format!("refs/snap/{key}/{timestamp_ms}-{}", Uuid::now_v7()),
     };
-    let query = latest_user_query(checkpoint);
+    let query = query.or_else(|| latest_user_query(checkpoint));
     let subject = match kind {
         "auto" => format!("auto {key} {timestamp_ms}"),
         "pre-restore" => format!("pre-restore {key} {timestamp_ms}"),
@@ -1461,7 +1847,7 @@ fn create_snapshot_sync(
 
 fn write_snapshot_archive(
     output: &mut fs::File,
-    workspace: &Path,
+    context: &WorkspaceContext,
     checkpoint: &ThreadCheckpoint,
 ) -> Result<(), ApiError> {
     let thread = serde_json::to_vec(checkpoint)
@@ -1471,8 +1857,19 @@ fn write_snapshot_archive(
             "Thread checkpoint exceeds the 32 MiB limit",
         ));
     }
-    let files = collect_workspace_files(workspace)?;
-    let mut total = u64::try_from(thread.len()).unwrap_or(u64::MAX);
+    let files = collect_workspace_files(context)?;
+    let identity = serde_json::to_vec(&SnapshotIdentity {
+        version: STATE_VERSION,
+        id: Uuid::now_v7(),
+        workspace: context.identity.clone(),
+    })
+    .map_err(|_| internal("Checkpoint identity could not be encoded"))?;
+    if identity.len() as u64 > MAX_SNAPSHOT_IDENTITY_BYTES {
+        return Err(payload_too_large(
+            "Checkpoint identity exceeds its size limit",
+        ));
+    }
+    let mut total = u64::try_from(thread.len() + identity.len()).unwrap_or(u64::MAX);
     let options = SimpleFileOptions::default()
         .compression_method(CompressionMethod::Deflated)
         .unix_permissions(0o600);
@@ -1487,7 +1884,7 @@ fn write_snapshot_archive(
         .start_file("checkpoint.id", options)
         .map_err(|_| internal("Checkpoint archive could not be written"))?;
     writer
-        .write_all(Uuid::now_v7().to_string().as_bytes())
+        .write_all(&identity)
         .map_err(|_| internal("Checkpoint archive could not be written"))?;
     for (path, relative) in files {
         let metadata = fs::symlink_metadata(&path)
@@ -1517,8 +1914,9 @@ fn write_snapshot_archive(
     Ok(())
 }
 
-fn collect_workspace_files(root: &Path) -> Result<Vec<(PathBuf, String)>, ApiError> {
-    let mut directories = vec![root.to_path_buf()];
+fn collect_workspace_files(context: &WorkspaceContext) -> Result<Vec<(PathBuf, String)>, ApiError> {
+    let root = &context.root;
+    let mut directories = vec![root.clone()];
     let mut files = Vec::new();
     while let Some(directory) = directories.pop() {
         let reader = fs::read_dir(&directory)
@@ -1526,9 +1924,12 @@ fn collect_workspace_files(root: &Path) -> Result<Vec<(PathBuf, String)>, ApiErr
         for item in reader {
             let item = item.map_err(|_| bad_request("Workspace could not be read"))?;
             let path = item.path();
+            if is_control_path(context, &path) {
+                continue;
+            }
             let metadata = fs::symlink_metadata(&path)
                 .map_err(|_| bad_request("Workspace could not be inspected"))?;
-            if metadata.file_type().is_symlink() {
+            if is_link_or_junction(&metadata) {
                 continue;
             }
             let relative = relative_path(root, &path)?;
@@ -1548,6 +1949,30 @@ fn collect_workspace_files(root: &Path) -> Result<Vec<(PathBuf, String)>, ApiErr
     }
     files.sort_by(|left, right| left.1.cmp(&right.1));
     Ok(files)
+}
+
+fn is_control_path(context: &WorkspaceContext, path: &Path) -> bool {
+    if !context.control_dir.starts_with(&context.root) {
+        return false;
+    }
+    if path.starts_with(&context.control_dir) {
+        return true;
+    }
+    // Resolve the closest existing ancestor to catch filesystem case and
+    // Unicode aliases without creating a target or following a missing suffix.
+    let mut ancestor = path;
+    loop {
+        if let Ok(resolved) = ancestor.canonicalize() {
+            return resolved.starts_with(&context.control_dir);
+        }
+        let Some(parent) = ancestor.parent() else {
+            return false;
+        };
+        if !parent.starts_with(&context.root) {
+            return false;
+        }
+        ancestor = parent;
+    }
 }
 
 fn relative_path(root: &Path, path: &Path) -> Result<String, ApiError> {
@@ -1572,21 +1997,22 @@ fn relative_path(root: &Path, path: &Path) -> Result<String, ApiError> {
 
 fn excluded_directory(path: &str) -> bool {
     path.split('/').any(|part| {
-        matches!(
-            part,
-            ".git"
-                | ".qwenpaw"
-                | ".svn"
-                | "checkpoints"
-                | "node_modules"
-                | "target"
-                | "dist"
-                | "build"
-                | "__pycache__"
-                | ".venv"
-                | "venv"
-                | "env"
-        )
+        part.starts_with(super::desktop_restore_files::RECOVERY_PREFIX)
+            || matches!(
+                part,
+                ".git"
+                    | ".qwenpaw"
+                    | ".svn"
+                    | "checkpoints"
+                    | "node_modules"
+                    | "target"
+                    | "dist"
+                    | "build"
+                    | "__pycache__"
+                    | ".venv"
+                    | "venv"
+                    | "env"
+            )
     })
 }
 
@@ -1597,11 +2023,13 @@ fn excluded_file(path: &str) -> bool {
             .iter()
             .any(|value| extension.eq_ignore_ascii_case(value))
     });
-    name == ".DS_Store" || excluded_extension
+    name == ".DS_Store"
+        || name.eq_ignore_ascii_case(super::desktop_agents::identity::MARKER_NAME)
+        || excluded_extension
 }
 
-async fn read_state_async(path: PathBuf) -> Result<CheckpointState, ApiError> {
-    tokio::task::spawn_blocking(move || read_state(&path))
+async fn read_state_async(context: WorkspaceContext) -> Result<CheckpointState, ApiError> {
+    tokio::task::spawn_blocking(move || read_state(&context.state_dir, &context.identity))
         .await
         .map_err(|error| internal(&format!("Checkpoint task failed: {error}")))?
 }
@@ -1612,13 +2040,29 @@ async fn write_state_async(path: PathBuf, state: CheckpointState) -> Result<(), 
         .map_err(|error| internal(&format!("Checkpoint task failed: {error}")))?
 }
 
-fn read_state(state_dir: &Path) -> Result<CheckpointState, ApiError> {
+fn read_state(
+    state_dir: &Path,
+    identity: &CheckpointIdentity,
+) -> Result<CheckpointState, ApiError> {
     validate_state_parent(state_dir)?;
     let path = state_dir.join("state.json");
     let metadata = match fs::symlink_metadata(&path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(CheckpointState::default());
+            let legacy = state_dir
+                .parent()
+                .ok_or_else(|| internal("Checkpoint directory is invalid"))?
+                .join(hex_digest(identity.workspace_root.as_bytes()));
+            match fs::symlink_metadata(legacy) {
+                Ok(_) => {
+                    return Err(conflict(
+                        "Legacy checkpoint data has no proven Workspace binding; the original files have been preserved",
+                    ));
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(_) => return Err(internal("Legacy checkpoint data could not be inspected")),
+            }
+            return Ok(CheckpointState::new(identity.clone()));
         }
         Err(_) => return Err(internal("Checkpoint state could not be inspected")),
     };
@@ -1632,7 +2076,21 @@ fn read_state(state_dir: &Path) -> Result<CheckpointState, ApiError> {
     let state = serde_json::from_slice::<CheckpointState>(&bytes)
         .map_err(|_| internal("Checkpoint state is invalid"))?;
     validate_state(&state).map_err(internal)?;
+    if state.identity != *identity {
+        return Err(conflict(
+            "Checkpoint state Workspace identity does not match",
+        ));
+    }
     Ok(state)
+}
+
+fn decode_snapshot_identity(bytes: &[u8]) -> Result<SnapshotIdentity, ApiError> {
+    let identity: SnapshotIdentity = serde_json::from_slice(bytes)
+        .map_err(|_| internal("Checkpoint archive identity is invalid or unbound"))?;
+    if identity.version != STATE_VERSION || identity.id.is_nil() || !identity.workspace.is_valid() {
+        return Err(internal("Checkpoint archive identity is invalid"));
+    }
+    Ok(identity)
 }
 
 fn write_state(state_dir: &Path, state: &CheckpointState) -> Result<(), ApiError> {
@@ -1660,7 +2118,7 @@ fn ensure_state_directories(state_dir: &Path) -> Result<(), ApiError> {
         .parent()
         .ok_or_else(|| internal("Checkpoint data path is invalid"))?;
     match fs::symlink_metadata(parent) {
-        Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {}
+        Ok(metadata) if metadata.is_dir() && !is_link_or_junction(&metadata) => {}
         Ok(_) => return Err(internal("Checkpoint data root is not a directory")),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => fs::create_dir(parent)
             .map_err(|_| internal("Checkpoint data directory could not be created"))?,
@@ -1668,7 +2126,7 @@ fn ensure_state_directories(state_dir: &Path) -> Result<(), ApiError> {
     }
     for directory in [state_dir, &state_dir.join("snapshots")] {
         match fs::symlink_metadata(directory) {
-            Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {}
+            Ok(metadata) if metadata.is_dir() && !is_link_or_junction(&metadata) => {}
             Ok(_) => return Err(internal("Checkpoint data path is not a directory")),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => fs::create_dir(directory)
                 .map_err(|_| internal("Checkpoint data directory could not be created"))?,
@@ -1683,7 +2141,7 @@ fn validate_state_parent(state_dir: &Path) -> Result<(), ApiError> {
         return Err(internal("Checkpoint data path is invalid"));
     };
     match fs::symlink_metadata(parent) {
-        Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => Ok(()),
+        Ok(metadata) if metadata.is_dir() && !is_link_or_junction(&metadata) => Ok(()),
         Ok(_) => Err(internal("Checkpoint data root is not a directory")),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(_) => Err(internal("Checkpoint data directory could not be inspected")),
@@ -1694,7 +2152,7 @@ async fn reset_async(state_dir: PathBuf) -> Result<(), ApiError> {
     tokio::task::spawn_blocking(move || {
         validate_state_parent(&state_dir)?;
         match fs::symlink_metadata(&state_dir) {
-            Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
+            Ok(metadata) if metadata.is_dir() && !is_link_or_junction(&metadata) => {
                 fs::remove_dir_all(state_dir)
                     .map_err(|_| internal("Checkpoint state could not be reset"))
             }
@@ -1708,7 +2166,7 @@ async fn reset_async(state_dir: PathBuf) -> Result<(), ApiError> {
 }
 
 fn validate_state(state: &CheckpointState) -> Result<(), &'static str> {
-    if state.version != STATE_VERSION {
+    if state.version != STATE_VERSION || !state.identity.is_valid() {
         return Err("Checkpoint state version is unsupported");
     }
     if state.entries.len() > MAX_CHECKPOINTS
@@ -1828,6 +2286,10 @@ fn gc_settings_value(state: &CheckpointState) -> Value {
 
 fn default_channel() -> String {
     String::from("console")
+}
+
+fn conflict(message: &str) -> ApiError {
+    (StatusCode::CONFLICT, Json(json!({"detail":message})))
 }
 
 fn now_millis() -> u64 {

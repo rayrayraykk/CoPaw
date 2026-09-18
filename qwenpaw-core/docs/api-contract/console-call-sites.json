@@ -3,11 +3,11 @@
   "source": "console/src production TypeScript call sites",
   "callCount": 370,
   "unresolvedCount": 11,
-  "rustRouteCount": 334,
-  "registeredCallCount": 313,
-  "placeholderCallCount": 4,
-  "nonPlaceholderRegisteredCallCount": 309,
-  "missingCallCount": 57,
+  "rustRouteCount": 364,
+  "registeredCallCount": 341,
+  "placeholderCallCount": 0,
+  "nonPlaceholderRegisteredCallCount": 341,
+  "missingCallCount": 29,
   "rustRoutes": [
     {
       "method": "POST",
@@ -319,6 +319,13 @@
     },
     {
       "method": "GET",
+      "path": "/api/approval/list",
+      "handler": "list_approvals",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_api.rs"
+    },
+    {
+      "method": "GET",
       "path": "/api/auth/status",
       "handler": "auth_status",
       "placeholder": false,
@@ -334,16 +341,86 @@
     {
       "method": "GET",
       "path": "/api/backups",
-      "handler": "empty_array",
-      "placeholder": true,
-      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_navigation.rs"
+      "handler": "list_backups",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_backups.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/backups/{backup_id}",
+      "handler": "get_backup",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_backups.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/backups/{backup_id}/export",
+      "handler": "export_backup",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_backups.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/backups/{backup_id}/restore",
+      "handler": "restore",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_backups.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/backups/delete",
+      "handler": "delete_backups",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_backups.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/backups/import",
+      "handler": "import_backup",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_backups.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/backups/jobs",
+      "handler": "start_backup_job",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_backups.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/backups/jobs/{job_id}",
+      "handler": "get_backup_job",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_backups.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/backups/jobs/{job_id}/cancel",
+      "handler": "cancel_backup_job",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_backups.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/backups/jobs/{job_id}/events",
+      "handler": "backup_job_events",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_backups.rs"
     },
     {
       "method": "GET",
       "path": "/api/backups/jobs/active",
-      "handler": "empty_value",
-      "placeholder": true,
-      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_navigation.rs"
+      "handler": "active_backup_job",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_backups.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/backups/stream",
+      "handler": "create_backup_stream",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_backups.rs"
     },
     {
       "method": "GET",
@@ -783,8 +860,8 @@
       "method": "GET",
       "path": "/api/console/debug/backend-logs",
       "handler": "backend_logs",
-      "placeholder": true,
-      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_navigation.rs"
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_debug.rs"
     },
     {
       "method": "GET",
@@ -943,9 +1020,16 @@
     {
       "method": "GET",
       "path": "/api/frontend_plugin",
-      "handler": "frontend_plugins",
+      "handler": "list",
       "placeholder": false,
-      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_api.rs"
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_frontend_plugins.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/frontend_plugin/{plugin_id}/files/{*file_path}",
+      "handler": "asset",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_frontend_plugins.rs"
     },
     {
       "method": "GET",
@@ -1159,6 +1243,27 @@
     },
     {
       "method": "GET",
+      "path": "/api/market/categories",
+      "handler": "categories",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_market.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/market/providers",
+      "handler": "providers",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_market.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/market/search",
+      "handler": "search",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_market.rs"
+    },
+    {
+      "method": "GET",
       "path": "/api/mcp",
       "handler": "list_clients",
       "placeholder": false,
@@ -1354,11 +1459,116 @@
       "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_models.rs"
     },
     {
+      "method": "POST",
+      "path": "/api/models/openrouter/discover-extended",
+      "handler": "discover",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_openrouter.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/models/openrouter/models/filter",
+      "handler": "filter",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_openrouter.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/models/openrouter/series",
+      "handler": "series",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_openrouter.rs"
+    },
+    {
       "method": "GET",
       "path": "/api/pawapps",
-      "handler": "pawapps",
-      "placeholder": true,
-      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_navigation.rs"
+      "handler": "list",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_pawapps.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/pawapps/{app_id}",
+      "handler": "uninstall",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_pawapps.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/pawapps/{app_id}",
+      "handler": "detail",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_pawapps.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/pawapps/{app_id}/settings",
+      "handler": "settings",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_pawapps.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/pawapps/{app_id}/static/{*file_path}",
+      "handler": "asset",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_pawapps.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/plugins",
+      "handler": "list",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_frontend_plugins.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/plugins/{plugin_id}/files/{*file_path}",
+      "handler": "asset",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_frontend_plugins.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/plugins/{plugin_id}/status",
+      "handler": "status",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_frontend_plugins.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/plugins/catalog",
+      "handler": "official",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_market.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/plugins/market/search",
+      "handler": "plugins",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_market.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/providers/{provider_id}/oauth/callback",
+      "handler": "callback",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_provider_oauth.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/providers/{provider_id}/oauth/start",
+      "handler": "start",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_provider_oauth.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/providers/{provider_id}/oauth/status",
+      "handler": "status",
+      "placeholder": false,
+      "source": "qwenpaw-core/crates/qwenpaw-app-server/src/desktop_provider_oauth.rs"
     },
     {
       "method": "GET",
@@ -3103,7 +3313,7 @@
       "resolved": true,
       "apiPath": "/api/backups",
       "registered": true,
-      "placeholder": true
+      "placeholder": false
     },
     {
       "method": "GET",
@@ -3114,19 +3324,19 @@
       "line": 31,
       "resolved": true,
       "apiPath": "/api/backups/{id}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
-      "method": "GET",
-      "transport": "url",
+      "method": "POST",
+      "transport": "http",
       "path": "/backups/stream",
       "expression": "\"/backups/stream\"",
       "source": "console/src/api/modules/backup.ts",
       "line": 38,
       "resolved": true,
       "apiPath": "/api/backups/stream",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -3138,7 +3348,7 @@
       "line": 75,
       "resolved": true,
       "apiPath": "/api/backups/jobs",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -3151,7 +3361,7 @@
       "resolved": true,
       "apiPath": "/api/backups/jobs/active",
       "registered": true,
-      "placeholder": true
+      "placeholder": false
     },
     {
       "method": "GET",
@@ -3162,7 +3372,7 @@
       "line": 84,
       "resolved": true,
       "apiPath": "/api/backups/jobs/{jobId}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -3174,19 +3384,19 @@
       "line": 87,
       "resolved": true,
       "apiPath": "/api/backups/jobs/{jobId}/cancel",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
       "method": "GET",
-      "transport": "url",
+      "transport": "http",
       "path": "/backups/jobs/{jobId}/events",
       "expression": "`/backups/jobs/${jobId}/events`",
       "source": "console/src/api/modules/backup.ts",
       "line": 96,
       "resolved": true,
       "apiPath": "/api/backups/jobs/{jobId}/events",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -3198,7 +3408,7 @@
       "line": 126,
       "resolved": true,
       "apiPath": "/api/backups/{id}/restore",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -3210,7 +3420,7 @@
       "line": 133,
       "resolved": true,
       "apiPath": "/api/backups/delete",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -3222,31 +3432,31 @@
       "line": 139,
       "resolved": true,
       "apiPath": "/api/backups/{id}/export",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
-      "method": "GET",
-      "transport": "url",
+      "method": "POST",
+      "transport": "http",
       "path": "/backups/import",
       "expression": "\"/backups/import\"",
       "source": "console/src/api/modules/backup.ts",
       "line": 163,
       "resolved": true,
       "apiPath": "/api/backups/import",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
-      "method": "GET",
-      "transport": "url",
+      "method": "POST",
+      "transport": "http",
       "path": "/backups/import",
       "expression": "\"/backups/import\"",
       "source": "console/src/api/modules/backup.ts",
       "line": 187,
       "resolved": true,
       "apiPath": "/api/backups/import",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -4087,7 +4297,7 @@
       "resolved": true,
       "apiPath": "/api/console/debug/backend-logs?lines={lines}",
       "registered": true,
-      "placeholder": true
+      "placeholder": false
     },
     {
       "method": "GET",
@@ -4734,7 +4944,7 @@
       "line": 54,
       "resolved": true,
       "apiPath": "/api/market/providers",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -4746,7 +4956,7 @@
       "line": 57,
       "resolved": true,
       "apiPath": "/api/market/categories?lang={lang}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -4758,7 +4968,7 @@
       "line": 62,
       "resolved": true,
       "apiPath": "/api/market/search",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -4939,7 +5149,7 @@
       "resolved": true,
       "apiPath": "/api/pawapps",
       "registered": true,
-      "placeholder": true
+      "placeholder": false
     },
     {
       "method": "GET",
@@ -4950,7 +5160,7 @@
       "line": 52,
       "resolved": true,
       "apiPath": "/api/pawapps/{appId}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -4974,7 +5184,7 @@
       "line": 78,
       "resolved": true,
       "apiPath": "/api/pawapps/{appId}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -4986,7 +5196,7 @@
       "line": 95,
       "resolved": true,
       "apiPath": "/api/pawapps/{appId}/static/{filePath}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -4998,7 +5208,7 @@
       "line": 79,
       "resolved": true,
       "apiPath": "/api/plugins",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5010,7 +5220,7 @@
       "line": 95,
       "resolved": true,
       "apiPath": "/api/plugins/catalog",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5058,7 +5268,7 @@
       "line": 172,
       "resolved": true,
       "apiPath": "/api/plugins/{pluginId}/status",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5070,7 +5280,7 @@
       "line": 63,
       "resolved": true,
       "apiPath": "/api/plugins/market/search",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5382,7 +5592,7 @@
       "line": 191,
       "resolved": true,
       "apiPath": "/api/models/openrouter/series",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5394,7 +5604,7 @@
       "line": 194,
       "resolved": true,
       "apiPath": "/api/models/openrouter/discover-extended",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5406,7 +5616,7 @@
       "line": 200,
       "resolved": true,
       "apiPath": "/api/models/openrouter/models/filter",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5418,7 +5628,7 @@
       "line": 208,
       "resolved": true,
       "apiPath": "/api/providers/{providerId}/oauth/start",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5430,7 +5640,7 @@
       "line": 214,
       "resolved": true,
       "apiPath": "/api/providers/{providerId}/oauth/status?state={state}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -5674,8 +5884,8 @@
       "placeholder": false
     },
     {
-      "method": "GET",
-      "transport": "url",
+      "method": "POST",
+      "transport": "http",
       "path": "{endpoint}{value}",
       "expression": "`${endpoint}${qs ? `?${qs}` : \"\"}`",
       "source": "console/src/api/modules/skill.ts",
@@ -6599,7 +6809,7 @@
     },
     {
       "method": "GET",
-      "transport": "url",
+      "transport": "http",
       "path": "/workspace/code-files/{value}",
       "expression": "`/workspace/code-files/${filePath .split(\"/\") .map(encodeURIComponent) .join(\"/\")}`",
       "source": "console/src/api/modules/workspace.ts",
@@ -6726,7 +6936,7 @@
       "line": 40,
       "resolved": true,
       "apiPath": "/api/pawapps/{id}/static/{home_page}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {
@@ -6750,7 +6960,7 @@
       "line": 27,
       "resolved": true,
       "apiPath": "/api/frontend_plugin/{pluginId}/files/{apiPath}",
-      "registered": false,
+      "registered": true,
       "placeholder": false
     },
     {

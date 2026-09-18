@@ -2,7 +2,7 @@
 
 use std::{
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, Ordering},
         Mutex,
     },
     time::Duration,
@@ -16,6 +16,8 @@ use uuid::Uuid;
 
 mod command;
 mod events;
+#[cfg(test)]
+mod tests;
 
 /// Path of the desktop-only graceful shutdown endpoint on the backend.
 const DESKTOP_SHUTDOWN_PATH: &str = "/api/desktop/shutdown";
@@ -34,11 +36,13 @@ const FORCED_SHUTDOWN_EXIT_TIMEOUT: Duration = Duration::from_secs(5);
 #[derive(Default)]
 pub(crate) struct BackendState {
     inner: Mutex<BackendInner>,
-    generation: AtomicU64,
+    lifecycle: tokio::sync::Mutex<()>,
+    exiting: AtomicBool,
 }
 
 #[derive(Default)]
 struct BackendInner {
+    generation: u64,
     child: Option<CommandChild>,
     port: Option<u16>,
     shutdown_token: Option<String>,
@@ -65,11 +69,14 @@ impl BackendState {
     }
 
     fn next_generation(&self) -> u64 {
-        self.generation.fetch_add(1, Ordering::SeqCst) + 1
+        self.with_inner(|inner| {
+            inner.generation += 1;
+            inner.generation
+        })
     }
 
     fn is_current(&self, generation: u64) -> bool {
-        self.generation.load(Ordering::SeqCst) == generation
+        self.with_inner(|inner| inner.generation == generation)
     }
 
     fn port(&self) -> Option<u16> {
@@ -87,18 +94,21 @@ impl BackendState {
     }
 
     fn set_error_if_current(&self, generation: u64, message: String) {
-        if self.is_current(generation) {
-            self.set_error(message);
-        }
+        self.with_inner(|inner| {
+            if inner.generation == generation {
+                inner.port = None;
+                inner.error = Some(message);
+            }
+        });
     }
 
     fn set_port_if_current(&self, generation: u64, port: u16) {
-        if self.is_current(generation) {
-            self.with_inner(|inner| {
+        self.with_inner(|inner| {
+            if inner.generation == generation {
                 inner.port = Some(port);
                 inner.error = None;
-            });
-        }
+            }
+        });
     }
 
     fn clear_startup_state(&self) {
@@ -112,14 +122,25 @@ impl BackendState {
     }
 
     fn clear_child_if_current(&self, generation: u64) {
-        if self.is_current(generation) {
-            self.with_inner(|inner| {
+        self.with_inner(|inner| {
+            if inner.generation == generation {
+                inner.port = None;
+                if inner
+                    .terminated
+                    .as_ref()
+                    .is_some_and(|signal| !*signal.borrow())
+                {
+                    inner.error.get_or_insert_with(|| {
+                        "backend event stream closed without confirmed termination".into()
+                    });
+                    return;
+                }
                 inner.child.take();
                 inner.shutdown_token = None;
                 inner.terminated = None;
                 inner.stopping = false;
-            });
-        }
+            }
+        });
     }
 
     fn begin_stop(&self) -> StopPlan {
@@ -144,7 +165,7 @@ impl BackendState {
                 return StopPlan::Wait(terminated);
             };
 
-            self.next_generation();
+            inner.generation += 1;
             inner.stopping = true;
             StopPlan::Request {
                 pid: child.pid(),
@@ -224,19 +245,39 @@ impl BackendState {
                 self.force_kill();
                 match wait_for_termination(terminated, FORCED_SHUTDOWN_EXIT_TIMEOUT).await {
                     Ok(()) => {
-                        log::warn!("[backend] sidecar force-terminated after graceful shutdown failure");
+                        log::warn!(
+                            "[backend] sidecar force-terminated after graceful shutdown failure"
+                        );
                         self.finish_stop();
                         Ok(())
                     }
-                    Err(force_err) => {
-                        self.finish_stop();
-                        Err(format!(
-                            "{err}; failed to confirm forced backend termination: {force_err}"
-                        ))
-                    }
+                    Err(force_err) => Err(format!(
+                        "{err}; failed to confirm forced backend termination: {force_err}"
+                    )),
                 }
             }
         }
+    }
+
+    async fn restart(&self, start: impl FnOnce()) -> Result<(), String> {
+        // Keep stop and replacement spawn in one lifecycle transaction.
+        let _lifecycle = self.lifecycle.lock().await;
+        if self.exiting.load(Ordering::SeqCst) {
+            return Err("Desktop is exiting; backend restart is unavailable".into());
+        }
+        self.stop_and_wait().await?;
+        // Quit may have arrived while the previous process was draining.
+        if self.exiting.load(Ordering::SeqCst) {
+            return Err("Desktop is exiting; backend restart is unavailable".into());
+        }
+        start();
+        self.error().map_or(Ok(()), Err)
+    }
+
+    async fn shutdown(&self) -> Result<(), String> {
+        self.exiting.store(true, Ordering::SeqCst);
+        let _lifecycle = self.lifecycle.lock().await;
+        self.stop_and_wait().await
     }
 }
 
@@ -297,14 +338,7 @@ pub(crate) fn backend_startup_error(state: tauri::State<'_, BackendState>) -> Op
 /// Stops the current sidecar, starts a fresh one, and returns its API port.
 #[tauri::command]
 pub(crate) async fn restart_backend(app: tauri::AppHandle) -> Result<(), String> {
-    stop_and_wait(&app).await?;
-    start(&app);
-
-    let state = app.state::<BackendState>();
-    match state.error() {
-        Some(err) => Err(err),
-        None => Ok(()),
-    }
+    app.state::<BackendState>().restart(|| start(&app)).await
 }
 
 /// Installs backend-related plugins and starts the sidecar during app setup.
@@ -332,7 +366,7 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
 
 /// Gracefully stops the current sidecar and waits for its process to exit.
 pub(crate) async fn stop_and_wait(app: &tauri::AppHandle) -> Result<(), String> {
-    app.state::<BackendState>().stop_and_wait().await
+    app.state::<BackendState>().shutdown().await
 }
 
 fn desktop_log_level() -> log::LevelFilter {

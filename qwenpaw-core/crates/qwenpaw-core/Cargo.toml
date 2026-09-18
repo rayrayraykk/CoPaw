@@ -7,7 +7,10 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+base64.workspace = true
 bytes.workspace = true
+cap-std.workspace = true
+cap-fs-ext.workspace = true
 dirs.workspace = true
 futures-util.workspace = true
 qwenpaw-protocol = { path = "../qwenpaw-protocol" }
@@ -26,6 +29,7 @@ uuid.workspace = true
 yaml_serde.workspace = true
 
 [dev-dependencies]
+rusqlite.workspace = true
 axum.workspace = true
 pretty_assertions.workspace = true
 tempfile.workspace = true

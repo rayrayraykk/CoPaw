@@ -22,6 +22,9 @@ use tracing::warn;
 use super::AppServer;
 use super::DesktopCredentialStore;
 
+#[path = "desktop_mcp_restore.rs"]
+pub(super) mod restore;
+
 const DATA_VERSION: u32 = 1;
 const MASKED_VALUE: &str = "********";
 const RESERVED_PREFIXES: [&str; 5] = [
@@ -41,11 +44,44 @@ struct StoredMcpData {
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 struct StoredMcpSecrets {
     headers: HashMap<String, String>,
     env: HashMap<String, String>,
     oauth_access_token: String,
     oauth_refresh_token: String,
+}
+
+pub(super) fn validate_backup_secrets(value: &str) -> Result<(), &'static str> {
+    if value.len() > 1024 * 1024 {
+        return Err("Backup MCP credential is too large");
+    }
+    let secrets: StoredMcpSecrets =
+        serde_json::from_str(value).map_err(|_| "Backup MCP credential is invalid")?;
+    if secrets.headers.len() > 64 {
+        return Err("Backup MCP headers exceed their limit");
+    }
+    let mut header_bytes = 0_usize;
+    for (name, value) in &secrets.headers {
+        header_bytes = header_bytes.saturating_add(name.len() + value.len());
+        if header_bytes > 16_384
+            || axum::http::HeaderName::from_bytes(name.as_bytes()).is_err()
+            || axum::http::HeaderValue::from_str(value).is_err()
+        {
+            return Err("Backup MCP headers are invalid");
+        }
+    }
+    for (key, value) in &secrets.env {
+        if key.is_empty() || key.contains(['=', '\0']) || value.contains('\0') {
+            return Err("Backup MCP environment is invalid");
+        }
+    }
+    for token in [&secrets.oauth_access_token, &secrets.oauth_refresh_token] {
+        if token.len() > 128 * 1024 || token.chars().any(char::is_control) {
+            return Err("Backup MCP OAuth credential is invalid");
+        }
+    }
+    Ok(())
 }
 
 #[derive(Debug, Deserialize)]
@@ -117,6 +153,33 @@ pub(super) fn initialize(
     core.replace_mcp_client_settings(clients)
         .map_err(anyhow::Error::msg)
         .context("stored Desktop MCP configuration could not be activated")
+}
+
+pub(super) fn backup_data(core: &Core) -> Result<String, &'static str> {
+    serde_json::to_string(&StoredMcpData {
+        version: DATA_VERSION,
+        clients: core
+            .mcp_client_settings()
+            .into_iter()
+            .map(without_secrets)
+            .collect(),
+    })
+    .map_err(|_| "MCP configuration snapshot failed")
+}
+
+/// Includes effective bootstrap fields, which may never have been in a keyring.
+/// The caller must explicitly select secrets and hold the Desktop MCP lock.
+pub(super) fn backup_effective_secrets(
+    core: &Core,
+) -> Result<std::collections::BTreeMap<String, String>, &'static str> {
+    core.mcp_client_settings()
+        .iter()
+        .map(|client| {
+            serde_json::to_string(&client_secrets(client))
+                .map(|value| (client.key.clone(), value))
+                .map_err(|_| "MCP credential snapshot failed")
+        })
+        .collect()
 }
 
 pub(super) fn router() -> Router<AppServer> {
@@ -521,7 +584,7 @@ fn replace_credentials(
 }
 
 fn restore_client_secrets(
-    mut client: McpClientSettings,
+    client: McpClientSettings,
     credentials: &dyn DesktopCredentialStore,
 ) -> anyhow::Result<McpClientSettings> {
     let secrets = credentials
@@ -530,13 +593,17 @@ fn restore_client_secrets(
         .transpose()
         .context("stored Desktop MCP credential is invalid")?
         .unwrap_or_default();
+    Ok(with_secrets(client, secrets))
+}
+
+fn with_secrets(mut client: McpClientSettings, secrets: StoredMcpSecrets) -> McpClientSettings {
     client.headers = secrets.headers;
     client.env = secrets.env;
     if let Some(oauth) = &mut client.oauth {
         oauth.access_token = secrets.oauth_access_token;
         oauth.refresh_token = secrets.oauth_refresh_token;
     }
-    Ok(client)
+    client
 }
 
 fn without_secrets(mut client: McpClientSettings) -> McpClientSettings {

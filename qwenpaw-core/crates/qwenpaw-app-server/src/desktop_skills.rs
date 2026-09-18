@@ -46,6 +46,9 @@ use zip::ZipArchive;
 
 use super::AppServer;
 
+#[path = "desktop_skills_hub.rs"]
+mod hub;
+
 type ApiError = (StatusCode, Json<Value>);
 
 const MAX_SKILL_NAME_BYTES: usize = 64;
@@ -1853,7 +1856,7 @@ async fn import_pool_from_hub(
     Json(body): Json<HubInstallRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let root = pool_root(&server)?;
-    let installed = install_hub_bundle(&server, &root, &body, true, None).await?;
+    let installed = install_hub_bundle(&server, &root, &body, true, None, None).await?;
     Ok(Json(json!({
         "installed": true,
         "name": installed,
@@ -1868,6 +1871,11 @@ async fn start_hub_install(
     headers: HeaderMap,
     Json(body): Json<HubInstallRequest>,
 ) -> Result<Json<Value>, ApiError> {
+    let operation = server
+        .inner
+        .core
+        .operation_guard()
+        .map_err(|error| conflict(json!(error.to_string())))?;
     validate_http_url(&body.bundle_url)?;
     if !body.target_name.is_empty() {
         validate_skill_name(&body.target_name)?;
@@ -1901,6 +1909,7 @@ async fn start_hub_install(
     let task_id = task.task_id.clone();
     let worker_server = server.clone();
     tokio::spawn(async move {
+        let _operation = operation;
         run_hub_install(worker_server, task_id, workspace, body, cancellation).await;
     });
     Ok(Json(
@@ -1963,38 +1972,21 @@ async fn run_hub_install(
         &body,
         false,
         Some(cancellation.clone()),
+        Some(&task_id),
     )
     .await;
-    if cancellation.is_cancelled() {
-        update_hub_task(&server, &task_id, "cancelled", None, None).await;
-    } else {
-        match result {
-            Ok(name) => {
-                update_hub_task(
-                    &server,
-                    &task_id,
-                    "completed",
-                    None,
-                    Some(json!({
-                        "installed": true,
-                        "name": name,
-                        "enabled": body.enable,
-                        "source_url": body.bundle_url,
-                        "installed_from": classify_hub_origin(&body.bundle_url)
-                    })),
-                )
-                .await;
-            }
-            Err((_, Json(error))) => {
-                update_hub_task(
-                    &server,
-                    &task_id,
-                    "failed",
-                    Some(error.get("detail").unwrap_or(&error).to_string()),
-                    Some(error),
-                )
-                .await;
-            }
+    if let Err((_, Json(error))) = result {
+        if cancellation.is_cancelled() {
+            update_hub_task(&server, &task_id, "cancelled", None, None).await;
+        } else {
+            update_hub_task(
+                &server,
+                &task_id,
+                "failed",
+                Some(error.get("detail").unwrap_or(&error).to_string()),
+                Some(error),
+            )
+            .await;
         }
     }
     server
@@ -2032,16 +2024,19 @@ async fn install_hub_bundle(
     body: &HubInstallRequest,
     pool: bool,
     cancellation: Option<CancellationToken>,
+    task_id: Option<&str>,
 ) -> Result<String, ApiError> {
     validate_http_url(&body.bundle_url)?;
-    let bytes = download_hub_bytes(&body.bundle_url, cancellation.as_ref()).await?;
-    if cancellation
-        .as_ref()
-        .is_some_and(CancellationToken::is_cancelled)
-    {
-        return Err(conflict(Value::String(String::from(
-            "Skill import cancelled by user",
-        ))));
+    let token = cancellation.clone().unwrap_or_default();
+    let bytes = tokio::select! {
+        biased;
+        () = token.cancelled() => return Err(hub::cancelled()),
+        result = tokio::time::timeout(std::time::Duration::from_secs(90), hub::resolve(server, body)) => {
+            result.map_err(|_| bad_gateway("Skill hub import timed out"))??
+        }
+    };
+    if token.is_cancelled() {
+        return Err(hub::cancelled());
     }
     let temporary =
         tempfile::tempdir_in(root).map_err(|_| internal("Hub Skill could not be staged"))?;
@@ -2061,15 +2056,20 @@ async fn install_hub_bundle(
     };
     validate_skill_name(&name)?;
     scan_or_reject(server, &name, &source)?;
-    if cancellation
-        .as_ref()
-        .is_some_and(CancellationToken::is_cancelled)
-    {
-        return Err(conflict(Value::String(String::from(
-            "Skill import cancelled by user",
-        ))));
+    if token.is_cancelled() {
+        return Err(hub::cancelled());
     }
     let _guard = server.inner.desktop_skills_lock.lock().await;
+    // The cancellation handler uses this same task-state lock. Commit and
+    // publish completion under one guard, so a late cancel observes completed.
+    let mut tasks = if task_id.is_some() {
+        Some(server.inner.desktop_skill_tasks.write().await)
+    } else {
+        None
+    };
+    if token.is_cancelled() {
+        return Err(hub::cancelled());
+    }
     let mut manifest = reconcile_manifest(root, pool)?;
     if manifest_skills(&manifest).contains_key(&name) {
         return Err(conflict(json!({
@@ -2083,9 +2083,9 @@ async fn install_hub_bundle(
             }]
         })));
     }
+    let metadata = skill_metadata(&source, &name)?;
     let destination = skills_directory(root, pool).join(&name);
     install_directory(&source, &destination, false)?;
-    let metadata = skill_metadata(&destination, &name)?;
     manifest_skills_mut(&mut manifest).insert(
         name.clone(),
         json!({
@@ -2103,19 +2103,43 @@ async fn install_hub_bundle(
         let _ = fs::remove_dir_all(destination);
         return Err(error);
     }
+    if let (Some(id), Some(tasks)) = (task_id, tasks.as_mut()) {
+        let task = tasks.get_mut(id).expect("registered install task");
+        task.status = String::from("completed");
+        task.updated_at = unix_time_seconds();
+        task.error = None;
+        task.result = Some(json!({
+            "installed": true,
+            "name": name,
+            "enabled": body.enable,
+            "source_url": body.bundle_url,
+            "installed_from": classify_hub_origin(&body.bundle_url)
+        }));
+    }
     Ok(name)
 }
 
 async fn download_hub_bytes(
     url: &str,
-    cancellation: Option<&CancellationToken>,
+    headers: HeaderMap,
+    max_bytes: usize,
 ) -> Result<Vec<u8>, ApiError> {
-    let response = reqwest::Client::new()
+    // Signed requests must never forward credentials to a redirect target.
+    let redirect = if headers.contains_key("authorization") {
+        reqwest::redirect::Policy::none()
+    } else {
+        reqwest::redirect::Policy::limited(10)
+    };
+    let response = reqwest::Client::builder()
+        .redirect(redirect)
+        .build()
+        .map_err(|_| bad_gateway("Skill hub HTTP client could not start"))?
         .get(url)
+        .headers(headers)
         .timeout(std::time::Duration::from_secs(30))
         .send()
         .await
-        .map_err(|error| bad_gateway(&format!("Skill hub import failed: {error}")))?;
+        .map_err(|_| bad_gateway("Skill hub import request failed"))?;
     if !response.status().is_success() {
         return Err(bad_gateway(&format!(
             "Skill hub import failed: HTTP {}",
@@ -2124,20 +2148,15 @@ async fn download_hub_bytes(
     }
     if response
         .content_length()
-        .is_some_and(|length| length > MAX_SKILL_PACKAGE_BYTES_U64)
+        .is_some_and(|length| length > max_bytes as u64)
     {
         return Err(payload_too_large("Hub Skill package is too large"));
     }
     let mut stream = response.bytes_stream();
     let mut bytes = Vec::new();
     while let Some(chunk) = stream.next().await {
-        if cancellation.is_some_and(CancellationToken::is_cancelled) {
-            return Err(conflict(Value::String(String::from(
-                "Skill import cancelled by user",
-            ))));
-        }
         let chunk = chunk.map_err(|_| bad_gateway("Hub Skill download failed"))?;
-        if bytes.len().saturating_add(chunk.len()) > MAX_SKILL_PACKAGE_BYTES {
+        if bytes.len().saturating_add(chunk.len()) > max_bytes {
             return Err(payload_too_large("Hub Skill package is too large"));
         }
         bytes.extend_from_slice(&chunk);
@@ -3327,6 +3346,7 @@ fn classify_hub_origin(value: &str) -> &'static str {
         "skillsmp.com" | "www.skillsmp.com" => "skillsmp",
         "platform.agentscope.io" => "qwenpaw",
         "modelscope.cn" | "www.modelscope.cn" => "modelscope",
+        "api.aliyun.com" | "www.api.aliyun.com" => "aliyun",
         _ => "url",
     }
 }

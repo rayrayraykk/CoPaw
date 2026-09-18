@@ -357,6 +357,9 @@ pub enum Item {
     UserMessage {
         id: String,
         text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        input: Option<Vec<UserInput>>,
     },
     AgentMessage {
         id: String,
@@ -398,6 +401,9 @@ pub enum UserInput {
     Text {
         text: String,
     },
+    Image {
+        path: String,
+    },
     FileReference {
         path: String,
         #[serde(default)]
@@ -412,7 +418,7 @@ impl UserInput {
     pub fn text(&self) -> Option<&str> {
         match self {
             Self::Text { text } => Some(text),
-            Self::FileReference { .. } => None,
+            Self::FileReference { .. } | Self::Image { .. } => None,
         }
     }
 }

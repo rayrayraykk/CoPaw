@@ -4,6 +4,7 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::RwLock as SyncRwLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
@@ -60,6 +61,7 @@ use qwenpaw_storage::StoredToolCall;
 use qwenpaw_storage::StoredTurnMetadata;
 use qwenpaw_storage::StoredUsageRecord;
 use qwenpaw_storage::ThreadStore;
+use qwenpaw_storage::UsageOwner;
 use qwenpaw_tools::ApprovalRequirement;
 use qwenpaw_tools::ToolCall;
 use qwenpaw_tools::ToolOutput;
@@ -76,7 +78,9 @@ use crate::model::ModelClient;
 use crate::model::ModelConfig;
 use crate::model::ModelConfigError;
 use crate::model::ModelEvent;
+use crate::model::ModelRuntime;
 use crate::model::ModelUsage;
+use crate::model_options::ModelRequestOptions;
 use crate::security::BlockedSkillRecord;
 use crate::security::SecurityApprovalMode;
 use crate::security::SecurityPolicy;
@@ -90,6 +94,19 @@ use crate::tool_calls::ToolCallCoordinator;
 use crate::tool_calls::ToolCallSnapshot;
 use crate::tool_calls::ToolCallSubscription;
 use crate::tool_calls::ToolCancellationReason;
+
+#[path = "runtime_backup.rs"]
+mod backup;
+#[cfg(test)]
+#[path = "runtime_model_options_tests.rs"]
+mod model_options_tests;
+#[path = "runtime_agent_publication.rs"]
+mod publication;
+#[path = "runtime_quiescence.rs"]
+mod quiescence;
+pub use backup::CoreOperationGuard;
+pub use backup::CoreRestoreGuard;
+pub use quiescence::CoreThreadQuiescenceGuard;
 
 const EVENT_CHANNEL_CAPACITY: usize = 64;
 const DEFAULT_LIST_LIMIT: u32 = 50;
@@ -121,7 +138,7 @@ const ACCESS_CONTROL_DATA_SETTING: &str = "desktop_access_control_data";
 const MAIL_ACCESS_CONTROL_DATA_SETTING: &str = "desktop_mail_access_control_data";
 const INBOX_DATA_SETTING: &str = "desktop_inbox_data";
 const CHAT_CATALOG_DATA_SETTING: &str = "desktop_chat_catalog_data";
-const CHANNEL_CONFIG_DATA_SETTING: &str = "desktop_channel_config_data";
+const CHANNEL_CONFIG_DATA_SETTING: &str = qwenpaw_storage::CHANNEL_CONFIG_DATA_KEY;
 const AGENT_SETTINGS_DATA_SETTING: &str = "desktop_agent_settings_data";
 const HEARTBEAT_DATA_SETTING: &str = "desktop_heartbeat_data";
 const MCP_DATA_SETTING: &str = "desktop_mcp_data";
@@ -173,12 +190,36 @@ impl Default for AgentRuntimeConfig {
     }
 }
 
+impl AgentRuntimeConfig {
+    fn validate(&self) -> Result<(), CoreError> {
+        if !(1..=500).contains(&self.max_agent_steps) {
+            return Err(CoreError::Config(String::from(
+                "Agent max steps must be between 1 and 500",
+            )));
+        }
+        if !(1_000..=600_000).contains(&self.shell_timeout_ms) {
+            return Err(CoreError::Config(String::from(
+                "Agent shell timeout must be between 1 and 600 seconds",
+            )));
+        }
+        if self.shell_executable.len() > 4_096
+            || self.shell_executable.chars().any(char::is_control)
+        {
+            return Err(CoreError::Config(String::from(
+                "Agent shell executable is invalid",
+            )));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone)]
 pub struct Core {
     inner: Arc<CoreInner>,
 }
 
 struct CoreInner {
+    operations: Arc<tokio::sync::RwLock<()>>,
     model: ModelClient,
     mcp: SyncRwLock<McpManager>,
     security: SyncRwLock<SecurityPolicy>,
@@ -189,6 +230,7 @@ struct CoreInner {
     builtin_tool_overrides: SyncRwLock<BTreeMap<String, bool>>,
     tool_calls: ToolCallCoordinator,
     system_prompt_files: SyncRwLock<Vec<String>>,
+    final_persistence_failed: AtomicBool,
 }
 
 #[derive(Default)]
@@ -199,16 +241,20 @@ struct State {
 }
 
 struct ThreadRecord {
+    execution: Arc<tokio::sync::RwLock<()>>,
     thread: Thread,
     turns: Vec<Turn>,
     messages: Vec<StoredMessage>,
     turn_metadata: Vec<StoredTurnMetadata>,
     active_turn: Option<ActiveTurn>,
+    checkpoint: Option<StoredThread>,
+    persisted_turns: HashSet<String>,
 }
 
 struct ActiveTurn {
     id: String,
     cancellation: CancellationToken,
+    usage_owner: Option<UsageOwner>,
 }
 
 struct PendingApproval {
@@ -218,6 +264,21 @@ struct PendingApproval {
 }
 
 impl Core {
+    /// Captures a bounded logical backup without copying a live database file.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if storage is invalid or exceeds the supplied bound.
+    pub fn backup_snapshot(
+        &self,
+        max_bytes: u64,
+    ) -> Result<qwenpaw_storage::StoreBackup, CoreError> {
+        self.inner
+            .store
+            .backup_snapshot(max_bytes)
+            .map_err(CoreError::storage)
+    }
+
     /// Creates an ephemeral in-memory core.
     ///
     /// # Panics
@@ -331,17 +392,14 @@ impl Core {
             store.upsert(&snapshot).map_err(CoreError::storage)?;
             threads.insert(
                 snapshot.thread.id.clone(),
-                ThreadRecord {
-                    thread: snapshot.thread,
-                    turns: snapshot.turns,
-                    messages: snapshot.messages,
-                    turn_metadata: snapshot.turn_metadata,
-                    active_turn: None,
-                },
+                ThreadRecord::from_stored(snapshot),
             );
         }
+        let environment = mcp.runtime_environment().clone();
+        validate_environment(&environment)?;
         Ok(Self {
             inner: Arc::new(CoreInner {
+                operations: Arc::new(tokio::sync::RwLock::new(())),
                 model: ModelClient::new(model_config).map_err(|error| CoreError::model(&error))?,
                 mcp: SyncRwLock::new(mcp),
                 security: SyncRwLock::new(security),
@@ -351,11 +409,12 @@ impl Core {
                     approvals: HashMap::new(),
                     usage_records,
                 }),
-                runtime_environment: SyncRwLock::new(BTreeMap::new()),
+                runtime_environment: SyncRwLock::new(environment),
                 agent_runtime_config: SyncRwLock::new(AgentRuntimeConfig::default()),
                 builtin_tool_overrides: SyncRwLock::new(builtin_tool_overrides),
                 tool_calls: ToolCallCoordinator::new(offload_on_deadline),
                 system_prompt_files: SyncRwLock::new(system_prompt_files),
+                final_persistence_failed: AtomicBool::new(false),
             }),
         })
     }
@@ -370,6 +429,7 @@ impl Core {
         &self,
         params: ThreadStartParams,
     ) -> Result<ThreadStartResponse, CoreError> {
+        let _operation = self.operation_guard()?;
         let workspace_path = match params.workspace_root {
             Some(path) => std::path::PathBuf::from(path),
             None => std::env::current_dir().map_err(CoreError::workspace)?,
@@ -390,11 +450,14 @@ impl Core {
             updated_at: timestamp,
         };
         let record = ThreadRecord {
+            execution: Arc::default(),
             thread: thread.clone(),
             turns: Vec::new(),
             messages: vec![StoredMessage::text("system", system_prompt)],
             turn_metadata: Vec::new(),
             active_turn: None,
+            checkpoint: None,
+            persisted_turns: HashSet::new(),
         };
         self.inner
             .store
@@ -452,6 +515,7 @@ impl Core {
         &self,
         params: &ThreadResumeParams,
     ) -> Result<ThreadResumeResponse, CoreError> {
+        let _operation = self.operation_guard()?;
         let (thread, snapshot) = {
             let mut state = self.inner.state.lock().await;
             let record = state
@@ -484,6 +548,7 @@ impl Core {
         &self,
         params: &ThreadArchiveParams,
     ) -> Result<ThreadArchiveResponse, CoreError> {
+        let _operation = self.operation_guard()?;
         let (thread, snapshot) = {
             let mut state = self.inner.state.lock().await;
             let record = state
@@ -526,6 +591,28 @@ impl Core {
         })
     }
 
+    /// Reads immutable user media snapshots for in-process history adapters.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Thread is unknown. Only authorized in-process
+    /// history adapters should expose these private media snapshots.
+    pub async fn read_user_inputs(
+        &self,
+        thread_id: &str,
+    ) -> Result<Vec<qwenpaw_storage::StoredUserInput>, CoreError> {
+        let state = self.inner.state.lock().await;
+        let record = state
+            .threads
+            .get(thread_id)
+            .ok_or_else(|| CoreError::ThreadNotFound(thread_id.to_owned()))?;
+        Ok(record
+            .messages
+            .iter()
+            .filter_map(|message| message.user_input.clone())
+            .collect())
+    }
+
     /// Returns immutable Thread snapshots for in-process statistics adapters.
     ///
     /// The snapshots include no credentials and preserve the same persisted
@@ -546,12 +633,15 @@ impl Core {
         self.inner.state.lock().await.usage_records.clone()
     }
 
-    /// Exports one idle Thread as a complete in-memory checkpoint.
+    /// Exports the last successfully saved complete conversation boundary.
+    ///
+    /// During a Turn, or after its final save fails, retain the preceding
+    /// boundary without discarding replies already visible to the client.
     ///
     /// # Errors
     ///
-    /// Returns an error when the Thread is missing or currently executing a
-    /// Turn. The returned value contains conversation state but no secrets.
+    /// Returns an error when the Thread is missing or has inconsistent active
+    /// state. The returned value contains conversation state but no secrets.
     pub async fn export_thread_checkpoint(
         &self,
         thread_id: &str,
@@ -561,10 +651,68 @@ impl Core {
             .threads
             .get(thread_id)
             .ok_or_else(|| CoreError::ThreadNotFound(thread_id.to_owned()))?;
-        if record.active_turn.is_some() || record.thread.status == ThreadStatus::Active {
+        if let Some(checkpoint) = &record.checkpoint {
+            return Ok(checkpoint.clone());
+        }
+        if record.thread.status == ThreadStatus::Active {
             return Err(CoreError::ThreadBusy(thread_id.to_owned()));
         }
         Ok(record.snapshot())
+    }
+
+    /// Reports a successful final Turn write observed by this runtime.
+    ///
+    /// Missing, active, failed-save, loaded, and restored Turns have no receipt.
+    /// A later save cannot create a receipt for an earlier failed write. This
+    /// reports Store success, not a guarantee against power loss.
+    pub async fn turn_was_persisted(&self, thread_id: &str, turn_id: &str) -> bool {
+        self.inner
+            .state
+            .lock()
+            .await
+            .threads
+            .get(thread_id)
+            .is_some_and(|record| record.persisted_turns.contains(turn_id))
+    }
+
+    /// Checks final-write failures observed during this Core instance's lifetime.
+    ///
+    /// Hosts must stop admission and drain their producers before using this
+    /// as an exit check. Later writes or restores cannot acknowledge an earlier
+    /// failed final write. This does not wait for active work or retry storage.
+    ///
+    /// # Errors
+    ///
+    /// Returns a sanitized storage error if any final Turn write failed.
+    pub fn check_final_persistence(&self) -> Result<(), CoreError> {
+        if self.inner.final_persistence_failed.load(Ordering::Relaxed) {
+            return Err(CoreError::Storage(String::from(
+                "one or more final turn writes failed in this Core instance",
+            )));
+        }
+        Ok(())
+    }
+
+    /// Validates conversation content before staging an imported checkpoint.
+    /// The caller separately validates the target Thread and Workspace identity.
+    ///
+    /// # Errors
+    ///
+    /// Rejects foreign/in-progress Turns or an excessive model-message count.
+    pub fn validate_thread_checkpoint(checkpoint: &StoredThread) -> Result<(), CoreError> {
+        if checkpoint.turns.iter().any(|turn| {
+            turn.thread_id != checkpoint.thread.id || turn.status == TurnStatus::InProgress
+        }) {
+            return Err(CoreError::Checkpoint(String::from(
+                "checkpoint contains invalid Turn state",
+            )));
+        }
+        if checkpoint.messages.len() > MAX_CHECKPOINT_MESSAGES {
+            return Err(CoreError::Checkpoint(String::from(
+                "checkpoint contains too many model messages",
+            )));
+        }
+        Ok(())
     }
 
     /// Replaces an idle Thread's conversation with an exported checkpoint.
@@ -582,6 +730,7 @@ impl Core {
         thread_id: &str,
         mut checkpoint: StoredThread,
     ) -> Result<ThreadReadResponse, CoreError> {
+        let _operation = self.operation_guard()?;
         let mut state = self.inner.state.lock().await;
         let current = state
             .threads
@@ -600,30 +749,20 @@ impl Core {
                 "checkpoint Workspace does not match the current Thread",
             )));
         }
-        if checkpoint
-            .turns
-            .iter()
-            .any(|turn| turn.thread_id != thread_id || turn.status == TurnStatus::InProgress)
-        {
-            return Err(CoreError::Checkpoint(String::from(
-                "checkpoint contains invalid Turn state",
-            )));
-        }
-        if checkpoint.messages.len() > MAX_CHECKPOINT_MESSAGES {
-            return Err(CoreError::Checkpoint(String::from(
-                "checkpoint contains too many model messages",
-            )));
-        }
+        Self::validate_thread_checkpoint(&checkpoint)?;
         ensure_system_message(&mut checkpoint);
         let mut thread = current.thread.clone();
         thread.status = ThreadStatus::Idle;
         thread.updated_at = now();
         let replacement = ThreadRecord {
+            execution: current.execution.clone(),
             thread: thread.clone(),
             turns: checkpoint.turns,
             messages: checkpoint.messages,
             turn_metadata: checkpoint.turn_metadata,
             active_turn: None,
+            checkpoint: None,
+            persisted_turns: HashSet::new(),
         };
         self.inner
             .store
@@ -644,6 +783,7 @@ impl Core {
     /// Returns an error when the thread is missing, active, or cannot be
     /// removed from storage.
     pub async fn delete_thread(&self, thread_id: &str) -> Result<Thread, CoreError> {
+        let _operation = self.operation_guard()?;
         let mut state = self.inner.state.lock().await;
         let thread = state
             .threads
@@ -681,6 +821,7 @@ impl Core {
         thread_id: &str,
         workspace_root: &Path,
     ) -> Result<Thread, CoreError> {
+        let _operation = self.operation_guard()?;
         let workspace = Workspace::open(workspace_root).map_err(CoreError::workspace)?;
         let workspace_root = workspace.root().to_string_lossy().into_owned();
         let (thread, snapshot) = {
@@ -716,6 +857,14 @@ impl Core {
         }
     }
 
+    /// Captures model identity and its effective credential together for an
+    /// explicitly authorized application backup or restore. Unlike `read_config`,
+    /// this may contain a secret and must never be exposed by configuration APIs.
+    #[must_use]
+    pub fn backup_model_config(&self) -> ModelConfig {
+        self.inner.model.config_snapshot()
+    }
+
     /// Validates, persists, and applies non-secret model configuration.
     ///
     /// # Errors
@@ -725,7 +874,10 @@ impl Core {
         &self,
         params: ConfigWriteParams,
     ) -> Result<ConfigWriteResponse, CoreError> {
-        let current = self.inner.model.config_snapshot();
+        let _operation = self.operation_guard()?;
+        let mut runtime = self.inner.model.write_runtime();
+        let current = runtime.config.clone();
+        let previous_base = current.base_url.clone();
         let next = ModelConfig {
             api_key: current.api_key,
             base_url: params.base_url.unwrap_or(current.base_url),
@@ -740,7 +892,10 @@ impl Core {
                 (DEFAULT_MODEL_SETTING, next.default_model.as_str()),
             ])
             .map_err(CoreError::storage)?;
-        self.inner.model.replace_config(next.clone());
+        if next.base_url != previous_base {
+            runtime.options = ModelRequestOptions::default();
+        }
+        runtime.config = next.clone();
         Ok(ConfigWriteResponse {
             config: protocol_config(&next),
         })
@@ -752,7 +907,9 @@ impl Core {
     ///
     /// Returns an error when the API key violates the bounded secret format.
     pub fn set_runtime_api_key(&self, api_key: Option<String>) -> Result<(), CoreError> {
-        let current = self.inner.model.config_snapshot();
+        let _operation = self.operation_guard()?;
+        let mut runtime = self.inner.model.write_runtime();
+        let current = runtime.config.clone();
         let next = ModelConfig {
             api_key,
             base_url: current.base_url,
@@ -760,7 +917,35 @@ impl Core {
         }
         .normalize()
         .map_err(CoreError::config)?;
-        self.inner.model.replace_config(next);
+        runtime.config = next;
+        Ok(())
+    }
+
+    /// Applies provider identity, credentials and request options atomically.
+    /// Only the URL and default model are persisted here. The application owns
+    /// durable provider settings; headers and API keys stay out of Core SQLite.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid options, restore contention or persistence
+    /// failure. None of the live model settings change on failure.
+    pub fn configure_model_runtime(
+        &self,
+        config: ModelConfig,
+        options: ModelRequestOptions,
+    ) -> Result<(), CoreError> {
+        let _operation = self.operation_guard()?;
+        let config = config.normalize().map_err(CoreError::config)?;
+        options.validate().map_err(CoreError::config)?;
+        let mut runtime = self.inner.model.write_runtime();
+        self.inner
+            .store
+            .write_settings(&[
+                (BASE_URL_SETTING, config.base_url.as_str()),
+                (DEFAULT_MODEL_SETTING, config.default_model.as_str()),
+            ])
+            .map_err(CoreError::storage)?;
+        *runtime = ModelRuntime { config, options };
         Ok(())
     }
 
@@ -782,6 +967,7 @@ impl Core {
     ///
     /// Returns an error when the directory is invalid or persistence fails.
     pub fn write_preferred_workspace(&self, root: &Path) -> Result<String, CoreError> {
+        let _operation = self.operation_guard()?;
         let workspace = Workspace::open(root).map_err(CoreError::workspace)?;
         let root = workspace.root().to_string_lossy().into_owned();
         self.inner
@@ -819,6 +1005,7 @@ impl Core {
     ///
     /// Returns an error when SQLite persistence fails.
     pub fn write_coding_mode(&self, enabled: bool) -> Result<bool, CoreError> {
+        let _operation = self.operation_guard()?;
         let value = if enabled { "true" } else { "false" };
         self.inner
             .store
@@ -851,6 +1038,7 @@ impl Core {
     /// Returns an error when the language is unsupported or SQLite
     /// persistence fails.
     pub fn write_ui_language(&self, language: &str) -> Result<String, CoreError> {
+        let _operation = self.operation_guard()?;
         let language = language.trim();
         validate_ui_language(language)?;
         self.inner
@@ -888,6 +1076,7 @@ impl Core {
     ///
     /// Returns an error when a name is invalid or SQLite cannot be written.
     pub fn write_environment_keys(&self, keys: &[String]) -> Result<Vec<String>, CoreError> {
+        let _operation = self.operation_guard()?;
         let mut keys = keys.to_vec();
         keys.sort();
         keys.dedup();
@@ -919,6 +1108,7 @@ impl Core {
     ///
     /// Returns an error when the Core settings store cannot be written.
     pub fn write_cron_data(&self, value: &str) -> Result<(), CoreError> {
+        let _operation = self.operation_guard()?;
         self.inner
             .store
             .write_settings(&[(CRON_DATA_SETTING, value)])
@@ -943,6 +1133,7 @@ impl Core {
     ///
     /// Returns an error when the Core settings store cannot be written.
     pub fn write_access_control_data(&self, value: &str) -> Result<(), CoreError> {
+        let _operation = self.operation_guard()?;
         self.inner
             .store
             .write_settings(&[(ACCESS_CONTROL_DATA_SETTING, value)])
@@ -967,6 +1158,7 @@ impl Core {
     ///
     /// Returns an error when the Core settings store cannot be written.
     pub fn write_mail_access_control_data(&self, value: &str) -> Result<(), CoreError> {
+        let _operation = self.operation_guard()?;
         self.inner
             .store
             .write_settings(&[(MAIL_ACCESS_CONTROL_DATA_SETTING, value)])
@@ -991,6 +1183,7 @@ impl Core {
     ///
     /// Returns an error when the Core settings store cannot be written.
     pub fn write_inbox_data(&self, value: &str) -> Result<(), CoreError> {
+        let _operation = self.operation_guard()?;
         self.inner
             .store
             .write_settings(&[(INBOX_DATA_SETTING, value)])
@@ -1015,6 +1208,7 @@ impl Core {
     ///
     /// Returns an error when the Core settings store cannot be written.
     pub fn write_chat_catalog_data(&self, value: &str) -> Result<(), CoreError> {
+        let _operation = self.operation_guard()?;
         self.inner
             .store
             .write_settings(&[(CHAT_CATALOG_DATA_SETTING, value)])
@@ -1039,6 +1233,7 @@ impl Core {
     ///
     /// Returns an error when the Core settings store cannot be written.
     pub fn write_channel_config_data(&self, value: &str) -> Result<(), CoreError> {
+        let _operation = self.operation_guard()?;
         self.inner
             .store
             .write_settings(&[(CHANNEL_CONFIG_DATA_SETTING, value)])
@@ -1063,6 +1258,7 @@ impl Core {
     ///
     /// Returns an error when the Core settings store cannot be written.
     pub fn write_agent_settings_data(&self, value: &str) -> Result<(), CoreError> {
+        let _operation = self.operation_guard()?;
         self.inner
             .store
             .write_settings(&[(AGENT_SETTINGS_DATA_SETTING, value)])
@@ -1087,6 +1283,7 @@ impl Core {
     ///
     /// Returns an error when the Core settings store cannot be written.
     pub fn write_heartbeat_data(&self, value: &str) -> Result<(), CoreError> {
+        let _operation = self.operation_guard()?;
         self.inner
             .store
             .write_settings(&[(HEARTBEAT_DATA_SETTING, value)])
@@ -1111,6 +1308,7 @@ impl Core {
     ///
     /// Returns an error when the Core settings store cannot be written.
     pub fn write_mcp_data(&self, value: &str) -> Result<(), CoreError> {
+        let _operation = self.operation_guard()?;
         self.inner
             .store
             .write_settings(&[(MCP_DATA_SETTING, value)])
@@ -1130,6 +1328,16 @@ impl Core {
             .map_err(|_| CoreError::Config(String::from("Security runtime lock is poisoned")))
     }
 
+    /// Encodes effective Security settings in the versioned persistence format.
+    /// This includes defaults that have not yet been written to the database.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when settings cannot be read or encoded.
+    pub fn backup_security_data(&self) -> Result<String, CoreError> {
+        encode_security_settings(&self.security_settings()?).map_err(CoreError::Config)
+    }
+
     /// Validates, persists, and hot-reloads a complete Security configuration.
     /// Active turns retain the immutable policy snapshot captured at start.
     ///
@@ -1141,6 +1349,7 @@ impl Core {
         &self,
         mut settings: SecuritySettings,
     ) -> Result<SecuritySettings, CoreError> {
+        let _operation = self.operation_guard()?;
         settings.allow_no_auth_hosts =
             crate::security::normalize_ip_hosts(&settings.allow_no_auth_hosts)
                 .map_err(CoreError::Config)?;
@@ -1165,6 +1374,7 @@ impl Core {
     ///
     /// Returns an error when Security state cannot be read or persisted.
     pub fn record_blocked_skill(&self, record: BlockedSkillRecord) -> Result<(), CoreError> {
+        let _operation = self.operation_guard()?;
         let mut settings = self.security_settings()?;
         settings.blocked_skill_history.push(record);
         self.replace_security_settings(settings).map(|_| ())
@@ -1216,6 +1426,7 @@ impl Core {
     /// Returns an error for invalid filenames, serialization, persistence, or
     /// a poisoned runtime lock.
     pub fn replace_system_prompt_files(&self, files: Vec<String>) -> Result<(), CoreError> {
+        let _operation = self.operation_guard()?;
         validate_system_prompt_files(&files)?;
         let serialized = serde_json::to_string(&files).map_err(CoreError::storage)?;
         self.inner
@@ -1251,23 +1462,8 @@ impl Core {
         &self,
         config: AgentRuntimeConfig,
     ) -> Result<(), CoreError> {
-        if !(1..=500).contains(&config.max_agent_steps) {
-            return Err(CoreError::Config(String::from(
-                "Agent max steps must be between 1 and 500",
-            )));
-        }
-        if !(1_000..=600_000).contains(&config.shell_timeout_ms) {
-            return Err(CoreError::Config(String::from(
-                "Agent shell timeout must be between 1 and 600 seconds",
-            )));
-        }
-        if config.shell_executable.len() > 4_096
-            || config.shell_executable.chars().any(char::is_control)
-        {
-            return Err(CoreError::Config(String::from(
-                "Agent shell executable is invalid",
-            )));
-        }
+        let _operation = self.operation_guard()?;
+        config.validate()?;
         *self
             .inner
             .agent_runtime_config
@@ -1301,6 +1497,7 @@ impl Core {
     /// Returns an error for an unknown tool, failed persistence, or poisoned
     /// runtime state.
     pub fn toggle_builtin_tool(&self, tool_name: &str) -> Result<BuiltinToolStatus, CoreError> {
+        let _operation = self.operation_guard()?;
         let metadata = qwenpaw_tools::builtin_metadata()
             .into_iter()
             .find(|tool| tool.name == tool_name)
@@ -1329,6 +1526,7 @@ impl Core {
         tool_name: &str,
         enabled: bool,
     ) -> Result<BuiltinToolStatus, CoreError> {
+        let _operation = self.operation_guard()?;
         let metadata = qwenpaw_tools::builtin_metadata()
             .into_iter()
             .find(|tool| tool.name == tool_name)
@@ -1387,6 +1585,7 @@ impl Core {
     ///
     /// Returns an error for an unsupported policy or failed persistence.
     pub fn set_tool_offload_policy(&self, policy: &str) -> Result<String, CoreError> {
+        let _operation = self.operation_guard()?;
         let enabled = match policy {
             "keep_foreground" => false,
             "offload" => true,
@@ -1447,6 +1646,9 @@ impl Core {
         thread_id: &str,
         tool_call_id: &str,
     ) -> Result<ToolCallSnapshot, ToolCallControlError> {
+        let _operation = self
+            .operation_guard()
+            .map_err(|_| ToolCallControlError::Conflict)?;
         self.inner
             .tool_calls
             .request_offload(thread_id, tool_call_id)
@@ -1464,6 +1666,9 @@ impl Core {
         tool_call_id: &str,
         force: bool,
     ) -> Result<ToolCallSnapshot, ToolCallControlError> {
+        let _operation = self
+            .operation_guard()
+            .map_err(|_| ToolCallControlError::Conflict)?;
         self.inner
             .tool_calls
             .cancel(thread_id, tool_call_id, force)
@@ -1483,10 +1688,24 @@ impl Core {
         seconds: Option<f64>,
         no_deadline: bool,
     ) -> Result<ToolCallSnapshot, ToolCallControlError> {
+        let _operation = self
+            .operation_guard()
+            .map_err(|_| ToolCallControlError::Conflict)?;
         self.inner
             .tool_calls
             .extend_deadline(thread_id, tool_call_id, target, seconds, no_deadline)
             .await
+    }
+
+    /// Validates an environment snapshot without changing runtime or storage.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid names, values, or size limits.
+    pub fn validate_runtime_environment(
+        environment: &BTreeMap<String, String>,
+    ) -> Result<(), CoreError> {
+        validate_environment(environment)
     }
 
     /// Replaces the environment inherited by future Agent child processes.
@@ -1499,17 +1718,35 @@ impl Core {
         &self,
         environment: BTreeMap<String, String>,
     ) -> Result<(), CoreError> {
+        let _operation = self.operation_guard()?;
         validate_environment(&environment)?;
-        *self
+        // Match restore's MCP -> environment lock order and prepare both
+        // guards before changing either runtime view.
+        let mut mcp = self
+            .inner
+            .mcp
+            .write()
+            .map_err(|_| CoreError::Config(String::from("MCP runtime lock is poisoned")))?;
+        let mut runtime = self
             .inner
             .runtime_environment
             .write()
-            .map_err(|_| CoreError::Config(String::from("environment runtime lock failed")))? =
-            environment;
+            .map_err(|_| CoreError::Config(String::from("environment runtime lock failed")))?;
+        let manager = mcp.with_environment(environment.clone());
+        *runtime = environment;
+        *mcp = manager;
         Ok(())
     }
 
-    fn runtime_environment(&self) -> Result<BTreeMap<String, String>, CoreError> {
+    /// Captures the effective, application-owned child-process environment.
+    ///
+    /// Values may be secrets. This does not enumerate the host environment and
+    /// must not be returned from non-secret configuration or logging APIs.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the runtime lock is unavailable.
+    pub fn runtime_environment(&self) -> Result<BTreeMap<String, String>, CoreError> {
         self.inner
             .runtime_environment
             .read()
@@ -1579,45 +1816,147 @@ impl Core {
         &self,
         params: TurnStartParams,
     ) -> Result<(TurnStartResponse, TurnEventStream), CoreError> {
-        let thread_id = params.thread_id;
-        let workspace_root = {
-            let state = self.inner.state.lock().await;
-            let record = state
-                .threads
-                .get(&thread_id)
-                .ok_or_else(|| CoreError::ThreadNotFound(thread_id.clone()))?;
-            if record.thread.archived {
-                return Err(CoreError::ThreadArchived(thread_id));
+        let model = self
+            .inner
+            .model
+            .with_runtime(self.inner.model.runtime_snapshot());
+        let runtime = self.agent_runtime_config()?;
+        self.start_turn_with_client(params, model, None, runtime, None)
+            .await
+    }
+
+    /// Starts a turn with application-resolved provider settings, or the current
+    /// global default when no selection is supplied. Credentials
+    /// remain private to this turn; global settings and other turns are unchanged.
+    /// All model steps in this turn retain the same provider snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid model settings or input, an unavailable
+    /// thread, or storage failure, as with [`Self::start_turn`].
+    pub async fn start_turn_with_model(
+        &self,
+        params: TurnStartParams,
+        selection: Option<(ModelConfig, ModelRequestOptions)>,
+    ) -> Result<(TurnStartResponse, TurnEventStream), CoreError> {
+        self.start_turn_with_runtime(params, selection, self.agent_runtime_config()?)
+            .await
+    }
+
+    /// Starts a turn with settings resolved by a trusted embedding application.
+    ///
+    /// Provider credentials and Agent runtime settings are private snapshots for
+    /// this turn. Global defaults and concurrent turns are never changed. This is
+    /// a host API, not a wire-protocol override: hosts must resolve authorization
+    /// before selecting an approval level, especially `Off`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid runtime or model settings before recording
+    /// input, or for the same input, thread, and storage errors as `start_turn`.
+    pub async fn start_turn_with_runtime(
+        &self,
+        params: TurnStartParams,
+        selection: Option<(ModelConfig, ModelRequestOptions)>,
+        agent_runtime: AgentRuntimeConfig,
+    ) -> Result<(TurnStartResponse, TurnEventStream), CoreError> {
+        self.start_turn_with_owner(params, selection, agent_runtime, None)
+            .await
+    }
+
+    /// Starts a turn with an immutable usage identity resolved by a trusted host.
+    ///
+    /// The host must validate Workspace ownership. Wire clients cannot provide
+    /// this identity. Unattributed embedding calls retain the default ledger.
+    ///
+    /// # Errors
+    /// Returns an error for invalid identity/runtime/model settings before input
+    /// is recorded, or for the same thread and storage errors as `start_turn`.
+    pub async fn start_turn_with_owner(
+        &self,
+        params: TurnStartParams,
+        selection: Option<(ModelConfig, ModelRequestOptions)>,
+        agent_runtime: AgentRuntimeConfig,
+        usage_owner: Option<UsageOwner>,
+    ) -> Result<(TurnStartResponse, TurnEventStream), CoreError> {
+        let model = self.resolve_turn_client(selection, &agent_runtime, usage_owner.as_ref())?;
+        let selected_model = model.default_model();
+        self.start_turn_with_client(
+            params,
+            model,
+            Some(selected_model),
+            agent_runtime,
+            usage_owner,
+        )
+        .await
+    }
+
+    /// Applies trusted provider/runtime/owner settings without replacing the
+    /// Thread's selected model. All steps retain the same provider snapshot;
+    /// model-specific request options use the Thread model, not the provider's
+    /// default. Hosts must authorize runtime and ownership before this call.
+    ///
+    /// # Errors
+    /// Rejects invalid host settings before recording input, or returns the
+    /// same input, admission and storage errors as `start_turn`.
+    pub async fn start_turn_with_thread_model(
+        &self,
+        params: TurnStartParams,
+        selection: Option<(ModelConfig, ModelRequestOptions)>,
+        agent_runtime: AgentRuntimeConfig,
+        usage_owner: Option<UsageOwner>,
+    ) -> Result<(TurnStartResponse, TurnEventStream), CoreError> {
+        let model = self.resolve_turn_client(selection, &agent_runtime, usage_owner.as_ref())?;
+        self.start_turn_with_client(params, model, None, agent_runtime, usage_owner)
+            .await
+    }
+
+    fn resolve_turn_client(
+        &self,
+        selection: Option<(ModelConfig, ModelRequestOptions)>,
+        agent_runtime: &AgentRuntimeConfig,
+        usage_owner: Option<&UsageOwner>,
+    ) -> Result<ModelClient, CoreError> {
+        if usage_owner.is_some_and(|owner| !owner.is_valid()) {
+            return Err(CoreError::Config(String::from("Invalid usage ownership")));
+        }
+        agent_runtime.validate()?;
+        let runtime = match selection {
+            Some((config, options)) => {
+                let config = config.normalize().map_err(CoreError::config)?;
+                options.validate().map_err(CoreError::config)?;
+                ModelRuntime { config, options }
             }
-            if record.active_turn.is_some() {
-                return Err(CoreError::ThreadBusy(thread_id));
-            }
-            record.thread.workspace_root.clone()
+            None => self.inner.model.runtime_snapshot(),
         };
-        let text = compose_user_input(&params.input, workspace_root.as_deref())?;
-        if text.is_empty() {
-            return Err(CoreError::EmptyInput);
-        }
-        if text.len() > MAX_TURN_INPUT_BYTES {
-            return Err(CoreError::InputTooLarge {
-                actual_bytes: text.len(),
-                max_bytes: MAX_TURN_INPUT_BYTES,
-            });
-        }
+        Ok(self.inner.model.with_runtime(runtime))
+    }
+
+    async fn start_turn_with_client(
+        &self,
+        params: TurnStartParams,
+        model: ModelClient,
+        selected_model: Option<String>,
+        runtime_config: AgentRuntimeConfig,
+        usage_owner: Option<UsageOwner>,
+    ) -> Result<(TurnStartResponse, TurnEventStream), CoreError> {
+        let operation = self.operation_guard()?;
+        let thread_id = params.thread_id;
+        let (execution, workspace_root) = self.turn_execution_guard(&thread_id).await?;
+        let (message, item) = self
+            .prepare_user_message(params.input, workspace_root)
+            .await?;
         let turn_id = new_id("turn");
         let started_at = now();
         let turn = Turn {
             id: turn_id.clone(),
             thread_id: thread_id.clone(),
             status: TurnStatus::InProgress,
-            items: vec![Item::UserMessage {
-                id: new_id("item"),
-                text: text.clone(),
-            }],
+            items: vec![item],
             error: None,
         };
         let cancellation = CancellationToken::new();
-        let snapshot = {
+        {
             let mut state = self.inner.state.lock().await;
             let record = state
                 .threads
@@ -1629,33 +1968,92 @@ impl Core {
             if record.active_turn.is_some() {
                 return Err(CoreError::ThreadBusy(thread_id));
             }
-            record.messages.push(StoredMessage::text("user", text));
-            record.turns.push(turn.clone());
-            record.turn_metadata.push(StoredTurnMetadata {
+            let mut snapshot = record.snapshot();
+            if let Some(selected_model) = selected_model {
+                snapshot.thread.model = selected_model;
+            }
+            snapshot.messages.push(message);
+            snapshot.turns.push(turn.clone());
+            snapshot.turn_metadata.push(StoredTurnMetadata {
                 turn_id: turn_id.clone(),
                 started_at,
                 completed_at: None,
                 model_calls: Vec::new(),
             });
-            record.thread.status = ThreadStatus::Active;
-            record.thread.updated_at = started_at;
+            snapshot.thread.status = ThreadStatus::Active;
+            snapshot.thread.updated_at = started_at;
+            self.inner
+                .store
+                .upsert(&snapshot)
+                .map_err(CoreError::storage)?;
+            if record.checkpoint.is_none() {
+                record.checkpoint = Some(record.snapshot());
+            }
+            record.thread = snapshot.thread;
+            record.turns = snapshot.turns;
+            record.messages = snapshot.messages;
+            record.turn_metadata = snapshot.turn_metadata;
             record.active_turn = Some(ActiveTurn {
                 id: turn_id.clone(),
                 cancellation: cancellation.clone(),
+                usage_owner,
             });
-            record.snapshot()
-        };
-        self.inner
-            .store
-            .upsert(&snapshot)
-            .map_err(CoreError::storage)?;
+        }
         let (event_tx, event_rx) = mpsc::channel(EVENT_CHANNEL_CAPACITY);
         let core = self.clone();
         tokio::spawn(async move {
-            core.run_turn(thread_id, turn_id, cancellation, event_tx)
-                .await;
+            let _operation = operation;
+            // Keep the fence through final persistence, even if the event
+            // consumer disconnects or observes an idle status earlier.
+            let _execution = execution;
+            core.run_turn(
+                thread_id,
+                turn_id,
+                cancellation,
+                event_tx,
+                model,
+                runtime_config,
+            )
+            .await;
         });
         Ok((TurnStartResponse { turn }, event_rx))
+    }
+
+    async fn prepare_user_message(
+        &self,
+        input: Vec<UserInput>,
+        workspace_root: Option<String>,
+    ) -> Result<(StoredMessage, Item), CoreError> {
+        let text = compose_user_input(&input, workspace_root.as_deref())?;
+        let has_images = input
+            .iter()
+            .any(|part| matches!(part, UserInput::Image { .. }));
+        if text.is_empty() && !has_images {
+            return Err(CoreError::EmptyInput);
+        }
+        if text.len() > MAX_TURN_INPUT_BYTES {
+            return Err(CoreError::InputTooLarge {
+                actual_bytes: text.len(),
+                max_bytes: MAX_TURN_INPUT_BYTES,
+            });
+        }
+        let item_id = new_id("item");
+        let (public_input, user_input) = if has_images {
+            let guard = self.security_policy().settings().file_guard.clone();
+            crate::media::prepare_async(input, workspace_root, guard, item_id.clone()).await?
+        } else {
+            (Vec::new(), None)
+        };
+        let mut message = StoredMessage::text("user", text.clone());
+        message.user_input = user_input;
+        Ok((
+            message,
+            Item::UserMessage {
+                id: item_id,
+                text,
+                input: has_images.then_some(public_input),
+            },
+        ))
     }
 
     /// Requests cancellation of a matching active turn.
@@ -1739,6 +2137,22 @@ impl Core {
             .map_err(CoreError::mcp)
     }
 
+    /// Validates a restore candidate's MCP settings using its hydrated environment.
+    /// This does not start connections or access the credential store.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid settings or unresolved/invalid environment bindings.
+    pub fn validate_mcp_client_bindings(
+        &self,
+        settings: Vec<McpClientSettings>,
+    ) -> Result<(), CoreError> {
+        self.mcp_manager()
+            .reconfigured(settings)
+            .and_then(|manager| manager.validate_environment_bindings())
+            .map_err(CoreError::mcp)
+    }
+
     /// Atomically activates a complete MCP configuration for new turns.
     ///
     /// Existing turns retain the manager snapshot they started with.
@@ -1750,16 +2164,13 @@ impl Core {
         &self,
         settings: Vec<McpClientSettings>,
     ) -> Result<(), CoreError> {
-        let manager = self
-            .mcp_manager()
-            .reconfigured(settings)
-            .map_err(CoreError::mcp)?;
-        *self
+        let _operation = self.operation_guard()?;
+        let mut manager = self
             .inner
             .mcp
             .write()
-            .map_err(|_| CoreError::Config(String::from("MCP runtime lock is poisoned")))? =
-            manager;
+            .map_err(|_| CoreError::Config(String::from("MCP runtime lock is poisoned")))?;
+        *manager = manager.reconfigured(settings).map_err(CoreError::mcp)?;
         Ok(())
     }
 
@@ -1772,6 +2183,7 @@ impl Core {
         &self,
         server_id: &str,
     ) -> Result<Vec<qwenpaw_mcp::McpToolInfo>, CoreError> {
+        let _operation = self.operation_guard()?;
         self.mcp_manager()
             .tools(server_id)
             .await
@@ -1804,6 +2216,7 @@ impl Core {
         server_id: &str,
         options: qwenpaw_mcp::McpOAuthStartOptions,
     ) -> Result<qwenpaw_mcp::McpOAuthStartResponse, CoreError> {
+        let _operation = self.operation_guard()?;
         self.mcp_manager()
             .start_oauth(server_id, options)
             .await
@@ -1831,6 +2244,7 @@ impl Core {
     ///
     /// Returns an error for an unknown client or credential-store failure.
     pub async fn revoke_mcp_oauth(&self, server_id: &str) -> Result<(), CoreError> {
+        let _operation = self.operation_guard()?;
         self.mcp_manager()
             .revoke_oauth(server_id)
             .await
@@ -1843,8 +2257,10 @@ impl Core {
         turn_id: String,
         cancellation: CancellationToken,
         event_tx: mpsc::Sender<CoreEvent>,
+        model_client: ModelClient,
+        runtime_config: AgentRuntimeConfig,
     ) {
-        let Some((model, workspace, runtime_config)) = self
+        let Some((model, workspace)) = self
             .prepare_turn_runtime(&thread_id, &turn_id, &event_tx)
             .await
         else {
@@ -1882,6 +2298,7 @@ impl Core {
                         thread_id: &thread_id,
                         turn_id: &turn_id,
                         model: &model,
+                        client: &model_client,
                         messages: &messages,
                         tools: &tools,
                     },
@@ -1941,21 +2358,15 @@ impl Core {
         thread_id: &str,
         turn_id: &str,
         event_tx: &mpsc::Sender<CoreEvent>,
-    ) -> Option<(String, Workspace, AgentRuntimeConfig)> {
+    ) -> Option<(String, Workspace)> {
         let (turn, model, workspace_root) = self.turn_context(thread_id, turn_id).await?;
         send_event(
             event_tx,
             CoreEvent::TurnStarted(TurnStartedNotification { turn }),
         )
         .await;
-        let runtime = self
-            .open_runtime_workspace(&workspace_root)
-            .and_then(|workspace| {
-                self.agent_runtime_config()
-                    .map(|config| (workspace, config))
-            });
-        let (workspace, runtime_config) = match runtime {
-            Ok(runtime) => runtime,
+        let workspace = match self.open_runtime_workspace(&workspace_root) {
+            Ok(workspace) => workspace,
             Err(error) => {
                 self.fail_turn(thread_id, turn_id, error.to_string(), event_tx)
                     .await;
@@ -1968,7 +2379,7 @@ impl Core {
         {
             return None;
         }
-        Some((model, workspace, runtime_config))
+        Some((model, workspace))
     }
 
     async fn refresh_system_prompt(
@@ -2121,13 +2532,12 @@ impl Core {
         let ModelStepRequest {
             thread_id,
             turn_id,
-            model,
-            messages,
-            tools,
+            client,
+            ..
         } = request;
         let stream = tokio::select! {
             () = cancellation.cancelled() => return Err(ModelStepError::Interrupted),
-            stream = self.inner.model.chat_stream(model, messages, tools) => stream,
+            stream = client.chat_stream(request.model, request.messages, request.tools) => stream,
         };
         let mut stream = stream.map_err(|error| ModelStepError::Failed(error.to_string()))?;
         let agent_item_id = new_id("item");
@@ -2135,11 +2545,14 @@ impl Core {
         let mut text = String::new();
         let mut calls = BTreeMap::<usize, ToolCallBuilder>::new();
         let mut usage = None;
+        let mut provider_content = BTreeMap::new();
+        let mut provider_id = String::from("openai-compatible");
         loop {
             tokio::select! {
                 () = cancellation.cancelled() => return Err(ModelStepError::Interrupted),
                 event = stream.next() => {
                     match event {
+                        Some(Ok(ModelEvent::ProviderIdentity(value))) => { provider_id = value; }
                         Some(Ok(ModelEvent::TextDelta(delta))) => {
                             if text.len().saturating_add(delta.len()) > MAX_AGENT_RESPONSE_BYTES {
                                 return Err(ModelStepError::Failed(format!(
@@ -2191,6 +2604,9 @@ impl Core {
                         Some(Ok(ModelEvent::Usage(value))) => {
                             usage = Some(value);
                         }
+                        Some(Ok(ModelEvent::ProviderContent { protocol, content })) => {
+                            provider_content.insert(protocol.to_owned(), content);
+                        }
                         Some(Err(error)) => {
                             return Err(ModelStepError::Failed(error.to_string()));
                         }
@@ -2199,15 +2615,16 @@ impl Core {
                 }
             }
         }
-        let tool_calls = calls
-            .into_values()
-            .map(ToolCallBuilder::build)
-            .collect::<Result<Vec<_>, _>>()?;
         Ok(ModelStep {
+            provider_id,
             agent_item_id,
             text,
-            tool_calls,
+            tool_calls: calls
+                .into_values()
+                .map(ToolCallBuilder::build)
+                .collect::<Result<Vec<_>, _>>()?,
             usage,
+            provider_content,
         })
     }
 
@@ -2222,6 +2639,13 @@ impl Core {
         security: &SecurityPolicy,
         turn_cancellation: &CancellationToken,
     ) -> Result<Result<ToolOutput, String>, TurnOutcome> {
+        // Each detached task retains a lease through its final publication.
+        let execution_operation = self
+            .operation_guard()
+            .map_err(|error| TurnOutcome::Failed(error.to_string()))?;
+        let publication_operation = self
+            .operation_guard()
+            .map_err(|error| TurnOutcome::Failed(error.to_string()))?;
         let timeout =
             qwenpaw_tools::effective_shell_timeout_ms(call, runtime_config.shell_timeout_ms)
                 .map(Duration::from_millis);
@@ -2249,6 +2673,7 @@ impl Core {
         let turn_cancellation = turn_cancellation.clone();
         let tool_cancellation = lease.cancellation.clone();
         let mut execution = tokio::spawn(async move {
+            let _operation = execution_operation;
             core.execute_tool(
                 &workspace,
                 &call_for_execution,
@@ -2263,6 +2688,7 @@ impl Core {
         tokio::select! {
             biased;
             result = &mut execution => {
+                let _operation = publication_operation;
                 self.finish_foreground_tool(&call.id, result).await
             }
             () = lease.wait_for_offload() => {
@@ -2270,6 +2696,7 @@ impl Core {
                 let call_id = call.id.clone();
                 let tool_name = call.name.clone();
                 tokio::spawn(async move {
+                    let _operation = publication_operation;
                     let output = background_tool_output(&tool_name, execution.await);
                     tool_calls.finish(&call_id, &output).await;
                 });
@@ -2456,10 +2883,9 @@ impl Core {
                 .iter_mut()
                 .find(|turn| turn.id == turn_id)
                 .ok_or_else(|| CoreError::TurnNotFound(turn_id.to_owned()))?;
-            record.messages.push(StoredMessage::assistant_tool_calls(
-                step.text.clone(),
-                stored_calls,
-            ));
+            let mut message = StoredMessage::assistant_tool_calls(step.text.clone(), stored_calls);
+            message.provider_content.clone_from(&step.provider_content);
+            record.messages.push(message);
             if let Some(item) = &agent_item {
                 turn.items.push(item.clone());
             }
@@ -2469,9 +2895,18 @@ impl Core {
                 .iter_mut()
                 .find(|metadata| metadata.turn_id == turn_id)
                 .ok_or_else(|| CoreError::TurnNotFound(turn_id.to_owned()))?;
-            let model_call = stored_model_call(&record.thread.model, &usage, usage_observed);
+            let model_call = stored_model_call(
+                &step.provider_id,
+                &record.thread.model,
+                &usage,
+                usage_observed,
+            );
             metadata.model_calls.push(model_call.clone());
-            let usage_record = usage_record(thread_id, turn_id, recorded_at, model_call);
+            let owner = record
+                .active_turn
+                .as_ref()
+                .and_then(|active| active.usage_owner.as_ref());
+            let usage_record = usage_record(thread_id, turn_id, recorded_at, model_call, owner);
             (record.snapshot(), usage_record)
         };
         if let Some(usage_record) = &usage_record {
@@ -2522,9 +2957,9 @@ impl Core {
                 .iter_mut()
                 .find(|turn| turn.id == turn_id)
                 .ok_or_else(|| CoreError::TurnNotFound(turn_id.to_owned()))?;
-            record
-                .messages
-                .push(StoredMessage::tool_result(call.id.clone(), output.content));
+            let mut message = StoredMessage::tool_result(call.id.clone(), output.content);
+            message.tool_error = output.is_error.then_some(true);
+            record.messages.push(message);
             turn.items.push(item.clone());
             record.snapshot()
         };
@@ -2659,14 +3094,15 @@ impl Core {
         event_tx: &mpsc::Sender<CoreEvent>,
     ) {
         let completed_at = now();
-        let (completed_turn, snapshot) = {
+        let completed_turn = {
             let mut state = self.inner.state.lock().await;
             let Some(record) = state.threads.get_mut(thread_id) else {
                 return;
             };
-            let Some(turn) = record.turns.iter_mut().find(|turn| turn.id == turn_id) else {
+            let Some(turn_index) = record.turns.iter().position(|turn| turn.id == turn_id) else {
                 return;
             };
+            let turn = &mut record.turns[turn_index];
             match outcome {
                 TurnOutcome::Completed => {
                     turn.status = TurnStatus::Completed;
@@ -2690,13 +3126,32 @@ impl Core {
                 metadata.completed_at = Some(completed_at);
             }
             record.thread.updated_at = completed_at;
+            // Serialize final persistence with admission. Do not publish an
+            // idle slot until this write can no longer overwrite a new Turn.
+            match self.inner.store.upsert(&record.snapshot()) {
+                Ok(()) => {
+                    record.persisted_turns.insert(turn_id.to_owned());
+                    record.checkpoint = None;
+                }
+                Err(error) => {
+                    warn!(%error, "failed to persist completed turn");
+                    self.inner
+                        .final_persistence_failed
+                        .store(true, Ordering::Relaxed);
+                    let turn = &mut record.turns[turn_index];
+                    let failure = "Failed to persist the final turn; the latest state may not survive restart.";
+                    let message = turn.error.take().map_or_else(
+                        || failure.to_owned(),
+                        |original| format!("{}\n{failure}", original.message),
+                    );
+                    turn.status = TurnStatus::Failed;
+                    turn.error = Some(ErrorInfo { message });
+                    record.thread.status = ThreadStatus::Error;
+                }
+            }
             record.active_turn = None;
-            let completed_turn = turn.clone();
-            (completed_turn, record.snapshot())
+            record.turns[turn_index].clone()
         };
-        if let Err(error) = self.inner.store.upsert(&snapshot) {
-            warn!(%error, "failed to persist completed turn");
-        }
         send_event(
             event_tx,
             CoreEvent::TurnCompleted(TurnCompletedNotification {
@@ -2768,23 +3223,31 @@ fn valid_environment_key(key: &str) -> bool {
 
 #[derive(Debug)]
 struct ModelStep {
+    provider_id: String,
     agent_item_id: String,
     text: String,
     tool_calls: Vec<ToolCall>,
     usage: Option<ModelUsage>,
+    provider_content: BTreeMap<String, Vec<Value>>,
 }
 
 struct ModelStepRequest<'a> {
     thread_id: &'a str,
     turn_id: &'a str,
     model: &'a str,
+    client: &'a ModelClient,
     messages: &'a [StoredMessage],
     tools: &'a [serde_json::Value],
 }
 
-fn stored_model_call(model: &str, usage: &ModelUsage, usage_observed: bool) -> StoredModelCall {
+fn stored_model_call(
+    provider_id: &str,
+    model: &str,
+    usage: &ModelUsage,
+    usage_observed: bool,
+) -> StoredModelCall {
     StoredModelCall {
-        provider_id: String::from("openai-compatible"),
+        provider_id: provider_id.to_owned(),
         model: model.to_owned(),
         prompt_tokens: usage.prompt_tokens,
         completion_tokens: usage.completion_tokens,
@@ -2801,13 +3264,15 @@ fn usage_record(
     turn_id: &str,
     recorded_at: i64,
     call: StoredModelCall,
+    owner: Option<&UsageOwner>,
 ) -> Option<StoredUsageRecord> {
     (call.usage_observed && (call.prompt_tokens > 0 || call.completion_tokens > 0)).then(|| {
         StoredUsageRecord {
             id: new_id("usage"),
             thread_id: thread_id.to_owned(),
             turn_id: turn_id.to_owned(),
-            agent_id: String::from("default"),
+            agent_id: owner.map_or_else(|| String::from("default"), |owner| owner.agent_id.clone()),
+            data_key: owner.map(|owner| owner.data_key.clone()),
             recorded_at,
             call,
         }
@@ -3088,6 +3553,19 @@ fn strip_prompt_section(content: impl AsRef<str>, section: &str) -> String {
 }
 
 impl ThreadRecord {
+    fn from_stored(snapshot: StoredThread) -> Self {
+        Self {
+            execution: Arc::default(),
+            thread: snapshot.thread,
+            turns: snapshot.turns,
+            messages: snapshot.messages,
+            turn_metadata: snapshot.turn_metadata,
+            active_turn: None,
+            checkpoint: None,
+            persisted_turns: HashSet::new(),
+        }
+    }
+
     fn snapshot(&self) -> StoredThread {
         StoredThread {
             thread: self.thread.clone(),
@@ -3160,7 +3638,7 @@ pub(crate) fn compose_user_input(
                 start_line,
                 end_line,
             } => Some((path, *start_line, *end_line)),
-            UserInput::Text { .. } => None,
+            UserInput::Text { .. } | UserInput::Image { .. } => None,
         })
         .collect::<Vec<_>>();
     if references.len() > MAX_FILE_REFERENCES {
@@ -3219,6 +3697,10 @@ pub(crate) fn compose_user_input(
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum CoreError {
+    #[error("Core is restoring a backup; retry after restoration completes")]
+    RestoreBusy,
+    #[error("timed out waiting for Core operations to stop; backup was not applied")]
+    RestoreTimeout,
     #[error("thread not found: {0}")]
     ThreadNotFound(String),
     #[error("turn not found: {0}")]
@@ -3236,6 +3718,8 @@ pub enum CoreError {
     },
     #[error("file reference is invalid: {0}")]
     FileReference(String),
+    #[error("image input is invalid: {0}")]
+    Media(String),
     #[error("workspace is invalid: {0}")]
     Workspace(String),
     #[error("workspace not found: {0}")]
@@ -3281,6 +3765,14 @@ fn protocol_config(config: &ModelConfig) -> CoreConfig {
         api_key_configured: config.api_key.is_some(),
     }
 }
+
+#[cfg(test)]
+#[path = "runtime_persistence_order_tests.rs"]
+mod persistence_order_tests;
+
+#[cfg(test)]
+#[path = "runtime_final_persistence_tests.rs"]
+mod final_persistence_tests;
 
 #[cfg(test)]
 mod security_snapshot_tests {

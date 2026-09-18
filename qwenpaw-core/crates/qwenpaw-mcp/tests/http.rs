@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::convert::Infallible;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
@@ -170,15 +171,15 @@ async fn refreshes_an_expired_oauth_token_before_connecting() {
                 "oauth": {
                     "enabled": true,
                     "transport": "streamable_http",
-                    "url": format!("http://{address}/mcp"),
+                    "url": "${QWENPAW_HTTP_REFRESH_BASE}/mcp",
                     "headers": {"X-QwenPaw-Test": "network"},
                     "oauth": {
-                        "clientId": "qwenpaw-test",
-                        "scope": "tools.read",
+                        "clientId": "${QWENPAW_HTTP_REFRESH_CLIENT}",
+                        "scope": "${QWENPAW_HTTP_REFRESH_SCOPE}",
                         "accessToken": "expired-token",
-                        "refreshToken": "refresh-secret",
+                        "refreshToken": "${QWENPAW_HTTP_REFRESH_TOKEN}",
                         "expiresAt": 1,
-                        "tokenEndpoint": format!("http://{address}/token")
+                        "tokenEndpoint": "${QWENPAW_HTTP_REFRESH_BASE}/token"
                     }
                 }
             }
@@ -186,8 +187,27 @@ async fn refreshes_an_expired_oauth_token_before_connecting() {
         .expect("config should serialize"),
     )
     .expect("config should write");
-    let manager = McpManager::from_path(&config_path).expect("config should load");
-
+    let manager = McpManager::from_path(&config_path)
+        .expect("config should load")
+        .with_environment(BTreeMap::from([
+            (
+                String::from("QWENPAW_HTTP_REFRESH_BASE"),
+                format!("http://{address}"),
+            ),
+            (
+                String::from("QWENPAW_HTTP_REFRESH_CLIENT"),
+                String::from("qwenpaw-test"),
+            ),
+            (
+                String::from("QWENPAW_HTTP_REFRESH_SCOPE"),
+                String::from("tools.read"),
+            ),
+            (
+                String::from("QWENPAW_HTTP_REFRESH_TOKEN"),
+                String::from("refresh-secret"),
+            ),
+        ]));
+    manager.validate_environment_bindings().unwrap();
     assert_eq!(manager.definitions().await.len(), 1);
     assert_eq!(state.token_requests.load(Ordering::Relaxed), 1);
     assert!(state.authenticated_requests.load(Ordering::Relaxed) >= 3);
@@ -221,10 +241,10 @@ async fn discovers_and_calls_legacy_sse_tools() {
                 "legacy": {
                     "enabled": true,
                     "transport": "sse",
-                    "url": format!("http://{address}/sse"),
+                    "url": "${QWENPAW_SSE_BASE}/sse",
                     "headers": {
-                        "Authorization": "Bearer legacy-token",
-                        "X-QwenPaw-Test": "legacy"
+                        "Authorization": "Bearer ${QWENPAW_SSE_TOKEN}",
+                        "X-QwenPaw-Test": "${QWENPAW_SSE_HEADER}"
                     }
                 }
             }
@@ -232,7 +252,20 @@ async fn discovers_and_calls_legacy_sse_tools() {
         .expect("config should serialize"),
     )
     .expect("config should write");
-    let manager = McpManager::from_path(&config_path).expect("config should load");
+    let manager = McpManager::from_path(&config_path)
+        .expect("config should load")
+        .with_environment(BTreeMap::from([
+            (
+                String::from("QWENPAW_SSE_BASE"),
+                format!("http://{address}"),
+            ),
+            (
+                String::from("QWENPAW_SSE_TOKEN"),
+                String::from("legacy-token"),
+            ),
+            (String::from("QWENPAW_SSE_HEADER"), String::from("legacy")),
+        ]));
+    manager.validate_environment_bindings().unwrap();
 
     assert_eq!(
         manager.definitions().await,

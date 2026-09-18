@@ -185,8 +185,16 @@ stream-idle waits, validates `text/event-stream`, limits HTTP error bodies to
 65,536 bytes, and decodes SSE with a 262,144-byte per-event cap before JSON
 parsing. A successful stream must end with `[DONE]`; EOF without it is treated
 as an interrupted model response rather than a successful partial answer.
-Rate limits and all other transport failures complete and persist the Turn with
-`failed` status and a bounded error message.
+Rate limits and other model transport failures complete the Turn with `failed`
+status and a bounded error message, then attempt to persist that terminal state.
+
+If the final Turn write fails, `turn/completed` still terminates the event stream
+but carries `failed` status and an explicit unsaved-state error. Visible items
+and any preceding model error are retained; a terminal event is not an unconditional
+durability acknowledgement. Hosts check the Core instance's final-write failure
+record after service drain and return an error, including a nonzero stdio process
+exit. Later successful writes do not erase that earlier failure acknowledgement.
+No new protocol fields are required; see the [failure boundary](final-turn-persistence.md).
 
 Model requests are built from complete user-turn groups. The system message and
 the newest group, including adjacent assistant tool calls and tool results, are

@@ -10,7 +10,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::info;
 use tracing::warn;
-use tracing_subscriber::EnvFilter;
+
+mod instance_lock;
+mod logging;
 
 const DESKTOP_PORT_FILE_ENV: &str = "QWENPAW_DESKTOP_PORT_FILE";
 
@@ -64,12 +66,7 @@ enum Command {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
-        .with_writer(std::io::stderr)
-        .init();
+    let file_log = logging::init();
 
     let cli = Cli::parse();
     match cli.command {
@@ -84,6 +81,7 @@ async fn main() -> anyhow::Result<()> {
             auth_token_file,
         } => {
             let database_path = core_database_path()?;
+            let _instance_lock = instance_lock::acquire(&database_path)?;
             let mut model_config = ModelConfig::from_env();
             let desktop_credentials = desktop.then(|| Arc::new(SystemDesktopCredentialStore));
             if model_config.api_key.is_none()
@@ -114,6 +112,10 @@ async fn main() -> anyhow::Result<()> {
             } else {
                 AppServer::new(core)
             };
+            match server.open_backend_log() {
+                Ok(log) => *file_log.lock().expect("backend log destination lock") = log,
+                Err(error) => warn!(error = %error, "Backend file logging is unavailable"),
+            }
             if remote {
                 let token_file = auth_token_file
                     .as_deref()

@@ -10,6 +10,9 @@ use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
 
+#[path = "desktop_gemini_probe.rs"]
+mod gemini_probe;
+
 const REQUEST_TIMEOUT_SECONDS: u64 = 15;
 const VIDEO_HTTP_TIMEOUT_SECONDS: u64 = 45;
 const MAX_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
@@ -146,7 +149,26 @@ pub(super) async fn test_provider(
 pub(super) async fn discover_models(
     provider: &RemoteProvider,
 ) -> Result<Vec<DiscoveredModel>, RemoteFailure> {
-    let mut url = protocol_endpoint(provider, "models")?;
+    discover_catalog(provider, |row| {
+        let row = if provider.chat_model == "GeminiChatModel" {
+            let name = row.get("name")?.as_str()?;
+            json!({"id": name.strip_prefix("models/").unwrap_or(name),
+                "name": row.get("displayName"), "context_length": row.get("inputTokenLimit"),
+                "max_output_tokens": row.get("outputTokenLimit")})
+        } else {
+            row.clone()
+        };
+        normalize_model(&row).map(|model| (model.id.clone(), model))
+    })
+    .await
+}
+
+pub(super) async fn discover_catalog<T>(
+    provider: &RemoteProvider,
+    normalize: impl Fn(&Value) -> Option<(String, T)>,
+) -> Result<Vec<T>, RemoteFailure> {
+    let endpoint = protocol_endpoint(provider, "models")?;
+    let mut url = endpoint.clone();
     let mut models = Vec::new();
     let mut seen_ids = BTreeSet::new();
     let mut seen_cursors = BTreeSet::new();
@@ -164,7 +186,11 @@ pub(super) async fn discover_models(
         }
         let payload = read_json(response, provider.secret.as_deref()).await?;
         let rows = payload
-            .get("data")
+            .get(if provider.chat_model == "GeminiChatModel" {
+                "models"
+            } else {
+                "data"
+            })
             .and_then(Value::as_array)
             .or_else(|| payload.as_array())
             .ok_or_else(|| RemoteFailure {
@@ -174,8 +200,8 @@ pub(super) async fn discover_models(
                 retryable: false,
             })?;
         for row in rows {
-            if let Some(model) = normalize_model(row)
-                && seen_ids.insert(model.id.clone())
+            if let Some((id, model)) = normalize(row)
+                && seen_ids.insert(id)
             {
                 if models.len() >= MAX_DISCOVERED_MODELS {
                     return Err(RemoteFailure {
@@ -188,28 +214,36 @@ pub(super) async fn discover_models(
                 models.push(model);
             }
         }
-        if !payload
-            .get("has_more")
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
+        let gemini = provider.chat_model == "GeminiChatModel";
+        let next_page = payload
+            .get("nextPageToken")
+            .and_then(Value::as_str)
+            .filter(|token| !token.is_empty());
+        if (gemini && next_page.is_none())
+            || (!gemini
+                && !payload
+                    .get("has_more")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false))
         {
             return Ok(models);
         }
-        let cursor = payload
-            .get("last_id")
-            .and_then(Value::as_str)
-            .or_else(|| {
+        let cursor = if gemini {
+            next_page
+        } else {
+            payload.get("last_id").and_then(Value::as_str).or_else(|| {
                 rows.last()
                     .and_then(|row| row.get("id"))
                     .and_then(Value::as_str)
             })
-            .filter(|cursor| !cursor.is_empty())
-            .ok_or_else(|| RemoteFailure {
-                message: String::from("Provider model pagination omitted its cursor"),
-                error_kind: "incompatible_api",
-                http_status: Some(200),
-                retryable: false,
-            })?;
+        }
+        .filter(|cursor| !cursor.is_empty())
+        .ok_or_else(|| RemoteFailure {
+            message: String::from("Provider model pagination omitted its cursor"),
+            error_kind: "incompatible_api",
+            http_status: Some(200),
+            retryable: false,
+        })?;
         if !seen_cursors.insert(cursor.to_owned()) {
             return Err(RemoteFailure {
                 message: String::from("Provider model pagination repeated its cursor"),
@@ -218,7 +252,9 @@ pub(super) async fn discover_models(
                 retryable: false,
             });
         }
-        url.query_pairs_mut().append_pair("after", cursor);
+        url.clone_from(&endpoint);
+        url.query_pairs_mut()
+            .append_pair(if gemini { "pageToken" } else { "after" }, cursor);
     }
     Err(RemoteFailure {
         message: String::from("Provider model pagination exceeds 32 pages"),
@@ -229,6 +265,9 @@ pub(super) async fn discover_models(
 }
 
 pub(super) async fn probe_multimodal(provider: &RemoteProvider, model_id: &str) -> RemoteProbe {
+    if provider.chat_model == "GeminiChatModel" {
+        return gemini_probe::probe(provider, model_id).await;
+    }
     let image = probe_media(provider, model_id, ProbeKind::Image, false).await;
     let (image_supported, image_message) = evaluate_probe(image, "red", "Image");
     if !image_supported {
@@ -572,6 +611,8 @@ fn apply_headers(mut request: RequestBuilder, provider: &RemoteProvider) -> Requ
     {
         if provider.chat_model == "AnthropicChatModel" && provider.auth_mode == "api_key" {
             request = request.header("x-api-key", secret);
+        } else if provider.chat_model == "GeminiChatModel" && provider.auth_mode == "api_key" {
+            request = request.header("x-goog-api-key", secret);
         } else {
             request = request.bearer_auth(secret);
         }
@@ -593,6 +634,11 @@ fn protocol_endpoint(provider: &RemoteProvider, endpoint: &str) -> Result<url::U
         && !url::Url::parse(base).is_ok_and(|url| url.path().trim_end_matches('/').ends_with("/v1"))
     {
         format!("v1/{endpoint}")
+    } else if provider.chat_model == "GeminiChatModel"
+        && !base.trim_end_matches('/').ends_with("/v1")
+        && !base.trim_end_matches('/').ends_with("/v1beta")
+    {
+        format!("v1beta/{endpoint}")
     } else {
         endpoint.to_owned()
     };

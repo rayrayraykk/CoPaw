@@ -51,11 +51,11 @@ const CONTROL_MAX_MESSAGE_BYTES: usize = 4096;
 // This is emitted by the direct helper child after it has created an endpoint
 // that the controlled client can connect to. Keep it in step with the helper's
 // `computer_use_server::connection::HELPER_READY_PREFIX` constant.
-#[cfg(not(all(not(debug_assertions), target_os = "macos")))]
+#[cfg(any(test, debug_assertions, not(target_os = "macos")))]
 const HELPER_READY_PREFIX: &str = "QWENPAW_COMPUTER_USE_READY ";
 const HELPER_READY_TIMEOUT: Duration = Duration::from_secs(8);
 const CONTROL_CONNECTION_TIMEOUT: Duration = Duration::from_secs(2);
-#[cfg(not(all(not(debug_assertions), target_os = "macos")))]
+#[cfg(any(test, debug_assertions, not(target_os = "macos")))]
 const MAX_CAPTURED_HELPER_STDERR_CHARS: usize = 4096;
 
 #[derive(Default)]
@@ -105,7 +105,7 @@ struct ControlRequest {
     lease_id: Option<String>,
 }
 
-#[cfg(not(all(not(debug_assertions), target_os = "macos")))]
+#[cfg(any(test, debug_assertions, not(target_os = "macos")))]
 #[derive(Deserialize)]
 struct HelperReadyPayload {
     protocol_version: u64,
@@ -498,7 +498,7 @@ fn watch_helper_stderr(stderr: ChildStderr, captured_stderr: Arc<Mutex<String>>)
     }
 }
 
-#[cfg(not(all(not(debug_assertions), target_os = "macos")))]
+#[cfg(any(test, debug_assertions, not(target_os = "macos")))]
 fn parse_helper_ready_line(line: &str) -> Result<Option<()>, String> {
     let Some(payload) = line.strip_prefix(HELPER_READY_PREFIX) else {
         return Ok(None);
@@ -590,7 +590,7 @@ fn stop_unready_helper(child: &mut Child) {
     }
 }
 
-#[cfg(not(all(not(debug_assertions), target_os = "macos")))]
+#[cfg(any(test, debug_assertions, not(target_os = "macos")))]
 fn append_captured_stderr(buffer: &mut String, line: &str) {
     buffer.push_str(line);
     buffer.push('\n');

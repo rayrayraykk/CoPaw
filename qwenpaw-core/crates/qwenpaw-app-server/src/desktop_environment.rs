@@ -35,6 +35,54 @@ pub(super) fn initialize(
         .context("Desktop environment configuration is invalid")
 }
 
+/// Only the detached candidate changes. The caller supplies a complete,
+/// authorized secret snapshot, or None to preserve the effective local values;
+/// global configuration alone cannot replace these credentials. Returned values
+/// must join the outer credential transaction before applying the candidate.
+/// An explicit empty snapshot clears the environment and its persisted catalog.
+pub(super) fn hydrate_restore(
+    candidate: &Core,
+    current: &Core,
+    restored: Option<&BTreeMap<String, String>>,
+) -> Result<BTreeMap<String, String>, &'static str> {
+    // Even discarded archived metadata must not bypass structural validation.
+    candidate
+        .read_environment_keys()
+        .map_err(|_| "Restored environment catalog is invalid")?;
+    let environment = match restored {
+        Some(values) => values.clone(),
+        None => current
+            .runtime_environment()
+            .map_err(|_| "Local runtime environment could not be read")?,
+    };
+    Core::validate_runtime_environment(&environment)
+        .map_err(|_| "Restored environment is invalid")?;
+    candidate
+        .write_environment_keys(&environment.keys().cloned().collect::<Vec<_>>())
+        .map_err(|_| "Restored environment catalog could not be staged")?;
+    candidate
+        .replace_runtime_environment(environment.clone())
+        .map_err(|_| "Restored environment could not be activated")?;
+    Ok(environment)
+}
+
+/// Explicit secrets scope includes registered credentials and effective
+/// application-injected overrides. Never enumerate the host process environment.
+pub(super) fn backup_values(
+    core: &Core,
+    credentials: &dyn DesktopCredentialStore,
+) -> Result<BTreeMap<String, String>, &'static str> {
+    let mut environment = load_environment(core, credentials)
+        .map_err(|_| "Backup environment credentials could not be loaded")?;
+    environment.extend(
+        core.runtime_environment()
+            .map_err(|_| "Backup runtime environment could not be read")?,
+    );
+    Core::validate_runtime_environment(&environment)
+        .map_err(|_| "Backup environment credentials are invalid")?;
+    Ok(environment)
+}
+
 async fn list_environment(State(server): State<AppServer>) -> Result<Json<Value>, ApiError> {
     let _guard = server.inner.desktop_environment_lock.lock().await;
     let environment = load_server_environment(&server)?;

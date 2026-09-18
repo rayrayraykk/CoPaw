@@ -83,18 +83,19 @@ async fn list_calls(
     State(server): State<AppServer>,
     headers: HeaderMap,
     Path(session_id): Path<String>,
-) -> Json<Value> {
-    let agent_id = super::desktop_agents::requested_agent_id(&headers)
-        .unwrap_or_else(|_| String::from("default"));
-    let Some(thread_id) = existing_thread_id(&server, &agent_id, &session_id).await else {
-        return Json(json!({"items": [], "total": 0}));
+) -> Result<Json<Value>, ApiError> {
+    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
+    let Some(thread_id) =
+        super::desktop_chats::resolve_existing_thread(&server, &agent_id, &session_id).await?
+    else {
+        return Ok(Json(json!({"items": [], "total": 0})));
     };
     let calls = server.inner.core.list_tool_calls(&thread_id).await;
     let items = calls
         .iter()
         .map(|call| info_value(call, &session_id, &agent_id))
         .collect::<Vec<_>>();
-    Json(json!({"total": items.len(), "items": items}))
+    Ok(Json(json!({"total": items.len(), "items": items})))
 }
 
 async fn get_call(
@@ -296,28 +297,10 @@ async fn existing_thread_id(
     agent_id: &str,
     session_id: &str,
 ) -> Option<String> {
-    let alias_catalog = server.inner.desktop_session_aliases.read().await;
-    let key = format!("{agent_id}\u{0}{session_id}");
-    let resolved_alias = alias_catalog
-        .client_to_thread
-        .get(&key)
-        .cloned()
-        .or_else(|| {
-            (agent_id == "default")
-                .then(|| alias_catalog.client_to_thread.get(session_id).cloned())
-                .flatten()
-        });
-    drop(alias_catalog);
-    if let Some(thread_id) = resolved_alias {
-        return Some(thread_id);
-    }
-    server
-        .inner
-        .core
-        .read_thread(session_id)
+    super::desktop_chats::resolve_existing_thread(server, agent_id, session_id)
         .await
         .ok()
-        .map(|response| response.thread.id)
+        .flatten()
 }
 
 fn info_value(call: &ToolCallSnapshot, session_id: &str, agent_id: &str) -> Value {

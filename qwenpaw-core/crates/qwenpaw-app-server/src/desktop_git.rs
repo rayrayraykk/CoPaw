@@ -19,6 +19,7 @@ use serde_json::Value;
 use serde_json::json;
 use tokio::io::AsyncRead;
 use tokio::io::AsyncReadExt;
+use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
 use super::AppServer;
@@ -199,11 +200,13 @@ async fn ensure_workspace_repository(workspace: &Path) -> Result<String, ApiErro
             .canonicalize()
             .is_ok_and(|path| path == workspace)
     {
+        exclude_core_identity(workspace).await?;
         return current_branch(workspace).await;
     }
 
     let initialized = run_git(workspace, ["init"]).await?;
     require_success(&initialized)?;
+    exclude_core_identity(workspace).await?;
     let gitignore = workspace.join(".gitignore");
     let created_gitignore = tokio::fs::metadata(&gitignore).await.is_err();
     if created_gitignore {
@@ -218,6 +221,50 @@ async fn ensure_workspace_repository(workspace: &Path) -> Result<String, ApiErro
     let committed = run_git(workspace, arguments).await?;
     require_success(&committed)?;
     current_branch(workspace).await
+}
+
+async fn exclude_core_identity(workspace: &Path) -> Result<(), ApiError> {
+    let located = run_git(workspace, ["rev-parse", "--git-path", "info/exclude"]).await?;
+    require_success(&located)?;
+    let path = workspace.join(located.stdout.trim());
+    let existing = match tokio::fs::symlink_metadata(&path).await {
+        Ok(metadata) if metadata.is_file() && metadata.len() <= 1024 * 1024 => {
+            tokio::fs::read(&path)
+                .await
+                .map_err(|_| internal_error("Git exclude file could not be read"))?
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        _ => return Err(internal_error("Git exclude file is invalid")),
+    };
+    let name = super::desktop_agents::identity::MARKER_NAME;
+    if existing
+        .split(|byte| *byte == b'\n')
+        .any(|line| line == name.as_bytes())
+    {
+        return Ok(());
+    }
+    let parent = path
+        .parent()
+        .ok_or_else(|| internal_error("Git exclude parent is invalid"))?;
+    tokio::fs::create_dir_all(parent)
+        .await
+        .map_err(|_| internal_error("Git exclude parent could not be created"))?;
+    let mut file = tokio::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .await
+        .map_err(|_| internal_error("Git exclude file could not be opened"))?;
+    write_identity_rule(&mut file, name).await
+}
+
+async fn write_identity_rule(file: &mut tokio::fs::File, name: &str) -> Result<(), ApiError> {
+    file.write_all(format!("\n{name}\n").as_bytes())
+        .await
+        .map_err(|_| internal_error("Git exclude file could not be updated"))?;
+    file.flush()
+        .await
+        .map_err(|_| internal_error("Git exclude file could not be updated"))
 }
 
 async fn current_branch(workspace: &Path) -> Result<String, ApiError> {
@@ -409,6 +456,7 @@ async fn stage_files(
     let _guard = server.inner.desktop_git_lock.lock().await;
     let workspace = resolve_workspace_root(&server, &headers, Some("project")).await?;
     let mut arguments = vec![String::from("add"), String::from("--")];
+    exclude_core_identity(&workspace).await?;
     arguments.extend(paths.iter().cloned());
     let output = run_git(&workspace, arguments).await?;
     require_success(&output)?;
@@ -521,6 +569,7 @@ async fn discard_changes(
     let paths = validated_paths(request.paths)?;
     let _guard = server.inner.desktop_git_lock.lock().await;
     let workspace = resolve_workspace_root(&server, &headers, Some("project")).await?;
+    exclude_core_identity(&workspace).await?;
     let mut restore_arguments = vec![String::from("restore"), String::from("--")];
     restore_arguments.extend(paths.iter().cloned());
     let restored = run_git(&workspace, restore_arguments).await?;
@@ -604,7 +653,10 @@ fn validated_paths(paths: Vec<String>) -> Result<Vec<String>, ApiError> {
 }
 
 fn validate_relative_path(path: &str) -> Result<&str, ApiError> {
-    if path.is_empty()
+    if path
+        .split(['/', '\\'])
+        .any(|segment| segment.eq_ignore_ascii_case(super::desktop_agents::identity::MARKER_NAME))
+        || path.is_empty()
         || path.len() > MAX_PATH_BYTES
         || path.chars().any(char::is_control)
         || Path::new(path).is_absolute()
@@ -706,6 +758,112 @@ const fn null_device() -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn identity_rule_waits_for_the_blocking_file_write_before_returning() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .max_blocking_threads(1)
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join("exclude");
+            let user_rules = b"# user rule\r\nprivate-user-file\r\n";
+            std::fs::write(&path, user_rules).unwrap();
+            let file = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&path)
+                .unwrap();
+            let mut file = tokio::fs::File::from_std(file);
+            let (started, ready) = tokio::sync::oneshot::channel();
+            let (release, receiver) = std::sync::mpsc::channel::<()>();
+            let blocker = tokio::task::spawn_blocking(move || {
+                started.send(()).unwrap();
+                // Dropping the sender also releases this worker after a test panic.
+                let _ = receiver.recv();
+            });
+            ready.await.unwrap();
+            let name = super::super::desktop_agents::identity::MARKER_NAME;
+            let mut writing = Box::pin(write_identity_rule(&mut file, name));
+            assert!(
+                futures_util::poll!(&mut writing).is_pending(),
+                "must not report completion while the OS write is queued"
+            );
+            assert_eq!(std::fs::read(&path).unwrap(), user_rules);
+            release.send(()).unwrap();
+            writing.await.unwrap();
+            blocker.await.unwrap();
+            let expected = [user_rules.as_slice(), format!("\n{name}\n").as_bytes()].concat();
+            assert_eq!(std::fs::read(&path).unwrap(), expected);
+        });
+    }
+
+    #[tokio::test]
+    async fn identity_rule_reports_a_deferred_file_write_error() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("exclude");
+        std::fs::write(&path, b"user rules\n").unwrap();
+        let mut file = tokio::fs::File::from_std(std::fs::File::open(&path).unwrap());
+        let error = write_identity_rule(&mut file, "fixture-marker")
+            .await
+            .unwrap_err();
+        assert_eq!(error.0, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            error.1.0,
+            json!({"detail":"Git exclude file could not be updated"})
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), b"user rules\n");
+    }
+
+    #[tokio::test]
+    async fn identity_exclusion_preserves_user_rules_and_stage_all_and_clean_keep_metadata_private()
+    {
+        let workspace = tempfile::tempdir().unwrap();
+        let root = workspace.path().canonicalize().unwrap();
+        ensure_workspace_repository(&root).await.unwrap();
+        let exclude = root.join(".git/info/exclude");
+        let user_rules = b"# user rule\r\nprivate-user-file\r\n";
+        std::fs::write(&exclude, user_rules).unwrap();
+        let name = super::super::desktop_agents::identity::MARKER_NAME;
+        std::fs::write(root.join(name), "Core-owned marker").unwrap();
+        std::fs::write(root.join("notes.txt"), "visible user file").unwrap();
+        exclude_core_identity(&root).await.unwrap();
+        let expected = [user_rules.as_slice(), format!("\n{name}\n").as_bytes()].concat();
+        assert_eq!(std::fs::read(&exclude).unwrap(), expected);
+        exclude_core_identity(&root).await.unwrap();
+        assert_eq!(std::fs::read(&exclude).unwrap(), expected);
+        assert!(validate_relative_path(name).is_err());
+        let status = run_git(&root, ["status", "--porcelain=v1", "-z"])
+            .await
+            .unwrap();
+        assert_eq!(
+            parse_status(&status.stdout),
+            vec![json!({"path":"notes.txt","status":"?","staged":false})]
+        );
+        assert!(run_git(&root, ["add", "--", "."]).await.unwrap().success());
+        let staged = run_git(&root, ["diff", "--cached", "--name-only"])
+            .await
+            .unwrap();
+        assert_eq!(staged.stdout, "notes.txt\n");
+        assert!(
+            run_git(&root, ["restore", "--staged", "--", "."])
+                .await
+                .unwrap()
+                .success()
+        );
+        assert!(
+            run_git(&root, ["clean", "-fd", "--", "."])
+                .await
+                .unwrap()
+                .success()
+        );
+        assert!(!root.join("notes.txt").exists());
+        assert_eq!(
+            std::fs::read_to_string(root.join(name)).unwrap(),
+            "Core-owned marker"
+        );
+    }
 
     #[test]
     fn validates_git_inputs_without_accepting_option_or_path_injection() {

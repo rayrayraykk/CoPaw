@@ -93,6 +93,26 @@ fn deserializes_structured_user_input() {
 }
 
 #[test]
+fn image_input_is_additive_and_legacy_user_items_keep_their_shape() {
+    let legacy = json!({"type":"userMessage","id":"item","text":"hello"});
+    let item: Item = serde_json::from_value(legacy.clone()).unwrap();
+    assert_eq!(serde_json::to_value(item).unwrap(), legacy);
+    let current = json!({"type":"userMessage","id":"item","text":"", "input":[{"type":"image","path":"photos/red.png"}]});
+    let item: Item = serde_json::from_value(current.clone()).unwrap();
+    assert_eq!(
+        item,
+        Item::UserMessage {
+            id: String::from("item"),
+            text: String::new(),
+            input: Some(vec![UserInput::Image {
+                path: String::from("photos/red.png")
+            }])
+        }
+    );
+    assert_eq!(serde_json::to_value(item).unwrap(), current);
+}
+
+#[test]
 fn serializes_tool_approval_request() {
     let event = CoreEvent::ToolApprovalRequested(ToolApprovalRequestedNotification {
         thread_id: String::from("thread-1"),

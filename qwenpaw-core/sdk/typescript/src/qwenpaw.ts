@@ -17,6 +17,8 @@ export interface QwenPawOptions extends AppServerConnectionOptions {
 }
 
 export class QwenPaw implements Disposable {
+  private closing: Promise<void> | undefined;
+
   private constructor(
     public readonly client: AppServerClient,
     private readonly process: ChildProcessWithoutNullStreams,
@@ -52,6 +54,7 @@ export class QwenPaw implements Disposable {
       ]);
       child.removeListener("error", handleSpawnError);
       child.on("error", () => client.dispose());
+      child.stdin.on("error", () => client.dispose());
       child.on("exit", () => client.dispose());
       return new QwenPaw(client, child);
     } catch (error) {
@@ -83,19 +86,49 @@ export class QwenPaw implements Disposable {
     this.client.dispose();
   }
 
-  public async close(): Promise<void> {
-    if (this.process.exitCode !== null) {
+  /** Stop admission, send EOF and wait for the owned Core to finish. */
+  public close(): Promise<void> {
+    if (!this.closing) {
+      // Publish before notifying close handlers, which may call close again.
+      this.closing = Promise.resolve().then(() => this.closeProcess());
       this.client.dispose();
-      return;
     }
-    const exited = new Promise<void>((resolve) => {
-      this.process.once("exit", () => resolve());
-      this.process.once("error", () => resolve());
+    return this.closing;
+  }
+
+  private async closeProcess(): Promise<void> {
+    // Keep pipes flowing even after protocol callbacks have been disposed.
+    this.process.stdout.resume();
+    this.process.stderr.resume();
+    this.process.stdin.end();
+    if (!(await this.waitForExit(30_000))) {
+      this.process.kill("SIGKILL");
+      const stopped = await this.waitForExit(5_000);
+      throw new Error(stopped
+        ? "QwenPaw Core shutdown timed out; forced termination is not a successful save"
+        : "QwenPaw Core shutdown timed out; process termination could not be confirmed");
+    }
+    if (this.process.signalCode !== null) {
+      throw new Error(`QwenPaw Core exited with signal ${this.process.signalCode}`);
+    }
+    if (this.process.exitCode !== 0) {
+      throw new Error(`QwenPaw Core exited with code ${this.process.exitCode}`);
+    }
+  }
+
+  private waitForExit(timeoutMs: number): Promise<boolean> {
+    if (this.process.exitCode !== null || this.process.signalCode !== null) {
+      return Promise.resolve(true);
+    }
+    return new Promise<boolean>((resolve) => {
+      const finish = (exited: boolean): void => {
+        clearTimeout(timer);
+        this.process.removeListener("exit", onExit);
+        resolve(exited);
+      };
+      const onExit = (): void => finish(true);
+      const timer = setTimeout(() => finish(false), timeoutMs);
+      this.process.once("exit", onExit);
     });
-    if (!this.process.killed) {
-      this.process.kill();
-    }
-    await exited;
-    this.client.dispose();
   }
 }

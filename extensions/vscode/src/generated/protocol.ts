@@ -30,7 +30,7 @@ export type ThreadListResponse = { data: Array<Thread>, nextCursor: string | nul
 
 export type ThreadReadParams = { threadId: string, };
 
-export type Item = { "type": "userMessage", id: string, text: string, } | { "type": "agentMessage", id: string, text: string, } | { "type": "toolCall", id: string, callId: string, name: string, arguments: string, } | { "type": "toolResult", id: string, callId: string, content: string, isError: boolean, };
+export type Item = { "type": "userMessage", id: string, text: string, input?: Array<UserInput>, } | { "type": "agentMessage", id: string, text: string, } | { "type": "toolCall", id: string, callId: string, name: string, arguments: string, } | { "type": "toolResult", id: string, callId: string, content: string, isError: boolean, };
 
 export type ErrorInfo = { message: string, };
 
@@ -40,7 +40,7 @@ export type Turn = { id: string, threadId: string, status: TurnStatus, items: Ar
 
 export type ThreadReadResponse = { thread: Thread, turns: Array<Turn>, };
 
-export type UserInput = { "type": "text", text: string, } | { "type": "fileReference", path: string, startLine: number | null, endLine: number | null, };
+export type UserInput = { "type": "text", text: string, } | { "type": "image", path: string, } | { "type": "fileReference", path: string, startLine: number | null, endLine: number | null, };
 
 export type TurnStartParams = { threadId: string, input: Array<UserInput>, };
 

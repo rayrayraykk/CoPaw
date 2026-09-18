@@ -302,9 +302,93 @@ pub(super) async fn append_event_with_trace(
         .filter_map(trace_run_id)
         .collect::<BTreeSet<_>>();
     data.traces
-        .retain(|run_id, _| referenced_runs.contains(run_id));
+        .retain(|run_id, trace| referenced_runs.contains(run_id) || trace.meta["source"] == "cron");
+    trim_cron_traces(&mut data, &referenced_runs);
     write_data(server, &data)?;
     Ok(serialized)
+}
+
+/// Cron traces exist even when the user disables Inbox notifications.
+pub(super) async fn write_cron_trace(
+    server: &AppServer,
+    trace: NewInboxTrace,
+) -> Result<(), InboxApiError> {
+    validate_identifier("run id", &trace.run_id)?;
+    if trace.meta["source"] != "cron" || trace.events.len() > MAX_TRACE_EVENTS {
+        return Err(unprocessable("invalid Cron trace"));
+    }
+    let _guard = server.inner.desktop_inbox_lock.lock().await;
+    let mut data = read_data(server)?;
+    let previous = data.traces.get(&trace.run_id);
+    if previous.is_some_and(|value| value.meta["source"] != "cron") {
+        return Err(unprocessable("Cron trace id conflicts with another source"));
+    }
+    let now = now_epoch_seconds();
+    let value = InboxTrace {
+        run_id: trace.run_id,
+        created_at: previous.map_or(now, |value| value.created_at),
+        completed_at: (trace.status != "running").then_some(now),
+        status: trace.status,
+        meta: trace.meta,
+        events: trace
+            .events
+            .into_iter()
+            .map(|event| InboxTraceEvent { at: now, event })
+            .collect(),
+        error: trace.error,
+    };
+    let id = value.run_id.clone();
+    data.traces.insert(id.clone(), value);
+    let mut retained = data
+        .events
+        .iter()
+        .filter_map(trace_run_id)
+        .collect::<BTreeSet<_>>();
+    retained.insert(id);
+    trim_cron_traces(&mut data, &retained);
+    write_data(server, &data)
+}
+
+pub(super) async fn interrupt_cron_trace(
+    server: &AppServer,
+    run_id: &str,
+    agent_id: &str,
+) -> Result<(), InboxApiError> {
+    let _guard = server.inner.desktop_inbox_lock.lock().await;
+    let mut data = read_data(server)?;
+    if let Some(trace) = data.traces.get_mut(run_id)
+        && trace.meta["source"] == "cron"
+        && trace.meta["agent_id"].as_str() == Some(agent_id)
+        && trace.status == "running"
+    {
+        trace.status = String::from("cancelled");
+        trace.completed_at = Some(now_epoch_seconds());
+        trace.error = Some(String::from(
+            "Core stopped during cron execution; delivery was not replayed",
+        ));
+        write_data(server, &data)?;
+    }
+    Ok(())
+}
+
+fn trim_cron_traces(data: &mut InboxData, retained: &BTreeSet<String>) {
+    let excess = data.traces.len().saturating_sub(MAX_TRACES);
+    let mut candidates = data
+        .traces
+        .iter()
+        .filter(|(id, trace)| {
+            !retained.contains(*id) && trace.meta["source"] == "cron" && trace.status != "running"
+        })
+        .map(|(id, trace)| (id.clone(), trace.created_at))
+        .collect::<Vec<_>>();
+    candidates.sort_by(|left, right| {
+        left.1
+            .total_cmp(&right.1)
+            .then_with(|| left.0.cmp(&right.0))
+    });
+    for (id, _) in candidates.into_iter().take(excess) {
+        data.traces.remove(&id);
+    }
 }
 
 fn new_event(event: NewInboxEvent) -> InboxEvent {
@@ -425,6 +509,133 @@ fn validate_identifier(label: &str, value: &str) -> Result<(), InboxApiError> {
         return Err(unprocessable(&format!("{label} is invalid")));
     }
     Ok(())
+}
+
+pub(super) fn filter_backup_data(
+    serialized: &str,
+    agent_ids: &BTreeSet<&str>,
+) -> Result<String, &'static str> {
+    let mut data = decode_backup_data(serialized)?;
+    let excluded_runs = data
+        .events
+        .iter()
+        .filter(|event| !agent_ids.contains(event.agent_id.as_str()))
+        .filter_map(trace_run_id)
+        .collect::<BTreeSet<_>>();
+    data.events
+        .retain(|event| agent_ids.contains(event.agent_id.as_str()));
+    let included_runs = data
+        .events
+        .iter()
+        .filter_map(trace_run_id)
+        .collect::<BTreeSet<_>>();
+    data.traces.retain(|run_id, trace| {
+        (included_runs.contains(run_id)
+            || (trace.meta["source"] == "cron"
+                && trace
+                    .meta
+                    .get("agent_id")
+                    .and_then(Value::as_str)
+                    .is_some_and(|id| agent_ids.contains(id))))
+            && !excluded_runs.contains(run_id)
+            && trace
+                .meta
+                .get("agent_id")
+                .is_none_or(|id| id.as_str().is_some_and(|id| agent_ids.contains(id)))
+    });
+    validate_data(&data)?;
+    serde_json::to_string(&data).map_err(|_| "Backup Inbox data is invalid")
+}
+
+fn decode_backup_data(serialized: &str) -> Result<InboxData, &'static str> {
+    if serialized.len() > MAX_DATA_BYTES {
+        return Err("Backup Inbox data exceeds its size limit");
+    }
+    let data = serde_json::from_str(serialized).map_err(|_| "Backup Inbox data is invalid")?;
+    validate_data(&data)?;
+    Ok(data)
+}
+
+pub(super) fn retained_backup_run_ids(
+    current: Option<&str>,
+    selected: &BTreeSet<&str>,
+) -> Result<BTreeSet<String>, &'static str> {
+    let retained = decode_backup_data(&merge_restore_data(current, None, selected)?)?;
+    Ok(retained
+        .traces
+        .into_keys()
+        .chain(retained.events.iter().filter_map(trace_run_id))
+        .collect())
+}
+
+// Called by the full Backup state merger while its coordinator is in progress.
+#[allow(dead_code)]
+pub(super) fn merge_restore_data(
+    current: Option<&str>,
+    archived: Option<&str>,
+    agent_ids: &BTreeSet<&str>,
+) -> Result<String, &'static str> {
+    let mut current = current
+        .map(decode_backup_data)
+        .transpose()?
+        .unwrap_or_default();
+    let incoming = archived
+        .map(|data| filter_backup_data(data, agent_ids))
+        .transpose()?
+        .map(|data| decode_backup_data(&data))
+        .transpose()?
+        .unwrap_or_default();
+    let removed_runs = current
+        .events
+        .iter()
+        .filter(|event| agent_ids.contains(event.agent_id.as_str()))
+        .filter_map(trace_run_id)
+        .collect::<BTreeSet<_>>();
+    current
+        .events
+        .retain(|event| !agent_ids.contains(event.agent_id.as_str()));
+    let preserved_runs = current
+        .events
+        .iter()
+        .filter_map(trace_run_id)
+        .collect::<BTreeSet<_>>();
+    current.traces.retain(|run_id, trace| {
+        preserved_runs.contains(run_id)
+            || trace
+                .meta
+                .get("agent_id")
+                .and_then(Value::as_str)
+                .map_or_else(
+                    || !removed_runs.contains(run_id),
+                    |id| !agent_ids.contains(id),
+                )
+    });
+    let mut event_ids = current
+        .events
+        .iter()
+        .map(|event| event.id.clone())
+        .collect::<BTreeSet<_>>();
+    for event in incoming.events {
+        if !event_ids.insert(event.id.clone()) {
+            return Err("Restored Inbox event ID conflicts with existing data");
+        }
+        if trace_run_id(&event).is_some_and(|id| preserved_runs.contains(&id)) {
+            return Err("Restored Inbox run ID conflicts with an unselected Agent");
+        }
+        current.events.push(event);
+    }
+    for (id, trace) in incoming.traces {
+        if current.traces.insert(id, trace).is_some() {
+            return Err("Restored Inbox trace ID conflicts with existing data");
+        }
+    }
+    validate_data(&current)?;
+    let serialized =
+        serde_json::to_string(&current).map_err(|_| "Restored Inbox data is invalid")?;
+    if serialized.len() > MAX_DATA_BYTES {
+        return Err("Restored Inbox data exceeds its size limit");
+    }
+    Ok(serialized)
 }
 
 fn read_data(server: &AppServer) -> Result<InboxData, InboxApiError> {
@@ -630,5 +841,34 @@ mod tests {
             validate_data(&data),
             Err("stored Inbox data has an unsupported shape")
         );
+    }
+
+    #[test]
+    fn cron_trace_retention_evicts_only_old_completed_unreferenced_runs() {
+        let mut data = InboxData::default();
+        for index in 0..=MAX_TRACES {
+            let id = format!("run-{index}");
+            data.traces.insert(
+                id.clone(),
+                InboxTrace {
+                    run_id: id,
+                    created_at: f64::from(u32::try_from(index).unwrap()),
+                    completed_at: Some(1.0),
+                    status: String::from("success"),
+                    meta: json!({"source":"cron"}),
+                    events: Vec::new(),
+                    error: None,
+                },
+            );
+        }
+        data.traces.get_mut("run-1").unwrap().status = String::from("running");
+        let retained = BTreeSet::from([String::from("run-0")]);
+        trim_cron_traces(&mut data, &retained);
+        assert_eq!(data.traces.len(), MAX_TRACES);
+        assert!(data.traces.contains_key("run-0"));
+        assert!(data.traces.contains_key("run-1"));
+        assert!(!data.traces.contains_key("run-2"));
+        assert!(data.traces.contains_key(&format!("run-{MAX_TRACES}")));
+        validate_data(&data).unwrap();
     }
 }

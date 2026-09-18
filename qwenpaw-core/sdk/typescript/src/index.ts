@@ -3,3 +3,4 @@ export * from "./protocol";
 export * from "./qwenpaw";
 export * from "./rpcClient";
 export * from "./thread";
+export * from "./webSocketConnection";

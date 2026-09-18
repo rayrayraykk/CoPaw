@@ -103,6 +103,8 @@ export default defineConfig(({ command, mode }) => {
       exclude: [
         "**/node_modules/**",
         "**/dist/**",
+        // Runs with node:test in verify:api-inventory, not in the DOM runner.
+        "scripts/rust-api-network.test.mjs",
         // legacy tests use node:test, which is incompatible with vitest (pending migration)
         "**/testConnectionMessage.test.ts",
         // ChatPage test causes worker crash - pre-existing issue, needs more mock setup

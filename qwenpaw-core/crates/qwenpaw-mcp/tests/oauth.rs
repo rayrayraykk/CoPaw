@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
@@ -58,6 +59,121 @@ struct OAuthServerState {
     origin: String,
     registration: Arc<Mutex<Option<Value>>>,
     token_forms: Arc<Mutex<Vec<HashMap<String, String>>>>,
+}
+
+#[tokio::test]
+async fn interactive_oauth_uses_application_environment_for_resource_and_client_metadata() {
+    let (origin, server_state, server_task) = start_oauth_server().await;
+    let directory = tempfile::tempdir().unwrap();
+    let config = directory.path().join("environment-oauth.json");
+    std::fs::write(&config, serde_json::to_vec(&json!({"clients": {"remote": {
+        "transport": "streamable_http", "url": "${QWENPAW_OAUTH_BASE}/mcp",
+        "oauth": {"clientId": "${QWENPAW_OAUTH_CLIENT}", "scope": "${QWENPAW_OAUTH_SCOPE}",
+            "authorizationEndpoint": "${QWENPAW_OAUTH_BASE}/authorize", "tokenEndpoint": "${QWENPAW_OAUTH_BASE}/token"}
+    }}})).unwrap()).unwrap();
+    let credentials = Arc::new(MemoryCredentialStore::default());
+    let manager = McpManager::from_path_with_oauth_store(&config, credentials.clone())
+        .unwrap()
+        .with_environment(BTreeMap::from([
+            (String::from("QWENPAW_OAUTH_BASE"), origin.clone()),
+            (
+                String::from("QWENPAW_OAUTH_CLIENT"),
+                String::from("registered-fixture-client"),
+            ),
+            (
+                String::from("QWENPAW_OAUTH_SCOPE"),
+                String::from("files:read"),
+            ),
+        ]));
+    manager.validate_environment_bindings().unwrap();
+    let started = manager
+        .start_oauth("remote", McpOAuthStartOptions::default())
+        .await
+        .unwrap();
+    let authorization = Url::parse(&started.authorization_url).unwrap();
+    let query = authorization.query_pairs().collect::<HashMap<_, _>>();
+    assert_eq!(query["client_id"], "registered-fixture-client");
+    assert_eq!(query["resource"], format!("{origin}/mcp"));
+    assert_eq!(query["scope"], "files:read");
+    assert!(server_state.registration.lock().await.is_none());
+    let callback = callback_url(
+        &query["redirect_uri"],
+        &started.session_id,
+        "authorization-code",
+        &origin,
+    );
+    assert_eq!(
+        reqwest::get(callback).await.unwrap().status(),
+        reqwest::StatusCode::OK
+    );
+    let status = manager.oauth_status("remote").await.unwrap();
+    assert!(status.authorized);
+    assert_eq!(status.client_id, "registered-fixture-client");
+    let forms = server_state.token_forms.lock().await;
+    assert_eq!(forms.len(), 1);
+    assert_eq!(forms[0]["resource"], format!("{origin}/mcp"));
+    assert_eq!(forms[0]["client_id"], "registered-fixture-client");
+    let stored =
+        serde_json::to_value(credentials.values.lock().unwrap().values().next().unwrap()).unwrap();
+    assert_eq!(stored["resource"], format!("{origin}/mcp"));
+    manager.cancel_pending_oauth().await;
+    server_task.abort();
+}
+
+#[tokio::test]
+async fn cancels_old_callback_sessions_after_reconfiguration_and_allows_new_authorization() {
+    let (origin, server_state, server_task) = start_oauth_server().await;
+    let directory = tempfile::tempdir().unwrap();
+    let config_path = write_oauth_config(directory.path(), &origin);
+    let credentials = Arc::new(MemoryCredentialStore::default());
+    let manager =
+        McpManager::from_path_with_oauth_store(&config_path, credentials.clone()).unwrap();
+    let started = manager
+        .start_oauth("remote", McpOAuthStartOptions::default())
+        .await
+        .unwrap();
+    let authorization = Url::parse(&started.authorization_url).unwrap();
+    let query = authorization.query_pairs().collect::<HashMap<_, _>>();
+    let callback = Url::parse(query.get("redirect_uri").unwrap()).unwrap();
+    let updated = manager.reconfigured(manager.settings()).unwrap();
+    tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        updated.cancel_pending_oauth(),
+    )
+    .await
+    .unwrap();
+    assert!(
+        tokio::net::TcpStream::connect(("127.0.0.1", callback.port().unwrap()))
+            .await
+            .is_err()
+    );
+    assert!(credentials.values.lock().unwrap().is_empty());
+    assert!(server_state.token_forms.lock().await.is_empty());
+
+    let restarted = updated
+        .start_oauth("remote", McpOAuthStartOptions::default())
+        .await
+        .unwrap();
+    let authorization = Url::parse(&restarted.authorization_url).unwrap();
+    let query = authorization.query_pairs().collect::<HashMap<_, _>>();
+    let response = reqwest::get(callback_url(
+        query.get("redirect_uri").unwrap(),
+        &restarted.session_id,
+        "authorization-code",
+        &origin,
+    ))
+    .await
+    .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(updated.oauth_status("remote").await.unwrap().authorized);
+    tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        updated.cancel_pending_oauth(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(credentials.values.lock().unwrap().len(), 1);
+    server_task.abort();
 }
 
 #[tokio::test]

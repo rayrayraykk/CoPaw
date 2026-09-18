@@ -3,6 +3,7 @@ import { dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import ts from "typescript";
+import { networkCallsForUrl } from "./rust-api-network.mjs";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const consoleDirectory = resolve(scriptDirectory, "..");
@@ -102,7 +103,15 @@ function extractRouteArguments(source) {
 async function rustRoutes() {
   const routes = [];
   const files = (await walk(rustSourceDirectory))
-    .filter((path) => extname(path) === ".rs")
+    .filter((path) => {
+      const normalized = path.replaceAll("\\", "/");
+      return (
+        extname(path) === ".rs" &&
+        !normalized.endsWith("_tests.rs") &&
+        !normalized.endsWith("/tests.rs") &&
+        !normalized.includes("/tests/")
+      );
+    })
     .sort((left, right) => left.localeCompare(right));
   for (const path of files) {
     const source = await readFile(path, "utf-8");
@@ -352,28 +361,6 @@ function methodFromOptions(options, sourceFile, fallback) {
   return fallback;
 }
 
-function containingNetworkCall(node) {
-  let current = node.parent;
-  while (current && !ts.isStatement(current)) {
-    if (
-      ts.isCallExpression(current) &&
-      ts.isIdentifier(current.expression) &&
-      current.expression.text === "fetch"
-    ) {
-      return { kind: "fetch", node: current };
-    }
-    if (
-      ts.isNewExpression(current) &&
-      ts.isIdentifier(current.expression) &&
-      ["EventSource", "WebSocket"].includes(current.expression.text)
-    ) {
-      return { kind: current.expression.text, node: current };
-    }
-    current = current.parent;
-  }
-  return null;
-}
-
 function collectCallSites(path, source) {
   const sourceFile = ts.createSourceFile(
     path,
@@ -419,22 +406,24 @@ function collectCallSites(path, source) {
       apiUrlNames.has(node.expression.text) &&
       node.arguments[0]
     ) {
-      const networkCall = containingNetworkCall(node);
-      let method = "GET";
-      let transport = "url";
-      if (networkCall?.kind === "fetch") {
-        method = methodFromOptions(
-          networkCall.node.arguments[1],
-          sourceFile,
-          "GET",
-        );
-        transport = "http";
-      } else if (networkCall?.kind === "EventSource") {
-        transport = "sse";
-      } else if (networkCall?.kind === "WebSocket") {
-        transport = "websocket";
+      const consumers = networkCallsForUrl(node, sourceFile);
+      for (const networkCall of consumers.length ? consumers : [null]) {
+        let method = "GET";
+        let transport = "url";
+        if (networkCall?.kind === "fetch") {
+          method = methodFromOptions(
+            networkCall.node.arguments[1],
+            sourceFile,
+            "GET",
+          );
+          transport = "http";
+        } else if (networkCall?.kind === "EventSource") {
+          transport = "sse";
+        } else if (networkCall?.kind === "WebSocket") {
+          transport = "websocket";
+        }
+        record(node, node.arguments[0], method, transport);
       }
-      record(node, node.arguments[0], method, transport);
     }
     ts.forEachChild(node, visit);
   }

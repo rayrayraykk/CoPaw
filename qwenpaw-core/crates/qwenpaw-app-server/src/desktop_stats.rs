@@ -7,6 +7,7 @@ use axum::Json;
 use axum::Router;
 use axum::extract::Query;
 use axum::extract::State;
+use axum::http::{HeaderMap, StatusCode};
 use axum::routing::get;
 use chrono::DateTime;
 use chrono::Duration;
@@ -27,6 +28,7 @@ use super::AppServer;
 
 const DEFAULT_RANGE_DAYS: i64 = 30;
 const CHANNEL: &str = "console";
+type ApiError = (StatusCode, Json<Value>);
 
 pub(super) fn router() -> Router<AppServer> {
     Router::new()
@@ -404,12 +406,16 @@ impl AgentAccumulator {
 
 async fn agent_stats(
     State(server): State<AppServer>,
+    headers: HeaderMap,
     Query(query): Query<StatsQuery>,
-) -> Json<Value> {
+) -> Result<Json<Value>, ApiError> {
     let (start, end) = resolved_range(&query);
-    let snapshots = server.inner.core.statistics_snapshots().await;
+    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
+    let mut snapshots = server.inner.core.statistics_snapshots().await;
+    super::desktop_chats::filter_statistics_threads(&server, Some(&agent_id), &mut snapshots)
+        .await?;
     let usage = server.inner.core.usage_records().await;
-    Json(agent_stats_value(&snapshots, &usage, start, end))
+    Ok(Json(agent_stats_value(&snapshots, &usage, start, end)))
 }
 
 fn agent_stats_value(
@@ -447,12 +453,13 @@ fn channel_stats_value(channel: &ChannelStats) -> Vec<Value> {
 async fn llm_tool_trend(
     State(server): State<AppServer>,
     Query(query): Query<StatsQuery>,
-) -> Json<Vec<Value>> {
+) -> Result<Json<Vec<Value>>, ApiError> {
     let (mut start, end) = resolved_range(&query);
     if end.signed_duration_since(start).num_days() >= 365 {
         start = end - Duration::days(364);
     }
-    let snapshots = server.inner.core.statistics_snapshots().await;
+    let mut snapshots = server.inner.core.statistics_snapshots().await;
+    super::desktop_chats::filter_statistics_threads(&server, None, &mut snapshots).await?;
     let summary = agent_stats_value(&snapshots, &[], start, end);
     let rows = summary["by_date"].as_array().map_or_else(Vec::new, |days| {
         days.iter()
@@ -465,7 +472,7 @@ async fn llm_tool_trend(
             })
             .collect()
     });
-    Json(rows)
+    Ok(Json(rows))
 }
 
 fn resolved_range(query: &StatsQuery) -> (NaiveDate, NaiveDate) {

@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::Read as _;
 use std::io::Write as _;
 use std::path::PathBuf;
 
@@ -21,7 +22,8 @@ use chrono::SecondsFormat;
 use chrono::Utc;
 use futures_util::StreamExt as _;
 use qwenpaw_core::Core;
-use qwenpaw_protocol::ConfigWriteParams;
+use qwenpaw_core::ModelConfig;
+use qwenpaw_core::ModelRequestOptions;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Map;
@@ -32,6 +34,11 @@ use super::AppServer;
 use super::DesktopCredentialStore;
 use super::DesktopWorkspace;
 use super::desktop_model_remote;
+
+#[path = "desktop_provider_oauth.rs"]
+pub(super) mod oauth;
+#[path = "desktop_openrouter.rs"]
+mod openrouter;
 
 const REGISTRY_SCHEMA_VERSION: u32 = 1;
 const DEFAULT_PROVIDER_ID: &str = "openai-compatible";
@@ -372,6 +379,8 @@ struct ActiveModelRequest {
 
 pub(super) fn router() -> Router<AppServer> {
     Router::new()
+        .merge(openrouter::router())
+        .merge(oauth::router())
         .route("/api/models", get(list_providers))
         .route(
             "/api/models/active",
@@ -429,19 +438,7 @@ pub(super) fn initialize(
             write_registry_to(workspace, &registry).map_err(|error| api_error_message(&error))?;
         }
         validate_registry(&registry).map_err(|error| api_error_message(&error))?;
-        let provider = registry
-            .providers
-            .get(&registry.active_provider_id)
-            .ok_or_else(|| anyhow::anyhow!("Active model provider is invalid"))?;
-        let model = core.read_config().config.default_model;
-        let model = if all_models(provider).any(|candidate| candidate.id == model) {
-            model
-        } else {
-            all_models(provider)
-                .next()
-                .map(|candidate| candidate.id.clone())
-                .ok_or_else(|| anyhow::anyhow!("Active model provider has no models"))?
-        };
+        let (provider, model) = runtime_selection(core, &registry)?;
         let secret = load_secret_from_ref(credentials, &provider.id).unwrap_or_else(|error| {
             tracing::warn!(
                 provider_id = %provider.id,
@@ -450,11 +447,7 @@ pub(super) fn initialize(
             );
             None
         });
-        core.write_config(ConfigWriteParams {
-            base_url: Some(provider.base_url.clone()),
-            default_model: Some(model),
-        })?;
-        core.set_runtime_api_key(secret)?;
+        configure_runtime(core, provider, model, secret)?;
         return Ok(());
     }
     let config = core.read_config().config;
@@ -464,6 +457,69 @@ pub(super) fn initialize(
         config.api_key_configured,
     );
     write_registry_to(workspace, &registry).map_err(|error| api_error_message(&error))
+}
+
+fn runtime_selection<'a>(
+    core: &Core,
+    registry: &'a ProviderRegistry,
+) -> anyhow::Result<(&'a ProviderRecord, String)> {
+    let provider = registry
+        .providers
+        .get(&registry.active_provider_id)
+        .ok_or_else(|| anyhow::anyhow!("Active model provider is invalid"))?;
+    let model = core.read_config().config.default_model;
+    let model = if all_models(provider).any(|candidate| candidate.id == model) {
+        model
+    } else {
+        all_models(provider)
+            .next()
+            .map(|candidate| candidate.id.clone())
+            .ok_or_else(|| anyhow::anyhow!("Active model provider has no models"))?
+    };
+    Ok((provider, model))
+}
+
+/// Updates only a detached candidate, never live registry files or credentials.
+/// The normalized bytes must join the caller's staged file transaction.
+pub(super) fn hydrate_restore(
+    core: &Core,
+    credentials: &dyn DesktopCredentialStore,
+    bytes: &[u8],
+) -> Result<Vec<u8>, &'static str> {
+    if bytes.len() as u64 > REGISTRY_MAX_BYTES {
+        return Err("Restored model registry is too large");
+    }
+    let mut registry: ProviderRegistry =
+        serde_json::from_slice(bytes).map_err(|_| "Restored model registry is invalid")?;
+    validate_registry(&registry).map_err(|_| "Restored model registry is invalid")?;
+    let mut changed = normalize_remote_capabilities(&mut registry);
+    let (provider, model) =
+        runtime_selection(core, &registry).map_err(|_| "Restored model selection is invalid")?;
+    let provider_id = provider.id.clone();
+    let mut secret = None;
+    for provider in registry.providers.values_mut() {
+        let value = load_secret_from_ref(credentials, &provider.id)
+            .map_err(|_| "Restored model credential could not be loaded")?;
+        if let Some(value) = &value {
+            validate_api_key(value).map_err(|_| "Restored model credential is invalid")?;
+        }
+        changed |= provider.api_key_configured != value.is_some();
+        provider.api_key_configured = value.is_some();
+        if provider.id == provider_id {
+            secret = value;
+        }
+    }
+    if changed {
+        bump_registry(&mut registry);
+    }
+    let normalized =
+        serde_json::to_vec_pretty(&registry).map_err(|_| "Restored model registry is invalid")?;
+    if normalized.len() as u64 > REGISTRY_MAX_BYTES {
+        return Err("Restored model registry is too large");
+    }
+    configure_runtime(core, &registry.providers[&provider_id], model, secret)
+        .map_err(|_| "Restored model configuration is invalid")?;
+    Ok(normalized)
 }
 
 async fn list_providers(State(server): State<AppServer>) -> Result<Json<Value>, ApiError> {
@@ -524,48 +580,75 @@ async fn configure_provider(
     Path(provider_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let submitted = object(&body, "Provider config must be an object")?;
+    configure_provider_checked(&server, &provider_id, &body, None).await
+}
+
+#[derive(Clone)]
+struct CredentialRevision {
+    revision: u64,
+    secret_hash: Option<String>,
+}
+
+async fn configure_provider_checked(
+    server: &AppServer,
+    provider_id: &str,
+    body: &Value,
+    expected: Option<&CredentialRevision>,
+) -> Result<Json<Value>, ApiError> {
+    let submitted = object(body, "Provider config must be an object")?;
     validate_provider_update(submitted)?;
     let _guard = server.inner.desktop_models_lock.lock().await;
-    let mut registry = read_registry(&server)?;
+    let mut registry = read_registry(server)?;
+    if expected.is_some_and(|expected| expected.revision != registry.revision) {
+        return Err(conflict(
+            "Provider configuration changed during authorization",
+        ));
+    }
     let previous_registry = registry.clone();
     let provider = registry
         .providers
-        .get_mut(&provider_id)
+        .get_mut(provider_id)
         .ok_or_else(|| not_found(&format!("Provider '{provider_id}' not found")))?;
     let previous_secret = if submitted.contains_key("api_key") {
-        load_provider_secret(&server, &provider_id).await?
+        load_provider_secret(server, provider_id).await?
     } else {
         None
     };
+    if expected.is_some_and(|expected| {
+        expected.secret_hash != oauth::secret_hash(previous_secret.as_deref())
+    }) {
+        return Err(conflict(
+            "Provider credentials changed during authorization",
+        ));
+    }
     apply_provider_update(provider, submitted);
     let next_secret = submitted
         .get("api_key")
         .and_then(Value::as_str)
         .map(str::trim);
     if let Some(secret) = next_secret {
-        save_provider_secret(
-            &server,
-            &provider_id,
-            (!secret.is_empty()).then_some(secret),
-        )
-        .await?;
+        if let Err(error) =
+            save_provider_secret(server, provider_id, (!secret.is_empty()).then_some(secret)).await
+        {
+            let _ = save_provider_secret(server, provider_id, previous_secret.as_deref()).await;
+            return Err(error);
+        }
         provider.api_key_configured = !secret.is_empty();
     }
     let response = provider_response(provider)?;
     bump_registry(&mut registry);
-    if let Err(error) = write_registry(&server, &registry) {
+    if let Err(error) = write_registry(server, &registry) {
         if submitted.contains_key("api_key") {
-            let _ = save_provider_secret(&server, &provider_id, previous_secret.as_deref()).await;
+            let _ = save_provider_secret(server, provider_id, previous_secret.as_deref()).await;
         }
         return Err(error);
     }
     if registry.active_provider_id == provider_id
-        && let Err(error) = apply_active_provider(&server, &registry).await
+        && let Err(error) = apply_active_provider(server, &registry).await
     {
-        let _ = write_registry(&server, &previous_registry);
+        let _ = write_registry(server, &previous_registry);
         if submitted.contains_key("api_key") {
-            let _ = save_provider_secret(&server, &provider_id, previous_secret.as_deref()).await;
+            let _ = save_provider_secret(server, provider_id, previous_secret.as_deref()).await;
         }
         return Err(error);
     }
@@ -811,9 +894,13 @@ async fn probe_model_multimodal(
         }
         (provider, registry.revision)
     };
-    let secret = load_provider_secret(&server, &provider_id).await?;
-    let remote = remote_provider(&provider, &TestProviderRequest::default(), secret);
-    let result = desktop_model_remote::probe_multimodal(&remote, &model_id).await;
+    let result = if provider_id == "openrouter" {
+        openrouter::probe(&server, &model_id).await?
+    } else {
+        let secret = load_provider_secret(&server, &provider_id).await?;
+        let remote = remote_provider(&provider, &TestProviderRequest::default(), secret);
+        desktop_model_remote::probe_multimodal(&remote, &model_id).await
+    };
     let _guard = server.inner.desktop_models_lock.lock().await;
     let mut registry = read_registry(&server)?;
     if registry.revision != revision {
@@ -824,7 +911,11 @@ async fn probe_model_multimodal(
         model.supports_image = Some(result.supports_image);
         model.supports_video = Some(result.supports_video);
         model.supports_multimodal = Some(result.supports_image || result.supports_video);
-        model.probe_source = Some(String::from("probed"));
+        model.probe_source = Some(String::from(if provider_id == "openrouter" {
+            "documentation"
+        } else {
+            "probed"
+        }));
     }
     bump_registry(&mut registry);
     write_registry(&server, &registry)?;
@@ -893,12 +984,10 @@ fn remote_provider(
     secret: Option<String>,
 ) -> desktop_model_remote::RemoteProvider {
     desktop_model_remote::RemoteProvider {
-        base_url: body
-            .base_url
-            .as_deref()
-            .unwrap_or(&provider.base_url)
-            .trim()
-            .to_owned(),
+        base_url: provider_api_base_url(
+            &provider.id,
+            body.base_url.as_deref().unwrap_or(&provider.base_url),
+        ),
         chat_model: body
             .chat_model
             .clone()
@@ -977,7 +1066,7 @@ async fn persist_discovery(
     let previous_registry = registry.clone();
     let provider = provider_mut(&mut registry, provider_id)?;
     if let Some(base_url) = &body.base_url {
-        base_url.trim().clone_into(&mut provider.base_url);
+        provider.base_url = provider_stored_base_url(&provider.id, base_url);
     }
     if let Some(chat_model) = &body.chat_model {
         provider.chat_model.clone_from(chat_model);
@@ -1087,6 +1176,13 @@ fn discovery_error_kind(failure: &desktop_model_remote::RemoteFailure) -> &'stat
 
 fn normalize_remote_capabilities(registry: &mut ProviderRegistry) -> bool {
     let mut changed = false;
+    if let Some(provider) = registry.providers.get_mut("ollama") {
+        let base_url = provider_stored_base_url(&provider.id, &provider.base_url);
+        if provider.base_url != base_url {
+            provider.base_url = base_url;
+            changed = true;
+        }
+    }
     for provider in registry
         .providers
         .values_mut()
@@ -1147,8 +1243,41 @@ async fn test_model_connection(
         "http_status": result.http_status,
         "retryable": result.retryable,
         "checked_at": result.checked_at,
-        "verification": "live"
+        "verification": if provider.id == "ollama" { "provider_only" } else { "live" }
     })))
+}
+
+async fn check_ollama_model(
+    provider: &ProviderRecord,
+    secret: Option<&str>,
+    model_id: &str,
+) -> ModelConnectionResult {
+    let checked_at = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
+    let remote = remote_provider(
+        provider,
+        &TestProviderRequest::default(),
+        secret.map(str::to_owned),
+    );
+    match desktop_model_remote::discover_models(&remote).await {
+        Ok(models) if models.iter().any(|model| model.id == model_id) => ModelConnectionResult {
+            success: true,
+            message: String::new(),
+            status: "available",
+            http_status: None,
+            retryable: false,
+            checked_at,
+        },
+        // The original built-in Ollama provider treats failed discovery as an
+        // empty catalog. Preserve that model-check result; the separate provider
+        // connection test still reports transport failures.
+        Ok(_) | Err(_) => failed_model_connection(
+            "model_not_found",
+            None,
+            false,
+            &format!("Model '{model_id}' not found"),
+            checked_at,
+        ),
+    }
 }
 
 async fn check_model_connection(
@@ -1156,22 +1285,17 @@ async fn check_model_connection(
     secret: Option<&str>,
     model_id: &str,
 ) -> ModelConnectionResult {
+    if provider.id == "ollama" {
+        return check_ollama_model(provider, secret, model_id).await;
+    }
     let checked_at = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
-    let endpoint = match provider.chat_model.as_str() {
-        "OpenAIChatModel" => "chat/completions",
-        "OpenAIResponseModel" => "responses",
-        "AnthropicChatModel" => "messages",
-        _ => {
-            return failed_model_connection(
-                "incompatible_api",
-                None,
-                false,
-                "Unsupported provider protocol",
-                checked_at,
-            );
+    let endpoint = match model_probe_path(&provider.chat_model, model_id) {
+        Ok(endpoint) => endpoint,
+        Err(message) => {
+            return failed_model_connection("incompatible_api", None, false, message, checked_at);
         }
     };
-    let url = match model_endpoint(&provider.base_url, &provider.chat_model, endpoint) {
+    let url = match model_endpoint(&provider.base_url, &provider.chat_model, &endpoint) {
         Ok(url) => url,
         Err(message) => {
             return failed_model_connection("transient_error", None, true, &message, checked_at);
@@ -1204,6 +1328,8 @@ async fn check_model_connection(
             request
                 .header("x-api-key", secret)
                 .header("anthropic-version", "2023-06-01")
+        } else if provider.chat_model == "GeminiChatModel" && provider.auth_mode == "api_key" {
+            request.header("x-goog-api-key", secret)
         } else {
             request.bearer_auth(secret)
         };
@@ -1242,6 +1368,29 @@ async fn check_model_connection(
     )
 }
 
+pub(super) fn model_probe_path(chat_model: &str, model_id: &str) -> Result<String, &'static str> {
+    match chat_model {
+        "OpenAIChatModel" => Ok(String::from("chat/completions")),
+        "OpenAIResponseModel" => Ok(String::from("responses")),
+        "AnthropicChatModel" => Ok(String::from("messages")),
+        "GeminiChatModel" => {
+            let model = model_id.strip_prefix("models/").unwrap_or(model_id);
+            if !model
+                .bytes()
+                .next()
+                .is_some_and(|byte| byte.is_ascii_alphanumeric())
+                || !model
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || b"-_.".contains(&byte))
+            {
+                return Err("Invalid Gemini model resource name");
+            }
+            Ok(format!("models/{model}:generateContent"))
+        }
+        _ => Err("Unsupported provider protocol"),
+    }
+}
+
 fn model_endpoint(base_url: &str, chat_model: &str, endpoint: &str) -> Result<url::Url, String> {
     let base_url = base_url.trim();
     if base_url.is_empty() {
@@ -1251,6 +1400,11 @@ fn model_endpoint(base_url: &str, chat_model: &str, endpoint: &str) -> Result<ur
         .is_ok_and(|url| url.path().trim_end_matches('/').ends_with("/v1"));
     let endpoint = if chat_model == "AnthropicChatModel" && !has_v1_suffix {
         format!("v1/{endpoint}")
+    } else if chat_model == "GeminiChatModel"
+        && !has_v1_suffix
+        && !base_url.trim_end_matches('/').ends_with("/v1beta")
+    {
+        format!("v1beta/{endpoint}")
     } else {
         endpoint.to_owned()
     };
@@ -1260,6 +1414,10 @@ fn model_endpoint(base_url: &str, chat_model: &str, endpoint: &str) -> Result<ur
 
 fn model_test_body(chat_model: &str, model_id: &str) -> Value {
     match chat_model {
+        "GeminiChatModel" => json!({
+            "contents": [{"role": "user", "parts": [{"text": "ping"}]}],
+            "generationConfig": {"maxOutputTokens": 20}
+        }),
         "OpenAIResponseModel" => json!({
             "model": model_id,
             "input": "ping",
@@ -1441,6 +1599,7 @@ async fn configure_model(
     validate_model_update(submitted)?;
     let _guard = server.inner.desktop_models_lock.lock().await;
     let mut registry = read_registry(&server)?;
+    let previous = registry.clone();
     let provider = provider_mut(&mut registry, &provider_id)?;
     let model = all_models_mut(provider)
         .find(|model| model.id == model_id)
@@ -1450,6 +1609,12 @@ async fn configure_model(
     let response = provider_response(provider)?;
     bump_registry(&mut registry);
     write_registry(&server, &registry)?;
+    if registry.active_provider_id == provider_id
+        && let Err(error) = apply_active_provider(&server, &registry).await
+    {
+        let _ = write_registry(&server, &previous);
+        return Err(error);
+    }
     Ok(Json(response))
 }
 
@@ -1627,13 +1792,20 @@ async fn active_models(
         let provider_id = active.get("provider_id").and_then(Value::as_str);
         let model_id = active.get("model").and_then(Value::as_str);
         if let (Some(provider_id), Some(model_id)) = (provider_id, model_id)
-            && provider_has_model(&registry, provider_id, model_id)
+            && !provider_id.is_empty()
+            && !model_id.is_empty()
         {
-            return Ok(Json(active_model_response(
-                &registry,
-                provider_id,
-                model_id,
-            )?));
+            let limit = registry.providers.get(provider_id).map(|provider| {
+                all_models(provider)
+                    .find(|model| model.id == model_id)
+                    .map_or_else(
+                        || model_context::uncatalogued(model_id, provider.id != "ollama"),
+                        |model| model.max_input_length,
+                    )
+            });
+            return Ok(Json(
+                json!({"active_llm":{"provider_id":provider_id,"model":model_id},"effective_max_input_length":limit}),
+            ));
         }
     }
     if query.scope == "agent" {
@@ -1750,6 +1922,12 @@ fn provider_response(provider: &ProviderRecord) -> Result<Value, ApiError> {
         .as_object_mut()
         .ok_or_else(|| internal("Model provider could not be encoded"))?;
     object.remove("api_key_configured");
+    let supports_oauth = provider.id == "openrouter" && !provider.is_custom;
+    object.insert(String::from("supports_oauth"), json!(supports_oauth));
+    object.insert(
+        String::from("oauth_connected"),
+        json!(supports_oauth && provider.api_key_configured),
+    );
     object.insert(
         String::from("api_key"),
         Value::String(if provider.api_key_configured {
@@ -1760,6 +1938,9 @@ fn provider_response(provider: &ProviderRecord) -> Result<Value, ApiError> {
     );
     Ok(value)
 }
+
+#[path = "desktop_model_context.rs"]
+mod model_context;
 
 fn active_model_response(
     registry: &ProviderRegistry,
@@ -1810,19 +1991,107 @@ async fn apply_active_provider_with_model(
         .get(&registry.active_provider_id)
         .ok_or_else(|| internal("Active model provider is invalid"))?;
     let secret = load_provider_secret(server, &provider.id).await?;
-    server
-        .inner
-        .core
-        .write_config(ConfigWriteParams {
-            base_url: Some(provider.base_url.clone()),
-            default_model: Some(model.to_owned()),
-        })
-        .map_err(|error| internal(&error.to_string()))?;
-    server
-        .inner
-        .core
-        .set_runtime_api_key(secret)
+    configure_runtime(&server.inner.core, provider, model.to_owned(), secret)
         .map_err(|error| internal(&error.to_string()))
+}
+
+fn configure_runtime(
+    core: &Core,
+    provider: &ProviderRecord,
+    model: String,
+    secret: Option<String>,
+) -> Result<(), qwenpaw_core::CoreError> {
+    let (config, options) = provider_runtime(provider, model, secret);
+    core.configure_model_runtime(config, options)
+}
+
+pub(super) async fn runtime_for_agent_config(
+    server: &AppServer,
+    config: &Value,
+) -> Result<Option<(ModelConfig, ModelRequestOptions)>, ApiError> {
+    let _guard = server.inner.desktop_models_lock.lock().await;
+    let registry = read_registry(server)?;
+    let Some(active) = config.get("active_model").filter(|value| !value.is_null()) else {
+        return Ok(None);
+    };
+    let selected = active
+        .get("provider_id")
+        .and_then(Value::as_str)
+        .zip(active.get("model").and_then(Value::as_str));
+    let (provider_id, model) =
+        selected.ok_or_else(|| bad_request("Agent model selection is unavailable"))?;
+    if provider_id.is_empty() || model.is_empty() {
+        return Ok(None);
+    }
+    validate_model_id(model)?;
+    // A catalog entry is not an execution permission: the original provider
+    // constructs the explicitly configured model even after catalog removal.
+    let provider = registry
+        .providers
+        .get(provider_id)
+        .ok_or_else(|| bad_request("Agent model selection is unavailable"))?;
+    let secret = load_provider_secret(server, provider_id).await?;
+    Ok(Some(provider_runtime(provider, model.to_owned(), secret)))
+}
+
+fn provider_runtime(
+    provider: &ProviderRecord,
+    model: String,
+    secret: Option<String>,
+) -> (ModelConfig, ModelRequestOptions) {
+    let mut model_generate_kwargs = BTreeMap::new();
+    for model in all_models(provider) {
+        model_generate_kwargs
+            .entry(model.id.clone())
+            .or_insert_with(|| model.generate_kwargs.clone());
+    }
+    (
+        ModelConfig {
+            api_key: secret,
+            base_url: provider_api_base_url(&provider.id, &provider.base_url),
+            default_model: model,
+        },
+        ModelRequestOptions {
+            provider_id: Some(provider.id.clone()),
+            protocol: match provider.chat_model.as_str() {
+                "OpenAIResponseModel" => qwenpaw_core::ModelProtocol::OpenAIResponses,
+                "AnthropicChatModel" => qwenpaw_core::ModelProtocol::AnthropicMessages,
+                "GeminiChatModel" => qwenpaw_core::ModelProtocol::GeminiGenerateContent,
+                _ => qwenpaw_core::ModelProtocol::OpenAIChat,
+            },
+            auth_mode: if provider.auth_mode == "auth_token" {
+                qwenpaw_core::ModelAuthMode::BearerToken
+            } else {
+                qwenpaw_core::ModelAuthMode::ApiKey
+            },
+            custom_headers: provider.custom_headers.clone(),
+            generate_kwargs: provider.generate_kwargs.clone(),
+            model_generate_kwargs,
+            map_openai_token_limit: provider.chat_model == "OpenAIChatModel"
+                && provider.id != "ollama",
+        },
+    )
+}
+
+fn provider_stored_base_url(provider_id: &str, base_url: &str) -> String {
+    let base_url = base_url.trim();
+    if provider_id != "ollama" {
+        return base_url.to_owned();
+    }
+    let root = base_url.trim_end_matches('/');
+    root.strip_suffix("/v1")
+        .unwrap_or(root)
+        .trim_end_matches('/')
+        .to_owned()
+}
+
+fn provider_api_base_url(provider_id: &str, base_url: &str) -> String {
+    let root = provider_stored_base_url(provider_id, base_url);
+    if provider_id == "ollama" {
+        format!("{root}/v1")
+    } else {
+        root
+    }
 }
 
 fn apply_provider_update(provider: &mut ProviderRecord, submitted: &Map<String, Value>) {
@@ -1833,7 +2102,7 @@ fn apply_provider_update(provider: &mut ProviderRecord, submitted: &Map<String, 
         name.trim().clone_into(&mut provider.name);
     }
     if let Some(base_url) = submitted.get("base_url").and_then(Value::as_str) {
-        base_url.trim().clone_into(&mut provider.base_url);
+        provider.base_url = provider_stored_base_url(&provider.id, base_url);
     }
     if let Some(chat_model) = submitted.get("chat_model").and_then(Value::as_str) {
         chat_model.clone_into(&mut provider.chat_model);
@@ -2182,6 +2451,11 @@ fn validate_api_key(value: &str) -> Result<(), ApiError> {
     }
 }
 
+pub(super) fn validate_backup_secret(provider_id: &str, value: &str) -> Result<(), &'static str> {
+    validate_provider_id(provider_id).map_err(|_| "Backup model provider is invalid")?;
+    validate_api_key(value).map_err(|_| "Backup model credential is invalid")
+}
+
 fn validate_headers(value: &Value) -> Result<(), ApiError> {
     let headers = value
         .as_object()
@@ -2370,15 +2644,56 @@ fn read_registry(server: &AppServer) -> Result<ProviderRegistry, ApiError> {
     read_registry_from(desktop_workspace(server)?)
 }
 
+pub(super) fn backup_provider_ids(server: &AppServer) -> Result<Vec<String>, &'static str> {
+    read_registry(server)
+        .map(|registry| registry.providers.into_keys().collect())
+        .map_err(|_| "Provider registry could not be loaded")
+}
+
+pub(super) fn restore_registry_bytes(server: &AppServer) -> Result<Vec<u8>, &'static str> {
+    let registry = read_registry(server).map_err(|_| "Local model registry is invalid")?;
+    serde_json::to_vec_pretty(&registry).map_err(|_| "Local model registry is invalid")
+}
+
+/// The effective key must never be assigned to a provider merely because it
+/// happens to be selected in a stale Desktop registry.
+pub(super) fn backup_runtime_credential(
+    server: &AppServer,
+) -> Result<Option<(String, Option<String>)>, &'static str> {
+    let registry = read_registry(server).map_err(|_| "Local model registry is invalid")?;
+    let runtime = server.inner.core.backup_model_config();
+    let provider = registry
+        .providers
+        .get(&registry.active_provider_id)
+        .ok_or("Local model selection is invalid")?;
+    if provider_api_base_url(&provider.id, &provider.base_url).trim_end_matches('/')
+        != runtime.base_url.trim_end_matches('/')
+    {
+        if runtime.api_key.is_some() {
+            return Err("Effective model credential cannot be matched to its provider");
+        }
+        return Ok(None);
+    }
+    Ok(Some((provider.id.clone(), runtime.api_key)))
+}
+
 fn read_registry_from(workspace: &DesktopWorkspace) -> Result<ProviderRegistry, ApiError> {
     let path = registry_path(workspace);
-    let metadata = fs::metadata(&path)
+    let file =
+        fs::File::open(path).map_err(|_| internal("Model provider registry could not be read"))?;
+    let metadata = file
+        .metadata()
         .map_err(|_| internal("Model provider registry could not be inspected"))?;
     if !metadata.is_file() || metadata.len() > REGISTRY_MAX_BYTES {
         return Err(internal("Model provider registry is invalid"));
     }
-    let bytes =
-        fs::read(path).map_err(|_| internal("Model provider registry could not be read"))?;
+    let mut bytes = Vec::new();
+    file.take(REGISTRY_MAX_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| internal("Model provider registry could not be read"))?;
+    if bytes.len() as u64 > REGISTRY_MAX_BYTES {
+        return Err(internal("Model provider registry is invalid"));
+    }
     let registry = serde_json::from_slice::<ProviderRegistry>(&bytes)
         .map_err(|_| internal("Model provider registry is invalid"))?;
     validate_registry(&registry)?;
@@ -2529,6 +2844,26 @@ fn api_error_message(error: &ApiError) -> anyhow::Error {
             .to_owned()
     )
 }
+
+#[cfg(test)]
+#[path = "desktop_models_restore_tests.rs"]
+mod restore_tests;
+
+#[cfg(test)]
+#[path = "desktop_ollama_tests.rs"]
+mod ollama_tests;
+
+#[cfg(test)]
+#[path = "desktop_anthropic_tests.rs"]
+mod anthropic_tests;
+
+#[cfg(test)]
+#[path = "desktop_gemini_tests.rs"]
+mod gemini_tests;
+
+#[cfg(test)]
+#[path = "desktop_responses_tests.rs"]
+mod responses_tests;
 
 #[cfg(test)]
 mod tests {

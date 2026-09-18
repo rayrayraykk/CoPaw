@@ -6,8 +6,100 @@ use pretty_assertions::assert_eq;
 use qwenpaw_core::ModelConfig;
 use serde_json::json;
 use tokio::sync::mpsc;
+use tower::ServiceExt as _;
 
 use super::*;
+
+#[test]
+fn workspace_initialization_resolves_relative_data_without_changing_the_base() {
+    let current = std::env::current_dir().unwrap();
+    let build = current.join("target");
+    std::fs::create_dir_all(&build).unwrap();
+    let directory = tempfile::tempdir_in(&build).unwrap();
+    let initial = directory.path().join("workspace");
+    std::fs::create_dir(&initial).unwrap();
+    let relative = directory
+        .path()
+        .strip_prefix(&current)
+        .unwrap()
+        .join("state");
+    let server = test_server();
+    let workspace = desktop_workspace_from_env(
+        &server.inner.core,
+        Some(relative.clone()),
+        Some(initial.clone()),
+    )
+    .unwrap();
+    assert_eq!(
+        workspace.data_dir,
+        current.join(relative).canonicalize().unwrap()
+    );
+    assert_eq!(workspace.initial, initial.canonicalize().unwrap());
+    assert_eq!(*workspace.selected.try_read().unwrap(), workspace.initial);
+}
+
+#[tokio::test]
+async fn disconnected_http_request_keeps_restore_lease_until_blocking_write_finishes() {
+    let server = test_server();
+    let core = server.inner.core.clone();
+    let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let (finished_tx, finished_rx) = tokio::sync::oneshot::channel();
+    let handler_core = core.clone();
+    let write = Arc::new(std::sync::Mutex::new(Some((
+        started_tx,
+        release_rx,
+        finished_tx,
+        handler_core,
+    ))));
+    let router = Router::new()
+        .route(
+            "/write",
+            post(move || {
+                let (started_tx, release_rx, finished_tx, handler_core) =
+                    write.lock().unwrap().take().unwrap();
+                async move {
+                    tokio::task::spawn_blocking(move || {
+                        started_tx.send(()).unwrap();
+                        release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                        handler_core.write_ui_language("zh").unwrap();
+                    })
+                    .await
+                    .unwrap();
+                    finished_tx.send(()).unwrap();
+                    StatusCode::NO_CONTENT
+                }
+            }),
+        )
+        .layer(from_fn_with_state(server, restore_operation));
+    let request = tokio::spawn(
+        router.oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/write")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        ),
+    );
+    tokio::time::timeout(Duration::from_secs(5), started_rx)
+        .await
+        .unwrap()
+        .unwrap();
+    request.abort();
+    assert!(request.await.unwrap_err().is_cancelled());
+    assert!(matches!(
+        core.begin_restore(Duration::from_millis(30)).await,
+        Err(qwenpaw_core::CoreError::RestoreTimeout)
+    ));
+    release_tx.send(()).unwrap();
+    tokio::time::timeout(Duration::from_secs(5), finished_rx)
+        .await
+        .unwrap()
+        .unwrap();
+    let guard = core.begin_restore(Duration::from_secs(5)).await.unwrap();
+    assert_eq!(core.read_ui_language().unwrap(), "zh");
+    drop(guard);
+}
 
 #[tokio::test]
 async fn requires_initialize_before_other_requests() {

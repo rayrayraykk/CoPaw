@@ -95,6 +95,16 @@ struct ToolCallEntry {
     subscribers: Vec<mpsc::Sender<ToolCallStreamEvent>>,
 }
 
+pub(crate) struct ToolCallRestoreGuard<'a> {
+    entries: tokio::sync::MutexGuard<'a, HashMap<String, ToolCallEntry>>,
+}
+
+impl ToolCallRestoreGuard<'_> {
+    pub(crate) fn clear(&mut self) {
+        self.entries.clear();
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ToolCallStatus {
     Running,
@@ -146,6 +156,23 @@ pub(crate) struct ToolCallLease {
 }
 
 impl ToolCallCoordinator {
+    pub(crate) async fn cancel_all(&self) {
+        let mut entries = self.inner.entries.lock().await;
+        for entry in entries.values_mut() {
+            if entry.status != ToolCallStatus::Completed {
+                entry.cancel_reason = Some(CancelReason::User);
+                entry.cancellation.cancel();
+                entry.deadline_changed.notify_one();
+            }
+        }
+    }
+
+    pub(crate) async fn lock_for_restore(&self) -> ToolCallRestoreGuard<'_> {
+        ToolCallRestoreGuard {
+            entries: self.inner.entries.lock().await,
+        }
+    }
+
     pub(crate) fn new(offload_on_deadline: bool) -> Self {
         Self::with_limits(
             offload_on_deadline,

@@ -2,7 +2,6 @@
 
 use std::io::ErrorKind;
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use axum::Json;
@@ -199,27 +198,27 @@ async fn run_heartbeat(State(server): State<AppServer>) -> Json<Value> {
 }
 
 fn try_spawn_heartbeat(server: AppServer) -> bool {
-    if server
-        .inner
-        .desktop_heartbeat_running
-        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-        .is_err()
-    {
+    if super::desktop_backups::is_restoring(&server) {
         return false;
     }
+    let Some(lease) = super::desktop_checkpoints::quiescence::begin_heartbeat(&server) else {
+        return false;
+    };
     tokio::spawn(async move {
+        let _lease = lease;
         if let Err(error) = execute_and_record(&server).await {
             tracing::warn!(error, "Heartbeat execution failed");
         }
-        server
-            .inner
-            .desktop_heartbeat_running
-            .store(false, Ordering::Release);
     });
     true
 }
 
 async fn execute_and_record(server: &AppServer) -> Result<(), String> {
+    let _operation = server
+        .inner
+        .core
+        .operation_guard()
+        .map_err(|error| error.to_string())?;
     let execution = execute_heartbeat(server).await?;
     match execution {
         HeartbeatExecution::Finished(run) if run.target == "inbox" => {
@@ -294,21 +293,15 @@ async fn execute_heartbeat(server: &AppServer) -> Result<HeartbeatExecution, Str
     )
     .await
     .map_err(api_error_detail)?;
-    let (started, events) = server
-        .inner
-        .core
-        .start_turn(TurnStartParams {
-            thread_id: thread_id.clone(),
-            input: vec![UserInput::Text {
-                text: query.to_owned(),
-            }],
-        })
+    let agent = super::desktop_agents::context_for_agent(server, "default")
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(api_error_detail)?;
+    let (started, events) = start_owned_turn(server, &thread_id, query, &agent).await?;
     let turn_id = started.turn.id;
     let consume = consume_turn(server, events, &turn_id);
+    tokio::pin!(consume);
     let completed = tokio::select! {
-        result = tokio::time::timeout(Duration::from_secs(config.timeout_seconds), consume) => {
+        result = tokio::time::timeout(Duration::from_secs(config.timeout_seconds), &mut consume) => {
             match result {
                 Ok(result) => Some(result?),
                 Err(_) => None,
@@ -318,6 +311,17 @@ async fn execute_heartbeat(server: &AppServer) -> Result<HeartbeatExecution, Str
     };
     let query_path = query_path.to_string_lossy().into_owned();
     if let Some(turn) = completed {
+        if super::desktop_checkpoints::auto_snapshot_eligible(&turn, Some(query)) {
+            super::desktop_checkpoints::schedule_auto_checkpoint(
+                server,
+                &turn.thread_id,
+                &turn.id,
+                &agent,
+                Some(query.to_owned()),
+                &server.inner.shutdown,
+            )
+            .await;
+        }
         return Ok(HeartbeatExecution::Finished(HeartbeatRun {
             turn,
             target: config.target,
@@ -332,14 +336,53 @@ async fn execute_heartbeat(server: &AppServer) -> Result<HeartbeatExecution, Str
             turn_id: turn_id.clone(),
         })
         .await;
+    // Interruption is only a request. Retain the stream until final persistence
+    // completes before releasing the Heartbeat completion lease.
+    let _ = consume.await?;
     super::desktop_api::clear_turn_approvals(server, &turn_id).await;
     Ok(HeartbeatExecution::TimedOut {
         thread_id,
-        turn_id,
+        turn_id: turn_id.clone(),
         target: config.target,
         query_path,
         timeout_seconds: config.timeout_seconds,
     })
+}
+
+async fn start_owned_turn(
+    server: &AppServer,
+    thread_id: &str,
+    query: &str,
+    agent: &super::desktop_agents::AgentContext,
+) -> Result<
+    (
+        qwenpaw_protocol::TurnStartResponse,
+        qwenpaw_core::TurnEventStream,
+    ),
+    String,
+> {
+    let usage_owner = agent.usage_owner();
+    let runtime = server
+        .inner
+        .core
+        .agent_runtime_config()
+        .map_err(|error| error.to_string())?;
+    server
+        .inner
+        .core
+        .start_turn_with_owner(
+            TurnStartParams {
+                thread_id: thread_id.to_owned(),
+                input: vec![UserInput::Text {
+                    text: query.to_owned(),
+                }],
+            },
+            None,
+            runtime,
+            Some(usage_owner),
+        )
+        .await
+        .map_err(|error| error.to_string())
 }
 
 async fn consume_turn(
@@ -474,7 +517,7 @@ async fn record_timeout(
     .map_err(api_error_detail)
 }
 
-fn trace_events(turn: &Turn) -> Vec<Value> {
+pub(super) fn trace_events(turn: &Turn) -> Vec<Value> {
     turn.items
         .iter()
         .map(|item| match item {

@@ -10,6 +10,7 @@ use std::time::Duration;
 use anyhow::Context;
 use axum::Json;
 use axum::Router;
+use axum::extract::Request;
 use axum::extract::State;
 use axum::extract::WebSocketUpgrade;
 use axum::extract::ws::Message;
@@ -22,6 +23,8 @@ use axum::http::header::CACHE_CONTROL;
 use axum::http::header::HOST;
 use axum::http::header::ORIGIN;
 use axum::http::header::WWW_AUTHENTICATE;
+use axum::middleware::Next;
+use axum::middleware::from_fn_with_state;
 use axum::response::IntoResponse;
 use axum::response::Response;
 use axum::routing::any;
@@ -66,9 +69,6 @@ use qwenpaw_protocol::WorkspaceReadParams;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use sha2::Digest as _;
-use tokio::io::AsyncBufReadExt;
-use tokio::io::AsyncWriteExt;
-use tokio::io::BufReader;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tower_http::services::ServeDir;
@@ -76,16 +76,20 @@ use tower_http::services::ServeFile;
 use tower_http::set_header::SetResponseHeaderLayer;
 use tracing::warn;
 
+mod backend_log;
 mod desktop_access_control;
 mod desktop_acp;
 mod desktop_agent_settings;
 mod desktop_agents;
 mod desktop_api;
+mod desktop_backups;
 mod desktop_channels;
 mod desktop_chats;
 mod desktop_checkpoints;
+mod desktop_console_runs;
 mod desktop_credentials;
 mod desktop_cron;
+mod desktop_debug;
 mod desktop_environment;
 mod desktop_files;
 mod desktop_git;
@@ -93,21 +97,41 @@ mod desktop_heartbeat;
 mod desktop_inbox;
 mod desktop_local_models;
 mod desktop_mail_access_control;
+mod desktop_market;
 mod desktop_mcp;
 mod desktop_model_remote;
 mod desktop_models;
-mod desktop_navigation;
+pub use backend_log::BackendLog;
+#[cfg(test)]
+mod desktop_debug_tests;
+mod desktop_frontend_plugins;
+mod desktop_pawapps;
+#[cfg(test)]
+mod desktop_pawapps_tests;
+#[cfg(test)]
+mod desktop_project_ownership_tests;
 mod desktop_projects;
+mod desktop_restore_files;
 mod desktop_security;
 mod desktop_skills;
 mod desktop_stats;
 mod desktop_tool_calls;
 mod desktop_tools;
+mod desktop_usage;
+mod protocol_runs;
+mod stdio;
 
 pub use desktop_credentials::DesktopCredentialStore;
 pub use desktop_credentials::SystemDesktopCredentialStore;
+pub use desktop_credentials::{AgentPublicationSecret, AgentPublicationSecretScope};
 pub use desktop_local_models::LocalModelDownloadSources;
+pub use desktop_restore_files::publication::AgentPublicationFiles;
 
+#[cfg(test)]
+mod desktop_publication_test_support;
+
+// Product releases are independent of the Core crate and protocol versions.
+const PRODUCT_VERSION: &str = "2.2.0b5";
 const OUTBOUND_CHANNEL_CAPACITY: usize = 128;
 const MAX_WEBSOCKET_MESSAGE_BYTES: usize = 1_048_576;
 const MIN_REMOTE_TOKEN_BYTES: usize = 32;
@@ -130,8 +154,12 @@ struct AppServerInner {
     desktop_push_messages: tokio::sync::RwLock<Vec<DesktopPushMessage>>,
     desktop_access_control_lock: tokio::sync::Mutex<()>,
     desktop_acp_lock: tokio::sync::Mutex<()>,
+    desktop_agent_lifecycle_lock: tokio::sync::Mutex<()>,
     desktop_agents_lock: tokio::sync::Mutex<()>,
     desktop_agent_settings_lock: tokio::sync::Mutex<()>,
+    desktop_backups: Option<desktop_backups::BackupsState>,
+    desktop_market: desktop_market::Sources,
+    desktop_provider_oauth: desktop_models::oauth::StateStore,
     desktop_mail_access_control_lock: tokio::sync::Mutex<()>,
     desktop_mcp_lock: tokio::sync::Mutex<()>,
     desktop_models_lock: tokio::sync::Mutex<()>,
@@ -139,7 +167,12 @@ struct AppServerInner {
     desktop_channel_config_lock: tokio::sync::Mutex<()>,
     desktop_chat_catalog_lock: tokio::sync::Mutex<()>,
     desktop_checkpoint_lock: tokio::sync::Mutex<()>,
+    desktop_checkpoint_runtime: desktop_checkpoints::runtime::RuntimeState,
+    desktop_checkpoint_quiescence: desktop_checkpoints::quiescence::State,
     desktop_cron_lock: tokio::sync::Mutex<()>,
+    desktop_cron_runs: desktop_cron::RunState,
+    desktop_console_runs: desktop_console_runs::RunState,
+    protocol_runs: protocol_runs::RunState,
     desktop_environment_lock: tokio::sync::Mutex<()>,
     desktop_git_lock: tokio::sync::Mutex<()>,
     desktop_heartbeat_lock: tokio::sync::Mutex<()>,
@@ -168,6 +201,7 @@ struct DesktopSessionAliases {
 
 #[derive(Clone)]
 struct DesktopPendingApproval {
+    agent_id: String,
     thread_id: String,
     turn_id: String,
     call_id: String,
@@ -175,6 +209,7 @@ struct DesktopPendingApproval {
     arguments: String,
     workspace_root: String,
     session_id: String,
+    root_session_id: String,
     created_at: i64,
 }
 
@@ -199,6 +234,19 @@ struct ConnectionSession {
 }
 
 impl AppServer {
+    /// Opens the installation-local append log for a configured Workspace host.
+    /// Plain protocol servers without a Workspace have no file log.
+    ///
+    /// # Errors
+    /// Returns an error if the safe log file cannot be opened.
+    pub fn open_backend_log(&self) -> std::io::Result<Option<BackendLog>> {
+        self.inner
+            .desktop_workspace
+            .as_ref()
+            .map(|workspace| BackendLog::open(&workspace.data_dir))
+            .transpose()
+    }
+
     #[must_use]
     pub fn new(core: Core) -> Self {
         Self {
@@ -209,8 +257,12 @@ impl AppServer {
                 desktop_push_messages: tokio::sync::RwLock::new(Vec::new()),
                 desktop_access_control_lock: tokio::sync::Mutex::new(()),
                 desktop_acp_lock: tokio::sync::Mutex::new(()),
+                desktop_agent_lifecycle_lock: tokio::sync::Mutex::new(()),
                 desktop_agents_lock: tokio::sync::Mutex::new(()),
                 desktop_agent_settings_lock: tokio::sync::Mutex::new(()),
+                desktop_backups: None,
+                desktop_market: desktop_market::Sources::default(),
+                desktop_provider_oauth: desktop_models::oauth::StateStore::default(),
                 desktop_mail_access_control_lock: tokio::sync::Mutex::new(()),
                 desktop_mcp_lock: tokio::sync::Mutex::new(()),
                 desktop_models_lock: tokio::sync::Mutex::new(()),
@@ -218,7 +270,12 @@ impl AppServer {
                 desktop_channel_config_lock: tokio::sync::Mutex::new(()),
                 desktop_chat_catalog_lock: tokio::sync::Mutex::new(()),
                 desktop_checkpoint_lock: tokio::sync::Mutex::new(()),
+                desktop_checkpoint_runtime: desktop_checkpoints::runtime::RuntimeState::default(),
+                desktop_checkpoint_quiescence: desktop_checkpoints::quiescence::State::default(),
                 desktop_cron_lock: tokio::sync::Mutex::new(()),
+                desktop_cron_runs: desktop_cron::RunState::default(),
+                desktop_console_runs: desktop_console_runs::RunState::default(),
+                protocol_runs: protocol_runs::RunState::default(),
                 desktop_environment_lock: tokio::sync::Mutex::new(()),
                 desktop_git_lock: tokio::sync::Mutex::new(()),
                 desktop_heartbeat_lock: tokio::sync::Mutex::new(()),
@@ -365,6 +422,34 @@ impl AppServer {
         )
     }
 
+    /// Creates Workspace services without Desktop HTTP routes or static assets.
+    ///
+    /// The host explicitly owns the data directory, base Workspace and secure
+    /// credential store. Construction does not start listeners or schedulers.
+    /// This does not change the lightweight embedding contract of `Self::new`.
+    ///
+    /// # Errors
+    /// Returns an error for invalid directories, persisted state, or credentials.
+    pub fn new_workspace_with_stores(
+        core: Core,
+        credentials: Arc<dyn DesktopCredentialStore>,
+        data_dir: &Path,
+        default_workspace: &Path,
+    ) -> anyhow::Result<Self> {
+        std::fs::create_dir_all(data_dir).context("failed to create Workspace data directory")?;
+        let data_dir = data_dir
+            .canonicalize()
+            .context("failed to resolve Workspace data directory")?;
+        let workspace = desktop_workspace_from_env(
+            &core,
+            Some(data_dir),
+            Some(default_workspace.to_path_buf()),
+        )?;
+        Ok(Self {
+            inner: Arc::new(Self::workspace_inner(core, credentials, workspace)?),
+        })
+    }
+
     fn new_desktop_with_options(
         core: Core,
         console_static_dir: &Path,
@@ -390,57 +475,87 @@ impl AppServer {
             "Console static directory must contain index.html: {}",
             console_static_dir.display()
         );
-        let mut desktop_workspace =
-            desktop_workspace_from_env(&core, desktop_data_dir, default_workspace)?;
-        let selected_workspace = desktop_workspace.selected.get_mut().clone();
+        let workspace = desktop_workspace_from_env(&core, desktop_data_dir, default_workspace)?;
+        let mut inner = Self::workspace_inner(core, desktop_credentials, workspace)?;
+        inner.console_static_dir = Some(console_static_dir);
+        inner.desktop_shutdown_token = Some(desktop_shutdown_token);
+        Ok(Self {
+            inner: Arc::new(inner),
+        })
+    }
+
+    fn workspace_inner(
+        core: Core,
+        desktop_credentials: Arc<dyn DesktopCredentialStore>,
+        desktop_workspace: DesktopWorkspace,
+    ) -> anyhow::Result<AppServerInner> {
+        desktop_agents::recover_before_initialization(
+            &core,
+            desktop_credentials.as_ref(),
+            &desktop_workspace,
+        )?;
+        let initialization_root = desktop_agents::initialization_root(&desktop_workspace)?;
         desktop_environment::initialize(&core, desktop_credentials.as_ref())?;
         desktop_agent_settings::initialize(
             &core,
             desktop_credentials.as_ref(),
-            &selected_workspace,
+            initialization_root.as_deref(),
         )?;
         desktop_mcp::initialize(&core, desktop_credentials.as_ref())?;
         desktop_models::initialize(&core, desktop_credentials.as_ref(), &desktop_workspace)?;
-        desktop_agents::initialize(&core, &desktop_workspace, &selected_workspace)?;
-        Ok(Self {
-            inner: Arc::new(AppServerInner {
-                core,
-                desktop_session_aliases: tokio::sync::RwLock::new(DesktopSessionAliases::default()),
-                desktop_pending_approvals: tokio::sync::RwLock::new(HashMap::new()),
-                desktop_push_messages: tokio::sync::RwLock::new(Vec::new()),
-                desktop_access_control_lock: tokio::sync::Mutex::new(()),
-                desktop_acp_lock: tokio::sync::Mutex::new(()),
-                desktop_agents_lock: tokio::sync::Mutex::new(()),
-                desktop_agent_settings_lock: tokio::sync::Mutex::new(()),
-                desktop_mail_access_control_lock: tokio::sync::Mutex::new(()),
-                desktop_mcp_lock: tokio::sync::Mutex::new(()),
-                desktop_models_lock: tokio::sync::Mutex::new(()),
-                desktop_inbox_lock: tokio::sync::Mutex::new(()),
-                desktop_channel_config_lock: tokio::sync::Mutex::new(()),
-                desktop_chat_catalog_lock: tokio::sync::Mutex::new(()),
-                desktop_checkpoint_lock: tokio::sync::Mutex::new(()),
-                desktop_cron_lock: tokio::sync::Mutex::new(()),
-                desktop_environment_lock: tokio::sync::Mutex::new(()),
-                desktop_git_lock: tokio::sync::Mutex::new(()),
-                desktop_heartbeat_lock: tokio::sync::Mutex::new(()),
-                desktop_heartbeat_revision: tokio::sync::watch::channel(0).0,
-                desktop_heartbeat_running: std::sync::atomic::AtomicBool::new(false),
-                desktop_project_lock: tokio::sync::Mutex::new(()),
-                desktop_security_lock: tokio::sync::Mutex::new(()),
-                desktop_skills_lock: tokio::sync::Mutex::new(()),
-                desktop_skill_tasks: tokio::sync::RwLock::new(HashMap::new()),
-                desktop_skill_cancellations: tokio::sync::RwLock::new(HashMap::new()),
-                desktop_credentials: Some(desktop_credentials),
-                desktop_local_models: Some(desktop_local_models::LocalModelsState::new(
-                    LocalModelDownloadSources::default(),
-                )?),
-                desktop_workspace: Some(desktop_workspace),
-                allowed_origins: allowed_origins_from_env(),
-                console_static_dir: Some(console_static_dir),
-                desktop_shutdown_token: Some(desktop_shutdown_token),
-                remote_auth_token_file: None,
-                shutdown: CancellationToken::new(),
-            }),
+        desktop_agents::initialize(
+            &core,
+            &desktop_workspace,
+            initialization_root
+                .as_deref()
+                .unwrap_or(&desktop_workspace.initial),
+        )?;
+        Ok(AppServerInner {
+            core,
+            desktop_session_aliases: tokio::sync::RwLock::new(DesktopSessionAliases::default()),
+            desktop_pending_approvals: tokio::sync::RwLock::new(HashMap::new()),
+            desktop_push_messages: tokio::sync::RwLock::new(Vec::new()),
+            desktop_access_control_lock: tokio::sync::Mutex::new(()),
+            desktop_acp_lock: tokio::sync::Mutex::new(()),
+            desktop_agent_lifecycle_lock: tokio::sync::Mutex::new(()),
+            desktop_agents_lock: tokio::sync::Mutex::new(()),
+            desktop_agent_settings_lock: tokio::sync::Mutex::new(()),
+            desktop_backups: Some(desktop_backups::BackupsState::new()),
+            desktop_market: desktop_market::Sources::default(),
+            desktop_provider_oauth: desktop_models::oauth::StateStore::default(),
+            desktop_mail_access_control_lock: tokio::sync::Mutex::new(()),
+            desktop_mcp_lock: tokio::sync::Mutex::new(()),
+            desktop_models_lock: tokio::sync::Mutex::new(()),
+            desktop_inbox_lock: tokio::sync::Mutex::new(()),
+            desktop_channel_config_lock: tokio::sync::Mutex::new(()),
+            desktop_chat_catalog_lock: tokio::sync::Mutex::new(()),
+            desktop_checkpoint_lock: tokio::sync::Mutex::new(()),
+            desktop_checkpoint_runtime: desktop_checkpoints::runtime::RuntimeState::default(),
+            desktop_checkpoint_quiescence: desktop_checkpoints::quiescence::State::default(),
+            desktop_cron_lock: tokio::sync::Mutex::new(()),
+            desktop_cron_runs: desktop_cron::RunState::default(),
+            desktop_console_runs: desktop_console_runs::RunState::default(),
+            protocol_runs: protocol_runs::RunState::default(),
+            desktop_environment_lock: tokio::sync::Mutex::new(()),
+            desktop_git_lock: tokio::sync::Mutex::new(()),
+            desktop_heartbeat_lock: tokio::sync::Mutex::new(()),
+            desktop_heartbeat_revision: tokio::sync::watch::channel(0).0,
+            desktop_heartbeat_running: std::sync::atomic::AtomicBool::new(false),
+            desktop_project_lock: tokio::sync::Mutex::new(()),
+            desktop_security_lock: tokio::sync::Mutex::new(()),
+            desktop_skills_lock: tokio::sync::Mutex::new(()),
+            desktop_skill_tasks: tokio::sync::RwLock::new(HashMap::new()),
+            desktop_skill_cancellations: tokio::sync::RwLock::new(HashMap::new()),
+            desktop_credentials: Some(desktop_credentials),
+            desktop_local_models: Some(desktop_local_models::LocalModelsState::new(
+                LocalModelDownloadSources::default(),
+            )?),
+            desktop_workspace: Some(desktop_workspace),
+            allowed_origins: allowed_origins_from_env(),
+            console_static_dir: None,
+            desktop_shutdown_token: None,
+            remote_auth_token_file: None,
+            shutdown: CancellationToken::new(),
         })
     }
 
@@ -451,42 +566,7 @@ impl AppServer {
     /// Returns an error when stdin or stdout fails, or when the writer task
     /// cannot complete cleanly.
     pub async fn run_stdio(self) -> anyhow::Result<()> {
-        let (outbound_tx, mut outbound_rx) = mpsc::channel::<String>(OUTBOUND_CHANNEL_CAPACITY);
-        let writer = tokio::spawn(async move {
-            let mut stdout = tokio::io::stdout();
-            while let Some(message) = outbound_rx.recv().await {
-                stdout
-                    .write_all(message.as_bytes())
-                    .await
-                    .context("failed to write app-server message")?;
-                stdout
-                    .write_all(b"\n")
-                    .await
-                    .context("failed to terminate app-server message")?;
-                stdout
-                    .flush()
-                    .await
-                    .context("failed to flush app-server message")?;
-            }
-            Ok::<(), anyhow::Error>(())
-        });
-
-        let stdin = tokio::io::stdin();
-        let mut lines = BufReader::new(stdin).lines();
-        let mut session = ConnectionSession::default();
-        while let Some(line) = lines
-            .next_line()
-            .await
-            .context("failed to read app-server input")?
-        {
-            if line.trim().is_empty() {
-                continue;
-            }
-            self.process_line(&mut session, &line, &outbound_tx).await;
-        }
-        drop(outbound_tx);
-        writer.await.context("app-server writer task failed")??;
-        Ok(())
+        stdio::run(self, tokio::io::stdin(), tokio::io::stdout()).await
     }
 
     /// Runs the App Protocol and health endpoints on an existing TCP listener.
@@ -517,6 +597,11 @@ impl AppServer {
             .desktop_workspace
             .is_some()
             .then(|| desktop_heartbeat::spawn_scheduler(&self));
+        let cron = self
+            .inner
+            .desktop_workspace
+            .is_some()
+            .then(|| desktop_cron::spawn_scheduler(&self));
         let cleanup_server = self.clone();
         let result = axum::serve(listener, self.router())
             .with_graceful_shutdown(shutdown.cancelled_owned())
@@ -526,8 +611,26 @@ impl AppServer {
             heartbeat.abort();
             let _ = heartbeat.await;
         }
-        desktop_local_models::shutdown(&cleanup_server).await;
-        result
+        cleanup_server.inner.shutdown.cancel();
+        if let Some(cron) = cron {
+            let _ = cron.await;
+        }
+        cleanup_server.shutdown_services().await;
+        result?;
+        cleanup_server.inner.core.check_final_persistence()?;
+        Ok(())
+    }
+
+    async fn shutdown_services(&self) {
+        self.inner.shutdown.cancel();
+        desktop_cron::shutdown(self).await;
+        desktop_checkpoints::quiescence::drain_heartbeat(self).await;
+        desktop_console_runs::shutdown(self).await;
+        protocol_runs::shutdown(self).await;
+        desktop_checkpoints::runtime::shutdown(self).await;
+        desktop_local_models::shutdown(self).await;
+        desktop_backups::shutdown(self).await;
+        self.recover_agent_publication_on_shutdown().await;
     }
 
     /// Overrides managed local-model download origins before the server is cloned.
@@ -606,12 +709,17 @@ impl AppServer {
             shutdown.cancelled().await;
             shutdown_handle.graceful_shutdown(Some(Duration::from_secs(10)));
         });
-        axum_server::from_tcp_rustls(listener, tls)
+        let cleanup_server = self.clone();
+        let result = axum_server::from_tcp_rustls(listener, tls)
             .context("remote WSS listener is invalid")?
             .handle(handle)
             .serve(self.remote_router().into_make_service())
             .await
-            .context("QwenPaw remote WSS app server failed")
+            .context("QwenPaw remote WSS app server failed");
+        cleanup_server.shutdown_services().await;
+        result?;
+        cleanup_server.inner.core.check_final_persistence()?;
+        Ok(())
     }
 
     fn router(self) -> Router {
@@ -630,6 +738,7 @@ impl AppServer {
                 .merge(desktop_acp::router())
                 .merge(desktop_agents::router())
                 .merge(desktop_agent_settings::router())
+                .merge(desktop_backups::router())
                 .merge(desktop_channels::router())
                 .merge(desktop_checkpoints::router())
                 .merge(desktop_api::router())
@@ -643,7 +752,9 @@ impl AppServer {
                 .merge(desktop_mcp::router())
                 .merge(desktop_local_models::router())
                 .merge(desktop_models::router())
-                .merge(desktop_navigation::router())
+                .merge(desktop_market::router())
+                .merge(desktop_debug::router())
+                .merge(desktop_pawapps::router())
                 .merge(desktop_projects::router())
                 .merge(desktop_security::router())
                 .merge(desktop_skills::router())
@@ -656,9 +767,12 @@ impl AppServer {
                 .layer(SetResponseHeaderLayer::overriding(
                     CACHE_CONTROL,
                     HeaderValue::from_static("no-cache, no-store, must-revalidate"),
-                ));
+                ))
+                .merge(desktop_frontend_plugins::router());
         }
-        router.with_state(self)
+        router
+            .layer(from_fn_with_state(self.clone(), restore_operation))
+            .with_state(self)
     }
 
     fn remote_router(self) -> Router {
@@ -733,7 +847,53 @@ impl AppServer {
         }
     }
 
+    async fn protocol_admission(
+        &self,
+        method: &str,
+        params: &Value,
+    ) -> Result<
+        (
+            qwenpaw_core::CoreOperationGuard,
+            Option<tokio::sync::MutexGuard<'_, ()>>,
+        ),
+        DispatchError,
+    > {
+        if self.inner.shutdown.is_cancelled() {
+            return Err(DispatchError {
+                code: -32000,
+                message: String::from("App Server is shutting down"),
+            });
+        }
+        if desktop_backups::is_restoring(self) {
+            return Err(DispatchError::core(&qwenpaw_core::CoreError::RestoreBusy));
+        }
+        self.ensure_agent_publication_available()
+            .map_err(|(_, body)| DispatchError {
+                code: -32000,
+                message: body.0["detail"]
+                    .as_str()
+                    .unwrap_or("Agent recovery is pending")
+                    .to_owned(),
+            })?;
+        let operation = self
+            .inner
+            .core
+            .operation_guard()
+            .map_err(|error| DispatchError::core(&error))?;
+        let admission = desktop_checkpoints::quiescence::admit_protocol(self, method, params)
+            .await
+            .map_err(|(_, body)| DispatchError {
+                code: -32000,
+                message: body.0["detail"]
+                    .as_str()
+                    .unwrap_or("Workspace admission failed")
+                    .to_owned(),
+            })?;
+        Ok((operation, admission))
+    }
+
     async fn dispatch(&self, method: &str, params: Value) -> Result<DispatchOutput, DispatchError> {
+        let (operation, _admission) = self.protocol_admission(method, &params).await?;
         match method {
             "initialize" => initialize_response(params),
             "thread/start" => {
@@ -795,12 +955,11 @@ impl AppServer {
             }
             "turn/start" => {
                 let params: TurnStartParams = decode_params(params)?;
-                let (response, events) = self
-                    .inner
-                    .core
-                    .start_turn(params)
-                    .await
-                    .map_err(|error| DispatchError::core(&error))?;
+                let context =
+                    protocol_runs::context(self, &params.thread_id, &params.input).await?;
+                let (response, events) = protocol_runs::start(self, &context, params).await?;
+                let events =
+                    protocol_runs::spawn(self, response.turn.clone(), events, context, operation);
                 DispatchOutput::with_post_response(response, PostResponse::TurnEvents(events))
             }
             "turn/interrupt" => {
@@ -984,6 +1143,18 @@ fn desktop_workspace_from_env(
     let data_dir = desktop_data_dir
         .or_else(|| std::env::var_os("QWENPAW_HOME").map(PathBuf::from))
         .unwrap_or_else(|| initial.join(".qwenpaw-core"));
+    std::fs::create_dir_all(&data_dir).with_context(|| {
+        format!(
+            "failed to create Desktop Rust Core data directory {}",
+            data_dir.display()
+        )
+    })?;
+    let data_dir = data_dir.canonicalize().with_context(|| {
+        format!(
+            "failed to resolve Desktop Rust Core data directory {}",
+            data_dir.display()
+        )
+    })?;
     Ok(DesktopWorkspace {
         data_dir,
         selected: tokio::sync::RwLock::new(selected),
@@ -991,17 +1162,83 @@ fn desktop_workspace_from_env(
     })
 }
 
+async fn restore_operation(
+    State(server): State<AppServer>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let path = request.uri().path();
+    let is_configuration_retry = request.method() == axum::http::Method::PUT
+        && path
+            .strip_prefix("/api/agents/")
+            .is_some_and(|id| !id.is_empty() && !id.contains('/'));
+    if !is_configuration_retry
+        && !matches!(
+            path,
+            "/healthz" | "/readyz" | "/api/healthz" | "/api/desktop/shutdown"
+        )
+        && let Err(error) = server.ensure_agent_publication_available()
+    {
+        return error.into_response();
+    }
+    let is_restore = request.method() == axum::http::Method::POST
+        && path
+            .strip_prefix("/api/backups/")
+            .and_then(|path| path.strip_suffix("/restore"))
+            .is_some_and(|id| !id.is_empty() && !id.contains('/'));
+    if is_restore
+        || matches!(
+            path,
+            "/healthz" | "/readyz" | "/api/healthz" | "/api/desktop/shutdown"
+        )
+    {
+        return next.run(request).await;
+    }
+    let operation = match if desktop_backups::is_restoring(&server) {
+        Err(qwenpaw_core::CoreError::RestoreBusy)
+    } else {
+        server.inner.core.operation_guard()
+    } {
+        Ok(operation) => operation,
+        Err(error) => {
+            return (
+                StatusCode::CONFLICT,
+                Json(serde_json::json!({"detail": error.to_string()})),
+            )
+                .into_response();
+        }
+    };
+    // A disconnected client must not release the lease while its handler still
+    // awaits a blocking write. Streaming producers keep their own longer lease.
+    match tokio::spawn(async move {
+        let _operation = operation;
+        next.run(request).await
+    })
+    .await
+    {
+        Ok(response) => response,
+        Err(_) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"detail": "Request handler failed"})),
+        )
+            .into_response(),
+    }
+}
+
 async fn healthz() -> Json<Value> {
     Json(serde_json::json!({"status": "ok"}))
 }
 
-async fn readyz() -> Json<Value> {
-    Json(serde_json::json!({"status": "ready"}))
+async fn readyz(State(server): State<AppServer>) -> Response {
+    if let Err((_, body)) = server.ensure_agent_publication_available() {
+        return (StatusCode::SERVICE_UNAVAILABLE, body).into_response();
+    }
+    Json(serde_json::json!({"status": "ready"})).into_response()
 }
 
 async fn version() -> Json<Value> {
     Json(serde_json::json!({
-        "version": env!("CARGO_PKG_VERSION"),
+        "version": PRODUCT_VERSION,
         "backend": "rust-core",
         "protocolVersion": PROTOCOL_VERSION,
     }))
@@ -1102,31 +1339,73 @@ impl AppServer {
     async fn serve_websocket(self, socket: WebSocket) {
         let (mut sender, mut receiver) = socket.split();
         let (outbound_tx, mut outbound_rx) = mpsc::channel::<String>(OUTBOUND_CHANNEL_CAPACITY);
-        let writer = tokio::spawn(async move {
-            while let Some(payload) = outbound_rx.recv().await {
+        let disconnected = CancellationToken::new();
+        let writer_finished = disconnected.clone().drop_guard();
+        let (close_tx, mut close_rx) = tokio::sync::oneshot::channel::<()>();
+        let mut writer = tokio::spawn(async move {
+            let _finished = writer_finished;
+            loop {
+                let payload = tokio::select! {
+                    biased;
+                    _ = &mut close_rx => break,
+                    payload = outbound_rx.recv() => match payload {
+                        Some(payload) => payload,
+                        None => break,
+                    },
+                };
                 if sender.send(Message::Text(payload.into())).await.is_err() {
                     break;
                 }
             }
+            // Reading Close queues tungstenite's reply; flush it before drop.
+            let _ = sender.flush().await;
         });
         let mut session = ConnectionSession::default();
-        while let Some(message) = receiver.next().await {
+        let mut peer_closed = false;
+        loop {
+            let message = tokio::select! {
+                () = self.inner.shutdown.cancelled() => break,
+                () = disconnected.cancelled() => break,
+                message = receiver.next() => match message {
+                    Some(message) => message,
+                    None => break,
+                },
+            };
             match message {
                 Ok(Message::Text(line)) => {
-                    self.process_line(&mut session, &line, &outbound_tx).await;
+                    tokio::select! {
+                        () = self.inner.shutdown.cancelled() => break,
+                        () = disconnected.cancelled() => break,
+                        () = self.process_line(&mut session, &line, &outbound_tx) => {}
+                    }
                 }
-                Ok(Message::Close(_)) | Err(_) => break,
+                Ok(Message::Close(_)) => {
+                    peer_closed = true;
+                    break;
+                }
+                Err(_) => break,
                 Ok(Message::Binary(_)) => {
-                    send_response(
-                        &outbound_tx,
-                        ServerResponse::error(Value::Null, -32700, "expected a text message"),
-                    )
-                    .await;
+                    tokio::select! {
+                        () = self.inner.shutdown.cancelled() => break,
+                        () = disconnected.cancelled() => break,
+                        () = send_response(&outbound_tx, ServerResponse::error(
+                            Value::Null, -32700, "expected a text message")) => {}
+                    }
                 }
                 Ok(Message::Ping(_) | Message::Pong(_)) => {}
             }
         }
         drop(outbound_tx);
+        if peer_closed {
+            let _ = close_tx.send(());
+            if tokio::time::timeout(Duration::from_secs(1), &mut writer)
+                .await
+                .is_ok()
+            {
+                return;
+            }
+        }
+        writer.abort();
         let _ = writer.await;
     }
 }
@@ -1400,3 +1679,10 @@ impl DispatchError {
 #[cfg(test)]
 #[path = "app_server_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "final_persistence_tests.rs"]
+mod final_persistence_tests;
+
+#[cfg(test)]
+mod sdk_websocket_tests;

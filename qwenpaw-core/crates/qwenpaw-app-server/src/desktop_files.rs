@@ -613,6 +613,12 @@ fn create_workspace_archive(root: &Path) -> Result<(PathBuf, u64), ApiError> {
         entries.sort_by_key(std::fs::DirEntry::file_name);
         let mut child_directories = Vec::new();
         for entry in entries {
+            if entry
+                .file_name()
+                .eq_ignore_ascii_case(super::desktop_agents::identity::MARKER_NAME)
+            {
+                continue;
+            }
             entries_seen += 1;
             if entries_seen > MAX_WORKSPACE_ARCHIVE_ENTRIES {
                 return Err(payload_too_large(
@@ -754,7 +760,11 @@ fn validate_workspace_archive_path(path: &Path) -> Result<(), ApiError> {
         return Err(bad_request("Workspace archive contains an unsafe path"));
     }
     for component in path.components() {
-        if component.as_os_str().to_string_lossy().contains(':') {
+        if component.as_os_str().to_string_lossy().contains(':')
+            || component
+                .as_os_str()
+                .eq_ignore_ascii_case(super::desktop_agents::identity::MARKER_NAME)
+        {
             return Err(bad_request("Workspace archive contains an unsafe path"));
         }
     }
@@ -1102,6 +1112,12 @@ async fn list_directory(
         let Ok(file_type) = entry.file_type().await else {
             continue;
         };
+        if entry
+            .file_name()
+            .eq_ignore_ascii_case(super::desktop_agents::identity::MARKER_NAME)
+        {
+            continue;
+        }
         if file_type.is_symlink() || (!file_type.is_dir() && !file_type.is_file()) {
             continue;
         }
@@ -1509,6 +1525,11 @@ fn add_event_paths(
             || relative.components().any(|component| {
                 component
                     .as_os_str()
+                    .eq_ignore_ascii_case(super::desktop_agents::identity::MARKER_NAME)
+            })
+            || relative.components().any(|component| {
+                component
+                    .as_os_str()
                     .to_string_lossy()
                     .starts_with(".qwenpaw-write-")
             })
@@ -1564,11 +1585,15 @@ pub(super) async fn console_user_input(
                 let stored = attachment_reference(part)?;
                 let relative =
                     copy_attachment_into_workspace(server, workspace_root, &stored).await?;
-                result.push(qwenpaw_protocol::UserInput::FileReference {
-                    path: relative,
-                    start_line: None,
-                    end_line: None,
-                });
+                if part["type"] == "image" {
+                    result.push(qwenpaw_protocol::UserInput::Image { path: relative });
+                } else {
+                    result.push(qwenpaw_protocol::UserInput::FileReference {
+                        path: relative,
+                        start_line: None,
+                        end_line: None,
+                    });
+                }
             }
             Some(_) => {
                 return Err((
@@ -1684,19 +1709,10 @@ pub(super) async fn resolve_workspace_root(
         "workspace" => Ok(agent_workspace.clone()),
         "project" => {
             if let Some(chat_id) = header_value(headers, "x-chat-id")? {
-                let scoped_chat_id = format!("{agent_id}\u{0}{chat_id}");
-                let aliases = server.inner.desktop_session_aliases.read().await;
-                let thread_id = aliases
-                    .client_to_thread
-                    .get(&scoped_chat_id)
-                    .cloned()
-                    .or_else(|| {
-                        (agent_id == "default")
-                            .then(|| aliases.client_to_thread.get(chat_id).cloned())
-                            .flatten()
-                    })
-                    .unwrap_or_else(|| chat_id.to_owned());
-                drop(aliases);
+                let resolved =
+                    super::desktop_chats::resolve_existing_thread(server, &agent_id, chat_id)
+                        .await?;
+                let thread_id = resolved.unwrap_or_else(|| chat_id.to_owned());
                 if let Ok(thread) = server.inner.core.read_thread(&thread_id).await
                     && let Some(root) = thread.thread.workspace_root
                 {
@@ -1747,6 +1763,13 @@ fn parse_relative_path(value: &str) -> Result<PathBuf, ApiError> {
         return Err(bad_request("Workspace path is invalid"));
     }
     let path = Path::new(value);
+    if path.components().any(|component| {
+        component
+            .as_os_str()
+            .eq_ignore_ascii_case(super::desktop_agents::identity::MARKER_NAME)
+    }) {
+        return Err(bad_request("Workspace identity is Core-managed"));
+    }
     if path
         .components()
         .any(|component| !matches!(component, Component::Normal(_)))
@@ -1779,7 +1802,11 @@ fn parse_portable_relative_file_path(value: &str, label: &str) -> Result<PathBuf
     let normalized = value.replace('\\', "/");
     let mut path = PathBuf::new();
     for component in normalized.split('/') {
-        if component.is_empty() || matches!(component, "." | "..") || component.contains(':') {
+        if component.is_empty()
+            || matches!(component, "." | "..")
+            || component.contains(':')
+            || component.eq_ignore_ascii_case(super::desktop_agents::identity::MARKER_NAME)
+        {
             return Err(bad_request(&format!(
                 "{label} path must be relative without traversal"
             )));
@@ -1790,7 +1817,8 @@ fn parse_portable_relative_file_path(value: &str, label: &str) -> Result<PathBuf
 }
 
 fn parse_direct_file_name(value: &str) -> Result<&str, ApiError> {
-    if value.is_empty()
+    if value.eq_ignore_ascii_case(super::desktop_agents::identity::MARKER_NAME)
+        || value.is_empty()
         || value.len() > 512
         || value == "."
         || value == ".."
@@ -2243,6 +2271,36 @@ fn internal_error(message: &str) -> ApiError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn workspace_download_and_watch_exclude_identity_and_upload_cannot_replace_it() {
+        let root = tempfile::tempdir().unwrap();
+        let name = super::super::desktop_agents::identity::MARKER_NAME;
+        std::fs::write(root.path().join(name), "Core metadata").unwrap();
+        std::fs::write(root.path().join("notes.txt"), "user notes").unwrap();
+        let (path, _) = create_workspace_archive(root.path()).unwrap();
+        let file = std::fs::File::open(&path).unwrap();
+        let archive = ZipArchive::new(file).unwrap();
+        assert_eq!(archive.file_names().collect::<Vec<_>>(), vec!["notes.txt"]);
+        drop(archive);
+        std::fs::remove_file(path).unwrap();
+        for name in [name.to_owned(), name.to_uppercase()] {
+            assert!(validate_workspace_archive_path(Path::new(&name)).is_err());
+            assert!(parse_portable_relative_file_path(&name, "upload").is_err());
+            assert!(parse_direct_file_name(&name).is_err());
+        }
+        let mut changes = HashSet::new();
+        add_event_paths(
+            &mut changes,
+            root.path(),
+            &[root.path().join(name), root.path().join("notes.txt")],
+            "added",
+        );
+        assert_eq!(
+            changes,
+            HashSet::from([("added", String::from("notes.txt"))])
+        );
+    }
 
     #[test]
     fn rejects_absolute_parent_and_control_paths() {

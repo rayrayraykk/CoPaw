@@ -15,6 +15,12 @@ use serde_json::Value;
 
 use crate::context::ContextLimits;
 use crate::context::build_context;
+use crate::model_anthropic;
+use crate::model_gemini;
+use crate::model_options::ModelAuthMode;
+use crate::model_options::ModelProtocol;
+use crate::model_options::ModelRequestOptions;
+use crate::model_responses;
 
 const DEFAULT_BASE_URL: &str = "https://dashscope.aliyuncs.com/compatible-mode/v1";
 const DEFAULT_MODEL: &str = "qwen3-coder-plus";
@@ -33,6 +39,7 @@ type ByteStream = Pin<Box<dyn Stream<Item = Result<Bytes, reqwest::Error>> + Sen
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ModelEvent {
+    ProviderIdentity(String),
     TextDelta(String),
     ToolCallDelta {
         index: usize,
@@ -41,6 +48,10 @@ pub(crate) enum ModelEvent {
         arguments: Option<String>,
     },
     Usage(ModelUsage),
+    ProviderContent {
+        protocol: &'static str,
+        content: Vec<Value>,
+    },
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -112,8 +123,14 @@ impl ModelConfig {
 }
 
 #[derive(Clone)]
+pub(crate) struct ModelRuntime {
+    pub(crate) config: ModelConfig,
+    pub(crate) options: ModelRequestOptions,
+}
+
+#[derive(Clone)]
 pub(crate) struct ModelClient {
-    config: Arc<RwLock<ModelConfig>>,
+    config: Arc<RwLock<ModelRuntime>>,
     client: reqwest::Client,
     context_limits: ContextLimits,
     transport_limits: ModelTransportLimits,
@@ -133,7 +150,10 @@ impl ModelClient {
             .redirect(reqwest::redirect::Policy::none())
             .build()?;
         Ok(Self {
-            config: Arc::new(RwLock::new(config)),
+            config: Arc::new(RwLock::new(ModelRuntime {
+                config,
+                options: ModelRequestOptions::default(),
+            })),
             client,
             context_limits: ContextLimits::from_env(),
             transport_limits,
@@ -148,14 +168,32 @@ impl ModelClient {
         self.config
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .config
             .clone()
     }
 
-    pub(crate) fn replace_config(&self, config: ModelConfig) {
-        *self
-            .config
+    pub(crate) fn runtime_snapshot(&self) -> ModelRuntime {
+        self.config
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    pub(crate) fn write_runtime(&self) -> std::sync::RwLockWriteGuard<'_, ModelRuntime> {
+        self.config
             .write()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = config;
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    pub(crate) fn replace_runtime(&self, runtime: ModelRuntime) {
+        *self.write_runtime() = runtime;
+    }
+
+    pub(crate) fn with_runtime(&self, runtime: ModelRuntime) -> Self {
+        Self {
+            config: Arc::new(RwLock::new(runtime)),
+            ..self.clone()
+        }
     }
 
     pub(crate) async fn chat_stream(
@@ -164,30 +202,62 @@ impl ModelClient {
         messages: &[StoredMessage],
         tools: &[Value],
     ) -> Result<DeltaStream, ModelError> {
-        let config = self.config_snapshot();
-        let url = format!("{}/chat/completions", config.base_url);
+        let runtime = self.runtime_snapshot();
+        let config = &runtime.config;
         let context = build_context(messages, self.context_limits)?;
-        let body = ChatCompletionRequest {
-            model,
-            messages: &context,
-            stream: true,
-            stream_options: ChatCompletionStreamOptions {
-                include_usage: true,
-            },
-            tools,
-            tool_choice: "auto",
-        };
+        let (url, body) = model_request(&runtime, model, &context, tools)?;
         let mut request = self.client.post(url).json(&body);
-        if let Some(api_key) = &config.api_key {
-            request = request.bearer_auth(api_key);
+        let anthropic = runtime.options.protocol == ModelProtocol::AnthropicMessages;
+        let gemini = runtime.options.protocol == ModelProtocol::GeminiGenerateContent;
+        if anthropic {
+            request = request.header("anthropic-version", "2023-06-01");
         }
+        if let Some(api_key) = &config.api_key {
+            request = if anthropic && runtime.options.auth_mode == ModelAuthMode::ApiKey {
+                request.header("x-api-key", api_key)
+            } else if gemini && runtime.options.auth_mode == ModelAuthMode::ApiKey {
+                request.header("x-goog-api-key", api_key)
+            } else {
+                request.bearer_auth(api_key)
+            };
+        }
+        let mut headers = reqwest::header::HeaderMap::new();
+        for (name, value) in &runtime.options.custom_headers {
+            if runtime.options.auth_mode == ModelAuthMode::BearerToken
+                && ((anthropic && name.eq_ignore_ascii_case("x-api-key"))
+                    || (gemini && name.eq_ignore_ascii_case("x-goog-api-key")))
+            {
+                continue;
+            }
+            headers.insert(
+                reqwest::header::HeaderName::from_bytes(name.as_bytes())
+                    .expect("validated header name"),
+                reqwest::header::HeaderValue::from_str(value).expect("validated header value"),
+            );
+        }
+        request = request.headers(headers);
         let response = tokio::time::timeout(self.transport_limits.header_timeout, request.send())
             .await
             .map_err(|_| ModelError::HeaderTimeout)??;
         let status = response.status();
         if !status.is_success() {
-            let message =
+            let mut message =
                 read_error_body(response, self.transport_limits.stream_idle_timeout).await?;
+            for secret in config
+                .api_key
+                .iter()
+                .chain(runtime.options.custom_headers.values())
+            {
+                if !secret.is_empty() {
+                    message = message.replace(secret, "[REDACTED]");
+                    if let Some((scheme, token)) = secret.split_once(' ')
+                        && scheme.eq_ignore_ascii_case("bearer")
+                        && !token.is_empty()
+                    {
+                        message = message.replace(token, "[REDACTED]");
+                    }
+                }
+            }
             return Err(ModelError::HttpStatus {
                 status: status.as_u16(),
                 message,
@@ -197,8 +267,74 @@ impl ModelClient {
         Ok(model_event_stream(
             Box::pin(response.bytes_stream()),
             self.transport_limits.stream_idle_timeout,
+            runtime.options.protocol,
+            runtime
+                .options
+                .provider_id
+                .clone()
+                .or_else(|| anthropic.then(|| String::from("anthropic")))
+                .or_else(|| gemini.then(|| String::from("gemini"))),
         ))
     }
+}
+
+fn model_request(
+    runtime: &ModelRuntime,
+    model: &str,
+    messages: &[StoredMessage],
+    tools: &[Value],
+) -> Result<(String, Value), ModelError> {
+    let parameters = runtime.options.generation_for(model);
+    if runtime.options.protocol == ModelProtocol::OpenAIResponses {
+        return Ok((
+            format!("{}/responses", runtime.config.base_url),
+            model_responses::request_body(model, messages, tools, parameters)?,
+        ));
+    }
+    if runtime.options.protocol == ModelProtocol::GeminiGenerateContent {
+        return Ok((
+            model_gemini::endpoint(&runtime.config.base_url, model)?,
+            model_gemini::request_body(messages, tools, parameters)?,
+        ));
+    }
+    if runtime.options.protocol == ModelProtocol::AnthropicMessages {
+        return Ok((
+            model_anthropic::endpoint(&runtime.config.base_url),
+            model_anthropic::request_body(model, messages, tools, parameters)?,
+        ));
+    }
+    let mut body = serde_json::to_value(ChatCompletionRequest {
+        model,
+        messages,
+        stream: true,
+        stream_options: ChatCompletionStreamOptions {
+            include_usage: true,
+        },
+        tools,
+        tool_choice: "auto",
+    })?;
+    // Opaque native history is persisted locally, never part of OpenAI's wire format.
+    for (message, stored) in body["messages"]
+        .as_array_mut()
+        .expect("messages are an array")
+        .iter_mut()
+        .zip(messages)
+    {
+        let message = message.as_object_mut().expect("message is an object");
+        message.remove("provider_content");
+        message.remove("tool_error");
+        message.remove("user_input");
+        if let Some(parts) = crate::media::wire_parts(stored, ModelProtocol::OpenAIChat) {
+            message.insert(String::from("content"), Value::Array(parts));
+        }
+    }
+    body.as_object_mut()
+        .expect("chat request is an object")
+        .extend(parameters);
+    Ok((
+        format!("{}/chat/completions", runtime.config.base_url),
+        body,
+    ))
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -229,30 +365,101 @@ struct ModelStreamState {
     idle_timeout: Duration,
     source_finished: bool,
     done: bool,
+    anthropic: Option<model_anthropic::Decoder>,
+    gemini: Option<model_gemini::Decoder>,
+    responses: Option<model_responses::Decoder>,
 }
 
-fn model_event_stream(source: ByteStream, idle_timeout: Duration) -> DeltaStream {
+impl ModelStreamState {
+    fn finish_source(&mut self) -> Result<(), ModelError> {
+        if self.responses.is_some() {
+            return Err(ModelError::Protocol(
+                "Responses stream ended before completion",
+            ));
+        }
+        if let Some(gemini) = &self.gemini {
+            self.pending.extend(gemini.finish()?);
+            self.done = true;
+            Ok(())
+        } else if self.anthropic.is_some() {
+            Err(ModelError::Protocol(
+                "Anthropic stream ended before message_stop",
+            ))
+        } else {
+            Err(ModelError::UnexpectedEnd)
+        }
+    }
+}
+
+pub(super) fn model_event_stream(
+    source: ByteStream,
+    idle_timeout: Duration,
+    protocol: ModelProtocol,
+    provider_id: Option<String>,
+) -> DeltaStream {
     let state = ModelStreamState {
         source,
         decoder: SseDecoder::default(),
-        pending: VecDeque::new(),
+        pending: provider_id
+            .map(ModelEvent::ProviderIdentity)
+            .into_iter()
+            .collect(),
         idle_timeout,
         source_finished: false,
         done: false,
+        anthropic: (protocol == ModelProtocol::AnthropicMessages)
+            .then(model_anthropic::Decoder::default),
+        gemini: (protocol == ModelProtocol::GeminiGenerateContent)
+            .then(model_gemini::Decoder::default),
+        responses: (protocol == ModelProtocol::OpenAIResponses)
+            .then(model_responses::Decoder::default),
     };
     Box::pin(futures_util::stream::unfold(
         state,
         |mut state| async move {
             loop {
-                if state.done {
-                    return None;
-                }
                 if let Some(event) = state.pending.pop_front() {
                     return Some((Ok(event), state));
                 }
+                if state.done {
+                    return None;
+                }
                 match state.decoder.next_data() {
-                    Ok(Some(data)) if data.trim() == "[DONE]" => {
+                    Ok(Some(data))
+                        if state.anthropic.is_none()
+                            && state.gemini.is_none()
+                            && state.responses.is_none()
+                            && data.trim() == "[DONE]" =>
+                    {
                         return None;
+                    }
+                    Ok(Some(data)) if state.gemini.is_some() => {
+                        match state.gemini.as_mut().expect("native decoder").parse(&data) {
+                            Ok(events) => {
+                                state.pending.extend(events);
+                                continue;
+                            }
+                            Err(error) => return Some(stream_error(state, error)),
+                        }
+                    }
+                    Ok(Some(data)) if state.anthropic.is_some() || state.responses.is_some() => {
+                        let result = if let Some(responses) = &mut state.responses {
+                            responses.parse(&data)
+                        } else {
+                            state
+                                .anthropic
+                                .as_mut()
+                                .expect("native decoder")
+                                .parse(&data)
+                        };
+                        match result {
+                            Ok((events, done)) => {
+                                state.pending.extend(events);
+                                state.done = done;
+                                continue;
+                            }
+                            Err(error) => return Some(stream_error(state, error)),
+                        }
                     }
                     Ok(Some(data)) => match parse_delta(&data) {
                         Ok(events) => {
@@ -262,7 +469,10 @@ fn model_event_stream(source: ByteStream, idle_timeout: Duration) -> DeltaStream
                         Err(error) => return Some(stream_error(state, error)),
                     },
                     Ok(None) if state.source_finished => {
-                        return Some(stream_error(state, ModelError::UnexpectedEnd));
+                        if let Err(error) = state.finish_source() {
+                            return Some(stream_error(state, error));
+                        }
+                        continue;
                     }
                     Ok(None) => {}
                     Err(error) => return Some(stream_error(state, error)),
@@ -434,6 +644,8 @@ fn timeout_from_env(key: &str, default_ms: u64) -> Duration {
 
 #[derive(Debug, Clone, Copy, thiserror::Error, PartialEq, Eq)]
 pub(crate) enum ModelConfigError {
+    #[error("model request options contain invalid headers, parameters, or protocol overrides")]
+    InvalidRequestOptions,
     #[error("base URL must be an HTTP(S) URL of at most 2048 bytes")]
     InvalidBaseUrl,
     #[error("base URL must not contain embedded credentials")]
@@ -585,6 +797,8 @@ fn normalize_usage(usage: ChatCompletionUsage) -> ModelUsage {
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ModelError {
+    #[error("{0}")]
+    Protocol(&'static str),
     #[error("model context could not be built: {0}")]
     Context(#[from] crate::context::ContextError),
     #[error("model request failed: {0}")]

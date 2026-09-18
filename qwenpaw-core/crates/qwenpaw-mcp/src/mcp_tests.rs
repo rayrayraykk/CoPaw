@@ -7,6 +7,87 @@ use super::*;
 
 struct UnexpectedCredentialStore;
 
+#[test]
+fn environment_context_is_immutable_and_reconfiguration_retains_it() {
+    let original = McpManager::empty();
+    let values = BTreeMap::from([(String::from("FIXTURE"), String::from("application-value"))]);
+    let manager = original.with_environment(values.clone());
+    assert!(original.runtime_environment().is_empty());
+    assert_eq!(manager.runtime_environment(), &values);
+    assert_eq!(
+        manager
+            .expand_environment("before-${FIXTURE}-after")
+            .unwrap(),
+        "before-application-value-after"
+    );
+    assert!(Arc::ptr_eq(
+        &manager.inner,
+        &manager.with_environment(values.clone()).inner
+    ));
+    let changed = manager.with_environment(BTreeMap::new());
+    assert!(!Arc::ptr_eq(&manager.inner, &changed.inner));
+    assert!(Arc::ptr_eq(
+        &manager.inner.oauth_activity,
+        &changed.inner.oauth_activity
+    ));
+    assert_eq!(
+        manager
+            .reconfigured(Vec::new())
+            .unwrap()
+            .runtime_environment(),
+        &values
+    );
+    assert_eq!(
+        manager
+            .expand_environment("private-value-${UNFINISHED")
+            .unwrap_err()
+            .to_string(),
+        "invalid MCP configuration: unterminated MCP environment reference"
+    );
+    // Empty application values override inherited host values as well.
+    let host_key = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+    if std::env::var(host_key).is_ok() {
+        let expression = format!("${{{host_key}}}");
+        assert_eq!(
+            original.expand_environment(&expression).unwrap(),
+            std::env::var(host_key).unwrap()
+        );
+        let empty =
+            original.with_environment(BTreeMap::from([(host_key.to_owned(), String::new())]));
+        assert_eq!(empty.expand_environment(&expression).unwrap(), "");
+    }
+}
+
+#[test]
+fn binding_preflight_rejects_expanded_urls_and_headers_without_credential_access() {
+    let config = serde_json::from_value(json!({"remote": {
+        "transport": "streamable_http", "enabled": true,
+        "url": "${QWENPAW_BINDING_URL}", "headers": {"X-Api-Key": "${QWENPAW_BINDING_HEADER}"}, "oauth": {}
+    }})).unwrap();
+    let original = McpManager::new(config, Arc::new(UnexpectedCredentialStore));
+    for (url, header, valid) in [
+        ("https://fixture.example/mcp", "fixture-value", true),
+        ("file:///private", "fixture-value", false),
+        (
+            "https://user:secret@fixture.example/mcp",
+            "fixture-value",
+            false,
+        ),
+        (
+            "https://fixture.example/mcp",
+            "private-value\r\nInjected: value",
+            false,
+        ),
+    ] {
+        let manager = original.with_environment(BTreeMap::from([
+            (String::from("QWENPAW_BINDING_URL"), url.to_owned()),
+            (String::from("QWENPAW_BINDING_HEADER"), header.to_owned()),
+        ]));
+        assert_eq!(manager.validate_environment_bindings().is_ok(), valid);
+    }
+    assert!(original.runtime_environment().is_empty());
+}
+
 impl McpOAuthCredentialStore for UnexpectedCredentialStore {
     fn load(&self, _account: &str) -> Result<Option<McpOAuthCredentials>, String> {
         panic!("plain HTTP MCP must not read the OAuth credential store");
@@ -79,7 +160,8 @@ fn marks_remote_headers_sensitive() {
     }))
     .expect("test config should deserialize");
     normalize_transport(&mut config);
-    let (headers, token) = resolve_http_headers(&config).expect("headers should resolve");
+    let (headers, token) =
+        resolve_http_headers(&config, &BTreeMap::new()).expect("headers should resolve");
     assert!(token.is_none());
     assert!(
         headers

@@ -1,0 +1,24 @@
+[package]
+name = "qwenpaw-harness"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+futures-util.workspace = true
+indexmap = { version = "2.14.1", features = ["serde"] }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.31.3", features = ["fs", "user"] }
+
+[lints]
+workspace = true

@@ -8,6 +8,7 @@ const MAX_CONTEXT_MESSAGES: usize = 512;
 const DEFAULT_MAX_CONTEXT_BYTES: usize = 4 * 1_048_576;
 const MIN_CONTEXT_BYTES: usize = 65_536;
 const MAX_CONTEXT_BYTES: usize = 64 * 1_048_576;
+const MAX_CONTEXT_MEDIA_BYTES: usize = 32 * 1_048_576;
 const TRUNCATION_MARKER: &str = "\n[context truncated]";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,18 +53,25 @@ pub(crate) fn build_context(
         .saturating_sub(usize::from(system.is_some()));
     let mut remaining_bytes = limits.max_bytes.saturating_sub(system_size);
     let mut selected = Vec::new();
+    let mut remaining_media = MAX_CONTEXT_MEDIA_BYTES;
 
     for (index, group) in groups.iter().rev().enumerate() {
         if group.len() > remaining_messages {
             continue;
         }
         let group_size = serialized_group_size(group);
+        let media_size = group.iter().map(crate::media::encoded_bytes).sum::<usize>();
         if index == 0 {
+            if media_size > remaining_media {
+                return Err(ContextError::MediaTooLarge);
+            }
+            remaining_media -= media_size;
             let group = fit_latest_group(group, remaining_bytes);
             remaining_bytes = remaining_bytes.saturating_sub(serialized_group_size(&group));
             remaining_messages -= group.len();
             selected.push(group);
-        } else if group_size <= remaining_bytes {
+        } else if group_size <= remaining_bytes && media_size <= remaining_media {
+            remaining_media -= media_size;
             remaining_bytes -= group_size;
             remaining_messages -= group.len();
             selected.push(group.clone());
@@ -107,10 +115,14 @@ fn fit_latest_group(group: &[StoredMessage], budget: usize) -> Vec<StoredMessage
     let content_indices = fitted
         .iter()
         .enumerate()
-        .filter_map(|(index, message)| (!message.content.is_empty()).then_some(index))
+        .filter_map(|(index, message)| {
+            (!message.content.is_empty() && message.user_input.is_none()).then_some(index)
+        })
         .collect::<Vec<_>>();
     for message in &mut fitted {
-        message.content.clear();
+        if message.user_input.is_none() {
+            message.content.clear();
+        }
     }
     let fixed_size = serialized_group_size(&fitted);
     let content_budget = budget.saturating_sub(fixed_size);
@@ -162,7 +174,11 @@ fn serialized_group_size(group: &[StoredMessage]) -> usize {
 }
 
 fn serialized_size(message: &StoredMessage) -> usize {
-    serde_json::to_vec(message).map_or(usize::MAX, |serialized| serialized.len())
+    serde_json::to_vec(message).map_or(usize::MAX, |serialized| {
+        serialized
+            .len()
+            .saturating_sub(crate::media::encoded_bytes(message))
+    })
 }
 
 fn read_limit(name: &str, default: usize, minimum: usize, maximum: usize) -> usize {
@@ -175,6 +191,8 @@ fn read_limit(name: &str, default: usize, minimum: usize, maximum: usize) -> usi
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub(crate) enum ContextError {
+    #[error("latest turn exceeds the 32 MiB encoded image context limit")]
+    MediaTooLarge,
     #[error(
         "latest conversation turn is {actual_bytes} bytes, exceeding the {max_bytes}-byte context limit"
     )]

@@ -34,6 +34,15 @@ use tokio::sync::Mutex;
 use super::*;
 use crate::runtime::compose_user_input;
 
+#[path = "runtime_backup_tests.rs"]
+mod backups;
+
+#[path = "runtime_media_tests.rs"]
+mod media;
+
+#[path = "runtime_turn_config_tests.rs"]
+mod turn_config;
+
 #[tokio::test]
 async fn completes_a_streaming_turn_and_persists_history() {
     let requests = Arc::new(Mutex::new(Vec::new()));
@@ -1760,11 +1769,14 @@ async fn persists_a_rate_limited_model_turn_as_failed() {
             .expect("model server should run");
     });
     let directory = tempfile::tempdir().expect("temporary directory should be created");
-    let core = Core::new(ModelConfig {
+    let database_path = directory.path().join("threads.sqlite3");
+    let model_config = ModelConfig {
         api_key: None,
         base_url: format!("http://{address}"),
         default_model: String::from("qwen-test"),
-    });
+    };
+    let core = Core::persistent(model_config.clone(), &database_path)
+        .expect("persistent core should open");
     let started = core
         .start_thread(ThreadStartParams {
             model: None,
@@ -1796,18 +1808,37 @@ async fn persists_a_rate_limited_model_turn_as_failed() {
             message: String::from("model returned HTTP 429: rate limited"),
         })
     );
+    let read = core
+        .read_thread(&started.thread.id)
+        .await
+        .expect("failed turn should persist");
+    let snapshots = core.statistics_snapshots().await;
+    let completed_at = snapshots[0].turn_metadata[0]
+        .completed_at
+        .expect("failed turn should have a completion time");
+    assert!(completed_at >= started.thread.updated_at);
     assert_eq!(
-        core.read_thread(&started.thread.id)
-            .await
-            .expect("failed turn should persist"),
+        read,
         qwenpaw_protocol::ThreadReadResponse {
             thread: qwenpaw_protocol::Thread {
                 status: ThreadStatus::Error,
+                updated_at: completed_at,
                 ..started.thread
             },
             turns: vec![completed],
         }
     );
+    drop(core);
+    let reopened =
+        Core::persistent(model_config, &database_path).expect("persistent core should reopen");
+    assert_eq!(
+        reopened
+            .read_thread(&read.thread.id)
+            .await
+            .expect("failed turn should survive reopening"),
+        read
+    );
+    assert_eq!(reopened.statistics_snapshots().await, snapshots);
 }
 
 #[tokio::test]

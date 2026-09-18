@@ -1,4 +1,6 @@
+use super::desktop_agents::identity::WorkspaceDataKey;
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::collections::HashSet;
 
 use axum::Json;
@@ -34,6 +36,26 @@ const MAX_GROUP_NAME_CHARS: usize = 64;
 
 type ApiError = (StatusCode, Json<Value>);
 
+#[path = "desktop_cron_chats.rs"]
+mod cron;
+pub(super) use cron::cron_dispatch_targets;
+pub(super) use cron::resolve_cron_chat;
+
+#[path = "desktop_chat_identity.rs"]
+mod identity;
+pub(super) use identity::resolve_bound_thread;
+pub(super) use identity::resolve_existing_thread;
+use identity::{data_key_for_agent, record_key, upgrade_catalog};
+
+#[path = "desktop_chat_backup.rs"]
+mod backup;
+#[cfg(test)]
+pub(super) use backup::legacy_bindings;
+pub(super) use backup::{
+    RestoreBindings, backup_thread_owners, filter_backup_data, filter_backup_threads,
+    merge_restore_data, remap_restore_paths,
+};
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 struct ChatCatalog {
@@ -56,6 +78,8 @@ impl Default for ChatCatalog {
 struct ChatMetadata {
     #[serde(default = "default_agent_id")]
     agent_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    data_key: Option<WorkspaceDataKey>,
     name: String,
     session_id: String,
     user_id: String,
@@ -80,6 +104,134 @@ pub(super) struct CheckpointSessionInfo {
     pub(super) archived: bool,
 }
 
+#[derive(Clone)]
+pub(super) struct ApprovalSessionInfo {
+    pub(super) agent: String,
+    pub(super) session: String,
+    pub(super) root_session: String,
+}
+
+pub(super) async fn protocol_workspace_key(
+    server: &AppServer,
+    thread: Option<&str>,
+) -> Result<WorkspaceDataKey, ApiError> {
+    let _guard = server.inner.desktop_chat_catalog_lock.lock().await;
+    let catalog = read_catalog(server)?;
+    match thread.and_then(|id| catalog.chats.get(id)) {
+        Some(chat) => chat
+            .data_key
+            .clone()
+            .ok_or_else(|| internal("Chat Workspace identity is missing")),
+        None => super::desktop_agents::default_data_key(server),
+    }
+}
+
+pub(super) async fn bound_approval_session_info(
+    server: &AppServer,
+    thread_id: &str,
+    context: &super::desktop_agents::AgentContext,
+) -> Result<ApprovalSessionInfo, ApiError> {
+    let _guard = server.inner.desktop_chat_catalog_lock.lock().await;
+    let catalog = read_catalog(server)?;
+    let chat = catalog.chats.get(thread_id);
+    if !chat.map_or(context.agent_id == "default", |chat| {
+        chat.data_key.as_ref() == Some(&context.data_key)
+    }) {
+        return Err(not_found(&format!("thread not found: {thread_id}")));
+    }
+    Ok(ApprovalSessionInfo {
+        agent: context.agent_id.clone(),
+        session: chat.map_or_else(|| thread_id.to_owned(), |chat| chat.session_id.clone()),
+        root_session: chat.map_or_else(
+            || thread_id.to_owned(),
+            |chat| {
+                chat.root_session_id
+                    .as_ref()
+                    .unwrap_or(&chat.session_id)
+                    .clone()
+            },
+        ),
+    })
+}
+
+pub(super) async fn filter_statistics_threads(
+    server: &AppServer,
+    actor: Option<&str>,
+    threads: &mut Vec<qwenpaw_storage::StoredThread>,
+) -> Result<(), ApiError> {
+    let bindings = if let Some(actor) = actor {
+        BTreeMap::from([(actor.to_owned(), data_key_for_agent(server, actor).await?)])
+    } else {
+        super::desktop_agents::statistics_bindings(server).await?
+    };
+    let keys = bindings.values().collect::<BTreeSet<_>>();
+    let _guard = server.inner.desktop_chat_catalog_lock.lock().await;
+    let catalog = read_catalog(server)?;
+    threads.retain(|thread| {
+        catalog.chats.get(&thread.thread.id).map_or_else(
+            || bindings.contains_key("default"),
+            |chat| chat.data_key.as_ref().is_some_and(|key| keys.contains(key)),
+        )
+    });
+    Ok(())
+}
+
+pub(super) async fn approval_session_info(
+    server: &AppServer,
+    thread_id: &str,
+) -> Result<ApprovalSessionInfo, ApiError> {
+    let catalog = {
+        let _guard = server.inner.desktop_chat_catalog_lock.lock().await;
+        read_catalog(server)?
+    };
+    Ok(match catalog.chats.get(thread_id) {
+        Some(chat) => ApprovalSessionInfo {
+            agent: if server.inner.desktop_workspace.is_none() {
+                default_agent_id()
+            } else {
+                super::desktop_agents::context_for_data_key(
+                    server,
+                    chat.data_key.as_ref().expect("validated chat ownership"),
+                )
+                .await?
+                .agent_id
+            },
+            session: chat.session_id.clone(),
+            root_session: chat
+                .root_session_id
+                .as_ref()
+                .unwrap_or(&chat.session_id)
+                .clone(),
+        },
+        // App Protocol threads without Console metadata belong to default.
+        None => ApprovalSessionInfo {
+            agent: String::from("default"),
+            session: thread_id.to_owned(),
+            root_session: thread_id.to_owned(),
+        },
+    })
+}
+
+pub(super) async fn require_console_thread_owner(
+    server: &AppServer,
+    thread_id: &str,
+    agent_id: &str,
+) -> Result<(), ApiError> {
+    let key = data_key_for_agent(server, agent_id).await?;
+    let _guard = server.inner.desktop_chat_catalog_lock.lock().await;
+    let catalog = read_catalog(server)?;
+    let owned = catalog
+        .chats
+        .get(thread_id)
+        .map_or(agent_id == "default", |chat| {
+            chat.data_key.as_ref() == Some(&key)
+        });
+    if !owned {
+        return Err(not_found(&format!("thread not found: {thread_id}")));
+    }
+    Ok(())
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub(super) struct ChatGroup {
     #[serde(
@@ -87,6 +239,8 @@ pub(super) struct ChatGroup {
         skip_serializing_if = "is_default_agent_id"
     )]
     agent_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    data_key: Option<WorkspaceDataKey>,
     id: String,
     name: String,
     order: usize,
@@ -163,7 +317,7 @@ pub(super) async fn list_chats(
     Query(query): Query<ChatListQuery>,
 ) -> Result<Json<Vec<Value>>, ApiError> {
     let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
-    let agent_workspace = super::desktop_agents::workspace_for_agent(&server, &agent_id).await?;
+    let data_key = data_key_for_agent(&server, &agent_id).await?;
     let threads = list_all_threads(&server).await;
     let aliases = server.inner.desktop_session_aliases.read().await;
     let _guard = server.inner.desktop_chat_catalog_lock.lock().await;
@@ -183,21 +337,17 @@ pub(super) async fn list_chats(
             .thread_to_client
             .get(&thread.id)
             .map_or(thread.id.as_str(), String::as_str);
-        if !catalog.chats.contains_key(&thread.id)
-            && (agent_id == "default"
-                || thread.workspace_root.as_deref()
-                    == Some(agent_workspace.to_string_lossy().as_ref()))
-        {
+        if !catalog.chats.contains_key(&thread.id) && agent_id == "default" {
             catalog.chats.insert(
                 thread.id.clone(),
-                metadata_for_agent(&thread, session_id, &agent_id),
+                metadata_for_key(&thread, session_id, &agent_id, &data_key),
             );
             changed = true;
         }
         let Some(metadata) = catalog.chats.get(&thread.id) else {
             continue;
         };
-        if metadata.agent_id != agent_id {
+        if metadata.data_key.as_ref() != Some(&data_key) {
             continue;
         }
         if query
@@ -234,9 +384,12 @@ pub(super) async fn create_chat(
     validate_source(&request.source)?;
     validate_optional_identifier("parent_session_id", request.parent_session_id.as_deref())?;
     validate_optional_identifier("root_session_id", request.root_session_id.as_deref())?;
-    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
-    let default_workspace = super::desktop_agents::project_for_agent(&server, &agent_id).await?;
-    let model = super::desktop_agents::model_for_agent(&server, &agent_id).await?;
+    let (_lifecycle, context) =
+        super::desktop_checkpoints::quiescence::admit_agent(&server, &headers).await?;
+    let agent_id = context.agent_id.clone();
+    let data_key = context.data_key.clone();
+    let default_workspace = context.project()?;
+    let model = context.model();
     let workspace = workspace_from_meta(&default_workspace, &request.meta)?;
     let group_id = request
         .group_id
@@ -244,8 +397,8 @@ pub(super) async fn create_chat(
         .unwrap_or_else(|| default_group_for_source(&request.source).to_owned());
     let guard = server.inner.desktop_chat_catalog_lock.lock().await;
     let mut catalog = read_catalog(&server)?;
-    ensure_agent_groups(&mut catalog, &agent_id);
-    require_group(&catalog, &agent_id, &group_id)?;
+    ensure_agent_groups(&mut catalog, &agent_id, &data_key);
+    require_group(&catalog, &data_key, &group_id)?;
     if catalog.chats.len() >= MAX_CHATS {
         return Err(unprocessable("too many chats"));
     }
@@ -261,6 +414,7 @@ pub(super) async fn create_chat(
         .thread;
     let metadata = ChatMetadata {
         agent_id: agent_id.clone(),
+        data_key: Some(data_key.clone()),
         name: request.name,
         session_id: request.session_id.clone(),
         user_id: request.user_id,
@@ -276,15 +430,20 @@ pub(super) async fn create_chat(
     };
     catalog.chats.insert(thread.id.clone(), metadata.clone());
     if let Err(error) = write_catalog(&server, &catalog) {
+        let removed = server.inner.core.delete_thread(&thread.id).await;
         drop(guard);
-        let _ = server.inner.core.delete_thread(&thread.id).await;
+        if removed.is_err() {
+            return Err(internal(
+                "Chat creation and Thread rollback failed; recovery is required",
+            ));
+        }
         return Err(error);
     }
     drop(guard);
     let mut aliases = server.inner.desktop_session_aliases.write().await;
     aliases
         .client_to_thread
-        .insert(alias_key(&agent_id, &request.session_id), thread.id.clone());
+        .insert(alias_key(&data_key, &request.session_id), thread.id.clone());
     if agent_id == "default" {
         aliases
             .client_to_thread
@@ -303,7 +462,7 @@ pub(super) async fn update_chat(
     Json(request): Json<UpdateChatRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
-    super::desktop_agents::workspace_for_agent(&server, &agent_id).await?;
+    let data_key = data_key_for_agent(&server, &agent_id).await?;
     validate_identifier("chat id", &chat_id)?;
     if let Some(name) = request.name.as_deref() {
         validate_chat_name(name)?;
@@ -322,9 +481,9 @@ pub(super) async fn update_chat(
         .map_or(chat_id.as_str(), String::as_str);
     let _guard = server.inner.desktop_chat_catalog_lock.lock().await;
     let mut catalog = read_catalog(&server)?;
-    require_owned_chat(&catalog, &chat_id, &agent_id)?;
+    require_owned_chat(&catalog, &chat_id, &data_key)?;
     if let Some(group_id) = request.group_id.as_deref() {
-        require_group(&catalog, &agent_id, group_id)?;
+        require_group(&catalog, &data_key, group_id)?;
     }
     let metadata = catalog
         .chats
@@ -355,15 +514,21 @@ pub(super) async fn delete_chat(
     Path(chat_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_identifier("chat id", &chat_id)?;
-    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
+    let (_lifecycle, agent) =
+        super::desktop_checkpoints::quiescence::admit_agent(&server, &headers).await?;
+    let agent_id = agent.agent_id.clone();
     require_owned_chat_id(&server, &chat_id, &agent_id).await?;
+    let _checkpoint = server.inner.desktop_checkpoint_lock.lock().await;
+    let checkpoints = super::desktop_checkpoints::prepare_session_deletion(&server, &agent).await?;
     server
         .inner
         .core
         .delete_thread(&chat_id)
         .await
         .map_err(core_error)?;
-    remove_chat_state(&server, &[chat_id]).await?;
+    let deleted = [chat_id];
+    remove_chat_state(&server, &deleted).await?;
+    checkpoints.apply(&server, &deleted).await?;
     Ok(Json(json!({"deleted": true})))
 }
 
@@ -373,9 +538,14 @@ pub(super) async fn batch_delete_chats(
     Json(chat_ids): Json<Vec<String>>,
 ) -> Result<Json<Value>, ApiError> {
     validate_batch(&chat_ids)?;
-    let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
+    let (_lifecycle, agent) =
+        super::desktop_checkpoints::quiescence::admit_agent(&server, &headers).await?;
+    let agent_id = agent.agent_id.clone();
     let owned = owned_chat_ids(&server, &agent_id, &chat_ids).await?;
+    let _checkpoint = server.inner.desktop_checkpoint_lock.lock().await;
+    let checkpoints = super::desktop_checkpoints::prepare_session_deletion(&server, &agent).await?;
     let mut deleted = Vec::new();
+    let mut failure = None;
     for chat_id in &chat_ids {
         if !owned.contains(chat_id) {
             continue;
@@ -383,10 +553,17 @@ pub(super) async fn batch_delete_chats(
         match server.inner.core.delete_thread(chat_id).await {
             Ok(_) => deleted.push(chat_id.clone()),
             Err(qwenpaw_core::CoreError::ThreadNotFound(_)) => {}
-            Err(error) => return Err(core_error(error)),
+            Err(error) => {
+                failure = Some(core_error(error));
+                break;
+            }
         }
     }
     remove_chat_state(&server, &deleted).await?;
+    checkpoints.apply(&server, &deleted).await?;
+    if let Some(error) = failure {
+        return Err(error);
+    }
     Ok(Json(json!({"deleted": !deleted.is_empty()})))
 }
 
@@ -518,11 +695,11 @@ pub(super) async fn list_groups(
     headers: HeaderMap,
 ) -> Result<Json<Vec<Value>>, ApiError> {
     let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
-    super::desktop_agents::workspace_for_agent(&server, &agent_id).await?;
+    let data_key = data_key_for_agent(&server, &agent_id).await?;
     let _guard = server.inner.desktop_chat_catalog_lock.lock().await;
     let mut catalog = read_catalog(&server)?;
-    let changed = ensure_agent_groups(&mut catalog, &agent_id);
-    let groups = groups_for_agent(&catalog, &agent_id);
+    let changed = ensure_agent_groups(&mut catalog, &agent_id, &data_key);
+    let groups = groups_for_agent(&catalog, &data_key);
     if changed {
         write_catalog(&server, &catalog)?;
     }
@@ -537,17 +714,18 @@ pub(super) async fn create_group(
     Json(request): Json<CreateGroupRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
-    super::desktop_agents::workspace_for_agent(&server, &agent_id).await?;
+    let data_key = data_key_for_agent(&server, &agent_id).await?;
     let name = normalize_group_name(&request.name)?;
     let _guard = server.inner.desktop_chat_catalog_lock.lock().await;
     let mut catalog = read_catalog(&server)?;
-    ensure_agent_groups(&mut catalog, &agent_id);
-    let agent_groups = groups_for_agent(&catalog, &agent_id);
+    ensure_agent_groups(&mut catalog, &agent_id, &data_key);
+    let agent_groups = groups_for_agent(&catalog, &data_key);
     if agent_groups.len() >= MAX_GROUPS {
         return Err(unprocessable("too many chat groups"));
     }
     let group = ChatGroup {
         agent_id: agent_id.clone(),
+        data_key: Some(data_key.clone()),
         id: Uuid::now_v7().to_string(),
         name,
         order: agent_groups
@@ -572,7 +750,7 @@ pub(super) async fn update_group(
     Json(request): Json<UpdateGroupRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
-    super::desktop_agents::workspace_for_agent(&server, &agent_id).await?;
+    let data_key = data_key_for_agent(&server, &agent_id).await?;
     validate_identifier("group id", &group_id)?;
     if request.name.is_none() && request.pinned.is_none() {
         return Err(unprocessable("At least one group field must be provided"));
@@ -587,7 +765,7 @@ pub(super) async fn update_group(
     let group = catalog
         .groups
         .iter_mut()
-        .find(|group| group.agent_id == agent_id && group.id == group_id)
+        .find(|group| group.data_key.as_ref() == Some(&data_key) && group.id == group_id)
         .ok_or_else(|| not_found("Chat group not found"))?;
     if is_fixed_source_group(group) {
         return Err(bad_request("Source groups cannot be changed"));
@@ -609,7 +787,7 @@ pub(super) async fn reorder_groups(
     Json(request): Json<ReorderGroupsRequest>,
 ) -> Result<Json<Vec<Value>>, ApiError> {
     let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
-    super::desktop_agents::workspace_for_agent(&server, &agent_id).await?;
+    let data_key = data_key_for_agent(&server, &agent_id).await?;
     if request.group_ids.len() < 2 {
         return Err(unprocessable("group_ids must contain at least two IDs"));
     }
@@ -618,8 +796,8 @@ pub(super) async fn reorder_groups(
     }
     let _guard = server.inner.desktop_chat_catalog_lock.lock().await;
     let mut catalog = read_catalog(&server)?;
-    ensure_agent_groups(&mut catalog, &agent_id);
-    let current = groups_for_agent(&catalog, &agent_id)
+    ensure_agent_groups(&mut catalog, &agent_id, &data_key);
+    let current = groups_for_agent(&catalog, &data_key)
         .iter()
         .map(|group| (group.id.clone(), group.clone()))
         .collect::<BTreeMap<_, _>>();
@@ -635,7 +813,7 @@ pub(super) async fn reorder_groups(
     {
         return Err(bad_request("Group order must contain every group ID"));
     }
-    let fixed = ordered_groups(groups_for_agent(&catalog, &agent_id))
+    let fixed = ordered_groups(groups_for_agent(&catalog, &data_key))
         .into_iter()
         .filter(is_fixed_source_group)
         .map(|group| group.id)
@@ -656,9 +834,11 @@ pub(super) async fn reorder_groups(
             group
         })
         .collect::<Vec<_>>();
-    catalog.groups.retain(|group| group.agent_id != agent_id);
+    catalog
+        .groups
+        .retain(|group| group.data_key.as_ref() != Some(&data_key));
     catalog.groups.extend(reordered);
-    let groups = ordered_groups(groups_for_agent(&catalog, &agent_id));
+    let groups = ordered_groups(groups_for_agent(&catalog, &data_key));
     write_catalog(&server, &catalog)?;
     Ok(Json(groups.iter().map(public_group).collect()))
 }
@@ -669,14 +849,14 @@ pub(super) async fn delete_group(
     Path(group_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let agent_id = super::desktop_agents::requested_agent_id(&headers)?;
-    super::desktop_agents::workspace_for_agent(&server, &agent_id).await?;
+    let data_key = data_key_for_agent(&server, &agent_id).await?;
     validate_identifier("group id", &group_id)?;
     let _guard = server.inner.desktop_chat_catalog_lock.lock().await;
     let mut catalog = read_catalog(&server)?;
     let index = catalog
         .groups
         .iter()
-        .position(|group| group.agent_id == agent_id && group.id == group_id)
+        .position(|group| group.data_key.as_ref() == Some(&data_key) && group.id == group_id)
         .ok_or_else(|| not_found("Chat group not found"))?;
     if catalog.groups[index].kind != "custom" {
         return Err((
@@ -686,7 +866,7 @@ pub(super) async fn delete_group(
     }
     catalog.groups.remove(index);
     for metadata in catalog.chats.values_mut() {
-        if metadata.agent_id == agent_id && metadata.group_id == group_id {
+        if metadata.data_key.as_ref() == Some(&data_key) && metadata.group_id == group_id {
             metadata.group_id = default_group_for_source(&metadata.source).to_owned();
         }
     }
@@ -694,7 +874,7 @@ pub(super) async fn delete_group(
         .groups
         .iter()
         .enumerate()
-        .filter_map(|(index, group)| (group.agent_id == agent_id).then_some(index))
+        .filter_map(|(index, group)| (group.data_key.as_ref() == Some(&data_key)).then_some(index))
         .collect::<Vec<_>>();
     sorted_indices.sort_by_key(|index| catalog.groups[*index].order);
     for (order, index) in sorted_indices.into_iter().enumerate() {
@@ -704,54 +884,96 @@ pub(super) async fn delete_group(
     Ok(Json(json!({"success": true, "group_id": group_id})))
 }
 
-pub(super) async fn ensure_thread_metadata(
+/// Publish Console ownership under the catalog lock before readers can adopt it.
+pub(super) async fn create_console_thread(
     server: &AppServer,
-    thread: &Thread,
+    context: &super::desktop_agents::AgentContext,
     session_id: &str,
-    agent_id: &str,
-) -> Result<(), ApiError> {
-    let _guard = server.inner.desktop_chat_catalog_lock.lock().await;
+    workspace: &std::path::Path,
+) -> Result<Thread, ApiError> {
+    let guard = server.inner.desktop_chat_catalog_lock.lock().await;
     let mut catalog = read_catalog(server)?;
-    if let Some(metadata) = catalog.chats.get_mut(&thread.id) {
-        session_id.clone_into(&mut metadata.session_id);
-        metadata.updated_at = metadata.updated_at.max(thread.updated_at);
-    } else {
-        catalog.chats.insert(
-            thread.id.clone(),
-            metadata_for_agent(thread, session_id, agent_id),
-        );
+    if catalog.chats.len() >= MAX_CHATS {
+        return Err(unprocessable("too many chats"));
     }
-    write_catalog(server, &catalog)
+    ensure_agent_groups(&mut catalog, &context.agent_id, &context.data_key);
+    let thread = server
+        .inner
+        .core
+        .start_thread(ThreadStartParams {
+            model: context.model(),
+            workspace_root: Some(workspace.to_string_lossy().into_owned()),
+        })
+        .await
+        .map_err(core_error)?
+        .thread;
+    let session_id = if session_id.is_empty() {
+        thread.id.as_str()
+    } else {
+        session_id
+    };
+    catalog.chats.insert(
+        thread.id.clone(),
+        metadata_for_key(&thread, session_id, &context.agent_id, &context.data_key),
+    );
+    if let Err(error) = write_catalog(server, &catalog) {
+        // Do not release the catalog while an unsuccessful Console creation
+        // could be mistaken for an uncatalogued default App Protocol Thread.
+        let removed = server.inner.core.delete_thread(&thread.id).await;
+        drop(guard);
+        if removed.is_err() {
+            return Err(internal(
+                "Chat creation and Thread rollback failed; recovery is required",
+            ));
+        }
+        return Err(error);
+    }
+    Ok(thread)
 }
 
+#[cfg(test)]
 pub(super) async fn checkpoint_sessions(
     server: &AppServer,
-    workspace_root: &str,
+    agent_id: &str,
+) -> Result<Vec<CheckpointSessionInfo>, ApiError> {
+    let context = super::desktop_agents::context_for_agent(server, agent_id).await?;
+    bound_checkpoint_sessions(server, &context).await
+}
+
+/// Keep the admitted Workspace identity even if its public Agent ID is reused.
+/// Projects do not determine ownership or limit the Agent's session catalog.
+pub(super) async fn bound_checkpoint_sessions(
+    server: &AppServer,
+    context: &super::desktop_agents::AgentContext,
 ) -> Result<Vec<CheckpointSessionInfo>, ApiError> {
     let threads = list_all_threads(server).await;
     let aliases = server.inner.desktop_session_aliases.read().await;
     let _guard = server.inner.desktop_chat_catalog_lock.lock().await;
     let mut catalog = read_catalog(server)?;
+    let default_key = super::desktop_agents::default_data_key(server)?;
     let mut changed = false;
     let mut sessions = Vec::new();
     for thread in threads {
-        if thread.workspace_root.as_deref() != Some(workspace_root) {
-            continue;
-        }
         let session_id = aliases
             .thread_to_client
             .get(&thread.id)
             .map_or(thread.id.as_str(), String::as_str);
-        if !catalog.chats.contains_key(&thread.id) {
-            catalog
-                .chats
-                .insert(thread.id.clone(), default_metadata(&thread, session_id));
+        if !catalog.chats.contains_key(&thread.id)
+            && context.agent_id == "default"
+            && context.data_key == default_key
+        {
+            catalog.chats.insert(
+                thread.id.clone(),
+                metadata_for_key(&thread, session_id, "default", &default_key),
+            );
             changed = true;
         }
-        let metadata = catalog
-            .chats
-            .get(&thread.id)
-            .expect("checkpoint session metadata should exist");
+        let Some(metadata) = catalog.chats.get(&thread.id) else {
+            continue;
+        };
+        if metadata.data_key.as_ref() != Some(&context.data_key) {
+            continue;
+        }
         sessions.push(CheckpointSessionInfo {
             thread_id: thread.id,
             session_id: metadata.session_id.clone(),
@@ -777,6 +999,7 @@ async fn metadata_for_thread(
     thread: &Thread,
     agent_id: &str,
 ) -> Result<ChatMetadata, ApiError> {
+    let data_key = data_key_for_agent(server, agent_id).await?;
     let aliases = server.inner.desktop_session_aliases.read().await;
     let session_id = aliases
         .thread_to_client
@@ -784,10 +1007,11 @@ async fn metadata_for_thread(
         .map_or(thread.id.as_str(), String::as_str);
     let _guard = server.inner.desktop_chat_catalog_lock.lock().await;
     let mut catalog = read_catalog(server)?;
+    require_owned_chat(&catalog, &thread.id, &data_key)?;
     let metadata = catalog
         .chats
         .entry(thread.id.clone())
-        .or_insert_with(|| metadata_for_agent(thread, session_id, agent_id))
+        .or_insert_with(|| metadata_for_key(thread, session_id, agent_id, &data_key))
         .clone();
     write_catalog(server, &catalog)?;
     Ok(metadata)
@@ -896,6 +1120,7 @@ fn default_metadata(thread: &Thread, session_id: &str) -> ChatMetadata {
 fn metadata_for_agent(thread: &Thread, session_id: &str, agent_id: &str) -> ChatMetadata {
     ChatMetadata {
         agent_id: agent_id.to_owned(),
+        data_key: None,
         name: String::from("New Chat"),
         session_id: session_id.to_owned(),
         user_id: String::from("desktop"),
@@ -911,6 +1136,17 @@ fn metadata_for_agent(thread: &Thread, session_id: &str, agent_id: &str) -> Chat
     }
 }
 
+fn metadata_for_key(
+    thread: &Thread,
+    session_id: &str,
+    agent_id: &str,
+    data_key: &WorkspaceDataKey,
+) -> ChatMetadata {
+    let mut metadata = metadata_for_agent(thread, session_id, agent_id);
+    metadata.data_key = Some(data_key.clone());
+    metadata
+}
+
 fn default_agent_id() -> String {
     String::from("default")
 }
@@ -919,17 +1155,18 @@ fn is_default_agent_id(agent_id: &String) -> bool {
     agent_id == "default"
 }
 
-fn alias_key(agent_id: &str, session_id: &str) -> String {
-    format!("{agent_id}\u{0}{session_id}")
+pub(super) fn alias_key(data_key: &WorkspaceDataKey, session_id: &str) -> String {
+    let namespace = serde_json::to_string(data_key).expect("Workspace identity is serializable");
+    format!("{namespace}\u{0}{session_id}")
 }
 
 fn require_owned_chat(
     catalog: &ChatCatalog,
     chat_id: &str,
-    agent_id: &str,
+    data_key: &WorkspaceDataKey,
 ) -> Result<(), ApiError> {
     match catalog.chats.get(chat_id) {
-        Some(metadata) if metadata.agent_id == agent_id => Ok(()),
+        Some(metadata) if metadata.data_key.as_ref() == Some(data_key) => Ok(()),
         _ => Err(not_found(&format!("thread not found: {chat_id}"))),
     }
 }
@@ -939,10 +1176,10 @@ pub(super) async fn require_owned_chat_id(
     chat_id: &str,
     agent_id: &str,
 ) -> Result<(), ApiError> {
-    super::desktop_agents::workspace_for_agent(server, agent_id).await?;
+    let data_key = data_key_for_agent(server, agent_id).await?;
     let _guard = server.inner.desktop_chat_catalog_lock.lock().await;
     let catalog = read_catalog(server)?;
-    require_owned_chat(&catalog, chat_id, agent_id)
+    require_owned_chat(&catalog, chat_id, &data_key)
 }
 
 async fn owned_chat_ids(
@@ -950,7 +1187,7 @@ async fn owned_chat_ids(
     agent_id: &str,
     chat_ids: &[String],
 ) -> Result<HashSet<String>, ApiError> {
-    super::desktop_agents::workspace_for_agent(server, agent_id).await?;
+    let data_key = data_key_for_agent(server, agent_id).await?;
     let requested = chat_ids.iter().collect::<HashSet<_>>();
     let _guard = server.inner.desktop_chat_catalog_lock.lock().await;
     let catalog = read_catalog(server)?;
@@ -958,7 +1195,7 @@ async fn owned_chat_ids(
         .chats
         .iter()
         .filter_map(|(chat_id, metadata)| {
-            (metadata.agent_id == agent_id && requested.contains(chat_id))
+            (metadata.data_key.as_ref() == Some(&data_key) && requested.contains(chat_id))
                 .then_some(chat_id.clone())
         })
         .collect())
@@ -972,6 +1209,7 @@ fn default_groups_for(agent_id: &str) -> Vec<ChatGroup> {
     vec![
         ChatGroup {
             agent_id: agent_id.to_owned(),
+            data_key: None,
             id: String::from("default"),
             name: String::from("Uncategorized"),
             order: 0,
@@ -981,6 +1219,7 @@ fn default_groups_for(agent_id: &str) -> Vec<ChatGroup> {
         },
         ChatGroup {
             agent_id: agent_id.to_owned(),
+            data_key: None,
             id: String::from("cron"),
             name: String::from("Scheduled tasks"),
             order: 1,
@@ -990,6 +1229,7 @@ fn default_groups_for(agent_id: &str) -> Vec<ChatGroup> {
         },
         ChatGroup {
             agent_id: agent_id.to_owned(),
+            data_key: None,
             id: String::from("subagents"),
             name: String::from("Subagents"),
             order: 2,
@@ -1000,23 +1240,32 @@ fn default_groups_for(agent_id: &str) -> Vec<ChatGroup> {
     ]
 }
 
-fn ensure_agent_groups(catalog: &mut ChatCatalog, agent_id: &str) -> bool {
+fn ensure_agent_groups(
+    catalog: &mut ChatCatalog,
+    agent_id: &str,
+    data_key: &WorkspaceDataKey,
+) -> bool {
     if catalog
         .groups
         .iter()
-        .any(|group| group.agent_id == agent_id)
+        .any(|group| group.data_key.as_ref() == Some(data_key))
     {
         return false;
     }
-    catalog.groups.extend(default_groups_for(agent_id));
+    catalog
+        .groups
+        .extend(default_groups_for(agent_id).into_iter().map(|mut group| {
+            group.data_key = Some(data_key.clone());
+            group
+        }));
     true
 }
 
-fn groups_for_agent(catalog: &ChatCatalog, agent_id: &str) -> Vec<ChatGroup> {
+fn groups_for_agent(catalog: &ChatCatalog, data_key: &WorkspaceDataKey) -> Vec<ChatGroup> {
     catalog
         .groups
         .iter()
-        .filter(|group| group.agent_id == agent_id)
+        .filter(|group| group.data_key.as_ref() == Some(data_key))
         .cloned()
         .collect()
 }
@@ -1063,11 +1312,15 @@ fn default_group_for_source(source: &str) -> &'static str {
     }
 }
 
-fn require_group(catalog: &ChatCatalog, agent_id: &str, group_id: &str) -> Result<(), ApiError> {
+fn require_group(
+    catalog: &ChatCatalog,
+    data_key: &WorkspaceDataKey,
+    group_id: &str,
+) -> Result<(), ApiError> {
     if catalog
         .groups
         .iter()
-        .any(|group| group.agent_id == agent_id && group.id == group_id)
+        .any(|group| group.data_key.as_ref() == Some(data_key) && group.id == group_id)
     {
         Ok(())
     } else {
@@ -1082,14 +1335,25 @@ fn read_catalog(server: &AppServer) -> Result<ChatCatalog, ApiError> {
         .read_chat_catalog_data()
         .map_err(internal_error)?
     else {
-        return Ok(ChatCatalog::default());
+        let mut catalog = ChatCatalog::default();
+        upgrade_catalog(
+            &mut catalog,
+            &super::desktop_agents::default_data_key(server)?,
+        );
+        return Ok(catalog);
     };
     if serialized.len() > MAX_CATALOG_BYTES {
         return Err(internal("stored chat catalog exceeds its size limit"));
     }
-    let catalog = serde_json::from_str::<ChatCatalog>(&serialized)
+    let mut catalog = serde_json::from_str::<ChatCatalog>(&serialized)
         .map_err(|_| internal("stored chat catalog is invalid"))?;
     validate_catalog(&catalog).map_err(internal)?;
+    if catalog.version == 1 {
+        upgrade_catalog(
+            &mut catalog,
+            &super::desktop_agents::default_data_key(server)?,
+        );
+    }
     Ok(catalog)
 }
 
@@ -1108,18 +1372,25 @@ fn write_catalog(server: &AppServer, catalog: &ChatCatalog) -> Result<(), ApiErr
 }
 
 fn validate_catalog(catalog: &ChatCatalog) -> Result<(), &'static str> {
-    if catalog.version != 1 {
+    if !matches!(catalog.version, 1 | 2) {
         return Err("chat catalog version is unsupported");
     }
     if catalog.chats.len() > MAX_CHATS {
         return Err("chat catalog exceeds its item limit");
     }
-    let mut group_ids = HashSet::new();
+    for chat in catalog.chats.values() {
+        validate_record_key(catalog.version, chat.data_key.as_ref())?;
+    }
+    let mut group_ids = BTreeSet::new();
     for group in &catalog.groups {
         validate_identifier_value(&group.agent_id)?;
         validate_identifier_value(&group.id)?;
         validate_group_name_value(&group.name)?;
-        if !group_ids.insert((group.agent_id.as_str(), group.id.as_str())) {
+        validate_record_key(catalog.version, group.data_key.as_ref())?;
+        if !group_ids.insert((
+            record_key(group.data_key.as_ref(), &group.agent_id),
+            group.id.as_str(),
+        )) {
             return Err("chat catalog contains duplicate group IDs");
         }
         if !matches!(
@@ -1132,27 +1403,36 @@ fn validate_catalog(catalog: &ChatCatalog) -> Result<(), &'static str> {
     let agent_ids = catalog
         .chats
         .values()
-        .map(|metadata| metadata.agent_id.as_str())
-        .chain(std::iter::once("default"))
-        .collect::<HashSet<_>>();
+        .map(|metadata| record_key(metadata.data_key.as_ref(), &metadata.agent_id))
+        .chain(
+            catalog
+                .groups
+                .iter()
+                .map(|group| record_key(group.data_key.as_ref(), &group.agent_id)),
+        )
+        .chain((catalog.version == 1).then(|| WorkspaceDataKey::LegacyAgent(default_agent_id())))
+        .collect::<BTreeSet<_>>();
     for agent_id in agent_ids {
         let agent_group_count = catalog
             .groups
             .iter()
-            .filter(|group| group.agent_id == agent_id)
+            .filter(|group| record_key(group.data_key.as_ref(), &group.agent_id) == agent_id)
             .count();
         if agent_group_count > MAX_GROUPS {
             return Err("chat catalog exceeds its item limit");
         }
         for required in ["default", "cron", "subagents"] {
-            if !group_ids.contains(&(agent_id, required)) {
+            if !group_ids.contains(&(agent_id.clone(), required)) {
                 return Err("chat catalog is missing a built-in group");
             }
         }
     }
     for (thread_id, metadata) in &catalog.chats {
         validate_identifier_value(&metadata.agent_id)?;
-        if !group_ids.contains(&(metadata.agent_id.as_str(), metadata.group_id.as_str())) {
+        if !group_ids.contains(&(
+            record_key(metadata.data_key.as_ref(), &metadata.agent_id),
+            metadata.group_id.as_str(),
+        )) {
             return Err("chat catalog references an unknown group");
         }
         validate_identifier_value(thread_id)?;
@@ -1166,6 +1446,14 @@ fn validate_catalog(catalog: &ChatCatalog) -> Result<(), &'static str> {
         }
     }
     Ok(())
+}
+
+fn validate_record_key(version: u32, key: Option<&WorkspaceDataKey>) -> Result<(), &'static str> {
+    match (version, key) {
+        (1, None) => Ok(()),
+        (2, Some(key)) if key.is_valid() => Ok(()),
+        _ => Err("chat catalog has an invalid Workspace binding"),
+    }
 }
 
 fn validate_batch(chat_ids: &[String]) -> Result<(), ApiError> {
@@ -1308,6 +1596,7 @@ mod tests {
         let mut groups = default_groups();
         groups.push(ChatGroup {
             agent_id: String::from("default"),
+            data_key: None,
             id: String::from("regular"),
             name: String::from("Regular"),
             order: 4,
@@ -1317,6 +1606,7 @@ mod tests {
         });
         groups.push(ChatGroup {
             agent_id: String::from("default"),
+            data_key: None,
             id: String::from("pinned"),
             name: String::from("Pinned"),
             order: 5,

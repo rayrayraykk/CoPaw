@@ -30,11 +30,11 @@ use uuid::Uuid;
 use super::AppServer;
 use super::DesktopWorkspace;
 
-const CATALOG_SCHEMA_VERSION: u32 = 1;
+const CATALOG_SCHEMA_VERSION: u32 = 3;
 const DEFAULT_AGENT_ID: &str = "default";
 const AGENT_HEADER: &str = "x-agent-id";
 const MAX_CATALOG_BYTES: u64 = 2 * 1024 * 1024;
-const MAX_AGENT_CONFIG_BYTES: usize = 512 * 1024;
+pub(super) const MAX_AGENT_CONFIG_BYTES: usize = 512 * 1024;
 const MAX_AGENT_NAME_BYTES: usize = 256;
 const MAX_AGENT_DESCRIPTION_BYTES: usize = 16 * 1024;
 const MAX_AGENTS: usize = 256;
@@ -50,12 +50,27 @@ const COPYABLE_MD_FILES: [&str; 5] = [
 
 type ApiError = (StatusCode, Json<Value>);
 
+#[path = "desktop_agent_restore.rs"]
+pub(super) mod restore;
+
+#[path = "desktop_workspace_identity.rs"]
+pub(super) mod identity;
+use identity::WorkspaceDataKey;
+
+#[path = "desktop_agent_publication.rs"]
+mod publication;
+pub(super) use publication::recover_before_initialization;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct AgentCatalog {
     schema_version: u32,
     revision: u64,
     order: Vec<String>,
     agents: BTreeMap<String, AgentReference>,
+    #[serde(default)]
+    workspace_keys: BTreeMap<String, WorkspaceDataKey>,
+    #[serde(skip)]
+    bootstrap_identity: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -64,6 +79,100 @@ struct AgentReference {
     enabled: bool,
     pinned: bool,
     config: Value,
+    #[serde(default)]
+    data_key: Option<WorkspaceDataKey>,
+}
+
+/// One validated registration snapshot, not a lease against external file changes.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct AgentContext {
+    pub agent_id: String,
+    pub data_key: WorkspaceDataKey,
+    pub workspace: PathBuf,
+    pub config: Value,
+}
+
+impl AgentContext {
+    pub(super) fn usage_owner(&self) -> qwenpaw_core::UsageOwner {
+        qwenpaw_core::UsageOwner {
+            agent_id: self.agent_id.clone(),
+            data_key: self.data_key.clone(),
+        }
+    }
+
+    pub(super) fn model(&self) -> Option<String> {
+        self.config
+            .pointer("/active_model/model")
+            .and_then(Value::as_str)
+            .or_else(|| {
+                self.config
+                    .pointer("/backend_settings/model")
+                    .and_then(Value::as_str)
+            })
+            .map(str::to_owned)
+    }
+
+    pub(super) fn project(&self) -> Result<PathBuf, ApiError> {
+        match self.config.get("project_dir").and_then(Value::as_str) {
+            Some(path) => canonical_registered_workspace(path),
+            None => Ok(self.workspace.clone()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct AgentBackupSnapshot {
+    pub version: u32,
+    pub agents: Vec<BackupAgent>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub(super) struct BackupAgent {
+    pub id: String,
+    pub workspace_dir: String,
+    pub enabled: bool,
+    pub pinned: bool,
+    pub config: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_key: Option<WorkspaceDataKey>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct AgentRegistryBackup {
+    pub version: u32,
+    pub agents: Vec<BackupAgentReference>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub(super) struct BackupAgentReference {
+    pub id: String,
+    pub workspace_dir: String,
+    pub enabled: bool,
+    pub pinned: bool,
+}
+
+impl AgentBackupSnapshot {
+    pub(super) fn registry(&self) -> AgentRegistryBackup {
+        AgentRegistryBackup {
+            version: 1,
+            agents: self.agents.iter().map(BackupAgent::reference).collect(),
+        }
+    }
+}
+
+impl BackupAgent {
+    pub(super) fn reference(&self) -> BackupAgentReference {
+        BackupAgentReference {
+            id: self.id.clone(),
+            workspace_dir: self.workspace_dir.clone(),
+            enabled: self.enabled,
+            pinned: self.pinned,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -190,6 +299,23 @@ async fn agent_shutdown(State(server): State<AppServer>) -> Json<Value> {
     Json(json!({"success": true}))
 }
 
+/// Resolve template-write authority without treating project selection as a base.
+pub(super) fn initialization_root(workspace: &DesktopWorkspace) -> anyhow::Result<Option<PathBuf>> {
+    let catalog = match read_catalog(workspace) {
+        Ok(catalog) => catalog,
+        Err((StatusCode::NOT_FOUND, _)) => return Ok(Some(workspace.initial.clone())),
+        Err(error) => return Err(api_error_message(error)),
+    };
+    if let Ok(context) = context_from_catalog(&catalog, DEFAULT_AGENT_ID, false) {
+        Ok(Some(context.workspace))
+    } else {
+        // Keep the existing request-time rejection boundary. Do not repair
+        // an invalid root or stop unrelated Agents merely to copy templates.
+        tracing::warn!("Skipping templates for an unavailable default Workspace binding");
+        Ok(None)
+    }
+}
+
 pub(super) fn initialize(
     core: &Core,
     workspace: &DesktopWorkspace,
@@ -206,10 +332,19 @@ pub(super) fn initialize(
             validate_catalog(&catalog, workspace)
                 .map_err(api_error_message)
                 .context("Rust Agent catalog is invalid")?;
+            if catalog.bootstrap_identity {
+                write_catalog(workspace, &catalog)
+                    .map_err(api_error_message)
+                    .context("failed to establish Workspace identities")?;
+            }
             catalog
         }
         Err((StatusCode::NOT_FOUND, _)) => {
-            let catalog = default_catalog(core, default_workspace);
+            let project = workspace
+                .selected
+                .try_read()
+                .context("initial project selection is unavailable")?;
+            let catalog = default_catalog(core, default_workspace, &project);
             write_catalog(workspace, &catalog)
                 .map_err(api_error_message)
                 .context("failed to initialize Rust Agent catalog")?;
@@ -263,93 +398,348 @@ pub(super) async fn workspace_for_agent(
     server: &AppServer,
     agent_id: &str,
 ) -> Result<PathBuf, ApiError> {
+    Ok(context_for_agent(server, agent_id).await?.workspace)
+}
+
+pub(super) async fn context_for_agent(
+    server: &AppServer,
+    agent_id: &str,
+) -> Result<AgentContext, ApiError> {
     validate_agent_id(agent_id, true)?;
-    let _guard = server.inner.desktop_agents_lock.lock().await;
+    let _guard = server.agent_catalog_guard().await?;
     let workspace = desktop_workspace(server)?;
     let catalog = read_catalog(workspace)?;
+    resolved_context(server, &catalog, agent_id, true)
+}
+
+pub(super) async fn registered_data_key(
+    server: &AppServer,
+    agent_id: &str,
+) -> Result<Option<WorkspaceDataKey>, ApiError> {
+    let _guard = server.agent_catalog_guard().await?;
+    let catalog = read_catalog(desktop_workspace(server)?)?;
+    Ok(catalog
+        .agents
+        .get(agent_id)
+        .and_then(|agent| agent.data_key.clone()))
+}
+
+fn context_from_catalog(
+    catalog: &AgentCatalog,
+    agent_id: &str,
+    require_enabled: bool,
+) -> Result<AgentContext, ApiError> {
     let agent = catalog
         .agents
         .get(agent_id)
         .ok_or_else(|| not_found(&format!("Agent '{agent_id}' not found")))?;
-    if !agent.enabled {
+    if require_enabled && !agent.enabled {
         return Err(forbidden(&format!("Agent '{agent_id}' is disabled")));
     }
-    canonical_registered_workspace(&agent.workspace_dir)
+    let context = AgentContext {
+        agent_id: agent_id.to_owned(),
+        data_key: agent
+            .data_key
+            .clone()
+            .ok_or_else(|| internal("Agent Workspace identity is missing"))?,
+        workspace: canonical_registered_workspace(&agent.workspace_dir)?,
+        config: agent.config.clone(),
+    };
+    if catalog
+        .workspace_keys
+        .get(context.workspace.to_string_lossy().as_ref())
+        != Some(&context.data_key)
+        || !identity::matches_marker(&context.workspace, &context.data_key)?
+    {
+        return Err(conflict(&format!(
+            "Agent '{}' Workspace binding has changed",
+            context.agent_id
+        )));
+    }
+    Ok(context)
+}
+
+fn resolved_context(
+    server: &AppServer,
+    catalog: &AgentCatalog,
+    agent_id: &str,
+    require_enabled: bool,
+) -> Result<AgentContext, ApiError> {
+    let mut context = context_from_catalog(catalog, agent_id, require_enabled)?;
+    context.config =
+        super::desktop_channels::profile_view(server, &context.data_key, &context.config)?;
+    Ok(context)
+}
+
+pub(super) async fn context_for_data_key(
+    server: &AppServer,
+    key: &WorkspaceDataKey,
+) -> Result<AgentContext, ApiError> {
+    let _guard = server.agent_catalog_guard().await?;
+    let catalog = read_catalog(desktop_workspace(server)?)?;
+    let id = catalog
+        .agents
+        .iter()
+        .find_map(|(id, agent)| (agent.data_key.as_ref() == Some(key)).then_some(id.as_str()))
+        .ok_or_else(|| not_found("Cron Workspace has no registered Agent"))?;
+    resolved_context(server, &catalog, id, true)
+}
+
+/// Match the original mail-enabled aggregation and broadcast inventory.
+pub(super) async fn mail_contexts(server: &AppServer) -> Result<Vec<AgentContext>, ApiError> {
+    let _guard = server.agent_catalog_guard().await?;
+    let catalog = read_catalog(desktop_workspace(server)?)?;
+    catalog
+        .order
+        .iter()
+        .filter(|id| {
+            let agent = &catalog.agents[*id];
+            agent.enabled
+                && agent.config.pointer("/mail/push/access_control_enabled")
+                    == Some(&Value::Bool(true))
+                && agent
+                    .config
+                    .pointer("/mail/push/mode")
+                    .and_then(Value::as_str)
+                    .unwrap_or("off")
+                    != "off"
+        })
+        .map(|id| resolved_context(server, &catalog, id, false))
+        .collect()
+}
+
+pub(super) async fn mail_context(
+    server: &AppServer,
+    agent_id: &str,
+) -> Result<Option<AgentContext>, ApiError> {
+    let _guard = server.agent_catalog_guard().await?;
+    let catalog = read_catalog(desktop_workspace(server)?)?;
+    if !catalog.agents.contains_key(agent_id) {
+        return Ok(None);
+    }
+    resolved_context(server, &catalog, agent_id, false).map(Some)
+}
+
+/// Match the original global trend's registered-directory inventory.
+pub(super) async fn statistics_bindings(
+    server: &AppServer,
+) -> Result<BTreeMap<String, WorkspaceDataKey>, ApiError> {
+    if server.inner.desktop_workspace.is_none() {
+        return Ok(BTreeMap::from([(
+            String::from("default"),
+            default_data_key(server)?,
+        )]));
+    }
+    let _guard = server.agent_catalog_guard().await?;
+    let catalog = read_catalog(desktop_workspace(server)?)?;
+    Ok(catalog
+        .agents
+        .keys()
+        .filter_map(|id| {
+            context_from_catalog(&catalog, id, false)
+                .ok()
+                .map(|context| (context.agent_id, context.data_key))
+        })
+        .collect())
+}
+
+// Cron callers hold the Cron lock; restore owns the Core operation barrier.
+// The default registration cannot be deleted or rebound by ordinary requests.
+pub(super) fn default_data_key(server: &AppServer) -> Result<WorkspaceDataKey, ApiError> {
+    server.ensure_agent_publication_available()?;
+    if server.inner.desktop_workspace.is_none() {
+        return Ok(WorkspaceDataKey::LegacyAgent(String::from(
+            DEFAULT_AGENT_ID,
+        )));
+    }
+    let catalog = read_catalog(desktop_workspace(server)?)?;
+    catalog
+        .agents
+        .get(DEFAULT_AGENT_ID)
+        .and_then(|agent| agent.data_key.clone())
+        .ok_or_else(|| internal("Default Workspace identity is missing"))
 }
 
 pub(super) async fn agent_workspaces(
     server: &AppServer,
 ) -> Result<Vec<(String, String, PathBuf)>, ApiError> {
-    let _guard = server.inner.desktop_agents_lock.lock().await;
+    Ok(backup_agent_snapshot(server)
+        .await?
+        .agents
+        .into_iter()
+        .map(|agent| {
+            let name = config_string(&agent.config, "name").unwrap_or_else(|| agent.id.clone());
+            (agent.id, name, PathBuf::from(agent.workspace_dir))
+        })
+        .collect())
+}
+
+pub(super) async fn backup_agent_snapshot(
+    server: &AppServer,
+) -> Result<AgentBackupSnapshot, ApiError> {
+    let _guard = server.agent_catalog_guard().await?;
     let catalog = read_catalog(desktop_workspace(server)?)?;
-    let mut workspaces = Vec::with_capacity(catalog.order.len());
+    let mut agents = Vec::with_capacity(catalog.order.len());
     for agent_id in &catalog.order {
         let Some(agent) = catalog.agents.get(agent_id) else {
             continue;
         };
-        let name = config_string(&agent.config, "name").unwrap_or_else(|| agent_id.clone());
-        workspaces.push((
-            agent_id.clone(),
-            name,
-            canonical_registered_workspace(&agent.workspace_dir)?,
-        ));
+        let context = context_from_catalog(&catalog, agent_id, false)?;
+        let root = context.workspace.to_string_lossy().into_owned();
+        let mut config = agent.config.clone();
+        config["workspace_dir"] = json!(root);
+        agents.push(BackupAgent {
+            id: agent_id.clone(),
+            workspace_dir: root,
+            enabled: agent.enabled,
+            pinned: agent.pinned,
+            config,
+            data_key: agent.data_key.clone(),
+        });
     }
-    Ok(workspaces)
+    Ok(AgentBackupSnapshot { version: 2, agents })
 }
 
-pub(super) async fn model_for_agent(
-    server: &AppServer,
-    agent_id: &str,
-) -> Result<Option<String>, ApiError> {
-    validate_agent_id(agent_id, true)?;
-    let _guard = server.inner.desktop_agents_lock.lock().await;
-    let catalog = read_catalog(desktop_workspace(server)?)?;
-    let agent = catalog
-        .agents
-        .get(agent_id)
-        .ok_or_else(|| not_found(&format!("Agent '{agent_id}' not found")))?;
-    if !agent.enabled {
-        return Err(forbidden(&format!("Agent '{agent_id}' is disabled")));
+pub(super) fn validate_backup_snapshot(snapshot: &AgentBackupSnapshot) -> Result<(), String> {
+    if !matches!(snapshot.version, 1 | 2) || snapshot.agents.len() > MAX_AGENTS {
+        return Err(String::from("Backup Agent snapshot is invalid"));
     }
-    Ok(agent
-        .config
-        .pointer("/active_model/model")
-        .and_then(Value::as_str)
-        .or_else(|| {
-            agent
-                .config
-                .pointer("/backend_settings/model")
-                .and_then(Value::as_str)
-        })
-        .map(str::to_owned))
+    let mut ids = std::collections::BTreeSet::new();
+    let mut keys = std::collections::BTreeSet::new();
+    for agent in &snapshot.agents {
+        match (&agent.data_key, snapshot.version) {
+            (None, 1) => {}
+            (Some(key), 2) if key.is_valid() && keys.insert(key) => {}
+            _ => return Err(String::from("Backup Workspace identity is invalid")),
+        }
+        validate_agent_id(&agent.id, true)
+            .map_err(|_| String::from("Backup Agent ID is invalid"))?;
+        validate_config_bounds(&agent.config)
+            .map_err(|_| String::from("Backup Agent config is invalid"))?;
+        if !ids.insert(agent.id.to_lowercase())
+            || agent.workspace_dir.is_empty()
+            || agent.workspace_dir.len() > 4096
+            || agent.workspace_dir.chars().any(char::is_control)
+            || agent.config.get("id").and_then(Value::as_str) != Some(agent.id.as_str())
+            || agent.config.get("workspace_dir").and_then(Value::as_str)
+                != Some(agent.workspace_dir.as_str())
+            || (agent.id == DEFAULT_AGENT_ID && (!agent.enabled || !agent.pinned))
+        {
+            return Err(String::from("Backup Agent snapshot entry is invalid"));
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn validate_registry_backup(registry: &AgentRegistryBackup) -> Result<(), String> {
+    if registry.version != 1
+        || registry.agents.len() > MAX_AGENTS
+        || registry
+            .agents
+            .first()
+            .is_none_or(|agent| agent.id != DEFAULT_AGENT_ID)
+    {
+        return Err(String::from("Backup global Agent registry is invalid"));
+    }
+    let mut ids = std::collections::BTreeSet::new();
+    for agent in &registry.agents {
+        validate_agent_id(&agent.id, true)
+            .map_err(|_| String::from("Backup Agent ID is invalid"))?;
+        if !ids.insert(agent.id.to_lowercase())
+            || agent.workspace_dir.is_empty()
+            || agent.workspace_dir.len() > 4096
+            || agent.workspace_dir.chars().any(char::is_control)
+            || (agent.id == DEFAULT_AGENT_ID && (!agent.enabled || !agent.pinned))
+        {
+            return Err(String::from("Backup global Agent reference is invalid"));
+        }
+    }
+    Ok(())
 }
 
 pub(super) async fn config_for_agent(
     server: &AppServer,
     agent_id: &str,
 ) -> Result<Value, ApiError> {
-    validate_agent_id(agent_id, true)?;
-    let _guard = server.inner.desktop_agents_lock.lock().await;
-    let catalog = read_catalog(desktop_workspace(server)?)?;
-    let agent = catalog
-        .agents
-        .get(agent_id)
-        .ok_or_else(|| not_found(&format!("Agent '{agent_id}' not found")))?;
-    if !agent.enabled {
-        return Err(forbidden(&format!("Agent '{agent_id}' is disabled")));
-    }
-    Ok(agent.config.clone())
+    Ok(context_for_agent(server, agent_id).await?.config)
 }
 
 pub(super) async fn project_for_agent(
     server: &AppServer,
     agent_id: &str,
 ) -> Result<PathBuf, ApiError> {
-    let workspace = workspace_for_agent(server, agent_id).await?;
-    let config = config_for_agent(server, agent_id).await?;
-    match config.get("project_dir").and_then(Value::as_str) {
-        Some(path) => canonical_registered_workspace(path),
-        None => Ok(workspace),
+    context_for_agent(server, agent_id).await?.project()
+}
+
+/// Publish a project only to the registration that admitted the operation.
+pub(super) async fn set_project_for_context(
+    server: &AppServer,
+    expected: &AgentContext,
+    project: Option<&Path>,
+) -> Result<PathBuf, ApiError> {
+    let _operation = server
+        .inner
+        .core
+        .operation_guard()
+        .map_err(|error| internal(&error.to_string()))?;
+    let _guard = server.agent_catalog_guard().await?;
+    let workspace = desktop_workspace(server)?;
+    let mut catalog = read_catalog(workspace)?;
+    let current = context_from_catalog(&catalog, &expected.agent_id, true)?;
+    if current.data_key != expected.data_key || current.workspace != expected.workspace {
+        return Err(conflict("Agent Workspace binding has changed"));
+    }
+    let selected = match project {
+        Some(path) => canonical_registered_workspace(&path.to_string_lossy())?,
+        None => current.workspace.clone(),
+    };
+    let previous = catalog.clone();
+    let had_config = match fs::symlink_metadata(current.workspace.join("agent.json")) {
+        Ok(metadata) if metadata.is_file() => true,
+        Ok(_) => return Err(bad_request("Agent config is not a regular file")),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(_) => return Err(internal("Agent config could not be inspected")),
+    };
+    let mut next = current.config.as_object().cloned().unwrap_or_default();
+    next.insert(
+        "project_dir".into(),
+        project.map_or(Value::Null, |_| json!(selected)),
+    );
+    let next = Value::Object(next);
+    write_agent_config(&current.workspace, &next)?;
+    catalog.agents.get_mut(&current.agent_id).unwrap().config = next;
+    bump_catalog(&mut catalog);
+    if let Err(error) = write_catalog(workspace, &catalog) {
+        if restore_project_config(&current, had_config).is_err() {
+            return Err(internal(
+                "Project selection failed and Agent config rollback failed",
+            ));
+        }
+        return Err(error);
+    }
+    if current.agent_id == DEFAULT_AGENT_ID {
+        if let Err(error) = server.inner.core.write_preferred_workspace(&selected) {
+            let config_restored = restore_project_config(&current, had_config);
+            let catalog_restored = write_catalog(workspace, &previous);
+            if config_restored.is_err() || catalog_restored.is_err() {
+                return Err(internal(
+                    "Project selection failed and registration rollback failed",
+                ));
+            }
+            return Err(internal(&error.to_string()));
+        }
+        selected.clone_into(&mut *workspace.selected.write().await);
+    }
+    Ok(selected)
+}
+
+fn restore_project_config(previous: &AgentContext, had_config: bool) -> Result<(), ApiError> {
+    if had_config {
+        write_agent_config(&previous.workspace, &previous.config)
+    } else {
+        // Remove only the config file this failed publication just created.
+        fs::remove_file(previous.workspace.join("agent.json"))
+            .map_err(|_| internal("New Agent config could not be rolled back"))
     }
 }
 
@@ -360,21 +750,21 @@ pub(super) async fn replace_config_field(
     value: Value,
 ) -> Result<Value, ApiError> {
     validate_agent_id(agent_id, true)?;
-    let _guard = server.inner.desktop_agents_lock.lock().await;
+    let _guard = server.agent_catalog_guard().await?;
     let workspace = desktop_workspace(server)?;
     let mut catalog = read_catalog(workspace)?;
+    let context = context_from_catalog(&catalog, agent_id, true)?;
     let agent = catalog
         .agents
         .get_mut(agent_id)
-        .ok_or_else(|| not_found(&format!("Agent '{agent_id}' not found")))?;
-    if !agent.enabled {
-        return Err(forbidden(&format!("Agent '{agent_id}' is disabled")));
-    }
+        .expect("validated Agent exists");
     let mut next = agent.config.as_object().cloned().unwrap_or_default();
     next.insert(field.to_owned(), value);
     let next = Value::Object(next);
     validate_config_bounds(&next)?;
-    let agent_workspace = canonical_registered_workspace(&agent.workspace_dir)?;
+    let _channels_guard = server.inner.desktop_channel_config_lock.lock().await;
+    let response = super::desktop_channels::profile_view(server, &context.data_key, &next)?;
+    let agent_workspace = context.workspace;
     let previous = agent.config.clone();
     write_agent_config(&agent_workspace, &next)?;
     agent.config.clone_from(&next);
@@ -383,11 +773,11 @@ pub(super) async fn replace_config_field(
         let _ = write_agent_config(&agent_workspace, &previous);
         return Err(error);
     }
-    Ok(next)
+    Ok(response)
 }
 
 async fn list_agents(State(server): State<AppServer>) -> Result<Json<Value>, ApiError> {
-    let _guard = server.inner.desktop_agents_lock.lock().await;
+    let _guard = server.agent_catalog_guard().await?;
     let catalog = read_catalog(desktop_workspace(&server)?)?;
     let agents = catalog
         .order
@@ -406,13 +796,21 @@ async fn get_agent(
     State(server): State<AppServer>,
     AxumPath(agent_id): AxumPath<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let _guard = server.inner.desktop_agents_lock.lock().await;
+    let _guard = server.agent_catalog_guard().await?;
     let catalog = read_catalog(desktop_workspace(&server)?)?;
     let agent = catalog
         .agents
         .get(&agent_id)
         .ok_or_else(|| not_found(&format!("Agent '{agent_id}' not found")))?;
-    Ok(Json(public_config(&agent.config)))
+    let key = agent
+        .data_key
+        .as_ref()
+        .ok_or_else(|| internal("Agent Workspace identity is missing"))?;
+    Ok(Json(public_config(&super::desktop_channels::profile_view(
+        &server,
+        key,
+        &agent.config,
+    )?)))
 }
 
 async fn create_agent(
@@ -423,7 +821,8 @@ async fn create_agent(
     validate_description(&body.description)?;
     validate_backend(&body.backend)?;
     let language = normalize_language(body.language.as_deref())?;
-    let _guard = server.inner.desktop_agents_lock.lock().await;
+    let _lifecycle = server.inner.desktop_agent_lifecycle_lock.lock().await;
+    let _guard = server.agent_catalog_guard().await?;
     let workspace = desktop_workspace(&server)?;
     let mut catalog = read_catalog(workspace)?;
     if catalog.agents.len() >= MAX_AGENTS {
@@ -446,7 +845,7 @@ async fn create_agent(
         }
         None => generated_agent_id(&catalog),
     };
-    let (agent_workspace, auto_workspace) = resolve_new_workspace(
+    let (agent_workspace, auto_workspace, data_key) = resolve_new_workspace(
         workspace,
         body.workspace_dir.as_deref(),
         &agent_id,
@@ -486,6 +885,10 @@ async fn create_agent(
         cleanup_auto_workspace(&agent_workspace, auto_workspace);
         return Err(error);
     }
+    catalog.workspace_keys.insert(
+        agent_workspace.to_string_lossy().into_owned(),
+        data_key.clone(),
+    );
     catalog.order.push(agent_id.clone());
     catalog.agents.insert(
         agent_id.clone(),
@@ -494,6 +897,7 @@ async fn create_agent(
             enabled: true,
             pinned: false,
             config,
+            data_key: Some(data_key),
         },
     );
     bump_catalog(&mut catalog);
@@ -521,7 +925,14 @@ async fn copy_agent(
     if !body.copy_agent_json {
         return Err(bad_request("copy_agent_json must be true"));
     }
-    let _guard = server.inner.desktop_agents_lock.lock().await;
+    let _lifecycle = server.inner.desktop_agent_lifecycle_lock.lock().await;
+    // Scheduler paths resolve Agent configuration while holding the Cron lock.
+    let _cron_guard = if body.copy_jobs {
+        Some(server.inner.desktop_cron_lock.lock().await)
+    } else {
+        None
+    };
+    let _guard = server.agent_catalog_guard().await?;
     let workspace = desktop_workspace(&server)?;
     let mut catalog = read_catalog(workspace)?;
     let source = catalog
@@ -531,47 +942,22 @@ async fn copy_agent(
         .ok_or_else(|| not_found(&format!("Agent '{source_id}' not found")))?;
     let new_id = generated_agent_id(&catalog);
     let target = workspace.data_dir.join("workspaces").join(&new_id);
-    fs::create_dir_all(&target).map_err(|_| internal("Agent Workspace could not be created"))?;
     let language = config_string(&source.config, "language").unwrap_or_else(|| String::from("en"));
-    initialize_workspace_selective(
-        &target,
-        &language,
-        body.copy_md_files,
-        body.copy_skills,
-        body.copy_jobs,
-    )?;
-    let source_workspace = canonical_registered_workspace(&source.workspace_dir)?;
-    if let Err(error) = copy_selected_workspace_files(&source_workspace, &target, &body) {
-        cleanup_auto_workspace(&target, true);
-        return Err(error);
-    }
-    let name = body
-        .name
-        .as_deref()
-        .map(str::trim)
-        .filter(|name| !name.is_empty())
-        .map_or_else(
-            || {
-                format!(
-                    "{} Copy",
-                    config_string(&source.config, "name").unwrap_or_else(|| source_id.clone())
-                )
-            },
-            str::to_owned,
-        );
-    validate_name(&name)?;
+    let source_context = context_from_catalog(&catalog, &source_id, false)?;
+    let source_workspace = source_context.workspace;
+    let name = copied_agent_name(body.name.as_deref(), &source.config, &source_id)?;
     let mut config = source.config;
     config["id"] = Value::String(new_id.clone());
     config["name"] = Value::String(name);
     config["workspace_dir"] = Value::String(target.to_string_lossy().into_owned());
     config["channels"] = json!({});
     let secret = load_agent_secret(&server, &source_id)?;
-    save_agent_secret(&server, &new_id, secret.as_deref())?;
-    if let Err(error) = write_agent_config(&target, &config) {
-        let _ = save_agent_secret(&server, &new_id, None);
-        cleanup_auto_workspace(&target, true);
-        return Err(error);
-    }
+    let data_key = identity::bind_workspace(&mut catalog, &target, true)?;
+    let jobs = if body.copy_jobs {
+        super::desktop_cron::prepare_copy(&server, &source_context.data_key, &new_id, &data_key)?
+    } else {
+        None
+    };
     catalog.order.push(new_id.clone());
     catalog.agents.insert(
         new_id.clone(),
@@ -579,13 +965,48 @@ async fn copy_agent(
             workspace_dir: target.to_string_lossy().into_owned(),
             enabled: true,
             pinned: false,
-            config,
+            config: config.clone(),
+            data_key: Some(data_key.clone()),
         },
     );
     bump_catalog(&mut catalog);
-    if let Err(error) = write_catalog(workspace, &catalog) {
-        let _ = save_agent_secret(&server, &new_id, None);
-        cleanup_auto_workspace(&target, true);
+    fs::create_dir_all(workspace.data_dir.join("workspaces"))
+        .map_err(|_| internal("Agent Workspace parent could not be created"))?;
+    // Never reuse or clean up an existing unregistered workspace.
+    fs::create_dir(&target).map_err(|_| internal("Agent Workspace could not be created"))?;
+    let mut recovery_required = false;
+    let result = (|| {
+        identity::write_marker(&target, &data_key)?;
+        initialize_workspace_selective(
+            &target,
+            &language,
+            body.copy_md_files,
+            body.copy_skills,
+            false,
+        )?;
+        copy_selected_workspace_files(&source_workspace, &target, &body)?;
+        save_agent_secret(&server, &new_id, secret.as_deref())?;
+        write_agent_config(&target, &config)?;
+        if let Some(jobs) = &jobs {
+            jobs.apply(&server)?;
+        }
+        if let Err(error) = write_catalog(workspace, &catalog) {
+            if let Some(jobs) = &jobs
+                && jobs.rollback(&server).is_err()
+            {
+                recovery_required = true;
+                return Err(internal(
+                    "Agent copy rollback failed; workspace and credentials retained for recovery",
+                ));
+            }
+            return Err(error);
+        }
+        Ok(())
+    })();
+    if let Err(error) = result {
+        if !recovery_required {
+            cleanup_copied_workspace(&server, &new_id, &target)?;
+        }
         return Err(error);
     }
     Ok((
@@ -597,6 +1018,39 @@ async fn copy_agent(
             "pinned": false
         })),
     ))
+}
+
+fn copied_agent_name(
+    requested: Option<&str>,
+    source: &Value,
+    source_id: &str,
+) -> Result<String, ApiError> {
+    let name = requested
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map_or_else(
+            || {
+                format!(
+                    "{} Copy",
+                    config_string(source, "name").unwrap_or_else(|| source_id.to_owned())
+                )
+            },
+            str::to_owned,
+        );
+    validate_name(&name)?;
+    Ok(name)
+}
+
+fn cleanup_copied_workspace(
+    server: &AppServer,
+    agent_id: &str,
+    target: &Path,
+) -> Result<(), ApiError> {
+    save_agent_secret(server, agent_id, None).map_err(|_| {
+        internal("Agent copy credential cleanup failed; workspace retained for recovery")
+    })?;
+    fs::remove_dir_all(target)
+        .map_err(|_| internal("Agent copy failed; temporary workspace cleanup requires recovery"))
 }
 
 async fn update_agent(
@@ -641,8 +1095,10 @@ async fn update_agent_config(
         .as_object()
         .ok_or_else(|| bad_request("Agent config must be an object"))?;
     let _guard = server.inner.desktop_agents_lock.lock().await;
+    server.recover_agent_publication()?;
     let workspace = desktop_workspace(server)?;
     let mut catalog = read_catalog(workspace)?;
+    let context = context_from_catalog(&catalog, agent_id, false)?;
     let agent = catalog
         .agents
         .get_mut(agent_id)
@@ -703,7 +1159,9 @@ async fn update_agent_config(
             {
                 return Err(bad_request(&format!("Field '{key}' cannot be null")));
             }
-            next.insert(key.clone(), value.clone());
+            if key != "channels" {
+                next.insert(key.clone(), value.clone());
+            }
         }
     }
     next.insert(String::from("id"), Value::String(agent_id.to_owned()));
@@ -726,31 +1184,31 @@ async fn update_agent_config(
             .and_then(Value::as_str)
             .unwrap_or("qwenpaw"),
     )?;
+    let _channels_guard = server.inner.desktop_channel_config_lock.lock().await;
+    let channels = super::desktop_channels::prepare_profile_update(
+        server,
+        &context.data_key,
+        &agent.config,
+        matches!(kind, UpdateKind::General)
+            .then(|| submitted.get("channels"))
+            .flatten(),
+    )?;
     let mut next = Value::Object(next);
     let submitted_secret = take_mail_secret(&mut next)?;
     validate_config_bounds(&next)?;
-    let agent_workspace = canonical_registered_workspace(&agent.workspace_dir)?;
-    let previous_config = agent.config.clone();
-    let previous_secret = load_agent_secret(server, agent_id)?;
-    if submitted_secret.is_some() {
-        save_agent_secret(server, agent_id, submitted_secret.as_deref())?;
-    }
-    if let Err(error) = write_agent_config(&agent_workspace, &next) {
-        if submitted_secret.is_some() {
-            let _ = save_agent_secret(server, agent_id, previous_secret.as_deref());
-        }
-        return Err(error);
-    }
     agent.config.clone_from(&next);
     bump_catalog(&mut catalog);
-    if let Err(error) = write_catalog(workspace, &catalog) {
-        let _ = write_agent_config(&agent_workspace, &previous_config);
-        if submitted_secret.is_some() {
-            let _ = save_agent_secret(server, agent_id, previous_secret.as_deref());
-        }
-        return Err(error);
-    }
-    Ok(Json(public_config(&next)))
+    let mut response = public_config(&next);
+    response["channels"] = channels.channels.clone();
+    publication::publish(
+        server,
+        &context,
+        &catalog,
+        &next,
+        submitted_secret.as_deref(),
+        &channels,
+    )?;
+    Ok(Json(response))
 }
 
 async fn delete_agent(
@@ -760,7 +1218,10 @@ async fn delete_agent(
     if agent_id == DEFAULT_AGENT_ID {
         return Err(bad_request("Cannot delete the default agent"));
     }
-    let _guard = server.inner.desktop_agents_lock.lock().await;
+    let _lifecycle =
+        super::desktop_checkpoints::quiescence::admit_agent_control(&server, &agent_id).await?;
+    let cron_guard = server.inner.desktop_cron_lock.lock().await;
+    let agent_guard = server.agent_catalog_guard().await?;
     let workspace = desktop_workspace(&server)?;
     let mut catalog = read_catalog(workspace)?;
     if !catalog.agents.contains_key(&agent_id) {
@@ -775,6 +1236,15 @@ async fn delete_agent(
         let _ = save_agent_secret(&server, &agent_id, previous_secret.as_deref());
         return Err(error);
     }
+    let completed = super::desktop_cron::cancel_agent(&server, &agent_id);
+    let mut console_completed = super::desktop_console_runs::cancel_agent(&server, &agent_id);
+    console_completed.extend(super::protocol_runs::cancel_agent(&server, &agent_id));
+    let checkpoints = super::desktop_checkpoints::runtime::cancel_agent(&server, &agent_id);
+    drop(agent_guard);
+    drop(cron_guard);
+    super::desktop_cron::drain_runs(completed).await?;
+    super::desktop_console_runs::drain_runs(console_completed).await?;
+    super::desktop_checkpoints::runtime::drain(checkpoints).await;
     Ok(Json(json!({"success": true, "agent_id": agent_id})))
 }
 
@@ -786,16 +1256,68 @@ async fn toggle_agent(
     if agent_id == DEFAULT_AGENT_ID && !body.enabled {
         return Err(bad_request("Cannot disable the default agent"));
     }
-    let _guard = server.inner.desktop_agents_lock.lock().await;
+    // The request middleware retains its operation lease after disconnection.
+    // Keep only this lock while draining: completion needs Cron and Agent locks.
+    let _lifecycle =
+        super::desktop_checkpoints::quiescence::admit_agent_control(&server, &agent_id).await?;
+    let cron_guard = server.inner.desktop_cron_lock.lock().await;
+    let agent_guard = server.agent_catalog_guard().await?;
     let workspace = desktop_workspace(&server)?;
     let mut catalog = read_catalog(workspace)?;
     let agent = catalog
         .agents
         .get_mut(&agent_id)
         .ok_or_else(|| not_found(&format!("Agent '{agent_id}' not found")))?;
+    let jobs = if !agent.enabled && body.enabled {
+        super::desktop_cron::prepare_restart(
+            &server,
+            agent
+                .data_key
+                .as_ref()
+                .ok_or_else(|| internal("Agent Workspace identity is missing"))?,
+            chrono::Utc::now(),
+        )?
+    } else {
+        None
+    };
     agent.enabled = body.enabled;
     bump_catalog(&mut catalog);
-    write_catalog(workspace, &catalog)?;
+    if let Some(jobs) = &jobs {
+        jobs.apply(&server)?;
+    }
+    if let Err(error) = write_catalog(workspace, &catalog) {
+        if let Some(jobs) = &jobs
+            && jobs.rollback(&server).is_err()
+        {
+            return Err(internal(
+                "Agent restart rollback failed; Cron state requires recovery",
+            ));
+        }
+        return Err(error);
+    }
+    let completed = if body.enabled {
+        Vec::new()
+    } else {
+        super::desktop_cron::cancel_agent(&server, &agent_id)
+    };
+    let mut console_completed = if body.enabled {
+        Vec::new()
+    } else {
+        super::desktop_console_runs::cancel_agent(&server, &agent_id)
+    };
+    if !body.enabled {
+        console_completed.extend(super::protocol_runs::cancel_agent(&server, &agent_id));
+    }
+    let checkpoints = if body.enabled {
+        Vec::new()
+    } else {
+        super::desktop_checkpoints::runtime::cancel_agent(&server, &agent_id)
+    };
+    drop(agent_guard);
+    drop(cron_guard);
+    super::desktop_cron::drain_runs(completed).await?;
+    super::desktop_console_runs::drain_runs(console_completed).await?;
+    super::desktop_checkpoints::runtime::drain(checkpoints).await;
     Ok(Json(json!({
         "success": true,
         "agent_id": agent_id,
@@ -811,7 +1333,7 @@ async fn pin_agent(
     if agent_id == DEFAULT_AGENT_ID && !body.pinned {
         return Err(bad_request("Cannot unpin the default agent"));
     }
-    let _guard = server.inner.desktop_agents_lock.lock().await;
+    let _guard = server.agent_catalog_guard().await?;
     let workspace = desktop_workspace(&server)?;
     let mut catalog = read_catalog(workspace)?;
     let agent = catalog
@@ -837,7 +1359,7 @@ async fn reorder_agents(
     State(server): State<AppServer>,
     Json(body): Json<ReorderRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let _guard = server.inner.desktop_agents_lock.lock().await;
+    let _guard = server.agent_catalog_guard().await?;
     let workspace = desktop_workspace(&server)?;
     let mut catalog = read_catalog(workspace)?;
     let mut unique = body.agent_ids.clone();
@@ -932,7 +1454,7 @@ fn memory_runtime() -> Value {
 }
 
 async fn require_agent(server: &AppServer, agent_id: &str) -> Result<(), ApiError> {
-    let _guard = server.inner.desktop_agents_lock.lock().await;
+    let _guard = server.agent_catalog_guard().await?;
     let catalog = read_catalog(desktop_workspace(server)?)?;
     if catalog.agents.contains_key(agent_id) {
         Ok(())
@@ -953,17 +1475,18 @@ fn catalog_directory(workspace: &DesktopWorkspace) -> PathBuf {
     workspace.data_dir.join("agents")
 }
 
-fn catalog_path(workspace: &DesktopWorkspace) -> PathBuf {
+pub(super) fn catalog_path(workspace: &DesktopWorkspace) -> PathBuf {
     catalog_directory(workspace).join("catalog.json")
 }
 
-fn default_catalog(core: &Core, default_workspace: &Path) -> AgentCatalog {
+fn default_catalog(core: &Core, default_workspace: &Path, project: &Path) -> AgentCatalog {
+    let data_key = WorkspaceDataKey::Workspace(Uuid::now_v7());
     let config = core.read_config().config;
     let active_model = json!({
         "provider_id": "openai-compatible",
         "model": config.default_model
     });
-    let agent_config = default_agent_config(
+    let mut agent_config = default_agent_config(
         DEFAULT_AGENT_ID,
         "QwenPaw",
         "Rust Core",
@@ -972,10 +1495,18 @@ fn default_catalog(core: &Core, default_workspace: &Path) -> AgentCatalog {
         "en",
         Some(&active_model),
     );
+    if project != default_workspace {
+        agent_config["project_dir"] = json!(project.to_string_lossy());
+    }
     AgentCatalog {
         schema_version: CATALOG_SCHEMA_VERSION,
         revision: 0,
+        bootstrap_identity: true,
         order: vec![String::from(DEFAULT_AGENT_ID)],
+        workspace_keys: BTreeMap::from([(
+            default_workspace.to_string_lossy().into_owned(),
+            data_key.clone(),
+        )]),
         agents: BTreeMap::from([(
             String::from(DEFAULT_AGENT_ID),
             AgentReference {
@@ -983,6 +1514,7 @@ fn default_catalog(core: &Core, default_workspace: &Path) -> AgentCatalog {
                 enabled: true,
                 pinned: true,
                 config: agent_config,
+                data_key: Some(data_key),
             },
         )]),
     }
@@ -1039,8 +1571,9 @@ fn read_catalog(workspace: &DesktopWorkspace) -> Result<AgentCatalog, ApiError> 
         return Err(internal("Rust Agent catalog is invalid"));
     }
     let bytes = fs::read(&path).map_err(|_| internal("Rust Agent catalog could not be read"))?;
-    let catalog = serde_json::from_slice::<AgentCatalog>(&bytes)
+    let mut catalog = serde_json::from_slice::<AgentCatalog>(&bytes)
         .map_err(|_| internal("Rust Agent catalog is invalid"))?;
+    identity::hydrate_legacy(&mut catalog)?;
     validate_catalog(&catalog, workspace)?;
     Ok(catalog)
 }
@@ -1051,6 +1584,9 @@ fn write_catalog(workspace: &DesktopWorkspace, catalog: &AgentCatalog) -> Result
         .map_err(|_| internal("Rust Agent catalog could not be encoded"))?;
     if bytes.len() as u64 > MAX_CATALOG_BYTES {
         return Err(payload_too_large("Rust Agent catalog is too large"));
+    }
+    if catalog.bootstrap_identity {
+        identity::bootstrap(catalog)?;
     }
     let directory = catalog_directory(workspace);
     fs::create_dir_all(&directory)
@@ -1068,6 +1604,7 @@ fn write_catalog(workspace: &DesktopWorkspace, catalog: &AgentCatalog) -> Result
 }
 
 fn validate_catalog(catalog: &AgentCatalog, workspace: &DesktopWorkspace) -> Result<(), ApiError> {
+    identity::validate(catalog)?;
     if catalog.schema_version != CATALOG_SCHEMA_VERSION
         || !catalog.agents.contains_key(DEFAULT_AGENT_ID)
         || catalog.order.first().map(String::as_str) != Some(DEFAULT_AGENT_ID)
@@ -1169,7 +1706,7 @@ fn resolve_new_workspace(
     requested: Option<&str>,
     agent_id: &str,
     catalog: &AgentCatalog,
-) -> Result<(PathBuf, bool), ApiError> {
+) -> Result<(PathBuf, bool, WorkspaceDataKey), ApiError> {
     let (candidate, auto) = match requested.map(str::trim).filter(|path| !path.is_empty()) {
         None => (desktop.data_dir.join("workspaces").join(agent_id), true),
         Some(path) => {
@@ -1199,8 +1736,7 @@ fn resolve_new_workspace(
             (expanded, false)
         }
     };
-    fs::create_dir_all(&candidate)
-        .map_err(|_| bad_request("Agent Workspace could not be created"))?;
+    let created = create_workspace_directory(&candidate)?;
     let canonical = candidate
         .canonicalize()
         .map_err(|_| bad_request("Agent Workspace could not be resolved"))?;
@@ -1214,7 +1750,24 @@ fn resolve_new_workspace(
     }) {
         return Err(bad_request("Agent Workspace is already registered"));
     }
-    Ok((canonical, auto))
+    let data_key = identity::key_for_workspace(catalog, &canonical, created)?;
+    identity::write_marker(&canonical, &data_key)?;
+    Ok((canonical, auto && created, data_key))
+}
+
+fn create_workspace_directory(candidate: &Path) -> Result<bool, ApiError> {
+    let parent = candidate
+        .parent()
+        .ok_or_else(|| bad_request("Agent Workspace parent is unavailable"))?;
+    fs::create_dir_all(parent)
+        .map_err(|_| bad_request("Agent Workspace parent could not be created"))?;
+    // Only an exclusive successful mkdir grants rollback ownership. An
+    // existing directory or link may hold data retained by Agent deletion.
+    match fs::create_dir(candidate) {
+        Ok(()) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
+        Err(_) => Err(bad_request("Agent Workspace could not be created")),
+    }
 }
 
 fn canonical_registered_workspace(path: &str) -> Result<PathBuf, ApiError> {
@@ -1372,10 +1925,6 @@ fn copy_selected_workspace_files(
                 .map_err(|_| internal("Agent Skill manifest could not be copied"))?;
         }
     }
-    if request.copy_jobs && source.join("jobs.json").is_file() {
-        fs::copy(source.join("jobs.json"), target.join("jobs.json"))
-            .map_err(|_| internal("Agent jobs could not be copied"))?;
-    }
     Ok(())
 }
 
@@ -1442,7 +1991,7 @@ fn take_mail_secret(config: &mut Value) -> Result<Option<String>, ApiError> {
 }
 
 fn secret_key(agent_id: &str) -> String {
-    format!("agent.{agent_id}.mail-auth-code")
+    crate::desktop_credentials::agent_mail_secret_key(agent_id)
 }
 
 fn load_agent_secret(server: &AppServer, agent_id: &str) -> Result<Option<String>, ApiError> {
@@ -1471,22 +2020,8 @@ fn save_agent_secret(
         .map_err(|_| internal("System credential storage is unavailable"))
 }
 
-fn validate_agent_id(agent_id: &str, allow_default: bool) -> Result<(), ApiError> {
-    let length = agent_id.len();
-    let valid_edges = agent_id
-        .as_bytes()
-        .first()
-        .is_some_and(u8::is_ascii_alphanumeric)
-        && agent_id
-            .as_bytes()
-            .last()
-            .is_some_and(u8::is_ascii_alphanumeric);
-    if !(2..=64).contains(&length)
-        || !valid_edges
-        || !agent_id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
-    {
+pub(super) fn validate_agent_id(agent_id: &str, allow_default: bool) -> Result<(), ApiError> {
+    if !qwenpaw_storage::is_valid_agent_id(agent_id) {
         return Err(bad_request(&format!(
             "Agent ID '{agent_id}' contains invalid characters. Only letters, digits, hyphens, and underscores are allowed. Cannot start or end with '-' or '_'."
         )));
@@ -1595,7 +2130,7 @@ fn generated_agent_id(catalog: &AgentCatalog) -> String {
             .simple()
             .to_string()
             .chars()
-            .take(6)
+            .skip(26)
             .collect::<String>();
         if !catalog.agents.contains_key(&id) {
             return id;
@@ -1684,6 +2219,8 @@ mod tests {
         let catalog = AgentCatalog {
             schema_version: CATALOG_SCHEMA_VERSION,
             revision: 0,
+            bootstrap_identity: false,
+            workspace_keys: BTreeMap::new(),
             order: vec![
                 String::from("default"),
                 String::from("regular"),
@@ -1697,6 +2234,7 @@ mod tests {
                         enabled: true,
                         pinned: true,
                         config: config("default"),
+                        data_key: None,
                     },
                 ),
                 (
@@ -1706,6 +2244,7 @@ mod tests {
                         enabled: true,
                         pinned: false,
                         config: config("regular"),
+                        data_key: None,
                     },
                 ),
                 (
@@ -1715,6 +2254,7 @@ mod tests {
                         enabled: true,
                         pinned: true,
                         config: config("pinned"),
+                        data_key: None,
                     },
                 ),
             ]),
