@@ -1,0 +1,86 @@
+{
+  "runs": [
+    {
+      "schema_version": 1,
+      "visibility": "public",
+      "complete": false,
+      "index_version": "index-v1",
+      "manifest_sha256": "ff464f05a727a9950334bda8f502d18c4d70d62731ed3f8266d498b393cee541",
+      "evaluation_sha": "3546550a6595c0c32245b18e8878d012fda69db8",
+      "date": "2026-10-08T10:01:46.233270+00:00",
+      "workflow_url": "https://github.com/rayrayraykk/CoPaw/actions/runs/37760400947",
+      "records": [
+        {
+          "model": "qwen3.8-27b",
+          "provider": "dashscope",
+          "harness": "QwenPaw",
+          "sdk_version": "2.2.2b4",
+          "source_sha": "3546550a6595c0c32245b18e8878d012fda69db8",
+          "complete": false,
+          "index_score": null,
+          "index_model_cost_usd": null,
+          "index_runtime_seconds": null,
+          "observed_model_spend_usd": 0.06092283707740048,
+          "attempts_with_known_cost": 1,
+          "observed_attempts": 1,
+          "cost_status": "unknown",
+          "domains": {
+            "office": null
+          },
+          "benchmarks": [
+            {
+              "benchmark": "spreadsheetbench-verified",
+              "domains": [
+                "office"
+              ],
+              "expected": 400,
+              "scored": 1,
+              "score": null,
+              "mean_runtime_seconds": null,
+              "mean_model_cost_usd": null,
+              "cost_sources": {
+                "litellm_estimated": 1
+              },
+              "cost_bases": {
+                "list_price": 1
+              },
+              "cost_observed_attempts": 1,
+              "cost_known_attempts": 1
+            }
+          ]
+        }
+      ],
+      "prices": {
+        "version": "dashscope-beijing-2026-10-08",
+        "fx": {
+          "date": "2026-09-30",
+          "cny_per_usd": 6.7351
+        }
+      },
+      "configuration_sha256": "eff4520db4e4662c2392be8783e52559ec3b2a6a0a1ba4707329e827fca7c07e",
+      "index_benchmarks": [
+        {
+          "id": "gaia",
+          "count": 165,
+          "domains": [
+            "research"
+          ]
+        },
+        {
+          "id": "spreadsheetbench-verified",
+          "count": 400,
+          "domains": [
+            "office"
+          ]
+        },
+        {
+          "id": "swebench-verified",
+          "count": 500,
+          "domains": [
+            "coding"
+          ]
+        }
+      ]
+    }
+  ]
+}
