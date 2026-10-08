@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "visibility": "public",
+  "complete": false,
+  "index_version": "index-v1",
+  "manifest_sha256": "9801ccf987ae201ac81c44daeed7dc03c12710597cdd6571f34c4b6e66df2905",
+  "evaluation_sha": "c78ec8e9927b37b2be11a0d6c6665f65b715add5",
+  "date": "2026-10-08T09:47:57.099654+00:00",
+  "workflow_url": "https://github.com/rayrayraykk/CoPaw/actions/runs/37759013044",
+  "records": [
+    {
+      "model": "qwen3.8-27b",
+      "provider": "dashscope",
+      "harness": "QwenPaw",
+      "sdk_version": "2.2.2b4",
+      "source_sha": "c78ec8e9927b37b2be11a0d6c6665f65b715add5",
+      "complete": false,
+      "index_score": null,
+      "index_model_cost_usd": null,
+      "index_runtime_seconds": null,
+      "observed_model_spend_usd": 0.40686077415331623,
+      "attempts_with_known_cost": 3,
+      "observed_attempts": 3,
+      "cost_status": "unknown",
+      "domains": {
+        "coding": null,
+        "office": null,
+        "research": null
+      },
+      "benchmarks": [
+        {
+          "benchmark": "spreadsheetbench-verified",
+          "domains": [
+            "office"
+          ],
+          "expected": 400,
+          "scored": 1,
+          "score": null,
+          "mean_runtime_seconds": null,
+          "mean_model_cost_usd": null,
+          "cost_sources": {
+            "litellm_estimated": 1
+          },
+          "cost_bases": {
+            "list_price": 1
+          },
+          "cost_observed_attempts": 1,
+          "cost_known_attempts": 1
+        }
+      ]
+    }
+  ],
+  "prices": {
+    "version": "dashscope-beijing-2026-10-08",
+    "fx": {
+      "date": "2026-09-30",
+      "cny_per_usd": 6.7351
+    }
+  },
+  "configuration_sha256": "79898ff21aae0f8e19bb1667e96fc77a319a35f0803cdb980eeef61073d5ad7a",
+  "index_benchmarks": [
+    {
+      "id": "gaia",
+      "count": 165,
+      "domains": [
+        "research"
+      ]
+    },
+    {
+      "id": "spreadsheetbench-verified",
+      "count": 400,
+      "domains": [
+        "office"
+      ]
+    },
+    {
+      "id": "swebench-verified",
+      "count": 500,
+      "domains": [
+        "coding"
+      ]
+    }
+  ],
+  "result_key": "7537337c4e92f48e209bafd2e7ed2f431b5b5b1bdefb4b37482d1fae3039ed31",
+  "latest_attempt": {
+    "benchmark": "spreadsheetbench-verified",
+    "date": "2026-10-08T09:47:57.099654+00:00",
+    "workflow_url": "https://github.com/rayrayraykk/CoPaw/actions/runs/37759013044",
+    "complete": false,
+    "scored": 1,
+    "expected": 400
+  }
+}
