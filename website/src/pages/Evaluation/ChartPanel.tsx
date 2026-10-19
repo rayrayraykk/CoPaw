@@ -14,7 +14,6 @@ export default function ChartPanel(props: ComponentProps<ChartComponent>) {
     let active = true;
     setFailed(false);
     const timer = window.setTimeout(() => {
-      active = false;
       setFailed(true);
     }, 20000);
     void import("./Chart").then(

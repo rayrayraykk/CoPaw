@@ -50,6 +50,7 @@ export default function Evaluation({ demo = false }: { demo?: boolean }) {
     }).format(new Date(value));
   const { id } = useParams();
   const navigate = useNavigate();
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [data, setData] = useState<History>({
     schema_version: 3,
     runs: [],
@@ -72,12 +73,14 @@ export default function Evaluation({ demo = false }: { demo?: boolean }) {
     asc: boolean;
   }>({ key: "score", asc: false });
   useEffect(() => {
+    setLoading(true);
+    setError("");
     const controller = new AbortController();
     let timedOut = false;
     const timer = window.setTimeout(() => {
       timedOut = true;
       controller.abort();
-    }, 10000);
+    }, 30000);
     fetch(
       `${import.meta.env.BASE_URL}evaluation/${
         demo ? "demo" : "data"
@@ -116,7 +119,7 @@ export default function Evaluation({ demo = false }: { demo?: boolean }) {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [demo]);
+  }, [demo, loadAttempt]);
   const history = data;
   const scopedRuns = history.runs.filter((run) => run.kind === kind);
   const boards = [
@@ -472,6 +475,9 @@ export default function Evaluation({ demo = false }: { demo?: boolean }) {
           {error && (
             <p role="alert" className="evaluation-notice">
               {t(error)}
+              <button onClick={() => setLoadAttempt((value) => value + 1)}>
+                {t("retry")}
+              </button>
             </p>
           )}
           {!error && !scopedRuns.length && (
