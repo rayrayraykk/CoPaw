@@ -63,7 +63,7 @@ jobs:
       - name: Build
         working-directory: website
         env:
-          VITE_BASE_PATH: "/"
+          VITE_BASE_PATH: ${{ github.repository == 'agentscope-ai/QwenPaw' && '/' || format('/{0}/', github.event.repository.name) }}
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: pnpm run build
@@ -157,7 +157,7 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: website/dist
-          cname: qwenpaw.agentscope.io
+          cname: ${{ github.repository == 'agentscope-ai/QwenPaw' && 'qwenpaw.agentscope.io' || '' }}
 
       - name: Dry-run notice
         if: ${{ inputs.dry_run }}
