@@ -8,7 +8,7 @@
   "profile_hash": "2e5e6dbe738fe5d15ceea0d880f49bd63d3d67a3dc80a056c65ec3cee253ef38",
   "protocol_hash": "3e28b861d665ab544eb7846fa0eb9aef66d058fb665f7cbc0d9c2a506e72b97a",
   "sdk_version": "2.2.2",
-  "source_sha": "4e7b37a92241ddc043e7057f7e392dd7499e93a7",
+  "source_sha": "5c56644a6e130762a236f8c946103e95a0a1eec8",
   "source_repository": "https://github.com/agentscope-ai/QwenPaw",
   "artifact_sha256": "703dd63b2f1004badece42d8eb226df82ed97307f7f61a7a58d2d5773e2fc61d",
   "provider": "dashscope",
@@ -185,7 +185,7 @@
       "kind": "llm",
       "model": "qwen3.8-max",
       "scorer": null,
-      "official_model": null,
+      "official_model": "claude-opus-4.6",
       "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
       "parity_note": ""
     }
