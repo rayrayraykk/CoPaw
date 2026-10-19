@@ -194,6 +194,20 @@ export default function Evaluation({ demo = false }: { demo?: boolean }) {
             metric.slice(7),
         })
       : benchmarks[metric.slice(10)];
+  const noteBenchmarks = (
+    metric.startsWith("benchmark:")
+      ? [metric.slice(10)]
+      : metric.startsWith("domain:")
+      ? Object.keys(
+          activeRuns[0]?.index_definition.directions[metric.slice(7)]
+            ?.benchmarks ?? {},
+        )
+      : []
+  ).filter((benchmark) =>
+    i18n.exists(`benchmarkNotes.${benchmark}`, {
+      ns: "evaluation",
+    }),
+  );
   const sortButton = (key: typeof sort.key, label: string) => (
     <button
       onClick={() =>
@@ -392,6 +406,17 @@ export default function Evaluation({ demo = false }: { demo?: boolean }) {
                 </label>
               </div>
             </div>
+            {!demo && noteBenchmarks.length > 0 && (
+              <aside
+                className="evaluation-benchmark-notes"
+                aria-label={t("benchmarkSetting")}
+              >
+                <h2>{t("benchmarkSetting")}</h2>
+                {noteBenchmarks.map((benchmark) => (
+                  <p key={benchmark}>{t(`benchmarkNotes.${benchmark}`)}</p>
+                ))}
+              </aside>
+            )}
             <div className="evaluation-chart">
               <Chart
                 rows={visible}

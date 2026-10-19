@@ -530,3 +530,21 @@
   text-align: center;
   color: var(--eval-muted);
 }
+
+.evaluation-benchmark-notes {
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--eval-border);
+  background: var(--eval-soft);
+  color: var(--eval-muted);
+  font-size: 13px;
+  line-height: 1.7;
+}
+.evaluation-benchmark-notes h2 {
+  margin: 0 0 6px;
+  color: var(--eval-text);
+  font-size: inherit;
+  font-weight: 600;
+}
+.evaluation-benchmark-notes p {
+  margin: 0;
+}

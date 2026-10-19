@@ -75,5 +75,12 @@
   "artifactSha": "Distribution SHA256",
   "exchangeRate": "Fixed display exchange rate",
   "failureRate": "Failure rate",
-  "sourceResults": "Benchmark source results"
+  "sourceResults": "Benchmark source results",
+  "benchmarkSetting": "Evaluation setup and official comparability",
+  "benchmarkNotes": {
+    "gaia": "We evaluate all 165 GAIA validation tasks through Harbor gaia@1.0 and an ACP agent, using normalized answer matching for accuracy and counting execution errors as zero. These are not official leaderboard results on the private-answer test split, and no LLM judge is used. Task packaging, tools and live web conditions have not been matched to official submissions, so score differences do not isolate model capability.",
+    "spreadsheetbench-verified": "We evaluate SpreadsheetBench V1 Verified (400 tasks) through Harbor spreadsheetbench-verified@1.0, using LibreOffice recalculation and cell comparison with execution errors counted as zero. These are not V1 Full (912 tasks) or V2 results. The official evaluator supports backends including LibreOffice and Windows/Excel; our backend, versions and comparison settings have not been matched to the corresponding official records, and these results are not officially verified.",
+    "swebench-verified": "We evaluate all 500 SWE-bench Verified tasks through Harbor swebench-verified@1.0 by applying patches and running repository tests, reporting resolution rate with failures and execution errors counted as zero and no LLM judge. Image dependencies, timeouts and ACP tool settings have not been matched to official submissions. Internet access was enabled and access to upstream solutions has not been ruled out task by task, so these are not equivalent to officially reviewed leaderboard results.",
+    "pawbench": "We evaluate 150 tasks from pinned PawBench revision 4, preserving each task’s programmatic and model-judge weights and averaging task scores with execution errors counted as zero. Tasks requiring a model judge use qwen3.8-max; purely programmatic tasks make no judge call. Judge models, judge prompts and task-package revisions have not been confirmed to match published official results, so official parity is not claimed."
+  }
 }
