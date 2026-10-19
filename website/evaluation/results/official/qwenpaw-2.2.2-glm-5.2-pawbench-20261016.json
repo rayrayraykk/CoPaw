@@ -187,7 +187,7 @@
       "scorer": null,
       "official_model": null,
       "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
-      "parity_note": "保留修订4各题原有权重；judge统一为qwen3.8-max，未宣称与官方成绩完全对齐"
+      "parity_note": ""
     }
   },
   "trials": [
@@ -1853,7 +1853,7 @@
         "currency": "CNY"
       },
       "judge_called": true,
-      "runtime_seconds": null,
+      "runtime_seconds": 409.806663,
       "finished_at": "2026-10-16T16:44:08.004854Z"
     },
     {
@@ -2528,10 +2528,13 @@
       "status": "scoring_error",
       "score": null,
       "failure_reason": "InvalidVerifierResult",
-      "cost": null,
+      "cost": {
+        "amount": 18.022564,
+        "currency": "CNY"
+      },
       "judge_cost": null,
       "judge_called": true,
-      "runtime_seconds": null,
+      "runtime_seconds": 2724.875719,
       "finished_at": "2026-10-16T18:28:36.309605Z"
     },
     {
@@ -2711,7 +2714,7 @@
         "currency": "CNY"
       },
       "judge_called": true,
-      "runtime_seconds": null,
+      "runtime_seconds": 377.873633,
       "finished_at": "2026-10-16T18:20:22.527539Z"
     },
     {
@@ -2720,7 +2723,10 @@
       "status": "passed",
       "score": 0.8695,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.864748,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.438192,
         "currency": "CNY"
@@ -2753,7 +2759,10 @@
       "status": "passed",
       "score": 0.15,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.691336,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.573588,
         "currency": "CNY"
@@ -2804,7 +2813,10 @@
       "status": "passed",
       "score": 1.0,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.266192,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.109716,
         "currency": "CNY"
