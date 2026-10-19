@@ -62,8 +62,6 @@
   "breakdown": "Benchmark 明细",
   "recordsCount": "{{count}} 条记录",
   "tableTitle": "成绩与版本历史",
-  "chartLoading": "图表加载中，成绩表格可正常查看。",
-  "chartUnavailable": "图表暂时无法加载，你仍可查看下方成绩表格。",
   "retry": "重试",
   "trajectory": "运行轨迹",
   "collection": "榜单集",
@@ -85,5 +83,9 @@
   "costCoverage": "费用记录 {{known}}/{{total}} 题",
   "partialCostNote": "费用按已确认调用的用量计算，未确认消耗不计入，不能视为账单总额；各评测集均值仍按 1/4 加权。用时为已记录题目的端到端平均用时，包含环境准备与评分。",
   "methodology": "统计口径",
-  "qwenpawDefault": "QwenPaw · 默认模式"
+  "qwenpawDefault": "QwenPaw · 默认模式",
+  "zoomIn": "放大",
+  "zoomOut": "缩小",
+  "resetChart": "重置视图",
+  "exportChart": "导出图表"
 }

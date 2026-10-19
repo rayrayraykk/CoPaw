@@ -20,7 +20,6 @@ export default defineConfig(({ mode }) => {
         output: {
           manualChunks(id) {
             if (id.includes("commonjsHelpers")) return "runtime";
-            if (id.includes("/plotly.js-basic-dist-min/")) return "plotly";
           },
         },
       },

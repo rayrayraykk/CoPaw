@@ -46,9 +46,6 @@ importers:
       ogl:
         specifier: ^1.0.11
         version: 1.0.11
-      plotly.js-basic-dist-min:
-        specifier: 3.1.0
-        version: 3.1.0
       radix-ui:
         specifier: ^1.4.3
         version: 1.4.3(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -98,9 +95,6 @@ importers:
       "@types/node":
         specifier: ^25.5.0
         version: 25.5.0
-      "@types/plotly.js":
-        specifier: 3.0.7
-        version: 3.0.7
       "@types/react":
         specifier: ^18.3.12
         version: 18.3.28
@@ -2435,12 +2429,6 @@ packages:
     resolution:
       {
         integrity: sha512-jp2P3tQMSxWugkCUKLRPVUpGaL5MVFwF8RDuSRztfwgN1wmqJeMSbKlnEtQqU8UrhTmzEmZdu2I6v2dpp7XIxw==,
-      }
-
-  "@types/plotly.js@3.0.7":
-    resolution:
-      {
-        integrity: sha512-oFgNQsBpVOuQ2jYl3qRO9uyuixT+jbeMXGbbAHTV7AM9Bi6N9B2ZFYxO64hBwXu65Khb7w8a6d4EJnrLC30Vlw==,
       }
 
   "@types/prismjs@1.26.6":
@@ -5135,12 +5123,6 @@ packages:
         integrity: sha512-/Jm5M4RvtBFVkKWRu2BLUTNP8/M2a+UwuAX+ae4770q1qVGtfjG+WTCupoZixokjmHiry8uI+dlY8KXYV5HVVQ==,
       }
 
-  plotly.js-basic-dist-min@3.1.0:
-    resolution:
-      {
-        integrity: sha512-LEB0VGnW2XMXvW89qi8jXe+GBZTp6VwBYn+kMDM77LSbSXtPikPnh7nZY5ZBnLdLMzP0Q88skEY7C0LiVdB9ZA==,
-      }
-
   points-on-curve@0.2.0:
     resolution:
       {
@@ -7828,8 +7810,6 @@ snapshots:
     dependencies:
       undici-types: 7.18.2
 
-  "@types/plotly.js@3.0.7": {}
-
   "@types/prismjs@1.26.6": {}
 
   "@types/prop-types@15.7.15": {}
@@ -9534,8 +9514,6 @@ snapshots:
       confbox: 0.1.8
       mlly: 1.8.0
       pathe: 2.0.3
-
-  plotly.js-basic-dist-min@3.1.0: {}
 
   points-on-curve@0.2.0: {}
 

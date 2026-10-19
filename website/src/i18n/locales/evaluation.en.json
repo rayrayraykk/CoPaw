@@ -62,8 +62,6 @@
   "breakdown": "Benchmark details",
   "recordsCount": "{{count}} records",
   "tableTitle": "Results & history",
-  "chartLoading": "Loading chart. Results are available below.",
-  "chartUnavailable": "The chart could not load. You can still explore the results table.",
   "retry": "Retry",
   "trajectory": "Trajectory",
   "collection": "Collection",
@@ -85,5 +83,9 @@
   "costCoverage": "Cost coverage: {{known}}/{{total}} tasks",
   "partialCostNote": "Costs use confirmed request usage and exclude unrecorded consumption; they are not reconciled invoice totals. Benchmark means retain equal one-quarter weights. Runtime averages recorded end-to-end durations, including setup and scoring.",
   "methodology": "Methodology",
-  "qwenpawDefault": "QwenPaw · Default mode"
+  "qwenpawDefault": "QwenPaw · Default mode",
+  "zoomIn": "Zoom in",
+  "zoomOut": "Zoom out",
+  "resetChart": "Reset view",
+  "exportChart": "Export chart"
 }

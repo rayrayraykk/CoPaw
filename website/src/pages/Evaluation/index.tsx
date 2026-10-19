@@ -11,7 +11,7 @@ import {
   Search,
   CircleHelp,
 } from "lucide-react";
-import Chart from "./ChartPanel";
+import Chart from "./Chart";
 import { bestRows, frontier } from "./metrics";
 import {
   harnessLogo,

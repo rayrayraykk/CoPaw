@@ -1,18 +1,9 @@
 import { useTranslation } from "react-i18next";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Download, RotateCcw, ZoomIn, ZoomOut } from "lucide-react";
 import { bestRows, frontier } from "./metrics";
-import Plotly from "plotly.js-basic-dist-min";
-import type { Data, Layout, PlotlyHTMLElement } from "plotly.js";
-import { logo, money as formatMoney, type Row } from "./types";
+import { logo, money, type Row } from "./types";
 
-const escape = (value: string) =>
-  value.replace(
-    /[&<>"']/g,
-    (c) =>
-      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
-        c
-      ]!,
-  );
 export default function Chart({
   rows,
   title,
@@ -28,266 +19,334 @@ export default function Chart({
 }) {
   const { t, i18n } = useTranslation("evaluation");
   const container = useRef<HTMLDivElement>(null);
+  const svg = useRef<SVGSVGElement>(null);
+  const [width, setWidth] = useState(1000);
+  const [hovered, setHovered] = useState<string | null>(null);
+  const [zoom, setZoom] = useState(1);
   useEffect(() => {
-    const element = container.current!;
-    const style = getComputedStyle(element);
-    const token = (name: string) => style.getPropertyValue(name).trim();
-    const colors = {
-      surface: token("--eval-surface"),
-      text: token("--eval-text"),
-      muted: token("--eval-muted"),
-      border: token("--eval-border"),
-      accent: token("--eval-accent"),
-      accentText: token("--eval-accent-text"),
-    };
-    const money = (value: number | null) =>
-      formatMoney(value, i18n.language, t("unknown"));
-    const number = (value: number) =>
-      new Intl.NumberFormat(i18n.language, { maximumFractionDigits: 3 }).format(
-        value,
-      );
-    const best = bestRows(rows, compareHarnesses);
-    const shown = rows.filter(
-      (r) => r.score !== null && (history || best.has(r.id)),
+    const observer = new ResizeObserver(([entry]) =>
+      setWidth(entry.contentRect.width),
     );
-    const known = shown.filter((r) => r.cost !== null && r.cost > 0);
-    const missing = shown.filter((r) => r.cost === null || r.cost === 0);
-    const pareto = frontier(shown.filter((r) => best.has(r.id))).filter(
-      (r) => r.cost! > 0,
-    );
-    const low = known.length
-      ? Math.log10(Math.min(...known.map((r) => r.cost!))) - 0.22
-      : -2;
-    const high = known.length
-      ? Math.log10(Math.max(...known.map((r) => r.cost!))) + 0.22
-      : 1;
-    const mobile = element.clientWidth < 700;
-    const tip = (r: Row) =>
-      `<b>${escape(r.model)}</b><br>${escape(
-        r.harness === "qwenpaw" ? t("qwenpawDefault") : r.harness,
-      )} · SDK ${escape(r.sdk_version)}` +
-      `<br>${escape(t("score"))}: ${number(r.score!)}<br>${escape(
-        t("averageCost"),
-      )}: ${money(r.cost)}${
-        r.upperBound ? ` (${escape(t("upperBound"))})` : ""
-      }` +
-      `${
-        r.partialCost
-          ? `<br>${escape(
-              t("costCoverage", { known: r.costKnown, total: r.costTotal }),
-            )}`
-          : ""
-      }` +
-      `<br>${escape(t("averageRuntime"))}: ${
-        r.runtime === null
-          ? t("unknown")
-          : t("seconds", { value: number(Math.round(r.runtime)) })
-      }` +
-      `<br>${escape(
-        new Intl.DateTimeFormat(i18n.language, {
-          dateStyle: "medium",
-          timeZone: "UTC",
-        }).format(new Date(r.run.date)),
-      )} · ${best.has(r.id) ? t("bestShort") : t("history")}`;
-    const traces: Data[] = [];
-    const images: Partial<Plotly.Image>[] = [];
-    for (const [points, missingCost] of [
-      [known, false],
-      [missing, true],
-    ] as const) {
-      traces.push({
-        type: "scatter",
-        mode: "markers",
-        xaxis: missingCost ? "x2" : "x",
-        x: points.map((r, i) => (missingCost ? 0.2 + (i % 4) * 0.19 : r.cost!)),
-        y: points.map((r) => r.score!),
-        text: points.map(tip),
-        customdata: points.map((r) => r.id),
-        hovertemplate: "%{text}<extra></extra>",
-        marker: {
-          size: 15,
-          color: points.map((r) =>
-            logo(r.model) ? "rgba(0,0,0,0)" : colors.accentText,
-          ),
-          opacity: points.map((r) => (best.has(r.id) ? 1 : 0.23)),
-        },
-        showlegend: false,
-      });
-      points.forEach((r, i) => {
-        if (!logo(r.model)) return;
-        images.push({
-          source: logo(r.model),
-          xref: missingCost ? "x2" : "x",
-          yref: "y",
-          x: missingCost ? 0.2 + (i % 4) * 0.19 : Math.log10(r.cost!),
-          y: r.score!,
-          sizex: missingCost ? 0.2 : (high - low) * (mobile ? 0.055 : 0.027),
-          sizey: 3,
-          xanchor: "center",
-          yanchor: "middle",
-          sizing: "contain",
-          layer: "above",
-          opacity: best.has(r.id) ? 1 : 0.23,
-        });
-      });
+    observer.observe(container.current!);
+    return () => observer.disconnect();
+  }, []);
+  useEffect(() => {
+    setZoom(1);
+    setHovered(null);
+  }, [rows, history, compareHarnesses]);
+  const mobile = width < 700;
+  const height = mobile ? 380 : 520;
+  const left = mobile ? 48 : 78,
+    right = width - (mobile ? 18 : 46);
+  const top = 66,
+    bottom = height - 64;
+  const best = bestRows(rows, compareHarnesses);
+  const shown = rows.filter(
+    (r) => r.score !== null && (history || best.has(r.id)),
+  );
+  const known = shown.filter((r) => r.cost !== null && r.cost > 0);
+  const missing = shown.filter((r) => r.cost === null || r.cost === 0);
+  const end = missing.length ? left + (right - left) * 0.87 : right;
+  const min = known.length
+    ? Math.log10(Math.min(...known.map((r) => r.cost!))) - 0.22
+    : -2;
+  const max = known.length
+    ? Math.log10(Math.max(...known.map((r) => r.cost!))) + 0.22
+    : 1;
+  const center = (min + max) / 2,
+    low = center - (max - min) / (2 * zoom),
+    high = center + (max - min) / (2 * zoom);
+  const floor = shown.length
+    ? Math.max(
+        0,
+        Math.floor((Math.min(...shown.map((r) => r.score!)) - 8) / 10) * 10,
+      )
+    : 0;
+  const x = (cost: number) =>
+    left + ((Math.log10(cost) - low) / (high - low)) * (end - left);
+  const y = (score: number) =>
+    bottom - ((score - floor) / (103 - floor)) * (bottom - top);
+  const position = (r: Row) =>
+    r.cost !== null && r.cost > 0
+      ? x(r.cost)
+      : end + (right - end) * (0.4 + (missing.indexOf(r) % 4) * 0.18);
+  const pareto = frontier(shown.filter((r) => best.has(r.id))).filter(
+    (r) => r.cost! > 0,
+  );
+  const ticks: number[] = [];
+  for (
+    let exponent = Math.floor(low);
+    exponent <= Math.ceil(high);
+    exponent++
+  ) {
+    for (const n of [1, 2, 3, 5]) {
+      const cost = n * 10 ** exponent;
+      if (Math.log10(cost) >= low && Math.log10(cost) <= high) ticks.push(cost);
     }
-    traces.unshift({
-      type: "scatter",
-      mode: "lines",
-      x: pareto.map((r) => r.cost!),
-      y: pareto.map((r) => r.score!),
-      hoverinfo: "skip",
-      line: { color: colors.accent, width: 1.5, dash: "dash" },
-      showlegend: false,
-    });
-    const layout: Partial<Layout> = {
-      autosize: true,
-      paper_bgcolor: colors.surface,
-      plot_bgcolor: colors.surface,
-      margin: { l: mobile ? 48 : 78, r: mobile ? 18 : 46, t: 66, b: 64 },
-      title: {
-        text: escape(t("chartTitle", { title })),
-        x: 0.035,
-        y: 0.955,
-        font: { size: mobile ? 13 : 16 },
-      },
-      font: {
-        family: "-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
-        color: colors.text,
-        size: 12,
-      },
-      xaxis: {
-        type: "log",
-        range: [low, high],
-        domain: [0, missing.length ? 0.87 : 1],
-        title: { text: t("xAxis"), standoff: 22 },
-        tickprefix: "$",
-        gridcolor: colors.border,
-        zeroline: false,
-      },
-      xaxis2: {
-        domain: [0.92, 1],
-        range: [0, 1],
-        visible: false,
-        anchor: "y",
-        fixedrange: true,
-      },
-      yaxis: {
-        range: [
-          shown.length
-            ? Math.max(
-                0,
-                Math.floor((Math.min(...shown.map((r) => r.score!)) - 8) / 10) *
-                  10,
-              )
-            : 0,
-          103,
-        ],
-        title: { text: t("averageScore"), standoff: 18 },
-        gridcolor: colors.border,
-        dtick: 10,
-        zeroline: false,
-      },
-      images,
-      hovermode: "closest",
-      hoverdistance: 25,
-      hoverlabel: {
-        bgcolor: colors.text,
-        bordercolor: colors.text,
-        font: { color: "white", size: 13 },
-        align: "left",
-      },
-      showlegend: false,
-      dragmode: "zoom",
-      annotations: [
-        ...pareto.map((row) => ({
-          text: escape(row.model),
-          xref: "x" as const,
-          yref: "y" as const,
-          x: Math.log10(row.cost!),
-          y: row.score!,
-          yshift: 24,
-          showarrow: false,
-          font: { size: mobile ? 9 : 11 },
-        })),
-        ...(missing.length
-          ? [
-              {
-                text: t("noCost"),
-                xref: "paper" as const,
-                yref: "paper" as const,
-                x: 1,
-                y: 1.05,
-                showarrow: false,
-                xanchor: "right" as const,
-                font: { size: 10 },
-              },
-            ]
-          : []),
-        ...(!shown.length
-          ? [
-              {
-                text: t("noComplete"),
-                xref: "paper" as const,
-                yref: "paper" as const,
-                x: 0.5,
-                y: 0.5,
-                showarrow: false,
-                font: { size: 18, color: colors.muted },
-              },
-            ]
-          : []),
-      ],
-      shapes: missing.length
-        ? [
-            {
-              type: "line",
-              xref: "paper",
-              yref: "paper",
-              x0: 0.895,
-              x1: 0.895,
-              y0: 0,
-              y1: 1,
-              line: { color: colors.border, dash: "dot" },
-            },
-          ]
-        : [],
-    };
-    let disposed = false;
-    void Plotly.newPlot(element, traces, layout, {
-      responsive: true,
-      displaylogo: false,
-      modeBarButtonsToRemove: ["select2d", "lasso2d"],
-      toImageButtonOptions: {
-        filename: "qwenpaw-evaluation",
-        format: "png",
-        height: 800,
-        width: 1600,
-        scale: 2,
-      },
-    }).then((plot: PlotlyHTMLElement) => {
-      if (disposed) return;
-      plot.on("plotly_click", (event) => {
-        const row = shown.find((r) => r.id === event.points[0]?.customdata);
-        if (row) onSelect(row);
-      });
-    });
-    const observer = new ResizeObserver(() => {
-      if (!disposed) void Plotly.Plots.resize(element);
-    });
-    observer.observe(element);
-    return () => {
-      disposed = true;
-      observer.disconnect();
-      Plotly.purge(element);
-    };
-  }, [rows, title, compareHarnesses, history, onSelect, t, i18n.language]);
+  }
+  const number = (value: number) =>
+    new Intl.NumberFormat(i18n.language, { maximumFractionDigits: 3 }).format(
+      value,
+    );
+  const active = shown.find((r) => r.id === hovered);
+  const exportImage = async () => {
+    const copy = svg.current!.cloneNode(true) as SVGSVGElement;
+    const style = getComputedStyle(container.current!);
+    copy.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    copy.style.color = style.getPropertyValue("--eval-text");
+    copy.style.background = style.getPropertyValue("--eval-surface");
+    for (const name of ["--eval-border", "--eval-accent"])
+      copy.style.setProperty(name, style.getPropertyValue(name));
+    await Promise.all(
+      Array.from(copy.querySelectorAll("image")).map(async (image) => {
+        const response = await fetch(image.getAttribute("href")!);
+        const blob = await response.blob();
+        const data = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.readAsDataURL(blob);
+        });
+        image.setAttribute("href", data);
+      }),
+    );
+    const url = URL.createObjectURL(
+      new Blob([new XMLSerializer().serializeToString(copy)], {
+        type: "image/svg+xml",
+      }),
+    );
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "qwenpaw-evaluation.svg";
+    link.click();
+    URL.revokeObjectURL(url);
+  };
   return (
-    <div
-      className="evaluation-plot"
-      ref={container}
-      role="img"
-      aria-label={t("chartAlt", { title })}
-    />
+    <div className="evaluation-plot evaluation-svg-chart" ref={container}>
+      <div className="evaluation-chart-tools">
+        <button
+          aria-label={t("zoomIn")}
+          title={t("zoomIn")}
+          onClick={() => setZoom((z) => Math.min(8, z * 1.5))}
+        >
+          <ZoomIn size={16} />
+        </button>
+        <button
+          aria-label={t("zoomOut")}
+          title={t("zoomOut")}
+          onClick={() => setZoom((z) => Math.max(1, z / 1.5))}
+        >
+          <ZoomOut size={16} />
+        </button>
+        <button
+          aria-label={t("resetChart")}
+          title={t("resetChart")}
+          onClick={() => setZoom(1)}
+        >
+          <RotateCcw size={16} />
+        </button>
+        <button
+          aria-label={t("exportChart")}
+          title={t("exportChart")}
+          onClick={() => void exportImage()}
+        >
+          <Download size={16} />
+        </button>
+      </div>
+      <svg
+        ref={svg}
+        viewBox={`0 0 ${width} ${height}`}
+        role="img"
+        aria-label={t("chartAlt", { title })}
+        onDoubleClick={() => setZoom(1)}
+      >
+        <text x={mobile ? 16 : 28} y={28} fontSize={mobile ? 13 : 16}>
+          {t("chartTitle", { title })}
+        </text>
+        {ticks.map((cost) => (
+          <g key={cost}>
+            <line
+              x1={x(cost)}
+              x2={x(cost)}
+              y1={top}
+              y2={bottom}
+              stroke="var(--eval-border)"
+            />
+            <text x={x(cost)} y={bottom + 22} textAnchor="middle" fontSize={11}>
+              {money(cost, i18n.language, t("unknown"))}
+            </text>
+          </g>
+        ))}
+        {Array.from(
+          { length: (100 - floor) / 10 + 1 },
+          (_, i) => floor + i * 10,
+        ).map((score) => (
+          <g key={score}>
+            <line
+              x1={left}
+              x2={right}
+              y1={y(score)}
+              y2={y(score)}
+              stroke="var(--eval-border)"
+            />
+            <text x={left - 12} y={y(score) + 4} textAnchor="end" fontSize={12}>
+              {score}
+            </text>
+          </g>
+        ))}
+        <text
+          x={(left + end) / 2}
+          y={height - 12}
+          textAnchor="middle"
+          fontSize={mobile ? 11 : 14}
+        >
+          {t("xAxis")}
+        </text>
+        <text
+          transform={`translate(18 ${(top + bottom) / 2}) rotate(-90)`}
+          textAnchor="middle"
+          fontSize={mobile ? 11 : 14}
+        >
+          {t("averageScore")}
+        </text>
+        {missing.length > 0 && (
+          <>
+            <line
+              x1={end + 12}
+              x2={end + 12}
+              y1={top}
+              y2={bottom}
+              stroke="var(--eval-border)"
+              strokeDasharray="3 4"
+            />
+            <text x={right} y={top - 14} textAnchor="end" fontSize={10}>
+              {t("noCost")}
+            </text>
+          </>
+        )}
+        <svg
+          x={left - 16}
+          y={top - 30}
+          width={right - left + 32}
+          height={bottom - top + 46}
+          viewBox={`${left - 16} ${top - 30} ${right - left + 32} ${
+            bottom - top + 46
+          }`}
+        >
+          <polyline
+            points={pareto.map((r) => `${x(r.cost!)},${y(r.score!)}`).join(" ")}
+            fill="none"
+            stroke="var(--eval-accent)"
+            strokeWidth={1.5}
+            strokeDasharray="7 6"
+          />
+          {pareto.map((r) => (
+            <text
+              key={r.id}
+              x={position(r)}
+              y={y(r.score!) - 23}
+              textAnchor="middle"
+              fontSize={mobile ? 9 : 11}
+            >
+              {r.model}
+            </text>
+          ))}
+          {shown.map((r) => (
+            <g
+              key={r.id}
+              className="evaluation-chart-point"
+              tabIndex={0}
+              role="button"
+              aria-label={`${r.model}: ${number(r.score!)}`}
+              opacity={best.has(r.id) ? 1 : 0.23}
+              onPointerEnter={() => setHovered(r.id)}
+              onPointerLeave={() => setHovered(null)}
+              onFocus={() => setHovered(r.id)}
+              onBlur={() => setHovered(null)}
+              onClick={() => onSelect(r)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") onSelect(r);
+              }}
+            >
+              <circle
+                cx={position(r)}
+                cy={y(r.score!)}
+                r={20}
+                fill="transparent"
+              />
+              {logo(r.model) ? (
+                <image
+                  href={logo(r.model)}
+                  x={position(r) - 16}
+                  y={y(r.score!) - 16}
+                  width={32}
+                  height={32}
+                  pointerEvents="none"
+                />
+              ) : (
+                <circle
+                  cx={position(r)}
+                  cy={y(r.score!)}
+                  r={7}
+                  fill="var(--eval-accent)"
+                />
+              )}
+            </g>
+          ))}
+        </svg>
+        {!shown.length && (
+          <text x={width / 2} y={height / 2} textAnchor="middle">
+            {t("noComplete")}
+          </text>
+        )}
+      </svg>
+      {active && (
+        <div
+          role="tooltip"
+          className="evaluation-point-tooltip"
+          style={{
+            left: Math.max(
+              8,
+              Math.min(
+                width - Math.min(290, width - 16),
+                position(active) + 20,
+              ),
+            ),
+            top: Math.max(44, y(active.score!) - 140),
+          }}
+        >
+          <strong>{active.model}</strong>
+          <br />
+          {active.harness === "qwenpaw"
+            ? t("qwenpawDefault")
+            : active.harness}{" "}
+          · SDK {active.sdk_version}
+          <br />
+          {t("score")}: {number(active.score!)}
+          <br />
+          {t("averageCost")}: {money(active.cost, i18n.language, t("unknown"))}
+          {active.upperBound ? ` (${t("upperBound")})` : ""}
+          <br />
+          {active.partialCost && (
+            <>
+              {t("costCoverage", {
+                known: active.costKnown,
+                total: active.costTotal,
+              })}
+              <br />
+            </>
+          )}
+          {t("averageRuntime")}:{" "}
+          {active.runtime === null
+            ? t("unknown")
+            : t("seconds", { value: number(Math.round(active.runtime)) })}
+          <br />
+          {new Intl.DateTimeFormat(i18n.language, {
+            dateStyle: "medium",
+            timeZone: "UTC",
+          }).format(new Date(active.run.date))}{" "}
+          · {best.has(active.id) ? t("bestShort") : t("history")}
+        </div>
+      )}
+    </div>
   );
 }
