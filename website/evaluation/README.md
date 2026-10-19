@@ -69,3 +69,5 @@ Verified、SWE-bench Verified、PawBench。一个方向新增 benchmark，只重
 来源仓库链接只能使用无凭据、无查询参数的 HTTPS 地址。分类不是访问控制。
 
 本契约只接受 `schema_version: 3`，不提供旧输入格式兼容层。
+
+同一 SDK 发布归一展示时，`source_sha` 标记该发布的源码提交；实际评测分发包的 `artifact_sha256` 保持原值。
