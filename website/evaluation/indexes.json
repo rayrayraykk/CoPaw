@@ -86,7 +86,7 @@
           "scorer": null,
           "official_model": null,
           "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
-          "parity_note": "保留修订4各题原有权重；judge统一为qwen3.8-max，未宣称与官方成绩完全对齐"
+          "parity_note": ""
         }
       }
     }

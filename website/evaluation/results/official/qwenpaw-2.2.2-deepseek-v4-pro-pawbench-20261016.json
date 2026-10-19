@@ -187,7 +187,7 @@
       "scorer": null,
       "official_model": null,
       "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
-      "parity_note": "保留修订4各题原有权重；judge统一为qwen3.8-max，未宣称与官方成绩完全对齐"
+      "parity_note": ""
     }
   },
   "trials": [
@@ -197,7 +197,10 @@
       "status": "passed",
       "score": 0.770667,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 2.38986,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.760284,
         "currency": "CNY"
@@ -248,7 +251,10 @@
       "status": "passed",
       "score": 0.747143,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 1.431836,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.721212,
         "currency": "CNY"
@@ -263,7 +269,10 @@
       "status": "passed",
       "score": 0.832727,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 3.064484,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.728268,
         "currency": "CNY"
@@ -278,7 +287,10 @@
       "status": "passed",
       "score": 0.888,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 2.799044,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.766368,
         "currency": "CNY"
@@ -293,7 +305,10 @@
       "status": "passed",
       "score": 0.87,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 2.666836,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.703788,
         "currency": "CNY"
@@ -308,7 +323,10 @@
       "status": "passed",
       "score": 0.82,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 2.014536,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.337332,
         "currency": "CNY"
@@ -323,7 +341,10 @@
       "status": "passed",
       "score": 0.8597,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 3.447552,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.364284,
         "currency": "CNY"
@@ -338,7 +359,10 @@
       "status": "passed",
       "score": 1.0,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 1.470892,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.30168,
         "currency": "CNY"
@@ -353,7 +377,10 @@
       "status": "passed",
       "score": 0.857625,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.558012,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.48114,
         "currency": "CNY"
@@ -368,7 +395,10 @@
       "status": "passed",
       "score": 1.0,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 2.569096,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.78516,
         "currency": "CNY"
@@ -383,7 +413,10 @@
       "status": "passed",
       "score": 0.895,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.328148,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.62598,
         "currency": "CNY"
@@ -416,7 +449,10 @@
       "status": "passed",
       "score": 0.3,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.301632,
+        "currency": "CNY"
+      },
       "judge_cost": null,
       "judge_called": false,
       "runtime_seconds": 407.723424,
@@ -446,7 +482,10 @@
       "status": "passed",
       "score": 0.95,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.366148,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.24156,
         "currency": "CNY"
@@ -677,7 +716,10 @@
       "status": "passed",
       "score": 0.96,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.474184,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.525384,
         "currency": "CNY"
@@ -692,7 +734,10 @@
       "status": "passed",
       "score": 0.458333,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.336536,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.351504,
         "currency": "CNY"
@@ -707,7 +752,10 @@
       "status": "passed",
       "score": 0.9325,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 1.422096,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.344256,
         "currency": "CNY"
@@ -797,7 +845,10 @@
       "status": "passed",
       "score": 0.916667,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 9.628468,
+        "currency": "CNY"
+      },
       "judge_cost": null,
       "judge_called": false,
       "runtime_seconds": 2152.552867,
@@ -809,7 +860,10 @@
       "status": "passed",
       "score": 0.96,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.945188,
+        "currency": "CNY"
+      },
       "judge_cost": null,
       "judge_called": false,
       "runtime_seconds": 487.40155,
@@ -839,7 +893,10 @@
       "status": "passed",
       "score": 0.824762,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.443292,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.439308,
         "currency": "CNY"
@@ -854,7 +911,10 @@
       "status": "passed",
       "score": 1.0,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.209392,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.12846,
         "currency": "CNY"
@@ -869,7 +929,10 @@
       "status": "passed",
       "score": 0.79,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.32146,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.429264,
         "currency": "CNY"
@@ -920,7 +983,10 @@
       "status": "passed",
       "score": 0.88,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.21442,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.190812,
         "currency": "CNY"
@@ -935,7 +1001,10 @@
       "status": "passed",
       "score": 0.9675,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.212752,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.133428,
         "currency": "CNY"
@@ -968,7 +1037,10 @@
       "status": "passed",
       "score": 0.9675,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.262972,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.19524,
         "currency": "CNY"
@@ -1037,7 +1109,10 @@
       "status": "passed",
       "score": 0.954,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.18512,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.081024,
         "currency": "CNY"
@@ -1052,7 +1127,10 @@
       "status": "passed",
       "score": 1.0,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.168332,
+        "currency": "CNY"
+      },
       "judge_cost": null,
       "judge_called": false,
       "runtime_seconds": 256.020363,
@@ -1064,7 +1142,10 @@
       "status": "passed",
       "score": 0.85,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.62732,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.488784,
         "currency": "CNY"
@@ -1079,7 +1160,10 @@
       "status": "passed",
       "score": 1.0,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.550244,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.680844,
         "currency": "CNY"
@@ -1094,7 +1178,10 @@
       "status": "passed",
       "score": 1.0,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.415572,
+        "currency": "CNY"
+      },
       "judge_cost": null,
       "judge_called": false,
       "runtime_seconds": 299.537634,
@@ -1106,7 +1193,10 @@
       "status": "passed",
       "score": 0.8,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 1.8359,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.445908,
         "currency": "CNY"
@@ -1121,7 +1211,10 @@
       "status": "passed",
       "score": 0.204167,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.242364,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.094728,
         "currency": "CNY"
@@ -1136,7 +1229,10 @@
       "status": "passed",
       "score": 0.96,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.6926,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.349512,
         "currency": "CNY"
@@ -1151,7 +1247,10 @@
       "status": "passed",
       "score": 1.0,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.462128,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.385044,
         "currency": "CNY"
@@ -1181,7 +1280,10 @@
       "status": "passed",
       "score": 0.944444,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 1.3234,
+        "currency": "CNY"
+      },
       "judge_cost": null,
       "judge_called": false,
       "runtime_seconds": 272.229155,
@@ -1193,7 +1295,10 @@
       "status": "passed",
       "score": 0.93875,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.506704,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.38076,
         "currency": "CNY"
@@ -1208,7 +1313,10 @@
       "status": "passed",
       "score": 0.6,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.14184,
+        "currency": "CNY"
+      },
       "judge_cost": null,
       "judge_called": false,
       "runtime_seconds": 182.205807,
@@ -1220,7 +1328,10 @@
       "status": "passed",
       "score": 1.0,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.382708,
+        "currency": "CNY"
+      },
       "judge_cost": null,
       "judge_called": false,
       "runtime_seconds": 260.145047,
@@ -1232,7 +1343,10 @@
       "status": "execution_error",
       "score": null,
       "failure_reason": "ApiRateLimitError",
-      "cost": null,
+      "cost": {
+        "amount": 0.930384,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.441564,
         "currency": "CNY"
@@ -1247,7 +1361,10 @@
       "status": "passed",
       "score": 0.6,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 1.057536,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.357912,
         "currency": "CNY"
@@ -1262,7 +1379,10 @@
       "status": "execution_error",
       "score": null,
       "failure_reason": "ApiRateLimitError",
-      "cost": null,
+      "cost": {
+        "amount": 0.360924,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.241776,
         "currency": "CNY"
@@ -1277,7 +1397,10 @@
       "status": "passed",
       "score": 0.925,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 2.20174,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.400512,
         "currency": "CNY"
@@ -1292,7 +1415,10 @@
       "status": "passed",
       "score": 0.925,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 2.163636,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.411552,
         "currency": "CNY"
@@ -1325,7 +1451,10 @@
       "status": "passed",
       "score": 0.7,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 1.021548,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.432072,
         "currency": "CNY"
@@ -1481,7 +1610,10 @@
       "status": "passed",
       "score": 0.66875,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.947568,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.980952,
         "currency": "CNY"
@@ -1496,7 +1628,10 @@
       "status": "passed",
       "score": 0.777688,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 1.649164,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.781752,
         "currency": "CNY"
@@ -1547,7 +1682,10 @@
       "status": "passed",
       "score": 0.623437,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 1.922244,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 1.023168,
         "currency": "CNY"
@@ -1562,7 +1700,10 @@
       "status": "execution_error",
       "score": null,
       "failure_reason": "ApiRateLimitError",
-      "cost": null,
+      "cost": {
+        "amount": 1.603304,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.856896,
         "currency": "CNY"
@@ -1577,7 +1718,10 @@
       "status": "passed",
       "score": 0.878308,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.747952,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.574212,
         "currency": "CNY"
@@ -1592,7 +1736,10 @@
       "status": "passed",
       "score": 0.794231,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 1.254556,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.544932,
         "currency": "CNY"
@@ -1625,7 +1772,10 @@
       "status": "passed",
       "score": 0.704706,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 1.52224,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.49254,
         "currency": "CNY"
@@ -1640,7 +1790,10 @@
       "status": "passed",
       "score": 0.620313,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.974544,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.601536,
         "currency": "CNY"
@@ -1655,7 +1808,10 @@
       "status": "passed",
       "score": 0.878,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.554228,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.46716,
         "currency": "CNY"
@@ -1670,7 +1826,10 @@
       "status": "passed",
       "score": 0.798667,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 1.2493,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.598128,
         "currency": "CNY"
@@ -1685,7 +1844,10 @@
       "status": "scoring_error",
       "score": null,
       "failure_reason": "InvalidVerifierResult",
-      "cost": null,
+      "cost": {
+        "amount": 0.406024,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.309168,
         "currency": "CNY"
@@ -1700,7 +1862,10 @@
       "status": "passed",
       "score": 0.488333,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 1.373104,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.419784,
         "currency": "CNY"
@@ -1715,7 +1880,10 @@
       "status": "passed",
       "score": 0.871667,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.67622,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.470544,
         "currency": "CNY"
@@ -1730,7 +1898,10 @@
       "status": "passed",
       "score": 0.94,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.580636,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.472644,
         "currency": "CNY"
@@ -1745,7 +1916,10 @@
       "status": "passed",
       "score": 0.5605,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 1.342624,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.749556,
         "currency": "CNY"
@@ -1778,7 +1952,10 @@
       "status": "passed",
       "score": 0.7775,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 1.284164,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.66792,
         "currency": "CNY"
@@ -1811,7 +1988,10 @@
       "status": "passed",
       "score": 0.589412,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 1.902584,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.38718,
         "currency": "CNY"
@@ -1826,7 +2006,10 @@
       "status": "passed",
       "score": 0.604,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.807216,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.56082,
         "currency": "CNY"
@@ -1859,7 +2042,10 @@
       "status": "passed",
       "score": 0.64,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 1.500756,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.457176,
         "currency": "CNY"
@@ -1874,7 +2060,10 @@
       "status": "passed",
       "score": 0.975,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.2085,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.181704,
         "currency": "CNY"
@@ -1907,7 +2096,10 @@
       "status": "infrastructure_error",
       "score": null,
       "failure_reason": "InvalidVerifierResult",
-      "cost": null,
+      "cost": {
+        "amount": 0.0,
+        "currency": "CNY"
+      },
       "judge_cost": null,
       "judge_called": true,
       "runtime_seconds": null,
@@ -1919,7 +2111,10 @@
       "status": "passed",
       "score": 0.375,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 3.686096,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.310356,
         "currency": "CNY"
@@ -1934,7 +2129,10 @@
       "status": "passed",
       "score": 0.5,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 3.770232,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.264144,
         "currency": "CNY"
@@ -1949,7 +2147,10 @@
       "status": "passed",
       "score": 0.55,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 2.973904,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.251016,
         "currency": "CNY"
@@ -1964,7 +2165,10 @@
       "status": "passed",
       "score": 0.375,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 1.42346,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.224436,
         "currency": "CNY"
@@ -1979,7 +2183,10 @@
       "status": "passed",
       "score": 0.95,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.479512,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.25848,
         "currency": "CNY"
@@ -1994,7 +2201,10 @@
       "status": "passed",
       "score": 0.75,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.294488,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.43116,
         "currency": "CNY"
@@ -2027,7 +2237,10 @@
       "status": "passed",
       "score": 0.28,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.286256,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.5616,
         "currency": "CNY"
@@ -2042,7 +2255,10 @@
       "status": "passed",
       "score": 0.35,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 1.898452,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.555504,
         "currency": "CNY"
@@ -2057,7 +2273,10 @@
       "status": "passed",
       "score": 0.925,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.19072,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.11238,
         "currency": "CNY"
@@ -2090,7 +2309,10 @@
       "status": "passed",
       "score": 0.15,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.209128,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.140184,
         "currency": "CNY"
@@ -2123,7 +2345,10 @@
       "status": "passed",
       "score": 0.2,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.56714,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.297912,
         "currency": "CNY"
@@ -2156,7 +2381,10 @@
       "status": "passed",
       "score": 0.68,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.671964,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 1.232844,
         "currency": "CNY"
@@ -2171,7 +2399,10 @@
       "status": "passed",
       "score": 0.32,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.36012,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.32652,
         "currency": "CNY"
@@ -2186,7 +2417,10 @@
       "status": "passed",
       "score": 0.32,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 3.569692,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.793344,
         "currency": "CNY"
@@ -2201,7 +2435,10 @@
       "status": "passed",
       "score": 0.36,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 1.038588,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.650748,
         "currency": "CNY"
@@ -2216,7 +2453,10 @@
       "status": "passed",
       "score": 0.2,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 2.331784,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.8115,
         "currency": "CNY"
@@ -2231,7 +2471,10 @@
       "status": "passed",
       "score": 0.18,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 9.578036,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.884292,
         "currency": "CNY"
@@ -2246,7 +2489,10 @@
       "status": "passed",
       "score": 0.4,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 1.36916,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.542064,
         "currency": "CNY"
@@ -2261,7 +2507,10 @@
       "status": "passed",
       "score": 0.2,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 4.935384,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.93504,
         "currency": "CNY"
@@ -2276,7 +2525,10 @@
       "status": "passed",
       "score": 0.3,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 12.19224,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.553416,
         "currency": "CNY"
@@ -2291,7 +2543,10 @@
       "status": "passed",
       "score": 0.12,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 4.78764,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 1.134516,
         "currency": "CNY"
@@ -2306,7 +2561,10 @@
       "status": "passed",
       "score": 0.18,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 3.580632,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.418332,
         "currency": "CNY"
@@ -2339,7 +2597,10 @@
       "status": "infrastructure_error",
       "score": null,
       "failure_reason": "InvalidVerifierResult",
-      "cost": null,
+      "cost": {
+        "amount": 0.0,
+        "currency": "CNY"
+      },
       "judge_cost": null,
       "judge_called": true,
       "runtime_seconds": null,
@@ -2351,7 +2612,10 @@
       "status": "passed",
       "score": 0.08,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 2.62118,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 1.05528,
         "currency": "CNY"
@@ -2366,7 +2630,10 @@
       "status": "passed",
       "score": 0.24,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 4.11874,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 1.23318,
         "currency": "CNY"
@@ -2381,7 +2648,10 @@
       "status": "passed",
       "score": 0.14,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.917592,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.683904,
         "currency": "CNY"
@@ -2414,7 +2684,10 @@
       "status": "passed",
       "score": 1.0,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.341572,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.310308,
         "currency": "CNY"
@@ -2429,7 +2702,10 @@
       "status": "passed",
       "score": 0.98615,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.535668,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.338088,
         "currency": "CNY"
@@ -2444,7 +2720,10 @@
       "status": "passed",
       "score": 0.7847,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.472164,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.411984,
         "currency": "CNY"
@@ -2477,7 +2756,10 @@
       "status": "passed",
       "score": 0.144,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.455228,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.597084,
         "currency": "CNY"
@@ -2546,7 +2828,10 @@
       "status": "passed",
       "score": 0.0,
       "failure_reason": null,
-      "cost": null,
+      "cost": {
+        "amount": 0.162064,
+        "currency": "CNY"
+      },
       "judge_cost": {
         "amount": 0.037236,
         "currency": "CNY"

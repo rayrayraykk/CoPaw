@@ -1122,7 +1122,10 @@
       "status": "execution_error",
       "score": null,
       "failure_reason": "ApiRateLimitError",
-      "cost": null,
+      "cost": {
+        "amount": 0.392016,
+        "currency": "CNY"
+      },
       "judge_cost": null,
       "judge_called": false,
       "runtime_seconds": 327.613708,
@@ -1194,7 +1197,10 @@
       "status": "execution_error",
       "score": null,
       "failure_reason": "ApiRateLimitError",
-      "cost": null,
+      "cost": {
+        "amount": 0.3393,
+        "currency": "CNY"
+      },
       "judge_cost": null,
       "judge_called": false,
       "runtime_seconds": 414.587611,
@@ -1236,7 +1242,10 @@
       "status": "execution_error",
       "score": null,
       "failure_reason": "ApiRateLimitError",
-      "cost": null,
+      "cost": {
+        "amount": 0.562392,
+        "currency": "CNY"
+      },
       "judge_cost": null,
       "judge_called": false,
       "runtime_seconds": 371.392003,
@@ -1263,7 +1272,10 @@
       "status": "execution_error",
       "score": null,
       "failure_reason": "ApiRateLimitError",
-      "cost": null,
+      "cost": {
+        "amount": 0.567432,
+        "currency": "CNY"
+      },
       "judge_cost": null,
       "judge_called": false,
       "runtime_seconds": 337.385843,
