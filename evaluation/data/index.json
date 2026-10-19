@@ -97,7 +97,7 @@
               "scorer": null,
               "official_model": null,
               "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
-              "parity_note": "保留修订4各题原有权重；judge统一为qwen3.8-max，未宣称与官方成绩完全对齐"
+              "parity_note": ""
             }
           }
         }
@@ -208,7 +208,7 @@
             "scorer": null,
             "official_model": null,
             "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
-            "parity_note": "保留修订4各题原有权重；judge统一为qwen3.8-max，未宣称与官方成绩完全对齐"
+            "parity_note": ""
           }
         }
       ],
@@ -242,10 +242,10 @@
               "scored": 165,
               "score": 67.87878787878788,
               "mean_runtime_seconds": 509.8198158545453,
-              "mean_model_cost_usd": 0.3950389254267746,
+              "mean_model_cost_usd": 0.39194168658008666,
               "original_model_cost": {
                 "currency": "CNY",
-                "mean_amount": 2.765272477987422
+                "mean_amount": 2.7435918060606066
               },
               "mean_judge_cost_usd": 0,
               "original_judge_cost": {
@@ -253,12 +253,12 @@
                 "mean_amount": 0
               },
               "cost_sources": {
-                "snapshot_estimated": 159,
-                "unknown": 6
+                "snapshot_estimated": 165,
+                "unknown": 0
               },
               "cost_bases": {
-                "exact": 159,
-                "unknown": 6
+                "exact": 165,
+                "unknown": 0
               },
               "failures": {
                 "execution_error": 5
@@ -283,10 +283,10 @@
               "scored": 400,
               "score": 85.75,
               "mean_runtime_seconds": 379.2413101724998,
-              "mean_model_cost_usd": 0.177404385314431,
+              "mean_model_cost_usd": 0.17740843999999992,
               "original_model_cost": {
                 "currency": "CNY",
-                "mean_amount": 1.2418306972010171
+                "mean_amount": 1.2418590799999993
               },
               "mean_judge_cost_usd": 0,
               "original_judge_cost": {
@@ -294,12 +294,12 @@
                 "mean_amount": 0
               },
               "cost_sources": {
-                "snapshot_estimated": 393,
-                "unknown": 7
+                "snapshot_estimated": 400,
+                "unknown": 0
               },
               "cost_bases": {
-                "exact": 393,
-                "unknown": 7
+                "exact": 400,
+                "unknown": 0
               },
               "failures": {
                 "execution_error": 1
@@ -324,10 +324,10 @@
               "scored": 500,
               "score": 91.2,
               "mean_runtime_seconds": 722.6951501703406,
-              "mean_model_cost_usd": 0.7255188862602368,
+              "mean_model_cost_usd": 0.7453179748571426,
               "original_model_cost": {
                 "currency": "CNY",
-                "mean_amount": 5.078632203821657
+                "mean_amount": 5.217225823999998
               },
               "mean_judge_cost_usd": 0,
               "original_judge_cost": {
@@ -335,12 +335,12 @@
                 "mean_amount": 0
               },
               "cost_sources": {
-                "snapshot_estimated": 471,
-                "unknown": 29
+                "snapshot_estimated": 500,
+                "unknown": 0
               },
               "cost_bases": {
-                "exact": 471,
-                "unknown": 29
+                "exact": 500,
+                "unknown": 0
               },
               "failures": {
                 "execution_error": 2,
@@ -357,7 +357,7 @@
                 "scorer": null,
                 "official_model": null,
                 "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
-                "parity_note": "保留修订4各题原有权重；judge统一为qwen3.8-max，未宣称与官方成绩完全对齐"
+                "parity_note": ""
               },
               "domains": [
                 "general"
@@ -366,10 +366,10 @@
               "scored": 150,
               "score": 70.31145333333333,
               "mean_runtime_seconds": 549.5014132733336,
-              "mean_model_cost_usd": 0.2617356908023483,
+              "mean_model_cost_usd": 0.27365592000000005,
               "original_model_cost": {
                 "currency": "CNY",
-                "mean_amount": 1.832149835616438
+                "mean_amount": 1.9155914400000003
               },
               "mean_judge_cost_usd": 0.060237020134228214,
               "original_judge_cost": {
@@ -377,12 +377,12 @@
                 "mean_amount": 0.4216591409395975
               },
               "cost_sources": {
-                "snapshot_estimated": 146,
-                "unknown": 4
+                "snapshot_estimated": 150,
+                "unknown": 0
               },
               "cost_bases": {
-                "exact": 146,
-                "unknown": 4
+                "exact": 150,
+                "unknown": 0
               },
               "failures": {
                 "scoring_error": 2,
@@ -490,7 +490,7 @@
               "scorer": null,
               "official_model": null,
               "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
-              "parity_note": "保留修订4各题原有权重；judge统一为qwen3.8-max，未宣称与官方成绩完全对齐"
+              "parity_note": ""
             }
           }
         }
@@ -601,7 +601,7 @@
             "scorer": null,
             "official_model": null,
             "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
-            "parity_note": "保留修订4各题原有权重；judge统一为qwen3.8-max，未宣称与官方成绩完全对齐"
+            "parity_note": ""
           }
         }
       ],
@@ -635,10 +635,10 @@
               "scored": 165,
               "score": 81.81818181818181,
               "mean_runtime_seconds": 611.1594107757577,
-              "mean_model_cost_usd": 0.28744040211640215,
+              "mean_model_cost_usd": 0.2941251324675325,
               "original_model_cost": {
                 "currency": "CNY",
-                "mean_amount": 2.012082814814815
+                "mean_amount": 2.0588759272727275
               },
               "mean_judge_cost_usd": 0,
               "original_judge_cost": {
@@ -646,12 +646,12 @@
                 "mean_amount": 0
               },
               "cost_sources": {
-                "snapshot_estimated": 162,
-                "unknown": 3
+                "snapshot_estimated": 165,
+                "unknown": 0
               },
               "cost_bases": {
-                "exact": 162,
-                "unknown": 3
+                "exact": 165,
+                "unknown": 0
               },
               "failures": {
                 "timeout": 3
@@ -676,10 +676,10 @@
               "scored": 400,
               "score": 88.25,
               "mean_runtime_seconds": 561.2130801224995,
-              "mean_model_cost_usd": 0.22575496969696968,
+              "mean_model_cost_usd": 0.22416211285714285,
               "original_model_cost": {
                 "currency": "CNY",
-                "mean_amount": 1.5802847878787878
+                "mean_amount": 1.56913479
               },
               "mean_judge_cost_usd": 0,
               "original_judge_cost": {
@@ -687,12 +687,12 @@
                 "mean_amount": 0
               },
               "cost_sources": {
-                "snapshot_estimated": 396,
-                "unknown": 4
+                "snapshot_estimated": 400,
+                "unknown": 0
               },
               "cost_bases": {
-                "exact": 396,
-                "unknown": 4
+                "exact": 400,
+                "unknown": 0
               },
               "failures": {
                 "execution_error": 5
@@ -717,10 +717,10 @@
               "scored": 500,
               "score": 93.8,
               "mean_runtime_seconds": 957.455680724,
-              "mean_model_cost_usd": 0.42374797728631247,
+              "mean_model_cost_usd": 0.4377208731428575,
               "original_model_cost": {
                 "currency": "CNY",
-                "mean_amount": 2.9662358410041874
+                "mean_amount": 3.0640461120000024
               },
               "mean_judge_cost_usd": 0,
               "original_judge_cost": {
@@ -728,12 +728,12 @@
                 "mean_amount": 0
               },
               "cost_sources": {
-                "snapshot_estimated": 478,
-                "unknown": 22
+                "snapshot_estimated": 500,
+                "unknown": 0
               },
               "cost_bases": {
-                "exact": 478,
-                "unknown": 22
+                "exact": 500,
+                "unknown": 0
               },
               "failures": {
                 "execution_error": 10,
@@ -750,7 +750,7 @@
                 "scorer": null,
                 "official_model": null,
                 "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
-                "parity_note": "保留修订4各题原有权重；judge统一为qwen3.8-max，未宣称与官方成绩完全对齐"
+                "parity_note": ""
               },
               "domains": [
                 "general"
@@ -759,10 +759,10 @@
               "scored": 150,
               "score": 75.27946000000001,
               "mean_runtime_seconds": 829.2559762666665,
-              "mean_model_cost_usd": 0.30110660714285714,
+              "mean_model_cost_usd": 0.3018049028571429,
               "original_model_cost": {
                 "currency": "CNY",
-                "mean_amount": 2.10774625
+                "mean_amount": 2.11263432
               },
               "mean_judge_cost_usd": 0.06233887248322145,
               "original_judge_cost": {
@@ -770,12 +770,12 @@
                 "mean_amount": 0.43637210738255017
               },
               "cost_sources": {
-                "snapshot_estimated": 144,
-                "unknown": 6
+                "snapshot_estimated": 150,
+                "unknown": 0
               },
               "cost_bases": {
-                "exact": 144,
-                "unknown": 6
+                "exact": 150,
+                "unknown": 0
               },
               "failures": {
                 "scoring_error": 2,
@@ -884,7 +884,7 @@
               "scorer": null,
               "official_model": null,
               "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
-              "parity_note": "保留修订4各题原有权重；judge统一为qwen3.8-max，未宣称与官方成绩完全对齐"
+              "parity_note": ""
             }
           }
         }
@@ -995,7 +995,7 @@
             "scorer": null,
             "official_model": null,
             "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
-            "parity_note": "保留修订4各题原有权重；judge统一为qwen3.8-max，未宣称与官方成绩完全对齐"
+            "parity_note": ""
           }
         }
       ],
@@ -1029,10 +1029,10 @@
               "scored": 165,
               "score": 69.6969696969697,
               "mean_runtime_seconds": 568.5033826878982,
-              "mean_model_cost_usd": 0.10759896103896101,
+              "mean_model_cost_usd": 0.20781747186147176,
               "original_model_cost": {
                 "currency": "CNY",
-                "mean_amount": 0.753192727272727
+                "mean_amount": 1.4547223030303023
               },
               "mean_judge_cost_usd": 0,
               "original_judge_cost": {
@@ -1040,12 +1040,12 @@
                 "mean_amount": 0
               },
               "cost_sources": {
-                "snapshot_estimated": 55,
-                "unknown": 110
+                "snapshot_estimated": 165,
+                "unknown": 0
               },
               "cost_bases": {
-                "exact": 55,
-                "unknown": 110
+                "exact": 165,
+                "unknown": 0
               },
               "failures": {
                 "execution_error": 6,
@@ -1071,10 +1071,10 @@
               "scored": 400,
               "score": 73,
               "mean_runtime_seconds": 582.8094902779218,
-              "mean_model_cost_usd": 0.09811880219780221,
+              "mean_model_cost_usd": 0.10800392571428567,
               "original_model_cost": {
                 "currency": "CNY",
-                "mean_amount": 0.6868316153846155
+                "mean_amount": 0.7560274799999998
               },
               "mean_judge_cost_usd": 0,
               "original_judge_cost": {
@@ -1082,12 +1082,12 @@
                 "mean_amount": 0
               },
               "cost_sources": {
-                "snapshot_estimated": 156,
-                "unknown": 244
+                "snapshot_estimated": 400,
+                "unknown": 0
               },
               "cost_bases": {
-                "exact": 156,
-                "unknown": 244
+                "exact": 400,
+                "unknown": 0
               },
               "failures": {
                 "execution_error": 5,
@@ -1114,10 +1114,10 @@
               "scored": 500,
               "score": 65.2,
               "mean_runtime_seconds": 1034.5652168043007,
-              "mean_model_cost_usd": 0.19147006826801521,
+              "mean_model_cost_usd": 0.3221827668571428,
               "original_model_cost": {
                 "currency": "CNY",
-                "mean_amount": 1.3402904778761064
+                "mean_amount": 2.2552793679999996
               },
               "mean_judge_cost_usd": 0,
               "original_judge_cost": {
@@ -1125,12 +1125,12 @@
                 "mean_amount": 0
               },
               "cost_sources": {
-                "snapshot_estimated": 113,
-                "unknown": 387
+                "snapshot_estimated": 500,
+                "unknown": 0
               },
               "cost_bases": {
-                "exact": 113,
-                "unknown": 387
+                "exact": 500,
+                "unknown": 0
               },
               "failures": {
                 "execution_error": 21,
@@ -1148,7 +1148,7 @@
                 "scorer": null,
                 "official_model": null,
                 "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
-                "parity_note": "保留修订4各题原有权重；judge统一为qwen3.8-max，未宣称与官方成绩完全对齐"
+                "parity_note": ""
               },
               "domains": [
                 "general"
@@ -1157,23 +1157,23 @@
               "scored": 150,
               "score": 68.01036133333332,
               "mean_runtime_seconds": 592.9137439375004,
-              "mean_model_cost_usd": 0.06076546493506494,
+              "mean_model_cost_usd": 0.1608279085714286,
               "original_model_cost": {
                 "currency": "CNY",
-                "mean_amount": 0.42535825454545456
+                "mean_amount": 1.1257953600000001
               },
-              "mean_judge_cost_usd": 0.05955035907335907,
+              "mean_judge_cost_usd": 0.05875635428571428,
               "original_judge_cost": {
                 "currency": "CNY",
-                "mean_amount": 0.4168525135135135
+                "mean_amount": 0.41129447999999996
               },
               "cost_sources": {
-                "snapshot_estimated": 55,
-                "unknown": 95
+                "snapshot_estimated": 150,
+                "unknown": 0
               },
               "cost_bases": {
-                "exact": 55,
-                "unknown": 95
+                "exact": 150,
+                "unknown": 0
               },
               "failures": {
                 "execution_error": 3,
