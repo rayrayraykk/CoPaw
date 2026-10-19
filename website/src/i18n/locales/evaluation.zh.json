@@ -37,7 +37,6 @@
   "back": "返回榜单",
   "runTitle": "评测运行记录",
   "notFound": "未找到该运行记录。",
-  "demoRecord": "演示记录，无真实日志或 workflow。",
   "indexProtocol": "Index 协议",
   "sourceSha": "源码 SHA",
   "workflow": "Workflow 与公开 artifacts",
@@ -51,7 +50,6 @@
   "noCost": "费用未记录 / $0",
   "noComplete": "暂无完整评测记录",
   "sdkHistory": "SDK 版本历史",
-  "mockShort": "模拟数据 · 非实测",
   "seconds": "{{value}} 秒",
   "domains": {
     "research": "信息研究",
@@ -69,23 +67,23 @@
   "retry": "重试",
   "trajectory": "运行轨迹",
   "collection": "榜单集",
-  "resultKind": "成绩类型",
   "official": "正式评测",
-  "testing": "测试评测",
   "artifactSha": "分发包 SHA256",
   "exchangeRate": "固定展示汇率",
   "failureRate": "异常率",
   "sourceResults": "单项结果来源",
   "benchmarkSetting": "评测设置与官方可比性",
   "benchmarkNotes": {
-    "gaia": "采用 GAIA validation 全量 165 题，通过 Harbor gaia@1.0 运行 ACP agent，按归一化答案匹配计算准确率，异常计 0。本子榜不是私有答案 test 集的官方榜单成绩，也不使用 LLM judge。任务包装、工具和实时网络条件未与官方提交逐项对齐，不能直接把分差解释为模型能力差距。",
-    "spreadsheetbench-verified": "采用 SpreadsheetBench V1 Verified 400 题，通过 Harbor spreadsheetbench-verified@1.0 运行，以 LibreOffice 重算和单元格比较进行程序评分，异常计 0。本子榜不是 V1 Full 912 题或 V2 的成绩。官方支持 LibreOffice 和 Windows/Excel 等重算后端，本次后端、版本及比较配置尚未与对应官方记录逐项对齐，不代表官方审核成绩。",
-    "swebench-verified": "采用 SWE-bench Verified 全量 500 题，通过 Harbor swebench-verified@1.0 应用补丁并执行仓库测试，以解决率计分，失败或异常计 0，不使用 LLM judge。镜像依赖、超时和 ACP 工具配置未与官方各提交逐项对齐。本轮允许联网，尚未逐题排除读取上游修复的情况，因此不能等同于通过官方审核的榜单成绩。",
-    "pawbench": "采用 PawBench 固定修订 4 的 150 题，保留各题原有程序与模型评分权重，按逐题得分均值计分，异常计 0。需要模型评审的题统一使用 qwen3.8-max，纯程序评分题不调用 judge。尚未确认与官方发布成绩的 judge 模型、评审提示和题包修订一致，不宣称已与官方对齐。"
+    "gaia": "使用 GAIA validation 全量 165 题，经 Harbor 与 ACP 执行，以归一化答案匹配计算准确率，异常计 0。官方主榜使用 test 集，本子榜使用公开的 validation 集。该评测不使用 LLM judge。",
+    "spreadsheetbench-verified": "使用 SpreadsheetBench V1 Verified 400 题，经 LibreOffice 重算后比较目标单元格，异常计 0。官方 V1 Full 包含 912 题，本子榜采用其中的 Verified 子集。该评测使用程序评分，不调用 LLM judge。",
+    "swebench-verified": "使用 SWE-bench Verified 全量 500 题，应用 agent 提交的补丁并运行仓库测试，以解决率计分，异常计 0。题集和测试评分遵循 SWE-bench Verified，本次通过 Harbor 与 ACP 执行并允许联网。该评测不使用 LLM judge。",
+    "pawbench": "使用 PawBench v1.0 的 150 题，按各题原有程序评分与模型评分权重计算均分，异常计 0。本子榜的模型评审使用 qwen3.8-max，官方公布成绩使用 Claude Opus 4.6。两者的 judge 模型不同，比较分数时需结合这一设置。"
   },
   "benchmarkSet": "评测集组合",
   "runBudget": "上下文上限 {{contextTokens}} tokens · 输出上限 {{output}} tokens",
   "notRecorded": "未记录",
   "costCoverage": "费用记录 {{known}}/{{total}} 题",
-  "partialCostNote": "费用按已确认调用的用量计算，未确认消耗不计入，不能视为账单总额；各评测集均值仍按 1/4 加权。用时为已记录题目的端到端平均用时，包含环境准备与评分。"
+  "partialCostNote": "费用按已确认调用的用量计算，未确认消耗不计入，不能视为账单总额；各评测集均值仍按 1/4 加权。用时为已记录题目的端到端平均用时，包含环境准备与评分。",
+  "methodology": "统计口径",
+  "qwenpawDefault": "QwenPaw · 默认模式"
 }

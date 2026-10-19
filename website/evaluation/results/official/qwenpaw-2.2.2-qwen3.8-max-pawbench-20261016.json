@@ -185,7 +185,7 @@
       "kind": "llm",
       "model": "qwen3.8-max",
       "scorer": null,
-      "official_model": null,
+      "official_model": "claude-opus-4.6",
       "prompt_revision": "agentscope-ai/pawbench@4:bundled-per-task-rubric",
       "parity_note": ""
     }

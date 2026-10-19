@@ -85,14 +85,6 @@ export default function App() {
           <Route path="/docs" element={<Navigate to="/docs/intro" replace />} />
           <Route path="/docs/:slug" element={<Docs />} />
           <Route path="/evaluation" element={<Evaluation key="results" />} />
-          <Route
-            path="/evaluation/demo"
-            element={<Evaluation key="demo" demo />}
-          />
-          <Route
-            path="/evaluation/demo/runs/:id"
-            element={<Evaluation key="demo" demo />}
-          />
           <Route path="/evaluation/runs/:id" element={<Evaluation />} />
           <Route path="/release-notes" element={<ReleaseNotes />} />
         </Route>

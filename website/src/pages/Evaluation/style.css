@@ -548,3 +548,33 @@
 .evaluation-benchmark-notes p {
   margin: 0;
 }
+
+.evaluation-methodology {
+  position: relative;
+  margin-left: auto;
+}
+.evaluation-methodology button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: help;
+}
+.evaluation-methodology [role="tooltip"] {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  z-index: 3;
+  width: min(380px, calc(100vw - 56px));
+  padding: 12px 16px;
+  border: 1px solid var(--eval-border);
+  border-radius: 12px;
+  background: var(--eval-surface);
+  color: var(--eval-text);
+  line-height: 1.7;
+  box-shadow: 0 6px 24px #00000012;
+}
+.evaluation-methodology:hover [role="tooltip"],
+.evaluation-methodology:focus-within [role="tooltip"] {
+  display: block;
+}

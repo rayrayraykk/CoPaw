@@ -18,14 +18,12 @@ export default function Chart({
   title,
   compareHarnesses,
   history,
-  demo,
   onSelect,
 }: {
   rows: Row[];
   title: string;
   compareHarnesses: boolean;
   history: boolean;
-  demo: boolean;
   onSelect: (row: Row) => void;
 }) {
   const { t, i18n } = useTranslation("evaluation");
@@ -65,9 +63,9 @@ export default function Chart({
       : 1;
     const mobile = element.clientWidth < 700;
     const tip = (r: Row) =>
-      `<b>${escape(r.model)}</b><br>${escape(r.harness)} · SDK ${escape(
-        r.sdk_version,
-      )}` +
+      `<b>${escape(r.model)}</b><br>${escape(
+        r.harness === "qwenpaw" ? t("qwenpawDefault") : r.harness,
+      )} · SDK ${escape(r.sdk_version)}` +
       `<br>${escape(t("score"))}: ${number(r.score!)}<br>${escape(
         t("averageCost"),
       )}: ${money(r.cost)}${
@@ -90,8 +88,7 @@ export default function Chart({
           dateStyle: "medium",
           timeZone: "UTC",
         }).format(new Date(r.run.date)),
-      )} · ${best.has(r.id) ? t("bestShort") : t("history")}` +
-      `${demo ? `<br>${escape(t("mockShort"))}` : ""}`;
+      )} · ${best.has(r.id) ? t("bestShort") : t("history")}`;
     const traces: Data[] = [];
     const images: Partial<Plotly.Image>[] = [];
     for (const [points, missingCost] of [
@@ -284,16 +281,7 @@ export default function Chart({
       observer.disconnect();
       Plotly.purge(element);
     };
-  }, [
-    rows,
-    title,
-    compareHarnesses,
-    history,
-    demo,
-    onSelect,
-    t,
-    i18n.language,
-  ]);
+  }, [rows, title, compareHarnesses, history, onSelect, t, i18n.language]);
   return (
     <div
       className="evaluation-plot"

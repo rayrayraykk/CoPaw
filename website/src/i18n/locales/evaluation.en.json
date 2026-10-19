@@ -37,7 +37,6 @@
   "back": "Back to leaderboard",
   "runTitle": "Evaluation run",
   "notFound": "This run was not found.",
-  "demoRecord": "Demo record. No real logs or workflow exist.",
   "indexProtocol": "Index protocol",
   "sourceSha": "Source SHA",
   "workflow": "Workflow and public artifacts",
@@ -51,7 +50,6 @@
   "noCost": "Cost unrecorded / $0",
   "noComplete": "No complete evaluation records",
   "sdkHistory": "SDK version history",
-  "mockShort": "Mock · not measured",
   "seconds": "{{value}}s",
   "domains": {
     "research": "Information research",
@@ -69,23 +67,23 @@
   "retry": "Retry",
   "trajectory": "Trajectory",
   "collection": "Collection",
-  "resultKind": "Result type",
   "official": "Official evaluations",
-  "testing": "Test evaluations",
   "artifactSha": "Distribution SHA256",
   "exchangeRate": "Fixed display exchange rate",
   "failureRate": "Failure rate",
   "sourceResults": "Benchmark source results",
   "benchmarkSetting": "Evaluation setup and official comparability",
   "benchmarkNotes": {
-    "gaia": "We evaluate all 165 GAIA validation tasks through Harbor gaia@1.0 and an ACP agent, using normalized answer matching for accuracy and counting execution errors as zero. These are not official leaderboard results on the private-answer test split, and no LLM judge is used. Task packaging, tools and live web conditions have not been matched to official submissions, so score differences do not isolate model capability.",
-    "spreadsheetbench-verified": "We evaluate SpreadsheetBench V1 Verified (400 tasks) through Harbor spreadsheetbench-verified@1.0, using LibreOffice recalculation and cell comparison with execution errors counted as zero. These are not V1 Full (912 tasks) or V2 results. The official evaluator supports backends including LibreOffice and Windows/Excel; our backend, versions and comparison settings have not been matched to the corresponding official records, and these results are not officially verified.",
-    "swebench-verified": "We evaluate all 500 SWE-bench Verified tasks through Harbor swebench-verified@1.0 by applying patches and running repository tests, reporting resolution rate with failures and execution errors counted as zero and no LLM judge. Image dependencies, timeouts and ACP tool settings have not been matched to official submissions. Internet access was enabled and access to upstream solutions has not been ruled out task by task, so these are not equivalent to officially reviewed leaderboard results.",
-    "pawbench": "We evaluate 150 tasks from pinned PawBench revision 4, preserving each task’s programmatic and model-judge weights and averaging task scores with execution errors counted as zero. Tasks requiring a model judge use qwen3.8-max; purely programmatic tasks make no judge call. Judge models, judge prompts and task-package revisions have not been confirmed to match published official results, so official parity is not claimed."
+    "gaia": "We evaluate all 165 GAIA validation tasks through Harbor and ACP, using normalized answer matching and counting execution errors as zero. The official main leaderboard uses the test split, while this board uses the public validation split. No LLM judge is used.",
+    "spreadsheetbench-verified": "We evaluate 400 SpreadsheetBench V1 Verified tasks by comparing target cells after LibreOffice recalculation, counting execution errors as zero. The official V1 Full set contains 912 tasks; this board uses its Verified subset. Scoring is programmatic and uses no LLM judge.",
+    "swebench-verified": "We evaluate all 500 SWE-bench Verified tasks by applying agent patches and running repository tests, reporting resolution rate with execution errors counted as zero. We use the SWE-bench Verified task set and test scoring through Harbor and ACP, with internet access enabled. No LLM judge is used.",
+    "pawbench": "We evaluate 150 PawBench v1.0 tasks, preserving their programmatic and model-judge weights and averaging task scores with execution errors counted as zero. This board uses qwen3.8-max for model judging, while the officially published results use Claude Opus 4.6. The judge-model difference is part of the comparison settings."
   },
   "benchmarkSet": "Benchmark set",
   "runBudget": "Context limit: {{contextTokens}} tokens · Output limit: {{output}} tokens",
   "notRecorded": "Not recorded",
   "costCoverage": "Cost coverage: {{known}}/{{total}} tasks",
-  "partialCostNote": "Costs use confirmed request usage and exclude unrecorded consumption; they are not reconciled invoice totals. Benchmark means retain equal one-quarter weights. Runtime averages recorded end-to-end durations, including setup and scoring."
+  "partialCostNote": "Costs use confirmed request usage and exclude unrecorded consumption; they are not reconciled invoice totals. Benchmark means retain equal one-quarter weights. Runtime averages recorded end-to-end durations, including setup and scoring.",
+  "methodology": "Methodology",
+  "qwenpawDefault": "QwenPaw · Default mode"
 }

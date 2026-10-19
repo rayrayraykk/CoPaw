@@ -53,16 +53,12 @@ async function main() {
     "docs",
     "usage-policy",
     "evaluation",
-    "evaluation/demo",
     "docs/search",
     ...DOC_SLUGS.map((s) => `docs/${s}`),
     "blog",
     ...BLOG_SLUGS.map((s) => `blog/${s}`),
   ];
-  for (const [source, route] of [
-    ["data", "evaluation"],
-    ["demo", "evaluation/demo"],
-  ]) {
+  for (const [source, route] of [["data", "evaluation"]]) {
     const history = JSON.parse(
       await readFile(join(distDir, `evaluation/${source}/index.json`), "utf-8"),
     );

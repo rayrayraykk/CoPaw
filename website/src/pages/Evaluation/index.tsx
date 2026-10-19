@@ -34,7 +34,7 @@ function download(data: unknown) {
   anchor.click();
   URL.revokeObjectURL(url);
 }
-export default function Evaluation({ demo = false }: { demo?: boolean }) {
+export default function Evaluation() {
   const { t, i18n } = useTranslation("evaluation");
   const money = (value: number | null) =>
     formatMoney(value, i18n.language, t("notRecorded"));
@@ -63,9 +63,7 @@ export default function Evaluation({ demo = false }: { demo?: boolean }) {
   const [showTable, setShowTable] = useState(true);
   const [showBreakdown, setShowBreakdown] = useState(false);
   const [onlyFrontier, setOnlyFrontier] = useState(false);
-  const [kind, setKind] = useState<"testing" | "official">(
-    demo ? "testing" : "official",
-  );
+  const kind = "official";
   const [boardId, setBoardId] = useState("");
   const [protocol, setProtocol] = useState("");
   const [sort, setSort] = useState<{
@@ -81,14 +79,9 @@ export default function Evaluation({ demo = false }: { demo?: boolean }) {
       timedOut = true;
       controller.abort();
     }, 30000);
-    fetch(
-      `${import.meta.env.BASE_URL}evaluation/${
-        demo ? "demo" : "data"
-      }/index.json`,
-      {
-        signal: controller.signal,
-      },
-    )
+    fetch(`${import.meta.env.BASE_URL}evaluation/data/index.json`, {
+      signal: controller.signal,
+    })
       .then((response) => {
         if (!response.ok) throw new Error("unavailable");
         return response.json();
@@ -119,7 +112,7 @@ export default function Evaluation({ demo = false }: { demo?: boolean }) {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [demo, loadAttempt]);
+  }, [loadAttempt]);
   const history = data;
   const scopedRuns = history.runs.filter((run) => run.kind === kind);
   const boards = [
@@ -194,9 +187,8 @@ export default function Evaluation({ demo = false }: { demo?: boolean }) {
     return (av < bv ? -1 : av > bv ? 1 : 0) * (sort.asc ? 1 : -1);
   });
   const navigateRow = useCallback(
-    (row: Row) =>
-      navigate(`/evaluation${demo ? "/demo" : ""}/runs/${row.run.id}`),
-    [navigate, demo],
+    (row: Row) => navigate(`/evaluation/runs/${row.run.id}`),
+    [navigate],
   );
   const detail = id ? history.runs.find((run) => run.id === id) : undefined;
   const title =
@@ -246,11 +238,10 @@ export default function Evaluation({ demo = false }: { demo?: boolean }) {
             <h1>{t("headline")}</h1>
           </div>
         </div>
-        {demo && <span className="evaluation-scope">{t("mockShort")}</span>}
       </header>
       {id ? (
         <section className="evaluation-detail">
-          <Link to={`/evaluation${demo ? "/demo" : ""}`}>{t("back")}</Link>
+          <Link to="/evaluation">{t("back")}</Link>
           <h1>{t("runTitle")}</h1>
           {loading ? (
             <p>{t("loading")}</p>
@@ -260,7 +251,6 @@ export default function Evaluation({ demo = false }: { demo?: boolean }) {
             <p>{t("notFound")}</p>
           ) : (
             <>
-              {demo && <p className="evaluation-notice">{t("demoRecord")}</p>}
               <dl>
                 <dt>{t("date")}</dt>
                 <dd>{date(detail.date)}</dd>
@@ -268,8 +258,6 @@ export default function Evaluation({ demo = false }: { demo?: boolean }) {
                 <dd>{versionName(detail.index_version)}</dd>
                 <dt>{t("sourceSha")}</dt>
                 <dd>{detail.evaluation_sha ?? t("unknown")}</dd>
-                <dt>{t("resultKind")}</dt>
-                <dd>{t(detail.kind)}</dd>
                 <dt>{t("artifactSha")}</dt>
                 <dd>{detail.artifact_sha256}</dd>
                 <dt>{t("exchangeRate")}</dt>
@@ -330,24 +318,6 @@ export default function Evaluation({ demo = false }: { demo?: boolean }) {
           <section className="evaluation-chart-surface">
             <div className="evaluation-controls">
               <div className="evaluation-board-controls">
-                <label>
-                  {t("resultKind")}
-                  <span className="evaluation-select">
-                    <select
-                      value={kind}
-                      onChange={(event) => {
-                        setKind(event.target.value as "testing" | "official");
-                        setBoardId("");
-                        setProtocol("");
-                        setMetric("index");
-                      }}
-                    >
-                      <option value="official">{t("official")}</option>
-                      <option value="testing">{t("testing")}</option>
-                    </select>
-                    <ChevronDown size={16} aria-hidden="true" />
-                  </span>
-                </label>
                 <label className="evaluation-board-select">
                   <span>{t("board")}</span>
                   <span className="evaluation-select">
@@ -433,7 +403,7 @@ export default function Evaluation({ demo = false }: { demo?: boolean }) {
                 </label>
               </div>
             </div>
-            {!demo && noteBenchmarks.length > 0 && (
+            {noteBenchmarks.length > 0 && (
               <aside
                 className="evaluation-benchmark-notes"
                 aria-label={t("benchmarkSetting")}
@@ -450,7 +420,6 @@ export default function Evaluation({ demo = false }: { demo?: boolean }) {
                 title={title}
                 compareHarnesses={compareHarnesses}
                 history={showHistory}
-                demo={demo}
                 onSelect={navigateRow}
               />
             </div>
@@ -467,10 +436,19 @@ export default function Evaluation({ demo = false }: { demo?: boolean }) {
                 <i className="line" />
                 {t("pareto")}
               </span>
+              <div className="evaluation-methodology">
+                <button
+                  aria-label={t("methodology")}
+                  aria-describedby="evaluation-methodology-tip"
+                >
+                  <CircleHelp size={14} aria-hidden="true" />
+                  {t("methodology")}
+                </button>
+                <div role="tooltip" id="evaluation-methodology-tip">
+                  {t("partialCostNote")}
+                </div>
+              </div>
             </div>
-            {!demo && (
-              <p className="evaluation-notice">{t("partialCostNote")}</p>
-            )}
           </section>
           {error && (
             <p role="alert" className="evaluation-notice">
@@ -633,7 +611,9 @@ export default function Evaluation({ demo = false }: { demo?: boolean }) {
                               {harnessLogo(row.harness) && (
                                 <img alt="" src={harnessLogo(row.harness)} />
                               )}
-                              {row.harness}
+                              {row.harness === "qwenpaw"
+                                ? t("qwenpawDefault")
+                                : row.harness}
                             </div>
                           </td>
                         )}

@@ -43,7 +43,7 @@ check(
   !(await readdir(new URL("results/", root))).some((n) => n.endsWith(".json")),
   "Use testing/ or official/",
 );
-for (const kind of ["official", "testing"]) {
+for (const kind of ["official"]) {
   for (const name of (await readdir(new URL(`results/${kind}/`, root)))
     .filter((n) => n.endsWith(".json"))
     .sort()) {
