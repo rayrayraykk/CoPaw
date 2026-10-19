@@ -278,7 +278,7 @@
       },
       "judge_cost": null,
       "judge_called": false,
-      "runtime_seconds": null,
+      "runtime_seconds": 399.928566,
       "finished_at": "2026-10-16T14:07:00.408789Z"
     },
     {
@@ -320,7 +320,7 @@
       "cost": null,
       "judge_cost": null,
       "judge_called": false,
-      "runtime_seconds": null,
+      "runtime_seconds": 112.101357,
       "finished_at": "2026-10-16T14:13:59.665751Z"
     },
     {
@@ -1067,7 +1067,7 @@
       "cost": null,
       "judge_cost": null,
       "judge_called": false,
-      "runtime_seconds": null,
+      "runtime_seconds": 192.70533,
       "finished_at": "2026-10-16T16:01:28.433340Z"
     },
     {
@@ -1409,7 +1409,7 @@
       "cost": null,
       "judge_cost": null,
       "judge_called": false,
-      "runtime_seconds": null,
+      "runtime_seconds": 338.741116,
       "finished_at": "2026-10-16T16:55:39.699851Z"
     },
     {
@@ -2159,7 +2159,7 @@
       },
       "judge_cost": null,
       "judge_called": false,
-      "runtime_seconds": null,
+      "runtime_seconds": 308.875817,
       "finished_at": "2026-10-16T18:19:25.538262Z"
     },
     {

@@ -54,8 +54,8 @@ Verified、SWE-bench Verified、PawBench。一个方向新增 benchmark，只重
 预算不同的结果通过 profile 分开。benchmark 修订或 judge 改变时按新的总榜定义纳入，
 其他符合规则的单项仍可保留。逐项来源可在详情和下载 JSON 中查看。
 
-测试与正式成绩分别构建，默认只展示正式评测，不混排。历史与新结果可以共表，但排名、
-最佳记录和 Pareto 仅在当前总榜版本和 profile 内计算。`public/evaluation/data/index.json`
+测试与正式成绩分别构建，默认只展示正式评测，不混排。同一总榜版本的历史与新结果共表，配置指纹不拆分成单独榜单；
+每条记录仍保留独立构建、预算与单项来源，比较时需核对这些条件。`public/evaluation/data/index.json`
 由构建生成，不手工编辑。`/evaluation/demo/` 使用明确标注的模拟数据。
 
 ## 费用与公开范围
@@ -68,3 +68,5 @@ Verified、SWE-bench Verified、PawBench。一个方向新增 benchmark，只重
 来源仓库链接只能使用无凭据、无查询参数的 HTTPS 地址。分类不是访问控制。
 
 本契约只接受 `schema_version: 3`，不提供旧输入格式兼容层。
+
+费用缺失不视为零：各评测集仅对已记录费用的题目取均值，总榜仍按四个评测集各 1/4 加权，并展示费用记录覆盖率。费用不完整的记录展示在散点图中，但不参与完整费用 Pareto 前沿；用时对已记录的端到端用时取均值。

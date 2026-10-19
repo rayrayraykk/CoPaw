@@ -5808,7 +5808,7 @@
       },
       "judge_cost": null,
       "judge_called": false,
-      "runtime_seconds": null,
+      "runtime_seconds": 787.615633,
       "finished_at": "2026-10-16T18:19:51.569334Z"
     },
     {

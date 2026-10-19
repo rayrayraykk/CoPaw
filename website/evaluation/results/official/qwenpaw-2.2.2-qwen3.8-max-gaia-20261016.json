@@ -575,7 +575,7 @@
       },
       "judge_cost": null,
       "judge_called": false,
-      "runtime_seconds": null,
+      "runtime_seconds": 3688.829402,
       "finished_at": "2026-10-16T15:41:49.329403Z"
     },
     {
@@ -1172,7 +1172,7 @@
       },
       "judge_cost": null,
       "judge_called": false,
-      "runtime_seconds": null,
+      "runtime_seconds": 3693.642519,
       "finished_at": "2026-10-16T16:40:34.636972Z"
     },
     {
@@ -1352,7 +1352,7 @@
       },
       "judge_cost": null,
       "judge_called": false,
-      "runtime_seconds": null,
+      "runtime_seconds": 3693.182837,
       "finished_at": "2026-10-16T17:07:17.240503Z"
     },
     {

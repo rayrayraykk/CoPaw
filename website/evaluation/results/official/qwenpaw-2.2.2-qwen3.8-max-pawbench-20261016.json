@@ -1853,7 +1853,7 @@
         "currency": "CNY"
       },
       "judge_called": true,
-      "runtime_seconds": null,
+      "runtime_seconds": 551.42264,
       "finished_at": "2026-10-16T16:58:11.772439Z"
     },
     {
@@ -1889,7 +1889,7 @@
         "currency": "CNY"
       },
       "judge_called": true,
-      "runtime_seconds": null,
+      "runtime_seconds": 607.110814,
       "finished_at": "2026-10-16T17:08:57.266770Z"
     },
     {
@@ -2228,7 +2228,7 @@
         "currency": "CNY"
       },
       "judge_called": true,
-      "runtime_seconds": null,
+      "runtime_seconds": 167.754613,
       "finished_at": "2026-10-16T17:38:51.540958Z"
     },
     {
@@ -2513,7 +2513,7 @@
         "currency": "CNY"
       },
       "judge_called": true,
-      "runtime_seconds": null,
+      "runtime_seconds": 3753.869018,
       "finished_at": "2026-10-16T18:51:19.568091Z"
     },
     {
@@ -2636,7 +2636,7 @@
         "currency": "CNY"
       },
       "judge_called": true,
-      "runtime_seconds": null,
+      "runtime_seconds": 3742.147292,
       "finished_at": "2026-10-16T19:03:15.934316Z"
     },
     {
@@ -2756,7 +2756,7 @@
       "cost": null,
       "judge_cost": null,
       "judge_called": true,
-      "runtime_seconds": null,
+      "runtime_seconds": 401.154347,
       "finished_at": "2026-10-16T18:20:31.422369Z"
     },
     {

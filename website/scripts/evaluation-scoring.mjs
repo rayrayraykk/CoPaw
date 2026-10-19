@@ -31,26 +31,29 @@ export function validateDefinition(definition) {
 }
 
 function mean(values) {
-  return values.some((v) => v === null)
+  return !values.length || values.some((v) => v === null)
     ? null
     : values.reduce((a, b) => a + b, 0) / values.length;
 }
 
 function cost(trials, role, rate) {
-  const values = trials.map((t) =>
-    role === "judge" && !t.judge_called
-      ? { amount: 0, currency: "USD" }
-      : t[role === "judge" ? "judge_cost" : "cost"],
-  );
-  if (values.some((v) => v === null)) return { usd: null, original: null };
+  const values = trials
+    .map((t) =>
+      role === "judge" && !t.judge_called
+        ? { amount: 0, currency: "USD" }
+        : t[role === "judge" ? "judge_cost" : "cost"],
+    )
+    .filter((v) => v !== null);
+  if (!values.length) return { usd: null, original: null, known: 0 };
   const nonzero = values.filter((v) => v.amount !== 0);
   const currencies = new Set(nonzero.map((v) => v.currency));
   check(currencies.size <= 1, "Mixed original currencies within a benchmark");
   const currency = nonzero[0]?.currency ?? values[0].currency;
-  const amount = values.reduce((n, v) => n + v.amount, 0) / trials.length;
+  const amount = values.reduce((n, v) => n + v.amount, 0) / values.length;
   return {
     usd: amount / (currency === "CNY" ? rate : 1),
     original: { currency, mean_amount: amount },
+    known: values.length,
   };
 }
 
@@ -108,15 +111,18 @@ export function summarize(input, benchmark, direction) {
     score: mean(
       input.trials.map((t) => (t.status === "passed" ? t.score * 100 : 0)),
     ),
-    mean_runtime_seconds: mean(input.trials.map((t) => t.runtime_seconds)),
+    mean_runtime_seconds: mean(
+      input.trials.map((t) => t.runtime_seconds).filter((v) => v !== null),
+    ),
     mean_model_cost_usd: model.usd,
     original_model_cost: model.original,
     mean_judge_cost_usd: judge.usd,
     original_judge_cost: judge.original,
     cost_sources: {
-      [model.usd === null ? "unknown" : "snapshot_estimated"]: b.expected,
+      snapshot_estimated: model.known,
+      unknown: b.expected - model.known,
     },
-    cost_bases: { [model.usd === null ? "unknown" : "exact"]: b.expected },
+    cost_bases: { exact: model.known, unknown: b.expected - model.known },
     failures,
     failed: Object.values(failures).reduce((a, b) => a + b, 0),
   };

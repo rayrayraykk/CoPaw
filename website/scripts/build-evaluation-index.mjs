@@ -145,7 +145,7 @@ for (const observations of groups.values()) {
         schema_version: 3,
         kind: origin.kind,
         board: origin.board,
-        index_version: `${definition.id} · ${origin.profile_hash.slice(0, 12)}`,
+        index_version: definition.id,
         index_definition: definition,
         id,
         date,

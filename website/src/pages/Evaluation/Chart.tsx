@@ -73,6 +73,13 @@ export default function Chart({
       )}: ${money(r.cost)}${
         r.upperBound ? ` (${escape(t("upperBound"))})` : ""
       }` +
+      `${
+        r.partialCost
+          ? `<br>${escape(
+              t("costCoverage", { known: r.costKnown, total: r.costTotal }),
+            )}`
+          : ""
+      }` +
       `<br>${escape(t("averageRuntime"))}: ${
         r.runtime === null
           ? t("unknown")

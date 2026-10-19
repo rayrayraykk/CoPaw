@@ -80,6 +80,9 @@ export interface Row extends RecordResult {
   cost: number | null;
   runtime: number | null;
   upperBound: boolean;
+  partialCost: boolean;
+  costKnown: number;
+  costTotal: number;
   coverage: string;
   failureRate: number | null;
 }
@@ -138,6 +141,12 @@ export function selectRows(runs: Run[], metric: string): Row[] {
           ? null
           : parts.reduce((n, p) => n + p.failed, 0) /
             parts.reduce((n, p) => n + p.expected, 0),
+        partialCost: parts.some((p) => (p.cost_sources.unknown ?? 0) > 0),
+        costKnown: parts.reduce(
+          (n, p) => n + p.expected - (p.cost_sources.unknown ?? 0),
+          0,
+        ),
+        costTotal: parts.reduce((n, p) => n + p.expected, 0),
         upperBound: parts.some((p) => p.cost_bases.upper_bound > 0),
         coverage: `${parts.filter((p) => p.scored === p.expected).length}/${
           parts.length

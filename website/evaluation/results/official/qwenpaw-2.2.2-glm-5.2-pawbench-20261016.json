@@ -1853,7 +1853,7 @@
         "currency": "CNY"
       },
       "judge_called": true,
-      "runtime_seconds": null,
+      "runtime_seconds": 409.806663,
       "finished_at": "2026-10-16T16:44:08.004854Z"
     },
     {
@@ -2531,7 +2531,7 @@
       "cost": null,
       "judge_cost": null,
       "judge_called": true,
-      "runtime_seconds": null,
+      "runtime_seconds": 2724.875719,
       "finished_at": "2026-10-16T18:28:36.309605Z"
     },
     {
@@ -2711,7 +2711,7 @@
         "currency": "CNY"
       },
       "judge_called": true,
-      "runtime_seconds": null,
+      "runtime_seconds": 377.873633,
       "finished_at": "2026-10-16T18:20:22.527539Z"
     },
     {

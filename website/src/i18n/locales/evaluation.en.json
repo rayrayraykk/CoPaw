@@ -48,7 +48,7 @@
   "averageCost": "Average cost",
   "averageRuntime": "Average runtime",
   "xAxis": "Average model cost per task (USD)",
-  "noCost": "No cost / $0",
+  "noCost": "Cost unrecorded / $0",
   "noComplete": "No complete evaluation records",
   "sdkHistory": "SDK version history",
   "mockShort": "Mock · not measured",
@@ -82,5 +82,10 @@
     "spreadsheetbench-verified": "We evaluate SpreadsheetBench V1 Verified (400 tasks) through Harbor spreadsheetbench-verified@1.0, using LibreOffice recalculation and cell comparison with execution errors counted as zero. These are not V1 Full (912 tasks) or V2 results. The official evaluator supports backends including LibreOffice and Windows/Excel; our backend, versions and comparison settings have not been matched to the corresponding official records, and these results are not officially verified.",
     "swebench-verified": "We evaluate all 500 SWE-bench Verified tasks through Harbor swebench-verified@1.0 by applying patches and running repository tests, reporting resolution rate with failures and execution errors counted as zero and no LLM judge. Image dependencies, timeouts and ACP tool settings have not been matched to official submissions. Internet access was enabled and access to upstream solutions has not been ruled out task by task, so these are not equivalent to officially reviewed leaderboard results.",
     "pawbench": "We evaluate 150 tasks from pinned PawBench revision 4, preserving each task’s programmatic and model-judge weights and averaging task scores with execution errors counted as zero. Tasks requiring a model judge use qwen3.8-max; purely programmatic tasks make no judge call. Judge models, judge prompts and task-package revisions have not been confirmed to match published official results, so official parity is not claimed."
-  }
+  },
+  "benchmarkSet": "Benchmark set",
+  "runBudget": "Context limit: {{contextTokens}} tokens · Output limit: {{output}} tokens",
+  "notRecorded": "Not recorded",
+  "costCoverage": "Cost coverage: {{known}}/{{total}} tasks",
+  "partialCostNote": "Costs average recorded tasks within each benchmark, then apply equal benchmark weights; missing costs are not zero, and incomplete costs are excluded from full-cost Pareto. Runtime averages recorded end-to-end task durations, including setup and scoring."
 }

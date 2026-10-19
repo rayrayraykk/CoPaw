@@ -37,7 +37,7 @@ function download(data: unknown) {
 export default function Evaluation({ demo = false }: { demo?: boolean }) {
   const { t, i18n } = useTranslation("evaluation");
   const money = (value: number | null) =>
-    formatMoney(value, i18n.language, t("unknown"));
+    formatMoney(value, i18n.language, t("notRecorded"));
   const number = (value: number) =>
     new Intl.NumberFormat(i18n.language, {
       maximumFractionDigits: 3,
@@ -128,6 +128,18 @@ export default function Evaluation({ demo = false }: { demo?: boolean }) {
   );
   const compareHarnesses = activeBoard?.group_by === "model_harness";
   const versions = [...new Set(boardRuns.map((run) => run.index_version))];
+  const versionName = (version: string) =>
+    [
+      ...new Set(
+        boardRuns
+          .filter((run) => run.index_version === version)
+          .flatMap((run) =>
+            run.records.flatMap((record) =>
+              record.benchmarks.map((part) => part.name),
+            ),
+          ),
+      ),
+    ].join(" + ");
   const activeProtocol = versions.includes(protocol) ? protocol : versions[0];
   const activeRuns = boardRuns.filter(
     (run) => run.index_version === activeProtocol,
@@ -249,8 +261,8 @@ export default function Evaluation({ demo = false }: { demo?: boolean }) {
               <dl>
                 <dt>{t("date")}</dt>
                 <dd>{date(detail.date)}</dd>
-                <dt>{t("indexProtocol")}</dt>
-                <dd>{detail.index_version}</dd>
+                <dt>{t("benchmarkSet")}</dt>
+                <dd>{versionName(detail.index_version)}</dd>
                 <dt>{t("sourceSha")}</dt>
                 <dd>{detail.evaluation_sha ?? t("unknown")}</dd>
                 <dt>{t("resultKind")}</dt>
@@ -264,6 +276,16 @@ export default function Evaluation({ demo = false }: { demo?: boolean }) {
                   {detail.source_results.map((source) => (
                     <div key={source.id}>
                       {source.benchmark} · {date(source.date)} · {source.id}
+                      <div>
+                        {t("runBudget", {
+                          contextTokens:
+                            source.parameters.max_context_length ??
+                            t("unknown"),
+                          output:
+                            source.parameters.max_response_length ??
+                            t("unknown"),
+                        })}
+                      </div>
                     </div>
                   ))}
                 </dd>
@@ -377,7 +399,7 @@ export default function Evaluation({ demo = false }: { demo?: boolean }) {
                 )}
                 {versions.length > 1 && (
                   <label>
-                    {t("protocol")}
+                    {t("benchmarkSet")}
                     <span className="evaluation-select">
                       <select
                         value={activeProtocol}
@@ -387,7 +409,9 @@ export default function Evaluation({ demo = false }: { demo?: boolean }) {
                         }}
                       >
                         {versions.map((v) => (
-                          <option key={v}>{v}</option>
+                          <option key={v} value={v}>
+                            {versionName(v)}
+                          </option>
                         ))}
                       </select>
                       <ChevronDown size={16} aria-hidden="true" />
@@ -441,6 +465,9 @@ export default function Evaluation({ demo = false }: { demo?: boolean }) {
                 {t("pareto")}
               </span>
             </div>
+            {!demo && (
+              <p className="evaluation-notice">{t("partialCostNote")}</p>
+            )}
           </section>
           {error && (
             <p role="alert" className="evaluation-notice">
@@ -636,7 +663,7 @@ export default function Evaluation({ demo = false }: { demo?: boolean }) {
                             {row.upperBound
                               ? t("upperBound")
                               : row.cost === null
-                              ? t("unknown")
+                              ? ""
                               : row.benchmarks.some(
                                   (p) =>
                                     p.cost_sources.litellm_estimated ||
@@ -645,10 +672,18 @@ export default function Evaluation({ demo = false }: { demo?: boolean }) {
                               ? t("estimated")
                               : t("reported")}
                           </small>
+                          {row.cost !== null && row.partialCost && (
+                            <small>
+                              {t("costCoverage", {
+                                known: row.costKnown,
+                                total: row.costTotal,
+                              })}
+                            </small>
+                          )}
                         </td>
                         <td>
                           {row.runtime === null
-                            ? t("unknown")
+                            ? t("notRecorded")
                             : t("seconds", {
                                 value: new Intl.NumberFormat(
                                   i18n.language,
@@ -668,7 +703,7 @@ export default function Evaluation({ demo = false }: { demo?: boolean }) {
                                 <small>
                                   {money(p?.mean_model_cost_usd ?? null)} /{" "}
                                   {p?.mean_runtime_seconds === null || !p
-                                    ? t("unknown")
+                                    ? t("notRecorded")
                                     : t("seconds", {
                                         value: new Intl.NumberFormat(
                                           i18n.language,

@@ -26,7 +26,11 @@ export function frontier(rows: Row[]): Row[] {
   return rows
     .filter(
       (r) =>
-        r.score !== null && r.cost !== null && r.cost >= 0 && !r.upperBound,
+        r.score !== null &&
+        r.cost !== null &&
+        r.cost >= 0 &&
+        !r.upperBound &&
+        !r.partialCost,
     )
     .filter(
       (r, _, candidates) =>
