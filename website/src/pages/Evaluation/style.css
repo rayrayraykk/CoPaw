@@ -80,14 +80,6 @@
   line-height: 1.15;
   letter-spacing: -0.025em;
 }
-.evaluation-scope {
-  color: var(--eval-muted);
-  font-size: 0.75rem;
-  padding: 7px 12px;
-  border: 1px solid var(--eval-border);
-  border-radius: 999px;
-  white-space: nowrap;
-}
 .evaluation-chart-surface {
   background: var(--eval-surface);
   border: 1px solid var(--eval-border);
@@ -180,7 +172,7 @@
 .evaluation-legend i.line {
   width: 20px;
   height: 0;
-  border-top: 2px solid var(--eval-accent);
+  border-top: 2px dashed var(--eval-accent);
   background: transparent;
   border-radius: 0;
 }
@@ -394,10 +386,6 @@
   .evaluation-brand > img {
     width: 40px;
     height: 40px;
-  }
-  .evaluation-scope {
-    font-size: 0.6875rem;
-    padding: 4px 10px;
   }
   .evaluation-controls {
     gap: 4px 16px;

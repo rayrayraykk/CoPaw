@@ -71,3 +71,7 @@ Verified、SWE-bench Verified、PawBench。一个方向新增 benchmark，只重
 本契约只接受 `schema_version: 3`，不提供旧输入格式兼容层。
 
 费用缺失不视为零：各评测集仅对已记录费用的题目取均值，总榜仍按四个评测集各 1/4 加权，并展示费用记录覆盖率。缺失题目费用的记录展示在散点图中，但不参与费用 Pareto 前沿；费用前沿比较已记录用量金额，不代表完整账单。用时对已记录的端到端用时取均值。
+
+当前 `harness: qwenpaw` 表示 QwenPaw 默认模式。coding、loop 等其他模式应使用独立 harness 标识及运行配置，避免混入默认模式的版本历史。
+
+同一 SDK 发布归一展示时，`source_sha` 标记该发布的源码提交；实际评测分发包的 `artifact_sha256` 保持原值。

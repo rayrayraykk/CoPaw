@@ -137,7 +137,7 @@ export default function Chart({
       x: pareto.map((r) => r.cost!),
       y: pareto.map((r) => r.score!),
       hoverinfo: "skip",
-      line: { color: colors.accent, width: 1.5 },
+      line: { color: colors.accent, width: 1.5, dash: "dash" },
       showlegend: false,
     });
     const layout: Partial<Layout> = {
