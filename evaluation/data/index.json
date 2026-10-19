@@ -9,7 +9,7 @@
         "name": "ACP Agents",
         "group_by": "model_harness"
       },
-      "index_version": "index-v1 · 9e267df58361",
+      "index_version": "index-v1",
       "index_definition": {
         "id": "index-v1",
         "order": 1,
@@ -241,19 +241,24 @@
               "expected": 165,
               "scored": 165,
               "score": 67.87878787878788,
-              "mean_runtime_seconds": null,
-              "mean_model_cost_usd": null,
-              "original_model_cost": null,
+              "mean_runtime_seconds": 509.8198158545453,
+              "mean_model_cost_usd": 0.3950389254267746,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 2.765272477987422
+              },
               "mean_judge_cost_usd": 0,
               "original_judge_cost": {
                 "currency": "USD",
                 "mean_amount": 0
               },
               "cost_sources": {
-                "unknown": 165
+                "snapshot_estimated": 159,
+                "unknown": 6
               },
               "cost_bases": {
-                "unknown": 165
+                "exact": 159,
+                "unknown": 6
               },
               "failures": {
                 "execution_error": 5
@@ -277,19 +282,24 @@
               "expected": 400,
               "scored": 400,
               "score": 85.75,
-              "mean_runtime_seconds": null,
-              "mean_model_cost_usd": null,
-              "original_model_cost": null,
+              "mean_runtime_seconds": 379.2413101724998,
+              "mean_model_cost_usd": 0.177404385314431,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 1.2418306972010171
+              },
               "mean_judge_cost_usd": 0,
               "original_judge_cost": {
                 "currency": "USD",
                 "mean_amount": 0
               },
               "cost_sources": {
-                "unknown": 400
+                "snapshot_estimated": 393,
+                "unknown": 7
               },
               "cost_bases": {
-                "unknown": 400
+                "exact": 393,
+                "unknown": 7
               },
               "failures": {
                 "execution_error": 1
@@ -313,19 +323,24 @@
               "expected": 500,
               "scored": 500,
               "score": 91.2,
-              "mean_runtime_seconds": null,
-              "mean_model_cost_usd": null,
-              "original_model_cost": null,
+              "mean_runtime_seconds": 722.6951501703406,
+              "mean_model_cost_usd": 0.7255188862602368,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 5.078632203821657
+              },
               "mean_judge_cost_usd": 0,
               "original_judge_cost": {
                 "currency": "USD",
                 "mean_amount": 0
               },
               "cost_sources": {
-                "unknown": 500
+                "snapshot_estimated": 471,
+                "unknown": 29
               },
               "cost_bases": {
-                "unknown": 500
+                "exact": 471,
+                "unknown": 29
               },
               "failures": {
                 "execution_error": 2,
@@ -350,16 +365,24 @@
               "expected": 150,
               "scored": 150,
               "score": 70.31145333333333,
-              "mean_runtime_seconds": null,
-              "mean_model_cost_usd": null,
-              "original_model_cost": null,
-              "mean_judge_cost_usd": null,
-              "original_judge_cost": null,
+              "mean_runtime_seconds": 549.5014132733336,
+              "mean_model_cost_usd": 0.2617356908023483,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 1.832149835616438
+              },
+              "mean_judge_cost_usd": 0.060237020134228214,
+              "original_judge_cost": {
+                "currency": "CNY",
+                "mean_amount": 0.4216591409395975
+              },
               "cost_sources": {
-                "unknown": 150
+                "snapshot_estimated": 146,
+                "unknown": 4
               },
               "cost_bases": {
-                "unknown": 150
+                "exact": 146,
+                "unknown": 4
               },
               "failures": {
                 "scoring_error": 2,
@@ -379,7 +402,7 @@
         "name": "ACP Agents",
         "group_by": "model_harness"
       },
-      "index_version": "index-v1 · 397ad1941e12",
+      "index_version": "index-v1",
       "index_definition": {
         "id": "index-v1",
         "order": 1,
@@ -611,19 +634,24 @@
               "expected": 165,
               "scored": 165,
               "score": 81.81818181818181,
-              "mean_runtime_seconds": null,
-              "mean_model_cost_usd": null,
-              "original_model_cost": null,
+              "mean_runtime_seconds": 611.1594107757577,
+              "mean_model_cost_usd": 0.28744040211640215,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 2.012082814814815
+              },
               "mean_judge_cost_usd": 0,
               "original_judge_cost": {
                 "currency": "USD",
                 "mean_amount": 0
               },
               "cost_sources": {
-                "unknown": 165
+                "snapshot_estimated": 162,
+                "unknown": 3
               },
               "cost_bases": {
-                "unknown": 165
+                "exact": 162,
+                "unknown": 3
               },
               "failures": {
                 "timeout": 3
@@ -647,19 +675,24 @@
               "expected": 400,
               "scored": 400,
               "score": 88.25,
-              "mean_runtime_seconds": null,
-              "mean_model_cost_usd": null,
-              "original_model_cost": null,
+              "mean_runtime_seconds": 561.2130801224995,
+              "mean_model_cost_usd": 0.22575496969696968,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 1.5802847878787878
+              },
               "mean_judge_cost_usd": 0,
               "original_judge_cost": {
                 "currency": "USD",
                 "mean_amount": 0
               },
               "cost_sources": {
-                "unknown": 400
+                "snapshot_estimated": 396,
+                "unknown": 4
               },
               "cost_bases": {
-                "unknown": 400
+                "exact": 396,
+                "unknown": 4
               },
               "failures": {
                 "execution_error": 5
@@ -683,19 +716,24 @@
               "expected": 500,
               "scored": 500,
               "score": 93.8,
-              "mean_runtime_seconds": null,
-              "mean_model_cost_usd": null,
-              "original_model_cost": null,
+              "mean_runtime_seconds": 957.455680724,
+              "mean_model_cost_usd": 0.42374797728631247,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 2.9662358410041874
+              },
               "mean_judge_cost_usd": 0,
               "original_judge_cost": {
                 "currency": "USD",
                 "mean_amount": 0
               },
               "cost_sources": {
-                "unknown": 500
+                "snapshot_estimated": 478,
+                "unknown": 22
               },
               "cost_bases": {
-                "unknown": 500
+                "exact": 478,
+                "unknown": 22
               },
               "failures": {
                 "execution_error": 10,
@@ -720,16 +758,24 @@
               "expected": 150,
               "scored": 150,
               "score": 75.27946000000001,
-              "mean_runtime_seconds": null,
-              "mean_model_cost_usd": null,
-              "original_model_cost": null,
-              "mean_judge_cost_usd": null,
-              "original_judge_cost": null,
+              "mean_runtime_seconds": 829.2559762666665,
+              "mean_model_cost_usd": 0.30110660714285714,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 2.10774625
+              },
+              "mean_judge_cost_usd": 0.06233887248322145,
+              "original_judge_cost": {
+                "currency": "CNY",
+                "mean_amount": 0.43637210738255017
+              },
               "cost_sources": {
-                "unknown": 150
+                "snapshot_estimated": 144,
+                "unknown": 6
               },
               "cost_bases": {
-                "unknown": 150
+                "exact": 144,
+                "unknown": 6
               },
               "failures": {
                 "scoring_error": 2,
@@ -750,7 +796,7 @@
         "name": "ACP Agents",
         "group_by": "model_harness"
       },
-      "index_version": "index-v1 · 2e5e6dbe738f",
+      "index_version": "index-v1",
       "index_definition": {
         "id": "index-v1",
         "order": 1,
@@ -982,19 +1028,24 @@
               "expected": 165,
               "scored": 165,
               "score": 69.6969696969697,
-              "mean_runtime_seconds": null,
-              "mean_model_cost_usd": null,
-              "original_model_cost": null,
+              "mean_runtime_seconds": 568.5033826878982,
+              "mean_model_cost_usd": 0.10759896103896101,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 0.753192727272727
+              },
               "mean_judge_cost_usd": 0,
               "original_judge_cost": {
                 "currency": "USD",
                 "mean_amount": 0
               },
               "cost_sources": {
-                "unknown": 165
+                "snapshot_estimated": 55,
+                "unknown": 110
               },
               "cost_bases": {
-                "unknown": 165
+                "exact": 55,
+                "unknown": 110
               },
               "failures": {
                 "execution_error": 6,
@@ -1019,19 +1070,24 @@
               "expected": 400,
               "scored": 400,
               "score": 73,
-              "mean_runtime_seconds": null,
-              "mean_model_cost_usd": null,
-              "original_model_cost": null,
+              "mean_runtime_seconds": 582.8094902779218,
+              "mean_model_cost_usd": 0.09811880219780221,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 0.6868316153846155
+              },
               "mean_judge_cost_usd": 0,
               "original_judge_cost": {
                 "currency": "USD",
                 "mean_amount": 0
               },
               "cost_sources": {
-                "unknown": 400
+                "snapshot_estimated": 156,
+                "unknown": 244
               },
               "cost_bases": {
-                "unknown": 400
+                "exact": 156,
+                "unknown": 244
               },
               "failures": {
                 "execution_error": 5,
@@ -1057,19 +1113,24 @@
               "expected": 500,
               "scored": 500,
               "score": 65.2,
-              "mean_runtime_seconds": null,
-              "mean_model_cost_usd": null,
-              "original_model_cost": null,
+              "mean_runtime_seconds": 1034.5652168043007,
+              "mean_model_cost_usd": 0.19147006826801521,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 1.3402904778761064
+              },
               "mean_judge_cost_usd": 0,
               "original_judge_cost": {
                 "currency": "USD",
                 "mean_amount": 0
               },
               "cost_sources": {
-                "unknown": 500
+                "snapshot_estimated": 113,
+                "unknown": 387
               },
               "cost_bases": {
-                "unknown": 500
+                "exact": 113,
+                "unknown": 387
               },
               "failures": {
                 "execution_error": 21,
@@ -1095,16 +1156,24 @@
               "expected": 150,
               "scored": 150,
               "score": 68.01036133333332,
-              "mean_runtime_seconds": null,
-              "mean_model_cost_usd": null,
-              "original_model_cost": null,
-              "mean_judge_cost_usd": null,
-              "original_judge_cost": null,
+              "mean_runtime_seconds": 592.9137439375004,
+              "mean_model_cost_usd": 0.06076546493506494,
+              "original_model_cost": {
+                "currency": "CNY",
+                "mean_amount": 0.42535825454545456
+              },
+              "mean_judge_cost_usd": 0.05955035907335907,
+              "original_judge_cost": {
+                "currency": "CNY",
+                "mean_amount": 0.4168525135135135
+              },
               "cost_sources": {
-                "unknown": 150
+                "snapshot_estimated": 55,
+                "unknown": 95
               },
               "cost_bases": {
-                "unknown": 150
+                "exact": 55,
+                "unknown": 95
               },
               "failures": {
                 "execution_error": 3,
