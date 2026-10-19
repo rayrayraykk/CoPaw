@@ -8,7 +8,7 @@
   "historyPoints": "历史数据点",
   "best": "同模型最佳 SDK 记录",
   "history": "SDK 历史",
-  "pareto": "Pareto 前沿",
+  "pareto": "已记录费用 Pareto 前沿",
   "loading": "正在读取评测结果…",
   "empty": "尚未发布评测结果。",
   "unavailable": "结果索引暂时不可用",
@@ -87,5 +87,5 @@
   "runBudget": "上下文上限 {{contextTokens}} tokens · 输出上限 {{output}} tokens",
   "notRecorded": "未记录",
   "costCoverage": "费用记录 {{known}}/{{total}} 题",
-  "partialCostNote": "费用仅对已记录的题目取均值，再按各评测集 1/4 加权；缺失不计零，记录不完整时不参与完整费用 Pareto 前沿。用时为已记录题目的端到端平均用时，包含环境准备与评分。"
+  "partialCostNote": "费用按已确认调用的用量计算，未确认消耗不计入，不能视为账单总额；各评测集均值仍按 1/4 加权。用时为已记录题目的端到端平均用时，包含环境准备与评分。"
 }

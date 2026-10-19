@@ -8,7 +8,7 @@
   "historyPoints": "Historical points",
   "best": "Best SDK result per model",
   "history": "SDK history",
-  "pareto": "Pareto frontier",
+  "pareto": "Recorded-cost Pareto frontier",
   "loading": "Loading evaluation results…",
   "empty": "No evaluation results have been published yet.",
   "unavailable": "The result index is temporarily unavailable",
@@ -87,5 +87,5 @@
   "runBudget": "Context limit: {{contextTokens}} tokens · Output limit: {{output}} tokens",
   "notRecorded": "Not recorded",
   "costCoverage": "Cost coverage: {{known}}/{{total}} tasks",
-  "partialCostNote": "Costs average recorded tasks within each benchmark, then apply equal benchmark weights; missing costs are not zero, and incomplete costs are excluded from full-cost Pareto. Runtime averages recorded end-to-end task durations, including setup and scoring."
+  "partialCostNote": "Costs use confirmed request usage and exclude unrecorded consumption; they are not reconciled invoice totals. Benchmark means retain equal one-quarter weights. Runtime averages recorded end-to-end durations, including setup and scoring."
 }
