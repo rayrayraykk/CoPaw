@@ -20,7 +20,6 @@ from typing import (
     AsyncGenerator,
     Callable,
     Iterable,
-    Optional,
 )
 
 from ...config.timezone import normalize_tz
@@ -31,6 +30,8 @@ from ...utils.io_utils import run_async_to_completion
 from .service_manager import ServiceDescriptor, ServiceManager
 from .workspace_plugins import WorkspacePlugins
 from .service_factories import (
+    create_session_service,
+    create_job_repository,
     create_driver_service,
     create_driver_config_watcher,
     create_chat_service,
@@ -41,8 +42,8 @@ from .service_factories import (
 from .local_workspace import QwenPawLocalWorkspace
 from ..task_tracker import TaskTracker
 from ..chats.session import SafeJSONSession
+from ..chats.database_session import DatabaseSession
 from ..crons.manager import CronManager
-from ..crons.repo.json_repo import JsonJobRepository
 from ...config.config import load_agent_config
 from ...utils.logging import sanitize_log_value
 
@@ -192,7 +193,7 @@ class Workspace:
 
     # Service access via properties (delegates to ServiceManager)
     @property
-    def session(self) -> Optional[SafeJSONSession]:
+    def session(self) -> SafeJSONSession | DatabaseSession | None:
         """Get session instance from ServiceManager."""
         return self._service_manager.services.get("session")
 
@@ -519,10 +520,8 @@ class Workspace:
         sm.register(
             ServiceDescriptor(
                 name="session",
-                service_class=SafeJSONSession,
-                init_args=lambda ws: {
-                    "save_dir": str(ws.workspace_dir / "sessions"),
-                },
+                post_init=create_session_service,
+                stop_method="close",
                 priority=10,
                 concurrent_init=False,
             ),
@@ -593,9 +592,7 @@ class Workspace:
                 name="cron_manager",
                 service_class=CronManager,
                 init_args=lambda ws: {
-                    "repo": JsonJobRepository(
-                        str(ws.workspace_dir / "jobs.json"),
-                    ),
+                    "repo": create_job_repository(ws),
                     "workspace": ws,
                     "channel_manager": ws._service_manager.services.get(
                         "channel_manager",

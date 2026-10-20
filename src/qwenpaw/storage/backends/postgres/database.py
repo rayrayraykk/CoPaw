@@ -83,13 +83,27 @@ class PostgresDatabase(Database):
         self,
         *,
         write: bool = False,
+        snapshot: bool = False,
     ) -> AsyncIterator[Transaction]:
+        if write and snapshot:
+            raise ValueError("A snapshot transaction cannot be writable")
         if self._pool is None:
             raise StorageError(f"Storage is not open")
         timeout = self.config.postgresql.acquire_timeout_seconds
-        async with self._pool.acquire(timeout=timeout) as connection:
-            async with connection.transaction():
-                yield PostgresTransaction(connection)
+        try:
+            async with self._pool.acquire(timeout=timeout) as connection:
+                async with connection.transaction(
+                    isolation="repeatable_read" if snapshot else None,
+                    readonly=snapshot,
+                ):
+                    yield PostgresTransaction(connection)
+        except (
+            asyncpg.PostgresError,
+            asyncpg.InterfaceError,
+            OSError,
+            TimeoutError,
+        ) as exc:
+            raise StorageError("PostgreSQL transaction failed") from exc
 
     async def close(self) -> None:
         if self._pool is not None:

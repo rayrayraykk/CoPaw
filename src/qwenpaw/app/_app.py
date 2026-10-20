@@ -93,7 +93,12 @@ async def _sync_scroll_history_on_startup() -> None:
     """Run the composed legacy-history migration outside the event loop."""
     try:
         from ..agents.context.scroll.sync import sync_all_scroll_agents
+        from ..config import load_config
+        from ..storage.config import StorageBackend
 
+        config = await run_sync_io(load_config)
+        if config.storage.backend == StorageBackend.POSTGRESQL:
+            return
         await run_sync_io(sync_all_scroll_agents)
     except Exception:  # noqa: BLE001 - session sync must never block startup
         logger.warning("session-sync: import/launch failed", exc_info=True)
@@ -412,12 +417,10 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
     backup_manager = BackupManager()
 
-    # Start token usage manager background tasks
-    logger.debug("Starting TokenUsageManager background tasks...")
+    # Producers can enqueue before backend startup at the lifespan boundary.
     from ..token_usage import get_token_usage_manager
 
     token_usage_manager = get_token_usage_manager()
-    token_usage_manager.start(flush_interval=10)
 
     # Expose to endpoints (must be set before first request arrives).
     # WorkspaceRegistry IS-A MultiAgentManager — backward compat for
@@ -678,6 +681,10 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     daily_telemetry = start_daily_telemetry()
 
     try:
+        await token_usage_manager.start_configured(
+            (await run_sync_io(load_config, get_config_path())).storage,
+            WORKING_DIR,
+        )
         yield
     finally:
         await daily_telemetry.close()

@@ -14,7 +14,7 @@ import logging
 from ..base import LifecycleHook
 from ..cron.cron_hook import restore_cron_context
 from ...agents.acp.meta import ACP_EPHEMERAL_META_KEY
-from ...runtime._state_utils import StateProxy
+from ...runtime._state_utils import StateProxy, prepare_session_state
 from ...runtime.console_turn_state import (
     prepare_console_regeneration,
     repair_invalid_history_images,
@@ -23,6 +23,7 @@ from ...runtime.console_turn_state import (
 from ...runtime.hooks import HookContext, HookResult
 from ...runtime.phases import Phase
 from .signals import SESSION_SAVE_SUCCEEDED_KEY
+from ...storage.errors import StorageError
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +74,8 @@ class SessionLoadHook(LifecycleHook):
                     loaded_mode_state = dict(mode_state)
                     loaded_mode_state.update(ctx.mode_state)
                     ctx.mode_state = loaded_mode_state
+        except StorageError:
+            raise
         except KeyError as e:
             logger.debug(
                 "session_load: skipped (schema mismatch): %s",
@@ -113,7 +116,7 @@ class SessionSaveHook(LifecycleHook):
 
             restore_cron_context(ctx)
             proxy = StateProxy()
-            proxy.data = ctx.agent.state_dict()
+            proxy.data = await prepare_session_state(ctx.agent)
             stamp_console_turn(proxy.data, request, "completed")
             proxy.data["mode_state"] = ctx.mode_state
             await session.save_session_state(
@@ -123,6 +126,8 @@ class SessionSaveHook(LifecycleHook):
                 agent=proxy,
             )
             ctx.extras[SESSION_SAVE_SUCCEEDED_KEY] = True
+        except StorageError:
+            raise
         except Exception:
             logger.debug("session_save: failed", exc_info=True)
         return HookResult()

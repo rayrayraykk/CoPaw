@@ -15,6 +15,7 @@ from ..errors import StorageIdentityError, MigrationConflictError
 from ..repositories.history import COLUMNS
 from ..repositories.records import encode
 from ..schema import fence_write, identity
+from .references import check_references
 
 
 def snapshot_history(source: Path, destination: Path) -> None:
@@ -57,9 +58,9 @@ def _read_checkpoint(path: Path) -> dict:
     return value
 
 
-async def import_history(
+async def import_history(  # pylint: disable=too-many-branches
     db: Database,
-    source: Path,
+    source: Path | None,
     *,
     tenant_id: str,
     workspace_id: str,
@@ -67,6 +68,9 @@ async def import_history(
     epoch: int,
     backup_directory: Path,
     checkpoints: dict[str, Path] | None = None,
+    history_sessions: dict[str, str] | None = None,
+    chat_registry: dict | None = None,
+    reference_report: list[dict] | None = None,
 ) -> str:
     """Import a stopped legacy runtime as one atomic, identity-bound store.
 
@@ -85,7 +89,8 @@ async def import_history(
     store_id = str(uuid5(NAMESPACE_URL, stable_name))
     generation = str(uuid5(NAMESPACE_URL, f"{store_id}:legacy-generation"))
     snapshot = backup_directory / f"{store_id}.db"
-    await asyncio.to_thread(snapshot_history, source, snapshot)
+    if source is not None:
+        await asyncio.to_thread(snapshot_history, source, snapshot)
     async with db.transaction(write=True) as tx:
         await fence_write(db, tx, epoch)
         existing = await tx.one(
@@ -98,6 +103,19 @@ async def import_history(
         )
         if existing:
             raise MigrationConflictError(f"Legacy target store already exists")
+        if chat_registry is not None:
+            inserted = await tx.one(
+                f"INSERT INTO {db.table('records')} "
+                f"VALUES ({db.binds(3)}, 1, {db.bind(4)}) "
+                f"ON CONFLICT (tenant_id, collection, record_id) "
+                f"DO NOTHING RETURNING revision",
+                tenant_id,
+                "chats",
+                encode([workspace_id, agent_id]),
+                encode(chat_registry),
+            )
+            if inserted is None:
+                raise MigrationConflictError("Target chat registry exists")
         await tx.execute(
             f"INSERT INTO {db.table('stores')} VALUES ({db.binds(5)}, 1)",
             store_id,
@@ -108,7 +126,7 @@ async def import_history(
         )
         last_seq = 0
         high_water = 0
-        while True:
+        while source is not None:
             rows, allocated = await asyncio.to_thread(
                 _read_history_batch,
                 snapshot,
@@ -117,6 +135,14 @@ async def import_history(
             high_water = max(high_water, allocated)
             if not rows:
                 break
+            if history_sessions is not None:
+                for row in rows:
+                    session_id = row["session_id"]
+                    if session_id not in history_sessions:
+                        raise StorageIdentityError(
+                            "History contains an unmapped session ID",
+                        )
+                    row["session_id"] = history_sessions[session_id]
             columns = f", ".join(COLUMNS)
             await tx.many(
                 f"INSERT INTO {db.table('history')} "
@@ -140,6 +166,22 @@ async def import_history(
         )
         for session_id, path in (checkpoints or {}).items():
             payload = await asyncio.to_thread(_read_checkpoint, path)
+            coverage = await check_references(
+                db,
+                tx,
+                store_id,
+                session_id,
+                payload,
+                source is not None,
+            )
+            if coverage is not None:
+                if reference_report is not None:
+                    reference_report.append(coverage)
+                elif coverage["requires_review"]:
+                    raise StorageIdentityError(
+                        "Unresolved history references; a reference report "
+                        "is required for operator review",
+                    )
             await tx.execute(
                 f"INSERT INTO {db.table('checkpoints')} "
                 f"VALUES ({db.binds(3)}, 1, {db.bind(4)})",

@@ -12,6 +12,7 @@ import pytest
 from qwenpaw.agents.acp.meta import ACP_EPHEMERAL_META_KEY
 from qwenpaw.hooks.session.session_hook import SessionLoadHook, SessionSaveHook
 from qwenpaw.hooks.session.signals import SESSION_SAVE_SUCCEEDED_KEY
+from qwenpaw.storage.errors import StorageError
 
 pytestmark = [pytest.mark.unit, pytest.mark.p1]
 
@@ -87,6 +88,40 @@ async def test_failed_session_save_does_not_mark_turn_as_persisted():
 
     await SessionSaveHook().run(ctx)
 
+    assert session.saved is False
+    assert ctx.extras[SESSION_SAVE_SUCCEEDED_KEY] is False
+
+
+async def test_database_save_failure_is_not_swallowed():
+    session = _FakeSession(save_error=StorageError("database unavailable"))
+    ctx = _ctx(session, ephemeral=False)
+    with pytest.raises(StorageError, match="database unavailable"):
+        await SessionSaveHook().run(ctx)
+    assert ctx.extras[SESSION_SAVE_SUCCEEDED_KEY] is False
+
+
+async def test_database_load_failure_cannot_become_an_empty_session():
+    from unittest.mock import AsyncMock
+
+    session = _FakeSession()
+    session.load_session_state = AsyncMock(
+        side_effect=StorageError("database unavailable"),
+    )
+    ctx = _ctx(session, ephemeral=False)
+    with pytest.raises(StorageError, match="database unavailable"):
+        await SessionLoadHook().run(ctx)
+
+
+async def test_pending_history_failure_prevents_checkpoint_save():
+    from unittest.mock import AsyncMock
+
+    session = _FakeSession()
+    ctx = _ctx(session, ephemeral=False)
+    ctx.agent.prepare_session_state = AsyncMock(
+        side_effect=StorageError("history uncommitted"),
+    )
+    with pytest.raises(StorageError, match="history uncommitted"):
+        await SessionSaveHook().run(ctx)
     assert session.saved is False
     assert ctx.extras[SESSION_SAVE_SUCCEEDED_KEY] is False
 

@@ -18,6 +18,51 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+async def create_session_service(
+    ws: "Workspace",
+    _service,
+    publish: Callable[[Any], None],
+):
+    """Select session persistence and publish ownership before opening SQL."""
+    from ...config.utils import load_config
+    from ...constant import WORKING_DIR
+    from ...storage.config import StorageBackend
+    from ...storage.models import StorageScope
+    from ..chats.database_session import DatabaseSession
+    from ..chats.session import SafeJSONSession
+
+    config = (await run_sync_io(load_config)).storage
+    if config.backend == StorageBackend.SQLITE:
+        service = SafeJSONSession(save_dir=str(ws.workspace_dir / "sessions"))
+        publish(service)
+        return service
+    service = DatabaseSession(
+        config,
+        WORKING_DIR,
+        StorageScope(config.deployment_id, ws.agent_id, ws.agent_id),
+    )
+    publish(service)
+    await service.start()
+    return service
+
+
+def create_job_repository(ws: "Workspace"):
+    """Use the workspace's session runtime for cron persistence as well."""
+    from ..chats.database_session import DatabaseSession
+    from ..crons.repo.database_repo import DatabaseJobRepository
+    from ..crons.repo.json_repo import JsonJobRepository
+    from ...storage.errors import StorageError
+
+    if isinstance(ws.session, DatabaseSession):
+        if ws.session.runtime is None:
+            raise StorageError("Session storage is not open")
+        return DatabaseJobRepository(
+            ws.session.runtime.records(ws.session.scope.tenant_id),
+            ws.session.scope,
+        )
+    return JsonJobRepository(ws.workspace_dir / "jobs.json")
+
+
 async def create_driver_service(
     ws: "Workspace",
     _service,
@@ -136,6 +181,9 @@ async def create_chat_service(
     # pylint: disable=protected-access
     from ..chats.manager import ChatManager
     from ..chats.repo.json_repo import JsonChatRepository
+    from ..chats.repo.database_repo import DatabaseChatRepository
+    from ..chats.database_session import DatabaseSession
+    from ...storage.errors import StorageError
     from ...browser.runtime.links import link_for
     from ...browser.execution.kernel import get_default_kernel_manager
     from ...browser.tool_entrypoint import derive_workspace_id
@@ -146,18 +194,27 @@ async def create_chat_service(
             session_id,
         )
 
+    if isinstance(ws.session, DatabaseSession):
+        if ws.session.runtime is None:
+            raise StorageError("Session storage is not open")
+        chat_repo = DatabaseChatRepository(
+            ws.session.runtime.records(ws.session.scope.tenant_id),
+            ws.session.scope,
+        )
+    else:
+        chat_repo = JsonChatRepository(str(ws.workspace_dir / "chats.json"))
+
     if service is not None:
         cm = service
+        await cm.set_repository(chat_repo)
         logger.info(f"Reusing ChatManager for {ws.agent_id}")
     else:
-        chats_path = str(ws.workspace_dir / "chats.json")
-        chat_repo = JsonChatRepository(chats_path)
         cm = ChatManager(
             repo=chat_repo,
             on_session_closed=close_browser_session,
         )
         publish(cm)
-        logger.info(f"ChatManager created: {chats_path}")
+        logger.info(f"ChatManager created: {chat_repo.path}")
     cm.set_on_session_closed(close_browser_session)
 
     async def live_session_ids() -> set[str]:
